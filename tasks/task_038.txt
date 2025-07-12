@@ -1,0 +1,88 @@
+# Task ID: 38
+# Title: Generate Service Boilerplate Templates
+# Status: done
+# Dependencies: 37
+# Priority: high
+# Description: Create reusable boilerplate templates for each programming language (Node.js/TypeScript, Python/FastAPI, Go, Java/Spring Boot) that can be used to quickly scaffold new microservices with standard structure, configuration files, Docker setup, and basic health check endpoints.
+# Details:
+1. Create a `/templates` directory within the project structure to store all boilerplate templates.
+
+2. For each programming language, develop a comprehensive template that includes:
+   - Standard directory structure following best practices for that language
+   - Configuration files (environment variables, logging, etc.)
+   - Dockerfile optimized for that language with multi-stage builds
+   - Docker Compose configuration for local development
+   - Kubernetes deployment manifests (deployment, service, configmap)
+   - Basic health check and readiness endpoints
+   - Dependency management files (package.json, requirements.txt, go.mod, pom.xml)
+   - README with usage instructions
+   - CI/CD pipeline configuration
+
+3. Node.js/TypeScript template specifics:
+   - Use TypeScript with strict type checking
+   - Include ESLint and Prettier configurations
+   - Set up Jest for testing
+   - Implement Express.js with middleware structure
+   - Include error handling middleware
+   - Add OpenAPI/Swagger documentation
+
+4. Python/FastAPI template specifics:
+   - Use FastAPI framework with Pydantic models
+   - Include pytest configuration
+   - Set up virtual environment management
+   - Implement dependency injection pattern
+   - Add OpenAPI documentation
+
+5. Go template specifics:
+   - Follow standard Go project layout
+   - Include Go modules configuration
+   - Set up testing with testify
+   - Implement graceful shutdown
+   - Add middleware for logging, metrics
+
+6. Java/Spring Boot template specifics:
+   - Use Spring Boot with appropriate starters
+   - Include Maven/Gradle build configuration
+   - Set up JUnit and Mockito for testing
+   - Implement controller/service/repository pattern
+   - Add Actuator endpoints for monitoring
+
+7. Create a template initialization script that can:
+   - Copy the appropriate template to a new directory
+   - Replace placeholder values with actual service name
+   - Initialize git repository
+   - Install dependencies
+
+8. Document usage instructions for each template in a central README.md file.
+
+# Test Strategy:
+1. Manual verification:
+   - For each language template, create a new microservice by copying the template
+   - Verify all files and directories are correctly structured
+   - Build the Docker image and ensure it compiles without errors
+   - Run the containerized service locally and verify health check endpoints
+
+2. Automated testing:
+   - Create a test script that initializes a new service from each template
+   - Automatically build Docker images for each initialized service
+   - Run containers and verify health check endpoints return 200 OK
+   - Verify that all required files and configurations are present
+   - Test the template initialization script with different service names
+
+3. Integration testing:
+   - Deploy a test service created from each template to the Kubernetes cluster
+   - Verify the service can be accessed through Kubernetes service discovery
+   - Test that health checks are properly recognized by Kubernetes
+   - Verify that logging and monitoring are correctly configured
+
+4. Documentation testing:
+   - Review README files for completeness and accuracy
+   - Ensure all configuration options are documented
+   - Verify that usage instructions are clear and correct
+   - Have another team member follow the instructions to create a new service
+
+5. Cross-language consistency check:
+   - Verify that all templates follow the same overall structure
+   - Ensure consistent naming conventions across templates
+   - Check that Docker and Kubernetes configurations are standardized
+   - Confirm that health check endpoints behave consistently

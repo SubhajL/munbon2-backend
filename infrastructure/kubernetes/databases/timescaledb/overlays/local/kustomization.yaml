@@ -1,0 +1,17 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: munbon-databases
+
+bases:
+  - ../../base
+
+patchesStrategicMerge:
+  - statefulset-patch.yaml
+  - resource-limits-patch.yaml
+
+configMapGenerator:
+  - name: timescaledb-init
+    behavior: merge
+    files:
+      - init-scripts/99-create-dev-data.sql

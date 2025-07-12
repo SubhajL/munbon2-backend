@@ -1,0 +1,1 @@
+http://csrs.ku.ac.th:80/geoserver/ridmsws/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=ridmsws:ridmb_parcelland_yieldgistda_vw&outputFormat=SHAPE-ZIP&format_options=CHARSET:UTF-8&cql_filter=data_date_gistda=20240731

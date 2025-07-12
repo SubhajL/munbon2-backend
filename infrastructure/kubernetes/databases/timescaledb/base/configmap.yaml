@@ -1,0 +1,407 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: timescaledb-init
+  labels:
+    app: timescaledb
+    component: database
+data:
+  00-init-extensions.sql: |
+    -- Enable TimescaleDB extension
+    CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;
+    CREATE EXTENSION IF NOT EXISTS postgis CASCADE;
+    CREATE EXTENSION IF NOT EXISTS postgis_topology CASCADE;
+    
+    -- Create sensor_data database if not exists
+    SELECT 'CREATE DATABASE sensor_data'
+    WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'sensor_data')\gexec
+    
+    \c sensor_data;
+    
+    -- Enable extensions in sensor_data database
+    CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;
+    CREATE EXTENSION IF NOT EXISTS postgis CASCADE;
+    
+  01-create-schemas.sql: |
+    \c sensor_data;
+    
+    -- Create schemas for organizing data
+    CREATE SCHEMA IF NOT EXISTS sensor;
+    CREATE SCHEMA IF NOT EXISTS aggregates;
+    CREATE SCHEMA IF NOT EXISTS maintenance;
+    
+  02-create-tables.sql: |
+    \c sensor_data;
+    
+    -- Sensor metadata table
+    CREATE TABLE IF NOT EXISTS sensor.sensors (
+      sensor_id VARCHAR(100) PRIMARY KEY,
+      sensor_type VARCHAR(50) NOT NULL,
+      location GEOGRAPHY(POINT, 4326),
+      region VARCHAR(100),
+      zone VARCHAR(100),
+      installation_date TIMESTAMPTZ DEFAULT NOW(),
+      last_maintenance TIMESTAMPTZ,
+      calibration_data JSONB DEFAULT '{}',
+      metadata JSONB DEFAULT '{}',
+      active BOOLEAN DEFAULT true,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    
+    -- Create index on location for spatial queries
+    CREATE INDEX IF NOT EXISTS idx_sensors_location ON sensor.sensors USING GIST(location);
+    CREATE INDEX IF NOT EXISTS idx_sensors_type ON sensor.sensors(sensor_type);
+    CREATE INDEX IF NOT EXISTS idx_sensors_active ON sensor.sensors(active);
+    
+    -- Raw sensor readings table (will be converted to hypertable)
+    CREATE TABLE IF NOT EXISTS sensor.readings (
+      time TIMESTAMPTZ NOT NULL,
+      sensor_id VARCHAR(100) NOT NULL,
+      value DOUBLE PRECISION NOT NULL,
+      unit VARCHAR(20) NOT NULL,
+      quality_score SMALLINT DEFAULT 100,
+      raw_data JSONB DEFAULT '{}',
+      FOREIGN KEY (sensor_id) REFERENCES sensor.sensors(sensor_id)
+    );
+    
+    -- Convert to hypertable with 7-day chunks
+    SELECT create_hypertable('sensor.readings', 'time', 
+      chunk_time_interval => INTERVAL '7 days',
+      if_not_exists => TRUE
+    );
+    
+    -- Create indexes for common queries
+    CREATE INDEX IF NOT EXISTS idx_readings_sensor_time ON sensor.readings(sensor_id, time DESC);
+    CREATE INDEX IF NOT EXISTS idx_readings_time ON sensor.readings(time DESC);
+    
+    -- Moisture sensor specific table
+    CREATE TABLE IF NOT EXISTS sensor.moisture_readings (
+      time TIMESTAMPTZ NOT NULL,
+      sensor_id VARCHAR(100) NOT NULL,
+      moisture_percentage DOUBLE PRECISION NOT NULL,
+      temperature DOUBLE PRECISION,
+      conductivity DOUBLE PRECISION,
+      depth_cm INTEGER,
+      soil_type VARCHAR(50),
+      FOREIGN KEY (sensor_id) REFERENCES sensor.sensors(sensor_id)
+    );
+    
+    SELECT create_hypertable('sensor.moisture_readings', 'time',
+      chunk_time_interval => INTERVAL '7 days',
+      if_not_exists => TRUE
+    );
+    
+    -- Water level sensor specific table
+    CREATE TABLE IF NOT EXISTS sensor.water_level_readings (
+      time TIMESTAMPTZ NOT NULL,
+      sensor_id VARCHAR(100) NOT NULL,
+      water_level_m DOUBLE PRECISION NOT NULL,
+      flow_rate_m3s DOUBLE PRECISION,
+      temperature DOUBLE PRECISION,
+      turbidity DOUBLE PRECISION,
+      location_type VARCHAR(50), -- canal, reservoir, distribution_point
+      FOREIGN KEY (sensor_id) REFERENCES sensor.sensors(sensor_id)
+    );
+    
+    SELECT create_hypertable('sensor.water_level_readings', 'time',
+      chunk_time_interval => INTERVAL '7 days',
+      if_not_exists => TRUE
+    );
+    
+    -- Weather station readings
+    CREATE TABLE IF NOT EXISTS sensor.weather_readings (
+      time TIMESTAMPTZ NOT NULL,
+      sensor_id VARCHAR(100) NOT NULL,
+      temperature DOUBLE PRECISION,
+      humidity DOUBLE PRECISION,
+      pressure DOUBLE PRECISION,
+      wind_speed DOUBLE PRECISION,
+      wind_direction INTEGER,
+      rainfall_mm DOUBLE PRECISION,
+      solar_radiation DOUBLE PRECISION,
+      evapotranspiration DOUBLE PRECISION,
+      FOREIGN KEY (sensor_id) REFERENCES sensor.sensors(sensor_id)
+    );
+    
+    SELECT create_hypertable('sensor.weather_readings', 'time',
+      chunk_time_interval => INTERVAL '7 days',
+      if_not_exists => TRUE
+    );
+    
+    -- Flow meter readings
+    CREATE TABLE IF NOT EXISTS sensor.flow_readings (
+      time TIMESTAMPTZ NOT NULL,
+      sensor_id VARCHAR(100) NOT NULL,
+      flow_rate_m3s DOUBLE PRECISION NOT NULL,
+      total_volume_m3 DOUBLE PRECISION,
+      pressure_kpa DOUBLE PRECISION,
+      temperature DOUBLE PRECISION,
+      FOREIGN KEY (sensor_id) REFERENCES sensor.sensors(sensor_id)
+    );
+    
+    SELECT create_hypertable('sensor.flow_readings', 'time',
+      chunk_time_interval => INTERVAL '7 days',
+      if_not_exists => TRUE
+    );
+    
+    -- Sensor alerts table
+    CREATE TABLE IF NOT EXISTS sensor.alerts (
+      alert_id BIGSERIAL PRIMARY KEY,
+      time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      sensor_id VARCHAR(100) NOT NULL,
+      alert_type VARCHAR(50) NOT NULL,
+      severity VARCHAR(20) NOT NULL,
+      threshold_value DOUBLE PRECISION,
+      actual_value DOUBLE PRECISION,
+      message TEXT,
+      acknowledged BOOLEAN DEFAULT false,
+      acknowledged_by VARCHAR(100),
+      acknowledged_at TIMESTAMPTZ,
+      resolved BOOLEAN DEFAULT false,
+      resolved_at TIMESTAMPTZ,
+      FOREIGN KEY (sensor_id) REFERENCES sensor.sensors(sensor_id)
+    );
+    
+    CREATE INDEX IF NOT EXISTS idx_alerts_sensor_time ON sensor.alerts(sensor_id, time DESC);
+    CREATE INDEX IF NOT EXISTS idx_alerts_unresolved ON sensor.alerts(resolved, time DESC);
+    
+    -- Maintenance log table
+    CREATE TABLE IF NOT EXISTS maintenance.logs (
+      log_id BIGSERIAL PRIMARY KEY,
+      sensor_id VARCHAR(100) NOT NULL,
+      maintenance_date TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      maintenance_type VARCHAR(50) NOT NULL,
+      technician VARCHAR(100),
+      notes TEXT,
+      parts_replaced JSONB DEFAULT '[]',
+      calibration_performed BOOLEAN DEFAULT false,
+      next_maintenance_date TIMESTAMPTZ,
+      FOREIGN KEY (sensor_id) REFERENCES sensor.sensors(sensor_id)
+    );
+    
+    CREATE INDEX IF NOT EXISTS idx_maintenance_sensor ON maintenance.logs(sensor_id, maintenance_date DESC);
+    
+  03-create-continuous-aggregates.sql: |
+    \c sensor_data;
+    
+    -- 5-minute aggregates for sensor readings
+    CREATE MATERIALIZED VIEW IF NOT EXISTS aggregates.readings_5min
+    WITH (timescaledb.continuous) AS
+    SELECT
+      time_bucket('5 minutes', time) AS bucket,
+      sensor_id,
+      AVG(value) AS avg_value,
+      MIN(value) AS min_value,
+      MAX(value) AS max_value,
+      COUNT(*) AS sample_count,
+      AVG(quality_score) AS avg_quality
+    FROM sensor.readings
+    GROUP BY bucket, sensor_id
+    WITH NO DATA;
+    
+    -- Hourly aggregates
+    CREATE MATERIALIZED VIEW IF NOT EXISTS aggregates.readings_hourly
+    WITH (timescaledb.continuous) AS
+    SELECT
+      time_bucket('1 hour', time) AS bucket,
+      sensor_id,
+      AVG(value) AS avg_value,
+      MIN(value) AS min_value,
+      MAX(value) AS max_value,
+      STDDEV(value) AS stddev_value,
+      COUNT(*) AS sample_count,
+      AVG(quality_score) AS avg_quality
+    FROM sensor.readings
+    GROUP BY bucket, sensor_id
+    WITH NO DATA;
+    
+    -- Daily aggregates
+    CREATE MATERIALIZED VIEW IF NOT EXISTS aggregates.readings_daily
+    WITH (timescaledb.continuous) AS
+    SELECT
+      time_bucket('1 day', time) AS bucket,
+      sensor_id,
+      AVG(value) AS avg_value,
+      MIN(value) AS min_value,
+      MAX(value) AS max_value,
+      STDDEV(value) AS stddev_value,
+      COUNT(*) AS sample_count,
+      AVG(quality_score) AS avg_quality
+    FROM sensor.readings
+    GROUP BY bucket, sensor_id
+    WITH NO DATA;
+    
+    -- Moisture hourly aggregates
+    CREATE MATERIALIZED VIEW IF NOT EXISTS aggregates.moisture_hourly
+    WITH (timescaledb.continuous) AS
+    SELECT
+      time_bucket('1 hour', time) AS bucket,
+      sensor_id,
+      AVG(moisture_percentage) AS avg_moisture,
+      MIN(moisture_percentage) AS min_moisture,
+      MAX(moisture_percentage) AS max_moisture,
+      AVG(temperature) AS avg_temperature,
+      AVG(conductivity) AS avg_conductivity
+    FROM sensor.moisture_readings
+    GROUP BY bucket, sensor_id
+    WITH NO DATA;
+    
+    -- Water level hourly aggregates
+    CREATE MATERIALIZED VIEW IF NOT EXISTS aggregates.water_level_hourly
+    WITH (timescaledb.continuous) AS
+    SELECT
+      time_bucket('1 hour', time) AS bucket,
+      sensor_id,
+      AVG(water_level_m) AS avg_level,
+      MIN(water_level_m) AS min_level,
+      MAX(water_level_m) AS max_level,
+      AVG(flow_rate_m3s) AS avg_flow_rate,
+      SUM(flow_rate_m3s * 3600) AS total_volume_m3
+    FROM sensor.water_level_readings
+    GROUP BY bucket, sensor_id
+    WITH NO DATA;
+    
+    -- Weather daily aggregates
+    CREATE MATERIALIZED VIEW IF NOT EXISTS aggregates.weather_daily
+    WITH (timescaledb.continuous) AS
+    SELECT
+      time_bucket('1 day', time) AS bucket,
+      sensor_id,
+      AVG(temperature) AS avg_temperature,
+      MIN(temperature) AS min_temperature,
+      MAX(temperature) AS max_temperature,
+      AVG(humidity) AS avg_humidity,
+      SUM(rainfall_mm) AS total_rainfall,
+      AVG(wind_speed) AS avg_wind_speed,
+      AVG(solar_radiation) AS avg_solar_radiation,
+      SUM(evapotranspiration) AS total_evapotranspiration
+    FROM sensor.weather_readings
+    GROUP BY bucket, sensor_id
+    WITH NO DATA;
+    
+  04-create-policies.sql: |
+    \c sensor_data;
+    
+    -- Compression policy for raw data older than 7 days
+    SELECT add_compression_policy('sensor.readings', INTERVAL '7 days');
+    SELECT add_compression_policy('sensor.moisture_readings', INTERVAL '7 days');
+    SELECT add_compression_policy('sensor.water_level_readings', INTERVAL '7 days');
+    SELECT add_compression_policy('sensor.weather_readings', INTERVAL '7 days');
+    SELECT add_compression_policy('sensor.flow_readings', INTERVAL '7 days');
+    
+    -- Retention policy - keep raw data for 1 year
+    SELECT add_retention_policy('sensor.readings', INTERVAL '1 year');
+    SELECT add_retention_policy('sensor.moisture_readings', INTERVAL '1 year');
+    SELECT add_retention_policy('sensor.water_level_readings', INTERVAL '1 year');
+    SELECT add_retention_policy('sensor.weather_readings', INTERVAL '1 year');
+    SELECT add_retention_policy('sensor.flow_readings', INTERVAL '1 year');
+    
+    -- Continuous aggregate refresh policies
+    SELECT add_continuous_aggregate_policy('aggregates.readings_5min',
+      start_offset => INTERVAL '10 minutes',
+      end_offset => INTERVAL '1 minute',
+      schedule_interval => INTERVAL '5 minutes');
+    
+    SELECT add_continuous_aggregate_policy('aggregates.readings_hourly',
+      start_offset => INTERVAL '2 hours',
+      end_offset => INTERVAL '1 hour',
+      schedule_interval => INTERVAL '1 hour');
+    
+    SELECT add_continuous_aggregate_policy('aggregates.readings_daily',
+      start_offset => INTERVAL '2 days',
+      end_offset => INTERVAL '1 day',
+      schedule_interval => INTERVAL '1 day');
+    
+    SELECT add_continuous_aggregate_policy('aggregates.moisture_hourly',
+      start_offset => INTERVAL '2 hours',
+      end_offset => INTERVAL '1 hour',
+      schedule_interval => INTERVAL '1 hour');
+    
+    SELECT add_continuous_aggregate_policy('aggregates.water_level_hourly',
+      start_offset => INTERVAL '2 hours',
+      end_offset => INTERVAL '1 hour',
+      schedule_interval => INTERVAL '1 hour');
+    
+    SELECT add_continuous_aggregate_policy('aggregates.weather_daily',
+      start_offset => INTERVAL '2 days',
+      end_offset => INTERVAL '1 day',
+      schedule_interval => INTERVAL '1 day');
+    
+  05-create-functions.sql: |
+    \c sensor_data;
+    
+    -- Function to get latest sensor reading
+    CREATE OR REPLACE FUNCTION sensor.get_latest_reading(p_sensor_id VARCHAR)
+    RETURNS TABLE (
+      time TIMESTAMPTZ,
+      value DOUBLE PRECISION,
+      unit VARCHAR,
+      quality_score SMALLINT
+    ) AS $$
+    BEGIN
+      RETURN QUERY
+      SELECT r.time, r.value, r.unit, r.quality_score
+      FROM sensor.readings r
+      WHERE r.sensor_id = p_sensor_id
+      ORDER BY r.time DESC
+      LIMIT 1;
+    END;
+    $$ LANGUAGE plpgsql;
+    
+    -- Function to check sensor health
+    CREATE OR REPLACE FUNCTION sensor.check_sensor_health(p_sensor_id VARCHAR, p_hours INTEGER DEFAULT 24)
+    RETURNS TABLE (
+      sensor_id VARCHAR,
+      last_reading TIMESTAMPTZ,
+      hours_since_last_reading NUMERIC,
+      total_readings INTEGER,
+      avg_quality_score NUMERIC,
+      is_healthy BOOLEAN
+    ) AS $$
+    BEGIN
+      RETURN QUERY
+      WITH latest AS (
+        SELECT 
+          s.sensor_id,
+          MAX(r.time) as last_reading,
+          COUNT(*) as total_readings,
+          AVG(r.quality_score) as avg_quality
+        FROM sensor.sensors s
+        LEFT JOIN sensor.readings r ON s.sensor_id = r.sensor_id
+          AND r.time > NOW() - INTERVAL '1 hour' * p_hours
+        WHERE s.sensor_id = p_sensor_id
+        GROUP BY s.sensor_id
+      )
+      SELECT 
+        l.sensor_id,
+        l.last_reading,
+        EXTRACT(EPOCH FROM (NOW() - l.last_reading)) / 3600 as hours_since,
+        l.total_readings::INTEGER,
+        ROUND(l.avg_quality, 2),
+        CASE 
+          WHEN l.last_reading IS NULL THEN false
+          WHEN NOW() - l.last_reading > INTERVAL '1 hour' THEN false
+          WHEN l.avg_quality < 50 THEN false
+          ELSE true
+        END as is_healthy
+      FROM latest l;
+    END;
+    $$ LANGUAGE plpgsql;
+    
+    -- Trigger to update sensor last update timestamp
+    CREATE OR REPLACE FUNCTION sensor.update_sensor_timestamp()
+    RETURNS TRIGGER AS $$
+    BEGIN
+      UPDATE sensor.sensors
+      SET updated_at = NOW()
+      WHERE sensor_id = NEW.sensor_id;
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql;
+    
+    -- Create triggers
+    CREATE TRIGGER update_sensor_on_reading
+    AFTER INSERT ON sensor.readings
+    FOR EACH ROW
+    EXECUTE FUNCTION sensor.update_sensor_timestamp();

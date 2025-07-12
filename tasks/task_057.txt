@@ -1,0 +1,109 @@
+# Task ID: 57
+# Title: Implement AWD (Alternate Wetting and Drying) Control Service
+# Status: pending
+# Dependencies: 8, 46, 13, 55
+# Priority: high
+# Description: Develop a specialized microservice for automated AWD control in rice fields, integrating AWD water level sensors and implementing intelligent irrigation scheduling to optimize water usage while maintaining crop yield.
+# Details:
+Implement AWD Control Service using Node.js with TypeScript following established patterns from other monitoring services. This service will manage the Alternate Wetting and Drying irrigation technique for rice cultivation, providing automated control based on soil water levels and crop growth stages.
+
+1. Service Architecture:
+   - Port: 3048
+   - Framework: Express with TypeScript
+   - Real-time: MQTT for sensor communication, Socket.IO for UI updates
+   - Cache: Redis for control state and sensor readings
+   - Database: TimescaleDB for historical data, PostgreSQL for configuration
+
+2. AWD Sensor Integration:
+   - Support for AWD-Series sensors from RID-R
+   - MQTT-based sensor data ingestion
+   - Sensor calibration and validation
+   - Multi-sensor field monitoring
+   - Sensor health monitoring and diagnostics
+   - Handle sensor failures gracefully
+
+3. AWD Control Algorithm:
+   - Implement standard AWD thresholds (15-20 cm below soil surface)
+   - Configurable drying depth per field/zone
+   - Growth stage-aware control (vegetative, reproductive, maturation)
+   - Safe AWD implementation (avoid stress during critical stages)
+   - Dynamic threshold adjustment based on weather conditions
+   - Multi-field coordination for water distribution
+
+4. REST API Endpoints:
+   - GET /api/v1/awd/fields - List AWD-enabled fields
+   - GET /api/v1/awd/fields/:fieldId/status - Current AWD status
+   - GET /api/v1/awd/fields/:fieldId/sensors - Field sensor readings
+   - GET /api/v1/awd/fields/:fieldId/history - AWD cycle history
+   - POST /api/v1/awd/fields/:fieldId/control - Manual control override
+   - PUT /api/v1/awd/fields/:fieldId/config - Update AWD parameters
+   - GET /api/v1/awd/analytics/water-savings - Water savings reports
+   - GET /api/v1/awd/analytics/yield-impact - Yield impact analysis
+   - POST /api/v1/awd/schedules - Create irrigation schedules
+   - GET /api/v1/awd/recommendations - AWD recommendations
+
+5. Irrigation Control Logic:
+   - Automated gate/valve control based on AWD thresholds
+   - Integration with Water Distribution Control Service
+   - Pump control for AWD irrigation events
+   - Queue-based irrigation scheduling
+   - Priority-based water allocation
+   - Conflict resolution for concurrent requests
+
+6. AWD Cycle Management:
+   - Wetting phase control (flooding to 5-10 cm)
+   - Drying phase monitoring (track water depletion)
+   - Cycle timing optimization
+   - Emergency irrigation triggers
+   - Rainfall event handling
+   - Automatic cycle adjustment
+
+7. Water Savings Optimization:
+   - Track water usage per AWD cycle
+   - Compare with traditional flooding baseline
+   - Calculate cumulative water savings
+   - Optimize irrigation duration
+   - Predict water requirements
+   - Generate savings reports
+
+8. Crop Stage Integration:
+   - Growth stage detection/input
+   - Stage-specific AWD parameters
+   - Critical stage protection (flowering, grain filling)
+   - Fertilizer application coordination
+   - Harvest preparation mode
+
+9. Real-time Monitoring:
+   - WebSocket updates for water levels
+   - MQTT topics for field status
+   - Alert generation for critical conditions
+   - Mobile app push notifications
+   - Dashboard real-time updates
+
+10. Analytics and Reporting:
+    - AWD adoption metrics
+    - Water savings by field/zone
+    - Yield correlation analysis
+    - Energy savings (pump operation)
+    - Carbon footprint reduction
+    - Economic benefit analysis
+
+11. Integration Points:
+    - Sensor Data Service for AWD sensor data
+    - Water Level Monitoring Service for canal levels
+    - Water Distribution Control Service for gate operations
+    - Weather Monitoring Service for rainfall data
+    - Crop Management Service for growth stages
+    - Notification Service for alerts
+    - GIS Service for spatial visualization
+
+12. Safety and Constraints:
+    - Prevent over-drying stress
+    - Emergency irrigation activation
+    - Manual override capabilities
+    - Failsafe to traditional flooding
+    - Water availability checks
+    - Equipment failure handling
+
+# Test Strategy:
+Unit test AWD control algorithms with various scenarios. Integration test with simulated AWD sensors. Test irrigation scheduling logic. Verify water savings calculations. Test emergency irrigation triggers. Validate growth stage transitions. Test manual override functionality. Load test with multiple fields. Test failover scenarios. Verify integration with water distribution system.

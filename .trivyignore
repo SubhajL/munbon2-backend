@@ -1,0 +1,8 @@
+# Trivy ignore file for vulnerability scanning
+# Format: CVE-YYYY-NNNN
+
+# Known false positives or accepted risks for development
+# Add production-critical CVEs here with justification
+
+# Example (remove in production):
+# CVE-2021-12345 # False positive in dev dependency

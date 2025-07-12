@@ -1,0 +1,69 @@
+# Munbon Unified API - Example Requests
+# This file can be used with VS Code REST Client extension or similar tools
+
+@baseUrl = https://5e3l647kpd.execute-api.ap-southeast-1.amazonaws.com
+@apiKey = your-api-key-here
+
+### Health Check (No Auth Required)
+GET {{baseUrl}}/health
+Content-Type: application/json
+
+### Water Level - Latest Readings
+GET {{baseUrl}}/api/v1/sensors/water-level/latest
+x-api-key: {{apiKey}}
+Content-Type: application/json
+
+### Water Level - Time Series (Today)
+GET {{baseUrl}}/api/v1/sensors/water-level/timeseries?date=08/07/2568
+x-api-key: {{apiKey}}
+Content-Type: application/json
+
+### Water Level - Statistics (Today)
+GET {{baseUrl}}/api/v1/sensors/water-level/statistics?date=08/07/2568
+x-api-key: {{apiKey}}
+Content-Type: application/json
+
+### Moisture - Latest Readings
+GET {{baseUrl}}/api/v1/sensors/moisture/latest
+x-api-key: {{apiKey}}
+Content-Type: application/json
+
+### Moisture - Time Series (Today)
+GET {{baseUrl}}/api/v1/sensors/moisture/timeseries?date=08/07/2568
+x-api-key: {{apiKey}}
+Content-Type: application/json
+
+### AOS Weather - Latest Data
+GET {{baseUrl}}/api/v1/sensors/aos/latest
+x-api-key: {{apiKey}}
+Content-Type: application/json
+
+### AOS Weather - Time Series (Today)
+GET {{baseUrl}}/api/v1/sensors/aos/timeseries?date=08/07/2568
+x-api-key: {{apiKey}}
+Content-Type: application/json
+
+### AOS Weather - Statistics (Today)
+GET {{baseUrl}}/api/v1/sensors/aos/statistics?date=08/07/2568
+x-api-key: {{apiKey}}
+Content-Type: application/json
+
+### Example: Get Yesterday's Water Level Data
+# Change the date to yesterday in Buddhist calendar
+GET {{baseUrl}}/api/v1/sensors/water-level/timeseries?date=07/07/2568
+x-api-key: {{apiKey}}
+Content-Type: application/json
+
+### Example: Error Case - Missing Date Parameter
+GET {{baseUrl}}/api/v1/sensors/water-level/timeseries
+x-api-key: {{apiKey}}
+Content-Type: application/json
+
+### Example: Error Case - Invalid API Key
+GET {{baseUrl}}/api/v1/sensors/water-level/latest
+x-api-key: invalid-key
+Content-Type: application/json
+
+### Example: Error Case - No API Key
+GET {{baseUrl}}/api/v1/sensors/water-level/latest
+Content-Type: application/json

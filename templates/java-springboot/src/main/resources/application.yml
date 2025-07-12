@@ -1,0 +1,58 @@
+spring:
+  application:
+    name: {{SERVICE_NAME}}
+  
+  # Security configuration
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${JWT_ISSUER_URI:http://localhost:8080/auth/realms/munbon}
+
+server:
+  port: ${PORT:8080}
+  
+  # Compression
+  compression:
+    enabled: true
+    mime-types: text/html,text/xml,text/plain,text/css,text/javascript,application/javascript,application/json
+    min-response-size: 1024
+
+# Application properties
+app:
+  version: ${APP_VERSION:1.0.0}
+
+# Actuator endpoints
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+  health:
+    diskspace:
+      enabled: true
+
+# Logging configuration
+logging:
+  level:
+    root: ${LOG_LEVEL:INFO}
+    com.munbon: ${LOG_LEVEL:INFO}
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+# OpenAPI/Swagger configuration
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true

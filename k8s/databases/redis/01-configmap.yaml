@@ -1,0 +1,114 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-config
+  namespace: munbon-databases
+data:
+  redis.conf: |
+    # Redis configuration for production
+    bind 0.0.0.0
+    protected-mode yes
+    port 6379
+    tcp-backlog 511
+    timeout 0
+    tcp-keepalive 300
+    
+    # Logging
+    loglevel notice
+    logfile ""
+    syslog-enabled no
+    databases 16
+    
+    # Snapshotting
+    save 900 1
+    save 300 10
+    save 60 10000
+    stop-writes-on-bgsave-error yes
+    rdbcompression yes
+    rdbchecksum yes
+    dbfilename dump.rdb
+    dir /data
+    
+    # Replication
+    replica-serve-stale-data yes
+    replica-read-only yes
+    repl-diskless-sync no
+    repl-diskless-sync-delay 5
+    repl-diskless-load disabled
+    repl-ping-replica-period 10
+    repl-timeout 60
+    repl-disable-tcp-nodelay no
+    repl-backlog-size 1mb
+    repl-backlog-ttl 3600
+    
+    # Memory Management
+    maxmemory 4gb
+    maxmemory-policy allkeys-lru
+    maxmemory-samples 5
+    replica-ignore-maxmemory yes
+    
+    # Persistence
+    appendonly yes
+    appendfilename "appendonly.aof"
+    appendfsync everysec
+    no-appendfsync-on-rewrite no
+    auto-aof-rewrite-percentage 100
+    auto-aof-rewrite-min-size 64mb
+    aof-load-truncated yes
+    aof-use-rdb-preamble yes
+    
+    # Slow log
+    slowlog-log-slower-than 10000
+    slowlog-max-len 128
+    
+    # Event notification
+    notify-keyspace-events "Ex"
+    
+    # Advanced config
+    hash-max-ziplist-entries 512
+    hash-max-ziplist-value 64
+    list-max-ziplist-size -2
+    list-compress-depth 0
+    set-max-intset-entries 512
+    zset-max-ziplist-entries 128
+    zset-max-ziplist-value 64
+    hll-sparse-max-bytes 3000
+    stream-node-max-bytes 4096
+    stream-node-max-entries 100
+    activerehashing yes
+    hz 10
+    dynamic-hz yes
+    
+  sentinel.conf: |
+    # Redis Sentinel configuration
+    port 26379
+    bind 0.0.0.0
+    sentinel announce-ip redis-sentinel
+    sentinel announce-port 26379
+    
+    # Master monitoring
+    sentinel monitor munbon-master redis-0.redis 6379 2
+    sentinel auth-pass munbon-master $REDIS_PASSWORD
+    sentinel down-after-milliseconds munbon-master 5000
+    sentinel parallel-syncs munbon-master 1
+    sentinel failover-timeout munbon-master 10000
+    
+    # Cleanup
+    sentinel deny-scripts-reconfig yes
+    
+  init.sh: |
+    #!/bin/bash
+    set -e
+    
+    # Wait for Redis to be ready
+    until redis-cli -h localhost -a "$REDIS_PASSWORD" ping; do
+      echo "Waiting for Redis..."
+      sleep 1
+    done
+    
+    echo "Redis is ready. Initializing..."
+    
+    # Load initialization script
+    redis-cli -h localhost -a "$REDIS_PASSWORD" < /scripts/init-commands.txt
+    
+    echo "Redis initialization completed"

@@ -1,0 +1,57 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: timescaledb
+  labels:
+    app: timescaledb
+    component: database
+spec:
+  type: ClusterIP
+  ports:
+  - port: 5432
+    targetPort: 5432
+    protocol: TCP
+    name: postgres
+  selector:
+    app: timescaledb
+    component: database
+---
+# Headless service for StatefulSet
+apiVersion: v1
+kind: Service
+metadata:
+  name: timescaledb-headless
+  labels:
+    app: timescaledb
+    component: database
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+  - port: 5432
+    targetPort: 5432
+    protocol: TCP
+    name: postgres
+  selector:
+    app: timescaledb
+    component: database
+---
+# NodePort service for local development access
+apiVersion: v1
+kind: Service
+metadata:
+  name: timescaledb-nodeport
+  labels:
+    app: timescaledb
+    component: database
+spec:
+  type: NodePort
+  ports:
+  - port: 5432
+    targetPort: 5432
+    nodePort: 30433
+    protocol: TCP
+    name: postgres
+  selector:
+    app: timescaledb
+    component: database

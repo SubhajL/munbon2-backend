@@ -1,0 +1,11 @@
+# Task ID: 9
+# Title: Setup Apache Kafka for Event Streaming
+# Status: pending
+# Dependencies: 1
+# Priority: high
+# Description: Set up and configure Apache Kafka for event-driven communication between microservices.
+# Details:
+Deploy Apache Kafka (v3.4+) on Kubernetes using Strimzi operator. Configure proper storage classes for persistence. Set up Kafka Connect for integration with external systems. Implement Schema Registry using Confluent Schema Registry for data governance. Configure appropriate topic partitioning and replication. Set up monitoring with Prometheus and Grafana. Implement proper security with TLS and SASL. Define event schemas using Avro or Protobuf. Configure retention policies for different event types. Consider using managed Kafka services if available in Thailand region.
+
+# Test Strategy:
+Validate Kafka cluster setup. Test topic creation and message production/consumption. Verify Schema Registry functionality. Test Kafka Connect connectors. Benchmark throughput under load. Test failover scenarios. Validate security configurations. Test event schema evolution.

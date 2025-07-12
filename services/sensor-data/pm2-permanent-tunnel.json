@@ -1,0 +1,20 @@
+{
+  "apps": [
+    {
+      "name": "munbon-api-tunnel",
+      "script": "cloudflared",
+      "args": "tunnel --config /Users/subhajlimanond/.cloudflared/config.yml run munbon-api",
+      "cwd": "/Users/subhajlimanond/dev/munbon2-backend/services/sensor-data",
+      "autorestart": true,
+      "watch": false,
+      "max_restarts": 10,
+      "restart_delay": 5000,
+      "error_file": "./logs/tunnel-error.log",
+      "out_file": "./logs/tunnel-out.log",
+      "log_date_format": "YYYY-MM-DD HH:mm:ss",
+      "env": {
+        "NODE_ENV": "production"
+      }
+    }
+  ]
+}

@@ -1,0 +1,136 @@
+# Task ID: 37
+# Title: Create Initial Project Directory Structure
+# Status: done
+# Dependencies: 1, 2
+# Priority: high
+# Description: Set up the complete directory structure for all microservices, shared libraries, infrastructure configurations, and documentation as defined in CODEBASE_STRUCTURE.md.
+# Details:
+1. Create the root project directory with appropriate naming convention.
+
+2. Create the following top-level directories:
+   - `/microservices` - For all service-specific code
+   - `/shared` - For shared libraries and utilities
+   - `/infrastructure` - For Kubernetes, Docker, and deployment configurations
+   - `/docs` - For project documentation
+   - `/scripts` - For utility scripts
+   - `/tests` - For integration and end-to-end tests
+
+3. Within `/microservices`, create subdirectories for all 20+ services including:
+   - `/microservices/authentication-service`
+   - `/microservices/gis-data-service`
+   - `/microservices/sensor-data-service`
+   - `/microservices/scada-integration-service`
+   - `/microservices/ai-model-service`
+   - `/microservices/water-distribution-control-service`
+   - `/microservices/notification-service`
+   - `/microservices/reporting-service`
+   - `/microservices/file-processing-service`
+   - `/microservices/graphql-api-service`
+   - `/microservices/maintenance-service`
+   - `/microservices/data-integration-service`
+   - `/microservices/configuration-service`
+   - `/microservices/bff-service`
+   - ... (remaining services as per CODEBASE_STRUCTURE.md)
+
+4. For each microservice directory, create language-specific structure:
+   - For Java/Spring Boot services:
+     ```
+     /service-name
+       /src
+         /main
+           /java/com/company/service
+             /controllers
+             /services
+             /repositories
+             /models
+             /config
+           /resources
+             /application.yml
+         /test
+       /build.gradle or pom.xml
+       /Dockerfile
+       /README.md
+     ```
+   - For Node.js services:
+     ```
+     /service-name
+       /src
+         /controllers
+         /services
+         /models
+         /middleware
+         /utils
+       /tests
+       /package.json
+       /Dockerfile
+       /README.md
+     ```
+   - For Python services:
+     ```
+     /service-name
+       /app
+         /api
+         /core
+         /models
+         /services
+         /utils
+       /tests
+       /requirements.txt
+       /Dockerfile
+       /README.md
+     ```
+
+5. In the `/shared` directory, create:
+   - `/shared/libraries` - For common code libraries
+   - `/shared/models` - For shared data models
+   - `/shared/utils` - For utility functions
+   - `/shared/constants` - For system-wide constants
+
+6. In the `/infrastructure` directory, create:
+   - `/infrastructure/kubernetes` - For K8s manifests
+   - `/infrastructure/docker` - For Docker Compose files
+   - `/infrastructure/terraform` - For IaC
+   - `/infrastructure/monitoring` - For monitoring configurations
+   - `/infrastructure/ci-cd` - For CI/CD pipeline configurations
+
+7. In the `/docs` directory, create:
+   - `/docs/architecture` - For architecture diagrams and descriptions
+   - `/docs/api` - For API documentation
+   - `/docs/development` - For development guidelines
+   - `/docs/operations` - For operational procedures
+
+8. Create placeholder README.md files in each directory with basic descriptions.
+
+9. Create a .gitignore file at the root with appropriate patterns for each language and framework.
+
+10. Create a CODEBASE_STRUCTURE.md file at the root that documents the entire directory structure for reference.
+
+11. Ensure all directories follow consistent naming conventions (kebab-case recommended).
+
+# Test Strategy:
+1. Verify that all directories specified in CODEBASE_STRUCTURE.md have been created with the correct structure and naming conventions.
+
+2. Run a script to validate the directory structure against the specification:
+   ```bash
+   find . -type d | sort > actual_structure.txt
+   diff expected_structure.txt actual_structure.txt
+   ```
+
+3. Ensure each microservice directory contains the appropriate language-specific structure:
+   - Check that Java services have proper Maven/Gradle structure
+   - Verify Node.js services have the correct npm package structure
+   - Confirm Python services follow the defined module structure
+
+4. Validate that all README.md files exist and contain basic descriptive content.
+
+5. Verify the .gitignore file contains appropriate patterns for all used languages and frameworks.
+
+6. Ensure all directory and file names follow the project's naming conventions (kebab-case).
+
+7. Have a team member review the structure to confirm it matches the architectural requirements.
+
+8. Attempt to initialize a git repository in the root directory and verify that the structure can be committed without errors.
+
+9. Verify that placeholder files are properly formatted and don't contain syntax errors.
+
+10. Check that the CODEBASE_STRUCTURE.md file accurately reflects the actual implemented directory structure.

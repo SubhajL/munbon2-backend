@@ -1,0 +1,284 @@
+# Task ID: 36
+# Title: Create Docker Compose Configuration for Database Services
+# Status: pending
+# Dependencies: 2
+# Priority: high
+# Description: Set up Docker Compose with separate containers for PostgreSQL+PostGIS, TimescaleDB, MongoDB, Redis, and InfluxDB, including proper networking, volume mounts, environment variables, health checks, and resource limits for local development.
+# Details:
+1. Create a `docker-compose.yml` file in the project root with the following database services:
+
+   a. PostgreSQL+PostGIS:
+   ```yaml
+   postgres:
+     image: postgis/postgis:15-3.3
+     container_name: postgres
+     environment:
+       POSTGRES_USER: ${POSTGRES_USER:-postgres}
+       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+       POSTGRES_DB: ${POSTGRES_DB:-main}
+     volumes:
+       - postgres_data:/var/lib/postgresql/data
+       - ./init/postgres:/docker-entrypoint-initdb.d
+     ports:
+       - "5432:5432"
+     healthcheck:
+       test: ["CMD-SHELL", "pg_isready -U postgres"]
+       interval: 10s
+       timeout: 5s
+       retries: 5
+     restart: unless-stopped
+     deploy:
+       resources:
+         limits:
+           cpus: '1'
+           memory: 1G
+   ```
+
+   b. TimescaleDB:
+   ```yaml
+   timescaledb:
+     image: timescale/timescaledb:latest-pg15
+     container_name: timescaledb
+     environment:
+       POSTGRES_USER: ${TIMESCALE_USER:-timescale}
+       POSTGRES_PASSWORD: ${TIMESCALE_PASSWORD:-timescale}
+       POSTGRES_DB: ${TIMESCALE_DB:-timeseries}
+     volumes:
+       - timescaledb_data:/var/lib/postgresql/data
+       - ./init/timescaledb:/docker-entrypoint-initdb.d
+     ports:
+       - "5433:5432"
+     healthcheck:
+       test: ["CMD-SHELL", "pg_isready -U timescale"]
+       interval: 10s
+       timeout: 5s
+       retries: 5
+     restart: unless-stopped
+     deploy:
+       resources:
+         limits:
+           cpus: '1'
+           memory: 1G
+   ```
+
+   c. MongoDB:
+   ```yaml
+   mongodb:
+     image: mongo:6
+     container_name: mongodb
+     environment:
+       MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-mongo}
+       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-mongo}
+       MONGO_INITDB_DATABASE: ${MONGO_DB:-documents}
+     volumes:
+       - mongodb_data:/data/db
+       - ./init/mongodb:/docker-entrypoint-initdb.d
+     ports:
+       - "27017:27017"
+     healthcheck:
+       test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+       interval: 10s
+       timeout: 5s
+       retries: 5
+     restart: unless-stopped
+     deploy:
+       resources:
+         limits:
+           cpus: '1'
+           memory: 1G
+   ```
+
+   d. Redis:
+   ```yaml
+   redis:
+     image: redis:7-alpine
+     container_name: redis
+     command: redis-server --requirepass ${REDIS_PASSWORD:-redis}
+     volumes:
+       - redis_data:/data
+       - ./config/redis/redis.conf:/usr/local/etc/redis/redis.conf
+     ports:
+       - "6379:6379"
+     healthcheck:
+       test: ["CMD", "redis-cli", "ping"]
+       interval: 10s
+       timeout: 5s
+       retries: 5
+     restart: unless-stopped
+     deploy:
+       resources:
+         limits:
+           cpus: '0.5'
+           memory: 512M
+   ```
+
+   e. InfluxDB:
+   ```yaml
+   influxdb:
+     image: influxdb:2.7
+     container_name: influxdb
+     environment:
+       DOCKER_INFLUXDB_INIT_MODE: setup
+       DOCKER_INFLUXDB_INIT_USERNAME: ${INFLUX_USER:-influx}
+       DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUX_PASSWORD:-influxdb}
+       DOCKER_INFLUXDB_INIT_ORG: ${INFLUX_ORG:-organization}
+       DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUX_BUCKET:-metrics}
+       DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUX_TOKEN:-token}
+     volumes:
+       - influxdb_data:/var/lib/influxdb2
+       - ./init/influxdb:/docker-entrypoint-initdb.d
+     ports:
+       - "8086:8086"
+     healthcheck:
+       test: ["CMD", "influx", "ping"]
+       interval: 30s
+       timeout: 10s
+       retries: 3
+     restart: unless-stopped
+     deploy:
+       resources:
+         limits:
+           cpus: '1'
+           memory: 1G
+   ```
+
+2. Define a custom network for all database services:
+   ```yaml
+   networks:
+     database_network:
+       driver: bridge
+   ```
+
+3. Add all services to the network:
+   ```yaml
+   # Add to each service definition
+   networks:
+     - database_network
+   ```
+
+4. Define named volumes for data persistence:
+   ```yaml
+   volumes:
+     postgres_data:
+     timescaledb_data:
+     mongodb_data:
+     redis_data:
+     influxdb_data:
+   ```
+
+5. Create a `.env` file template with all configurable environment variables:
+   ```
+   # PostgreSQL
+   POSTGRES_USER=postgres
+   POSTGRES_PASSWORD=postgres
+   POSTGRES_DB=main
+   
+   # TimescaleDB
+   TIMESCALE_USER=timescale
+   TIMESCALE_PASSWORD=timescale
+   TIMESCALE_DB=timeseries
+   
+   # MongoDB
+   MONGO_USER=mongo
+   MONGO_PASSWORD=mongo
+   MONGO_DB=documents
+   
+   # Redis
+   REDIS_PASSWORD=redis
+   
+   # InfluxDB
+   INFLUX_USER=influx
+   INFLUX_PASSWORD=influxdb
+   INFLUX_ORG=organization
+   INFLUX_BUCKET=metrics
+   INFLUX_TOKEN=token
+   ```
+
+6. Create initialization scripts in the following directories:
+   - `./init/postgres/` - SQL scripts for PostgreSQL initialization
+   - `./init/timescaledb/` - SQL scripts for TimescaleDB initialization
+   - `./init/mongodb/` - JS scripts for MongoDB initialization
+   - `./init/influxdb/` - Scripts for InfluxDB initialization
+
+7. Create a Redis configuration file at `./config/redis/redis.conf`
+
+8. Add a README.md with instructions for:
+   - Starting the database services
+   - Connecting to each database
+   - Common troubleshooting steps
+   - Environment variable configuration
+
+9. Create a Makefile with common commands:
+   ```makefile
+   up:
+     docker-compose up -d
+   
+   down:
+     docker-compose down
+   
+   restart:
+     docker-compose restart
+   
+   logs:
+     docker-compose logs -f
+   
+   clean:
+     docker-compose down -v
+   ```
+
+# Test Strategy:
+1. Verify Docker Compose configuration:
+   - Run `docker-compose config` to validate the syntax of the docker-compose.yml file
+   - Check for any errors or warnings in the output
+
+2. Test starting all database services:
+   - Run `docker-compose up -d`
+   - Verify all containers are running with `docker-compose ps`
+   - Check logs for any startup errors with `docker-compose logs`
+
+3. Test PostgreSQL+PostGIS:
+   - Connect using `psql -h localhost -U postgres -d main`
+   - Run `SELECT PostGIS_version();` to verify PostGIS extension
+   - Create a test table and perform basic CRUD operations
+
+4. Test TimescaleDB:
+   - Connect using `psql -h localhost -p 5433 -U timescale -d timeseries`
+   - Run `SELECT version();` to verify TimescaleDB version
+   - Create a hypertable and insert time-series data
+
+5. Test MongoDB:
+   - Connect using `mongosh --host localhost --port 27017 -u mongo -p mongo`
+   - Create a test collection and perform basic CRUD operations
+
+6. Test Redis:
+   - Connect using `redis-cli -h localhost -p 6379 -a redis`
+   - Set and get a test key-value pair
+   - Test expiration functionality
+
+7. Test InfluxDB:
+   - Access the web interface at http://localhost:8086
+   - Log in with configured credentials
+   - Create a test bucket and write/query data
+
+8. Test networking between containers:
+   - From one container, attempt to connect to other database services using their container names
+   - Verify that services can communicate with each other
+
+9. Test volume persistence:
+   - Create test data in each database
+   - Run `docker-compose down` followed by `docker-compose up -d`
+   - Verify that the test data persists
+
+10. Test resource limits:
+    - Monitor container resource usage with `docker stats`
+    - Verify that containers respect the configured CPU and memory limits
+
+11. Test health checks:
+    - Inspect container health status with `docker inspect <container_id> | grep Health`
+    - Temporarily break a service (e.g., change config) to verify health check failure
+
+12. Test environment variable configuration:
+    - Modify values in the .env file
+    - Restart services and verify that the new values are applied
+
+13. Document any issues encountered and their resolutions in the README.md file

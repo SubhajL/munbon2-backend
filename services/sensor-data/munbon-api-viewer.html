@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Munbon API Data Viewer</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        button { margin: 5px; padding: 10px; cursor: pointer; }
+        #result { margin-top: 20px; padding: 10px; background: #f0f0f0; 
+                  white-space: pre-wrap; font-family: monospace; }
+        .section { margin: 20px 0; padding: 10px; border: 1px solid #ccc; }
+        h2 { color: #333; }
+        .loading { color: blue; }
+        .error { color: red; }
+    </style>
+</head>
+<body>
+    <h1>Munbon Irrigation Data API Viewer</h1>
+    
+    <div class="section">
+        <h2>Water Level Data</h2>
+        <button onclick="fetchData('water-levels/latest')">Get Latest Water Levels</button>
+        <button onclick="fetchData('water-levels/timeseries?date=30/06/2568')">Water Level Time Series (30/06/2568)</button>
+        <button onclick="fetchData('water-levels/statistics?date=30/06/2568')">Water Level Statistics (30/06/2568)</button>
+    </div>
+
+    <div class="section">
+        <h2>Moisture Data</h2>
+        <button onclick="fetchData('moisture/latest')">Get Latest Moisture</button>
+        <button onclick="fetchData('moisture/timeseries?date=30/06/2568')">Moisture Time Series (30/06/2568)</button>
+        <button onclick="fetchData('moisture/statistics?date=30/06/2568')">Moisture Statistics (30/06/2568)</button>
+    </div>
+
+    <div class="section">
+        <h2>AOS Weather Data</h2>
+        <button onclick="fetchData('aos/latest')">Get Latest Weather</button>
+        <button onclick="fetchData('aos/timeseries?date=24/06/2568')">Weather Time Series (24/06/2568)</button>
+        <button onclick="fetchData('aos/statistics?date=24/06/2568')">Weather Statistics (24/06/2568)</button>
+    </div>
+
+    <div class="section">
+        <h2>Custom Date Query</h2>
+        <input type="text" id="customDate" placeholder="DD/MM/YYYY (Buddhist)" value="30/06/2568">
+        <select id="dataType">
+            <option value="water-levels">Water Level</option>
+            <option value="moisture">Moisture</option>
+            <option value="aos">AOS Weather</option>
+        </select>
+        <select id="queryType">
+            <option value="timeseries">Time Series</option>
+            <option value="statistics">Statistics</option>
+        </select>
+        <button onclick="fetchCustomData()">Get Data</button>
+    </div>
+
+    <div id="result"></div>
+
+    <script>
+        const BASE_URL = 'https://5e3l647kpd.execute-api.ap-southeast-1.amazonaws.com/prod/api/v1/public';
+        const API_KEY = 'rid-ms-prod-key1';
+
+        async function fetchData(endpoint) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '<span class="loading">Loading...</span>';
+            
+            try {
+                const response = await fetch(`${BASE_URL}/${endpoint}`, {
+                    headers: {
+                        'X-API-Key': API_KEY
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                resultDiv.innerHTML = JSON.stringify(data, null, 2);
+            } catch (error) {
+                resultDiv.innerHTML = `<span class="error">Error: ${error.message}</span>`;
+            }
+        }
+
+        function fetchCustomData() {
+            const date = document.getElementById('customDate').value;
+            const dataType = document.getElementById('dataType').value;
+            const queryType = document.getElementById('queryType').value;
+            fetchData(`${dataType}/${queryType}?date=${date}`);
+        }
+    </script>
+</body>
+</html>

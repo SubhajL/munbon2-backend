@@ -1,0 +1,49 @@
+# Override values for local development
+# Use with: helm install munbon ./charts/munbon -f ./charts/munbon/values-local.yaml
+
+global:
+  environment: local
+  domain: localhost
+  imageRegistry: localhost:5000
+  imagePullPolicy: Always  # Always pull for local dev
+
+# Enable only essential services for local dev
+services:
+  apiGateway:
+    enabled: true
+    env:
+      - name: NODE_ENV
+        value: development
+      - name: LOG_LEVEL
+        value: debug
+        
+  authService:
+    enabled: true
+    env:
+      - name: JWT_SECRET
+        value: local-dev-secret
+        
+  sensorService:
+    enabled: false  # Enable as needed
+  gisService:
+    enabled: false  # Enable as needed
+
+# Disable monitoring for local dev
+prometheus:
+  enabled: false
+  
+grafana:
+  enabled: false
+
+# Use host.docker.internal to connect to databases running in Docker
+databases:
+  postgresql:
+    host: host.docker.internal
+    port: 5432
+    database: munbon_dev
+    username: postgres
+    password: postgres
+    
+  redis:
+    host: host.docker.internal
+    port: 6379

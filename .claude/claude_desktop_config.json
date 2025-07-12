@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "taskmaster": {
+      "command": "npx",
+      "args": ["-y", "@taskmaster/mcp-server"],
+      "env": {
+        "PROJECT_ROOT": "/Users/subhajlimanond/dev/munbon2-backend",
+        "ARCHITECTURE_PATTERN": "microservices-bff",
+        "SECURITY_LEVEL": "high",
+        "FRONTEND_ISOLATION": "true",
+        "CONTRACT_FIRST": "true"
+      }
+    }
+  }
+}

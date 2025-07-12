@@ -1,0 +1,20 @@
+spring:
+  # Production specific configuration
+  devtools:
+    restart:
+      enabled: false
+    livereload:
+      enabled: false
+
+# Production logging
+logging:
+  level:
+    com.munbon: INFO
+    org.springframework: WARN
+
+# Production security
+spring.security:
+  oauth2:
+    resourceserver:
+      jwt:
+        issuer-uri: ${JWT_ISSUER_URI}

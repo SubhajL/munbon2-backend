@@ -1,0 +1,306 @@
+_format_version: "3.0"
+_transform: true
+
+# External API Service Configuration
+# This service aggregates data from all internal services for external clients
+
+services:
+  # Unified External API Service
+  - name: external-api-service
+    url: http://external-api:3000
+    protocol: http
+    host: external-api
+    port: 3000
+    path: /
+    retries: 5
+    connect_timeout: 60000
+    write_timeout: 60000
+    read_timeout: 60000
+    tags:
+      - external
+      - api
+      - aggregation
+
+routes:
+  # Public endpoints (no auth)
+  - name: external-api-health
+    service: external-api-service
+    paths:
+      - /health
+      - /api/v1/status
+      - /api/v1/docs
+    methods:
+      - GET
+    strip_path: false
+    tags:
+      - public
+      - health
+
+  # Sensor data aggregation endpoints
+  - name: external-api-sensors
+    service: external-api-service
+    paths:
+      - /api/v1/sensors
+    strip_path: false
+    tags:
+      - sensors
+      - authenticated
+
+  # Dashboard endpoints
+  - name: external-api-dashboard
+    service: external-api-service
+    paths:
+      - /api/v1/dashboard
+    strip_path: false
+    tags:
+      - dashboard
+      - authenticated
+
+  # Analytics endpoints
+  - name: external-api-analytics
+    service: external-api-service
+    paths:
+      - /api/v1/analytics
+    strip_path: false
+    tags:
+      - analytics
+      - authenticated
+
+  # GIS data endpoints
+  - name: external-api-gis
+    service: external-api-service
+    paths:
+      - /api/v1/gis
+    strip_path: false
+    tags:
+      - gis
+      - authenticated
+
+# Route-specific plugins
+plugins:
+  # Key Authentication for authenticated routes
+  - name: key-auth
+    service: external-api-service
+    config:
+      key_names: 
+        - x-api-key
+        - apikey
+      hide_credentials: true
+      anonymous: null
+      key_in_header: true
+      key_in_query: true
+      key_in_body: false
+      run_on_preflight: true
+    tags:
+      - authentication
+    # Apply to all routes except public ones
+    route: external-api-sensors
+
+  - name: key-auth
+    service: external-api-service
+    config:
+      key_names: 
+        - x-api-key
+        - apikey
+      hide_credentials: true
+    route: external-api-dashboard
+
+  - name: key-auth
+    service: external-api-service
+    config:
+      key_names: 
+        - x-api-key
+        - apikey
+      hide_credentials: true
+    route: external-api-analytics
+
+  - name: key-auth
+    service: external-api-service
+    config:
+      key_names: 
+        - x-api-key
+        - apikey
+      hide_credentials: true
+    route: external-api-gis
+
+  # Simple Rate Limiting
+  - name: rate-limiting
+    service: external-api-service
+    config:
+      minute: 60
+      hour: 1000
+      policy: local
+      fault_tolerant: true
+      hide_client_headers: false
+    tags:
+      - rate-limiting
+
+  # Response Transformer - Add standard metadata
+  - name: response-transformer
+    service: external-api-service
+    config:
+      add:
+        headers:
+          X-API-Version: "1.0.0"
+          X-Service: "Munbon External API"
+        json:
+          meta.service: "munbon-api"
+          meta.environment: "{{ENV}}"
+    tags:
+      - response-transform
+
+  # Request Transformer - Add tracking headers
+  - name: request-transformer
+    service: external-api-service
+    config:
+      add:
+        headers:
+          X-Request-ID: "$(uuid)"
+          X-Kong-Proxy: "true"
+    tags:
+      - request-transform
+
+  # Request Validation
+  - name: request-validator
+    service: external-api-service
+    config:
+      allowed_content_types:
+        - application/json
+        - application/x-www-form-urlencoded
+      version: draft7
+      parameter_schema:
+        - in: query
+          name: zone
+          schema:
+            type: string
+            pattern: "^Z[0-9]+$"
+        - in: query
+          name: date
+          schema:
+            type: string
+            pattern: "^[0-9]{2}/[0-9]{2}/[0-9]{4}$"
+        - in: query
+          name: page
+          schema:
+            type: integer
+            minimum: 1
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+    route: external-api-sensors
+    tags:
+      - validation
+
+  # Caching Plugin (for GET requests)
+  - name: proxy-cache
+    service: external-api-service
+    config:
+      response_code:
+        - 200
+      request_method:
+        - GET
+      content_type:
+        - "application/json"
+      cache_ttl: 300  # 5 minutes default
+      strategy: memory
+      memory:
+        dictionary_name: external_api_cache
+    tags:
+      - caching
+
+  # gzip compression
+  - name: gzip
+    service: external-api-service
+    config:
+      compression_level: 6
+      compression_strategy: default
+      compression_types:
+        - application/json
+        - application/xml
+        - text/html
+        - text/plain
+      min_length: 256
+      vary: true
+    tags:
+      - compression
+
+  # Security headers
+  - name: response-transformer
+    service: external-api-service
+    config:
+      add:
+        headers:
+          X-Content-Type-Options: "nosniff"
+          X-Frame-Options: "DENY"
+          X-XSS-Protection: "1; mode=block"
+          Strict-Transport-Security: "max-age=31536000; includeSubDomains"
+    tags:
+      - security
+
+# API Consumers for External API
+consumers:
+  - username: external-api-client
+    custom_id: external-client-001
+    tags:
+      - external
+      - api-client
+
+  - username: munbon-frontend
+    custom_id: frontend-001
+    tags:
+      - frontend
+      - internal
+
+  - username: munbon-mobile
+    custom_id: mobile-001
+    tags:
+      - mobile
+      - internal
+
+# API Keys
+keyauth_credentials:
+  - consumer: external-api-client
+    key: external_api_test_key_123
+    tags:
+      - test
+
+  - consumer: munbon-frontend
+    key: frontend_api_key_456
+    tags:
+      - frontend
+
+  - consumer: munbon-mobile
+    key: mobile_api_key_789
+    tags:
+      - mobile
+
+# Upstream for load balancing
+upstreams:
+  - name: external-api-upstream
+    algorithm: round-robin
+    slots: 1000
+    healthchecks:
+      active:
+        type: http
+        http_path: /health
+        healthy:
+          interval: 5
+          successes: 2
+        unhealthy:
+          interval: 5
+          tcp_failures: 2
+          http_failures: 2
+          timeouts: 2
+      passive:
+        healthy:
+          successes: 5
+        unhealthy:
+          tcp_failures: 2
+          http_failures: 5
+          timeouts: 2
+    targets:
+      - target: external-api:3000
+        weight: 100

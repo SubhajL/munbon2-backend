@@ -1,0 +1,509 @@
+openapi: 3.0.3
+info:
+  title: Munbon Sensor Data Service API
+  version: 1.0.0
+  description: IoT sensor data ingestion and management service
+
+servers:
+  - url: https://api.munbon.go.th/api/v1
+    description: Production server
+  - url: http://localhost:3001/api/v1
+    description: Local development
+
+tags:
+  - name: Sensors
+    description: Sensor management and data retrieval
+  - name: Telemetry
+    description: Real-time telemetry data ingestion
+  - name: Analytics
+    description: Sensor data analytics
+
+paths:
+  /sensors:
+    get:
+      tags: [Sensors]
+      summary: List all sensors
+      operationId: listSensors
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: 'common.yaml#/components/parameters/PageParam'
+        - $ref: 'common.yaml#/components/parameters/PerPageParam'
+        - $ref: 'common.yaml#/components/parameters/SortParam'
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [water-level, moisture, flow-meter, weather]
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, inactive, maintenance]
+        - name: zoneId
+          in: query
+          schema:
+            $ref: 'common.yaml#/components/schemas/UUID'
+      responses:
+        '200':
+          description: Sensors list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: 'common.yaml#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Sensor'
+                      pagination:
+                        $ref: 'common.yaml#/components/schemas/PaginationMeta'
+
+  /sensors/{sensorId}:
+    get:
+      tags: [Sensors]
+      summary: Get sensor details
+      operationId: getSensor
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: sensorId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Sensor details
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: 'common.yaml#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Sensor'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+
+  /sensors/{sensorId}/data:
+    get:
+      tags: [Sensors]
+      summary: Get sensor data
+      operationId: getSensorData
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: sensorId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: startDate
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: endDate
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: interval
+          in: query
+          schema:
+            type: string
+            enum: [1m, 5m, 15m, 1h, 1d]
+            default: 5m
+        - name: aggregation
+          in: query
+          schema:
+            type: string
+            enum: [avg, min, max, sum, last]
+            default: avg
+      responses:
+        '200':
+          description: Sensor data
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: 'common.yaml#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/SensorReading'
+
+  /sensors/nearby:
+    get:
+      tags: [Sensors]
+      summary: Find nearby sensors
+      operationId: getNearbySensors
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: lat
+          in: query
+          required: true
+          schema:
+            type: number
+            format: double
+        - name: lng
+          in: query
+          required: true
+          schema:
+            type: number
+            format: double
+        - name: radius
+          in: query
+          schema:
+            type: number
+            description: Radius in kilometers
+            default: 5
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [water-level, moisture, flow-meter, weather]
+      responses:
+        '200':
+          description: Nearby sensors
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: 'common.yaml#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          allOf:
+                            - $ref: '#/components/schemas/Sensor'
+                            - type: object
+                              properties:
+                                distance:
+                                  type: number
+                                  description: Distance in kilometers
+
+  /telemetry/{token}:
+    post:
+      tags: [Telemetry]
+      summary: Submit telemetry data
+      operationId: submitTelemetry
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+            description: Device authentication token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/WaterLevelTelemetry'
+                - $ref: '#/components/schemas/MoistureTelemetry'
+            examples:
+              waterLevel:
+                summary: Water level sensor data
+                value:
+                  deviceID: "7b184f4f-3d97-4c0c-a888-55b839aab7ad"
+                  macAddress: "1A2B3C4D5E6F"
+                  latitude: 13.7563
+                  longitude: 100.5018
+                  RSSI: -67
+                  voltage: 420
+                  level: 15
+                  timestamp: 1748841346551
+              moisture:
+                summary: Moisture sensor data
+                value:
+                  gateway_id: "00001"
+                  msg_type: "interval"
+                  date: "2025/06/03"
+                  time: "10:30:00"
+                  latitude: "13.12345"
+                  longitude: "100.54621"
+                  gw_batt: "372"
+                  sensor:
+                    - sensor_id: "00001"
+                      flood: "no"
+                      amb_humid: "60"
+                      amb_temp: "40.50"
+                      humid_hi: "50"
+                      temp_hi: "25.50"
+                      humid_low: "72"
+                      temp_low: "25.00"
+                      sensor_batt: "395"
+      responses:
+        '200':
+          description: Data accepted
+          content:
+            application/json:
+              schema:
+                $ref: 'common.yaml#/components/schemas/ApiResponse'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '429':
+          $ref: 'common.yaml#/components/responses/TooManyRequests'
+
+  /analytics/summary:
+    get:
+      tags: [Analytics]
+      summary: Get sensor analytics summary
+      operationId: getAnalyticsSummary
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: zoneId
+          in: query
+          schema:
+            $ref: 'common.yaml#/components/schemas/UUID'
+        - name: sensorType
+          in: query
+          schema:
+            type: string
+            enum: [water-level, moisture, flow-meter, weather]
+        - name: period
+          in: query
+          schema:
+            type: string
+            enum: [today, week, month, year]
+            default: today
+      responses:
+        '200':
+          description: Analytics summary
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: 'common.yaml#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AnalyticsSummary'
+
+components:
+  schemas:
+    Sensor:
+      type: object
+      required:
+        - id
+        - sensorId
+        - type
+        - status
+        - location
+      properties:
+        id:
+          $ref: 'common.yaml#/components/schemas/UUID'
+        sensorId:
+          type: string
+          description: Hardware sensor ID
+        name:
+          type: string
+        type:
+          type: string
+          enum: [water-level, moisture, flow-meter, weather]
+        manufacturer:
+          type: string
+          enum: [ridr, m2m, custom]
+        model:
+          type: string
+        status:
+          type: string
+          enum: [active, inactive, maintenance]
+        location:
+          $ref: 'common.yaml#/components/schemas/Location'
+        zoneId:
+          $ref: 'common.yaml#/components/schemas/UUID'
+        isMobile:
+          type: boolean
+          default: false
+        metadata:
+          type: object
+        lastReading:
+          type: object
+          properties:
+            timestamp:
+              $ref: 'common.yaml#/components/schemas/Timestamp'
+            value:
+              type: number
+            unit:
+              type: string
+        createdAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+        updatedAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+
+    SensorReading:
+      type: object
+      required:
+        - timestamp
+        - value
+      properties:
+        timestamp:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+        value:
+          type: number
+        unit:
+          type: string
+        quality:
+          type: number
+          minimum: 0
+          maximum: 100
+        metadata:
+          type: object
+
+    WaterLevelTelemetry:
+      type: object
+      required:
+        - deviceID
+        - macAddress
+        - latitude
+        - longitude
+        - level
+        - timestamp
+      properties:
+        deviceID:
+          type: string
+          format: uuid
+        macAddress:
+          type: string
+          pattern: '^[A-F0-9]{12}$'
+        latitude:
+          type: number
+          format: double
+        longitude:
+          type: number
+          format: double
+        RSSI:
+          type: integer
+          description: Signal strength
+        voltage:
+          type: integer
+          description: Battery voltage in centivolts
+        level:
+          type: integer
+          description: Water level in cm
+        timestamp:
+          type: integer
+          format: int64
+          description: Unix timestamp in milliseconds
+
+    MoistureTelemetry:
+      type: object
+      required:
+        - gateway_id
+        - msg_type
+        - date
+        - time
+        - latitude
+        - longitude
+        - sensor
+      properties:
+        gateway_id:
+          type: string
+        msg_type:
+          type: string
+          enum: [interval, alert]
+        date:
+          type: string
+          pattern: '^\d{4}/\d{2}/\d{2}$'
+        time:
+          type: string
+          pattern: '^\d{2}:\d{2}:\d{2}$'
+        latitude:
+          type: string
+        longitude:
+          type: string
+        gw_batt:
+          type: string
+          description: Gateway battery voltage
+        sensor:
+          type: array
+          items:
+            type: object
+            required:
+              - sensor_id
+            properties:
+              sensor_id:
+                type: string
+              flood:
+                type: string
+                enum: [yes, no]
+              amb_humid:
+                type: string
+                description: Ambient humidity %
+              amb_temp:
+                type: string
+                description: Ambient temperature °C
+              humid_hi:
+                type: string
+                description: High soil moisture %
+              temp_hi:
+                type: string
+                description: High soil temperature °C
+              humid_low:
+                type: string
+                description: Low soil moisture %
+              temp_low:
+                type: string
+                description: Low soil temperature °C
+              sensor_batt:
+                type: string
+                description: Sensor battery voltage
+
+    AnalyticsSummary:
+      type: object
+      properties:
+        period:
+          type: object
+          properties:
+            start:
+              $ref: 'common.yaml#/components/schemas/Timestamp'
+            end:
+              $ref: 'common.yaml#/components/schemas/Timestamp'
+        statistics:
+          type: object
+          properties:
+            totalSensors:
+              type: integer
+            activeSensors:
+              type: integer
+            totalReadings:
+              type: integer
+            averageValue:
+              type: number
+            minValue:
+              type: number
+            maxValue:
+              type: number
+        sensorsByType:
+          type: object
+          additionalProperties:
+            type: integer
+        alerts:
+          type: object
+          properties:
+            critical:
+              type: integer
+            warning:
+              type: integer
+            info:
+              type: integer
+
+  securitySchemes:
+    BearerAuth:
+      $ref: 'common.yaml#/components/securitySchemes/BearerAuth'

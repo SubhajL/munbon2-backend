@@ -1,0 +1,16 @@
+[Unit]
+Description=Cloudflare Tunnel for Munbon API
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu
+ExecStart=/usr/local/bin/cloudflared tunnel --url https://c0zc2kfzd6.execute-api.ap-southeast-1.amazonaws.com
+Restart=always
+RestartSec=10
+StandardOutput=append:/var/log/cloudflare-tunnel.log
+StandardError=append:/var/log/cloudflare-tunnel.error.log
+
+[Install]
+WantedBy=multi-user.target

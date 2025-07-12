@@ -1,0 +1,16 @@
+# Caddy - Automatic HTTPS with custom TLS
+api.munbon.example.com {
+    # Enable old TLS versions
+    tls {
+        protocols tls1.0 tls1.1 tls1.2
+        ciphers TLS_RSA_WITH_AES_256_CBC_SHA TLS_RSA_WITH_AES_128_CBC_SHA
+    }
+    
+    # Reverse proxy to API Gateway
+    reverse_proxy https://c0zc2kfzd6.execute-api.ap-southeast-1.amazonaws.com {
+        header_up Host c0zc2kfzd6.execute-api.ap-southeast-1.amazonaws.com
+    }
+}
+
+# One-line deployment:
+# caddy run --config Caddyfile

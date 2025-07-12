@@ -1,0 +1,20 @@
+{
+  "apps": [
+    {
+      "name": "health-monitor",
+      "script": "./src/health-monitor-api.js",
+      "cwd": "/Users/subhajlimanond/dev/munbon2-backend/services/sensor-data",
+      "exec_mode": "fork",
+      "autorestart": true,
+      "watch": false,
+      "max_memory_restart": "200M",
+      "error_file": "./logs/health-monitor-error.log",
+      "out_file": "./logs/health-monitor-out.log",
+      "log_date_format": "YYYY-MM-DD HH:mm:ss",
+      "env": {
+        "NODE_ENV": "production",
+        "HEALTH_MONITOR_PORT": "3002"
+      }
+    }
+  ]
+}

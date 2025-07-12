@@ -1,0 +1,193 @@
+service: munbon-rid-ms
+
+provider:
+  name: aws
+  runtime: nodejs18.x
+  stage: ${opt:stage, 'dev'}
+  region: ap-southeast-1
+  timeout: 30
+  memorySize: 1024
+  environment:
+    STAGE: ${self:provider.stage}
+    SQS_QUEUE_URL: 
+      Ref: ShapeFileProcessingQueue
+    S3_BUCKET_NAME:
+      Ref: ShapeFileStorage
+    POSTGIS_HOST: ${env:POSTGIS_HOST}
+    POSTGIS_PORT: ${env:POSTGIS_PORT}
+    POSTGIS_DB: ${env:POSTGIS_DB}
+    POSTGIS_USER: ${env:POSTGIS_USER}
+    POSTGIS_PASSWORD: ${env:POSTGIS_PASSWORD}
+    REDIS_HOST: ${env:REDIS_HOST}
+    REDIS_PORT: ${env:REDIS_PORT}
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - s3:GetObject
+            - s3:PutObject
+            - s3:DeleteObject
+          Resource:
+            - Fn::Sub: "${ShapeFileStorage.Arn}/*"
+        - Effect: Allow
+          Action:
+            - s3:ListBucket
+          Resource:
+            - Fn::GetAtt: [ShapeFileStorage, Arn]
+        - Effect: Allow
+          Action:
+            - sqs:SendMessage
+            - sqs:GetQueueAttributes
+          Resource:
+            - Fn::GetAtt: [ShapeFileProcessingQueue, Arn]
+        - Effect: Allow
+          Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+          Resource: "*"
+
+functions:
+  shapeFileUpload:
+    handler: dist/lambda/handler.shapeFileUpload
+    events:
+      - http:
+          path: /api/v1/shapefiles/upload
+          method: post
+          cors: true
+          request:
+            parameters:
+              paths:
+                token: true
+    environment:
+      MAX_FILE_SIZE: 52428800  # 50MB
+
+  shapeFileMetadata:
+    handler: dist/lambda/handler.shapeFileMetadata
+    events:
+      - http:
+          path: /api/v1/shapefiles/{id}
+          method: get
+          cors: true
+          request:
+            parameters:
+              paths:
+                id: true
+
+  shapeFileList:
+    handler: dist/lambda/handler.shapeFileList
+    events:
+      - http:
+          path: /api/v1/shapefiles
+          method: get
+          cors: true
+
+  shapeFileParcels:
+    handler: dist/lambda/handler.shapeFileParcels
+    events:
+      - http:
+          path: /api/v1/shapefiles/{id}/parcels
+          method: get
+          cors: true
+          request:
+            parameters:
+              paths:
+                id: true
+
+  shapeFileExport:
+    handler: dist/lambda/handler.shapeFileExport
+    events:
+      - http:
+          path: /api/v1/shapefiles/{id}/export/geojson
+          method: get
+          cors: true
+          request:
+            parameters:
+              paths:
+                id: true
+
+  shapeFileProcessor:
+    handler: dist/lambda/handler.processShapeFile
+    reservedConcurrency: 2
+    timeout: 300  # 5 minutes for processing
+    events:
+      - sqs:
+          arn:
+            Fn::GetAtt:
+              - ShapeFileProcessingQueue
+              - Arn
+          batchSize: 1
+
+resources:
+  Resources:
+    ShapeFileStorage:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: munbon-rid-ms-shapefile-${self:provider.stage}
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: true
+          BlockPublicPolicy: true
+          IgnorePublicAcls: true
+          RestrictPublicBuckets: true
+        LifecycleConfiguration:
+          Rules:
+            - Id: DeleteOldFiles
+              Status: Enabled
+              ExpirationInDays: 30
+              Prefix: temp/
+            - Id: MoveToGlacier
+              Status: Enabled
+              Transitions:
+                - StorageClass: GLACIER
+                  TransitionInDays: 90
+              Prefix: processed/
+
+    ShapeFileProcessingQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: munbon-rid-ms-processing-${self:provider.stage}
+        VisibilityTimeout: 360  # 6 minutes
+        MessageRetentionPeriod: 1209600  # 14 days
+        ReceiveMessageWaitTimeSeconds: 20
+        RedrivePolicy:
+          deadLetterTargetArn:
+            Fn::GetAtt:
+              - ShapeFileProcessingDLQ
+              - Arn
+          maxReceiveCount: 3
+
+    ShapeFileProcessingDLQ:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: munbon-rid-ms-processing-dlq-${self:provider.stage}
+        MessageRetentionPeriod: 1209600  # 14 days
+
+  Outputs:
+    ApiGatewayUrl:
+      Description: API Gateway endpoint URL
+      Value:
+        Fn::Sub: "https://${ApiGatewayRestApi}.execute-api.${AWS::Region}.amazonaws.com/${self:provider.stage}"
+    ShapeFileStorageBucket:
+      Description: S3 bucket for shape file storage
+      Value:
+        Ref: ShapeFileStorage
+    ProcessingQueueUrl:
+      Description: SQS queue URL for shape file processing
+      Value:
+        Ref: ShapeFileProcessingQueue
+
+plugins:
+  - serverless-esbuild
+  - serverless-offline
+
+custom:
+  esbuild:
+    bundle: true
+    minify: false
+    sourcemap: true
+    exclude:
+      - 'aws-sdk'
+    target: 'node18'
+    platform: 'node'
+    concurrency: 10

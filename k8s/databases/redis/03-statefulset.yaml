@@ -1,0 +1,153 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: munbon-databases
+spec:
+  clusterIP: None
+  ports:
+  - port: 6379
+    targetPort: 6379
+    name: redis
+  selector:
+    app: redis
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-lb
+  namespace: munbon-databases
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 6379
+    targetPort: 6379
+    name: redis
+  selector:
+    app: redis
+    redis-role: master
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: munbon-databases
+spec:
+  serviceName: redis
+  replicas: 3
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      initContainers:
+      - name: config
+        image: redis:7-alpine
+        command: 
+        - sh
+        - -c
+        - |
+          cp /tmp/redis/redis.conf /etc/redis/redis.conf
+          echo "requirepass $REDIS_PASSWORD" >> /etc/redis/redis.conf
+          if [ "$(hostname)" != "redis-0" ]; then
+            echo "replicaof redis-0.redis 6379" >> /etc/redis/redis.conf
+            echo "masterauth $REDIS_PASSWORD" >> /etc/redis/redis.conf
+          fi
+        env:
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: redis-password
+        volumeMounts:
+        - name: redis-config
+          mountPath: /tmp/redis/
+        - name: config
+          mountPath: /etc/redis/
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        command: ["redis-server", "/etc/redis/redis.conf"]
+        ports:
+        - containerPort: 6379
+          name: redis
+        env:
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: redis-password
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        - name: config
+          mountPath: /etc/redis/
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "4Gi"
+            cpu: "2"
+        livenessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - redis-cli -a $REDIS_PASSWORD ping
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - redis-cli -a $REDIS_PASSWORD ping
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      - name: sentinel
+        image: redis:7-alpine
+        command: 
+        - redis-sentinel
+        - /etc/redis-sentinel/sentinel.conf
+        ports:
+        - containerPort: 26379
+          name: sentinel
+        env:
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: redis-password
+        volumeMounts:
+        - name: redis-config
+          mountPath: /etc/redis-sentinel/
+        - name: sentinel-data
+          mountPath: /data
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "200m"
+      volumes:
+      - name: config
+        emptyDir: {}
+      - name: redis-config
+        configMap:
+          name: redis-config
+      - name: sentinel-data
+        emptyDir: {}
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 10Gi
+      storageClassName: fast-ssd

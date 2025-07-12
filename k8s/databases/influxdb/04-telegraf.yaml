@@ -1,0 +1,202 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: telegraf-config
+  namespace: munbon-databases
+data:
+  telegraf.conf: |
+    [global_tags]
+      cluster = "munbon-prod"
+      environment = "production"
+    
+    [agent]
+      interval = "10s"
+      round_interval = true
+      metric_batch_size = 1000
+      metric_buffer_limit = 10000
+      collection_jitter = "0s"
+      flush_interval = "10s"
+      flush_jitter = "0s"
+      precision = ""
+      hostname = ""
+      omit_hostname = false
+    
+    # Output to InfluxDB v2
+    [[outputs.influxdb_v2]]
+      urls = ["http://influxdb:8086"]
+      token = "$INFLUX_TOKEN"
+      organization = "munbon"
+      bucket = "system-metrics"
+      timeout = "5s"
+    
+    # Kubernetes metrics
+    [[inputs.kubernetes]]
+      url = "https://kubernetes.default.svc.cluster.local"
+      bearer_token = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+      insecure_skip_verify = true
+    
+    # Docker metrics
+    [[inputs.docker]]
+      endpoint = "unix:///var/run/docker.sock"
+      gather_services = false
+      container_names = []
+      source_tag = false
+      container_name_include = []
+      container_name_exclude = []
+      timeout = "5s"
+      perdevice = true
+      total = false
+    
+    # CPU metrics
+    [[inputs.cpu]]
+      percpu = true
+      totalcpu = true
+      collect_cpu_time = false
+      report_active = false
+    
+    # Disk metrics
+    [[inputs.disk]]
+      ignore_fs = ["tmpfs", "devtmpfs", "devfs", "iso9660", "overlay", "aufs", "squashfs"]
+    
+    # Memory metrics
+    [[inputs.mem]]
+    
+    # Network metrics
+    [[inputs.net]]
+      ignore_protocol_stats = false
+    
+    # Process metrics
+    [[inputs.processes]]
+    
+    # System metrics
+    [[inputs.system]]
+    
+    # PostgreSQL metrics
+    [[inputs.postgresql_extensible]]
+      address = "host=postgres-primary.munbon-databases user=munbon_reader password=$POSTGRES_PASSWORD dbname=munbon_dev sslmode=disable"
+      databases = ["munbon_dev"]
+      
+      [[inputs.postgresql_extensible.query]]
+        sqlquery = "SELECT * FROM pg_stat_database WHERE datname = current_database()"
+        version = 901
+        withdbname = false
+        tagvalue = ""
+        measurement = "postgresql"
+    
+    # Redis metrics
+    [[inputs.redis]]
+      servers = ["tcp://:$REDIS_PASSWORD@redis-0.redis.munbon-databases:6379"]
+    
+    # MongoDB metrics
+    [[inputs.mongodb]]
+      servers = ["mongodb://admin:$MONGO_PASSWORD@mongodb-0.mongodb.munbon-databases:27017/admin?replicaSet=munbon-rs"]
+      gather_cluster_status = true
+      gather_perdb_stats = true
+      gather_col_stats = false
+      gather_top_stat = false
+    
+    # HTTP response metrics
+    [[inputs.http_response]]
+      address = "http://api-gateway:3000/health"
+      response_timeout = "5s"
+      method = "GET"
+      follow_redirects = false
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: telegraf
+  namespace: munbon-databases
+spec:
+  selector:
+    matchLabels:
+      app: telegraf
+  template:
+    metadata:
+      labels:
+        app: telegraf
+    spec:
+      serviceAccountName: telegraf
+      containers:
+      - name: telegraf
+        image: telegraf:1.29-alpine
+        env:
+        - name: INFLUX_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: influxdb-secret
+              key: admin-token
+        - name: POSTGRES_PASSWORD
+          value: readonly_password  # From postgres setup
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: redis-password
+        - name: MONGO_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mongodb-secret
+              key: MONGO_INITDB_ROOT_PASSWORD
+        volumeMounts:
+        - name: config
+          mountPath: /etc/telegraf
+        - name: docker-sock
+          mountPath: /var/run/docker.sock
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "200m"
+      volumes:
+      - name: config
+        configMap:
+          name: telegraf-config
+      - name: docker-sock
+        hostPath:
+          path: /var/run/docker.sock
+          type: Socket
+      hostNetwork: true
+      hostPID: true
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: telegraf
+  namespace: munbon-databases
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: telegraf
+rules:
+- apiGroups: [""]
+  resources:
+  - nodes
+  - nodes/proxy
+  - nodes/stats
+  - services
+  - endpoints
+  - pods
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources:
+  - deployments
+  - daemonsets
+  - statefulsets
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: telegraf
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: telegraf
+subjects:
+- kind: ServiceAccount
+  name: telegraf
+  namespace: munbon-databases

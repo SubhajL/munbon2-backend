@@ -1,0 +1,564 @@
+openapi: 3.0.3
+info:
+  title: Munbon Authentication Service API
+  version: 1.0.0
+  description: Authentication and authorization service for Munbon Irrigation System
+  contact:
+    name: Munbon API Support
+    email: api-support@munbon.go.th
+
+servers:
+  - url: https://api.munbon.go.th/api/v1
+    description: Production server
+  - url: https://api-staging.munbon.go.th/api/v1
+    description: Staging server
+  - url: http://localhost:8001/api/v1
+    description: Local development
+
+tags:
+  - name: Authentication
+    description: User authentication operations
+  - name: Users
+    description: User management operations
+  - name: Roles
+    description: Role and permission management
+
+paths:
+  /auth/login:
+    post:
+      tags: [Authentication]
+      summary: User login
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - username
+                - password
+              properties:
+                username:
+                  type: string
+                  description: Username or email
+                  example: user@example.com
+                password:
+                  type: string
+                  format: password
+                  minLength: 8
+                rememberMe:
+                  type: boolean
+                  default: false
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: 'common.yaml#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        required:
+                          - accessToken
+                          - refreshToken
+                          - user
+                        properties:
+                          accessToken:
+                            type: string
+                            description: JWT access token
+                          refreshToken:
+                            type: string
+                            description: JWT refresh token
+                          expiresIn:
+                            type: integer
+                            description: Token expiry in seconds
+                            example: 3600
+                          tokenType:
+                            type: string
+                            example: Bearer
+                          user:
+                            $ref: '#/components/schemas/User'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+
+  /auth/logout:
+    post:
+      tags: [Authentication]
+      summary: User logout
+      operationId: logout
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Logout successful
+          content:
+            application/json:
+              schema:
+                $ref: 'common.yaml#/components/schemas/ApiResponse'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+
+  /auth/refresh:
+    post:
+      tags: [Authentication]
+      summary: Refresh access token
+      operationId: refreshToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - refreshToken
+              properties:
+                refreshToken:
+                  type: string
+      responses:
+        '200':
+          description: Token refreshed
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: 'common.yaml#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          accessToken:
+                            type: string
+                          refreshToken:
+                            type: string
+                          expiresIn:
+                            type: integer
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+
+  /auth/thai-id:
+    post:
+      tags: [Authentication]
+      summary: Login with Thai Digital ID
+      operationId: loginThaiId
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - authCode
+              properties:
+                authCode:
+                  type: string
+                  description: Authorization code from Thai Digital ID
+                state:
+                  type: string
+                  description: OAuth state parameter
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/paths/~1auth~1login/post/responses/200/content/application~1json/schema'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+
+  /auth/register:
+    post:
+      tags: [Authentication]
+      summary: Register new user
+      operationId: register
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - username
+                - password
+                - firstName
+                - lastName
+                - userType
+              properties:
+                email:
+                  type: string
+                  format: email
+                username:
+                  type: string
+                  minLength: 3
+                  maxLength: 50
+                password:
+                  type: string
+                  format: password
+                  minLength: 8
+                firstName:
+                  type: string
+                  maxLength: 100
+                lastName:
+                  type: string
+                  maxLength: 100
+                phoneNumber:
+                  type: string
+                  pattern: '^(\+66|0)[0-9]{8,9}$'
+                userType:
+                  type: string
+                  enum: [farmer, operator, viewer]
+                thaiNationalId:
+                  type: string
+                  pattern: '^[0-9]{13}$'
+      responses:
+        '201':
+          description: Registration successful
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: 'common.yaml#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/User'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '409':
+          $ref: 'common.yaml#/components/responses/Conflict'
+
+  /auth/verify-email/{token}:
+    post:
+      tags: [Authentication]
+      summary: Verify email address
+      operationId: verifyEmail
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Email verified
+          content:
+            application/json:
+              schema:
+                $ref: 'common.yaml#/components/schemas/ApiResponse'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+
+  /auth/forgot-password:
+    post:
+      tags: [Authentication]
+      summary: Request password reset
+      operationId: forgotPassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        '200':
+          description: Reset email sent
+          content:
+            application/json:
+              schema:
+                $ref: 'common.yaml#/components/schemas/ApiResponse'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+
+  /auth/reset-password:
+    post:
+      tags: [Authentication]
+      summary: Reset password
+      operationId: resetPassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - token
+                - password
+              properties:
+                token:
+                  type: string
+                password:
+                  type: string
+                  format: password
+                  minLength: 8
+      responses:
+        '200':
+          description: Password reset successful
+          content:
+            application/json:
+              schema:
+                $ref: 'common.yaml#/components/schemas/ApiResponse'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+
+  /users:
+    get:
+      tags: [Users]
+      summary: List users
+      operationId: listUsers
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: 'common.yaml#/components/parameters/PageParam'
+        - $ref: 'common.yaml#/components/parameters/PerPageParam'
+        - $ref: 'common.yaml#/components/parameters/SortParam'
+        - $ref: 'common.yaml#/components/parameters/SearchParam'
+        - name: userType
+          in: query
+          schema:
+            type: string
+            enum: [farmer, operator, admin, viewer, government]
+        - name: isActive
+          in: query
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Users list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: 'common.yaml#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/User'
+                      pagination:
+                        $ref: 'common.yaml#/components/schemas/PaginationMeta'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+
+  /users/{userId}:
+    get:
+      tags: [Users]
+      summary: Get user by ID
+      operationId: getUser
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            $ref: 'common.yaml#/components/schemas/UUID'
+      responses:
+        '200':
+          description: User details
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: 'common.yaml#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/User'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+
+  /users/me:
+    get:
+      tags: [Users]
+      summary: Get current user
+      operationId: getCurrentUser
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Current user details
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: 'common.yaml#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/User'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+
+    patch:
+      tags: [Users]
+      summary: Update current user
+      operationId: updateCurrentUser
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                firstName:
+                  type: string
+                lastName:
+                  type: string
+                phoneNumber:
+                  type: string
+                metadata:
+                  type: object
+      responses:
+        '200':
+          description: User updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: 'common.yaml#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/User'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+
+  /roles:
+    get:
+      tags: [Roles]
+      summary: List roles
+      operationId: listRoles
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Roles list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: 'common.yaml#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Role'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+
+components:
+  schemas:
+    User:
+      type: object
+      required:
+        - id
+        - email
+        - username
+        - userType
+        - isActive
+      properties:
+        id:
+          $ref: 'common.yaml#/components/schemas/UUID'
+        email:
+          type: string
+          format: email
+        username:
+          type: string
+        firstName:
+          type: string
+        lastName:
+          type: string
+        phoneNumber:
+          type: string
+        userType:
+          type: string
+          enum: [farmer, operator, admin, viewer, government]
+        isActive:
+          type: boolean
+        isVerified:
+          type: boolean
+        lastLoginAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+        roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/Role'
+        metadata:
+          type: object
+        createdAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+        updatedAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+
+    Role:
+      type: object
+      required:
+        - id
+        - roleName
+      properties:
+        id:
+          $ref: 'common.yaml#/components/schemas/UUID'
+        roleName:
+          type: string
+        description:
+          type: string
+        permissions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Permission'
+
+    Permission:
+      type: object
+      required:
+        - id
+        - permissionName
+        - resource
+        - action
+      properties:
+        id:
+          $ref: 'common.yaml#/components/schemas/UUID'
+        permissionName:
+          type: string
+        resource:
+          type: string
+        action:
+          type: string
+        description:
+          type: string
+
+  securitySchemes:
+    BearerAuth:
+      $ref: 'common.yaml#/components/securitySchemes/BearerAuth'

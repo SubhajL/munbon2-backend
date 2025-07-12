@@ -1,0 +1,25 @@
+{
+  "name": "@munbon/api-contracts",
+  "version": "1.0.0",
+  "description": "API contract definitions for Munbon Irrigation System",
+  "main": "index.js",
+  "scripts": {
+    "docs:generate": "npx @redocly/cli build-docs openapi/auth-service.yaml -o dist/auth-service.html && npx @redocly/cli build-docs openapi/sensor-data-service.yaml -o dist/sensor-data.html && npx @redocly/cli build-docs openapi/water-control-service.yaml -o dist/water-control.html",
+    "docs:validate": "npx @redocly/cli lint openapi/*.yaml",
+    "docs:serve": "npx @redocly/cli preview-docs openapi/auth-service.yaml",
+    "mock:server": "npx prism mock openapi/sensor-data-service.yaml -p 4010 -h 0.0.0.0",
+    "mock:server:local": "npx prism mock openapi/sensor-data-service.yaml -p 4010",
+    "generate:types": "npx openapi-typescript openapi/auth-service.yaml -o types/auth.d.ts && npx openapi-typescript openapi/sensor-data-service.yaml -o types/sensor-data.d.ts && npx openapi-typescript openapi/water-control-service.yaml -o types/water-control.d.ts"
+  },
+  "devDependencies": {
+    "@redocly/cli": "^1.0.0",
+    "@stoplight/prism-cli": "^5.0.0",
+    "openapi-typescript": "^6.0.0"
+  },
+  "files": [
+    "openapi/**/*.yaml",
+    "schemas/**/*.json",
+    "examples/**/*.json",
+    "types/**/*.d.ts"
+  ]
+}

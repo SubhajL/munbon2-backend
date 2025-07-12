@@ -1,0 +1,17 @@
+{
+  "name": "render-keep-alive-service",
+  "version": "1.0.0",
+  "description": "Keep Render.com services awake",
+  "main": "keep-alive-service.js",
+  "scripts": {
+    "start": "node keep-alive-service.js",
+    "pm2": "pm2 start keep-alive-service.js --name render-keeper",
+    "docker": "docker run -d --name render-keeper -p 3001:3001 -e RENDER_URL=$RENDER_URL render-keeper"
+  },
+  "keywords": ["render", "keep-alive", "monitoring"],
+  "author": "Munbon Team",
+  "license": "MIT",
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}

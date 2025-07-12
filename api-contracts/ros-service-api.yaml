@@ -1,0 +1,1002 @@
+openapi: 3.0.3
+info:
+  title: ROS Service API
+  description: Royal Irrigation Office Service (ROS) - Water demand calculations, crop management, and irrigation scheduling
+  version: 1.0.0
+  contact:
+    name: Munbon Irrigation Project
+    email: support@munbon.th
+
+servers:
+  - url: http://localhost:3047/api/v1
+    description: Development server
+  - url: https://api.munbon.th/v1
+    description: Production server
+
+tags:
+  - name: ETo
+    description: Reference evapotranspiration calculations
+  - name: Kc
+    description: Crop coefficient management
+  - name: Crops
+    description: Crop type and growth stage management
+  - name: Water Demand
+    description: Water demand calculations
+  - name: Effective Rainfall
+    description: Effective rainfall data management
+  - name: Water Level
+    description: Water level monitoring
+  - name: Schedule
+    description: Irrigation scheduling
+  - name: Calendar
+    description: Crop calendar management
+  - name: Area
+    description: Area information management
+
+paths:
+  # ETo Endpoints
+  /ros/eto/calculate:
+    post:
+      tags: [ETo]
+      summary: Calculate ETo using weather data
+      description: Calculate reference evapotranspiration using weather station data
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - date
+                - location
+              properties:
+                date:
+                  type: string
+                  format: date
+                  example: "2025-05-01"
+                location:
+                  type: object
+                  properties:
+                    lat:
+                      type: number
+                      example: 14.88
+                    lng:
+                      type: number
+                      example: 102.02
+                    altitude:
+                      type: number
+                      example: 200
+                weather:
+                  type: object
+                  properties:
+                    tmin:
+                      type: number
+                      example: 22
+                    tmax:
+                      type: number
+                      example: 35
+                    rhmin:
+                      type: number
+                      example: 60
+                    rhmax:
+                      type: number
+                      example: 85
+                    wind2m:
+                      type: number
+                      example: 2.5
+                    solarRad:
+                      type: number
+                      example: 22.5
+      responses:
+        200:
+          description: ETo calculation result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  eto:
+                    type: number
+                    example: 5.2
+                  method:
+                    type: string
+                    example: "penman-monteith"
+                  date:
+                    type: string
+                    format: date
+
+  /ros/eto/daily:
+    get:
+      tags: [ETo]
+      summary: Get daily ETo value
+      parameters:
+        - name: date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: lat
+          in: query
+          schema:
+            type: number
+            default: 14.88
+        - name: lng
+          in: query
+          schema:
+            type: number
+            default: 102.02
+      responses:
+        200:
+          description: Daily ETo value
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  date:
+                    type: string
+                    format: date
+                  eto:
+                    type: number
+                  location:
+                    type: object
+
+  /ros/eto/monthly:
+    get:
+      tags: [ETo]
+      summary: Get monthly ETo values
+      description: Get pre-calculated monthly ETo values from Thai Excel data
+      parameters:
+        - name: aosStation
+          in: query
+          schema:
+            type: string
+            default: "นครราชสีมา"
+        - name: province
+          in: query
+          schema:
+            type: string
+            default: "นครราชสีมา"
+        - name: month
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 12
+      responses:
+        200:
+          description: Monthly ETo data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  aosStation:
+                    type: string
+                  province:
+                    type: string
+                  monthlyData:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        month:
+                          type: integer
+                        etoValue:
+                          type: number
+
+  # Kc Endpoints
+  /ros/kc:
+    get:
+      tags: [Kc]
+      summary: Get Kc values for a crop
+      parameters:
+        - name: cropType
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [rice, corn, sugarcane]
+        - name: cropWeek
+          in: query
+          schema:
+            type: integer
+      responses:
+        200:
+          description: Kc values
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    cropWeek:
+                      type: integer
+                    kcValue:
+                      type: number
+
+  /ros/kc/upload:
+    post:
+      tags: [Kc]
+      summary: Upload Kc data from Excel
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        200:
+          description: Upload successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  recordsImported:
+                    type: integer
+
+  # Crop Management
+  /ros/crops:
+    get:
+      tags: [Crops]
+      summary: Get all crop types
+      responses:
+        200:
+          description: List of crop types
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    cropCode:
+                      type: string
+                    cropNameEn:
+                      type: string
+                    cropNameTh:
+                      type: string
+                    cropGroup:
+                      type: string
+                    totalGrowingDays:
+                      type: integer
+                    maxRootDepthM:
+                      type: number
+
+  /ros/crops/{cropCode}:
+    get:
+      tags: [Crops]
+      summary: Get specific crop details
+      parameters:
+        - name: cropCode
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Crop details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CropType'
+
+  /ros/crops/{cropCode}/stages:
+    get:
+      tags: [Crops]
+      summary: Get crop growth stages
+      parameters:
+        - name: cropCode
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Crop growth stages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CropStage'
+
+  # Water Demand
+  /ros/demand/calculate:
+    post:
+      tags: [Water Demand]
+      summary: Calculate water demand
+      description: |
+        Calculate water demand for a specific area and crop.
+        Uses crop-specific effective rainfall from Thai Excel data.
+        
+        Effective rainfall values:
+        - Rice: Higher values (e.g., 152.1 mm/month in May)
+        - Field crops (corn, sugarcane): Lower values (e.g., 67.6 mm/month in May)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WaterDemandInput'
+      responses:
+        200:
+          description: Water demand calculation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WaterDemandResult'
+
+  /ros/demand/parcel/{parcelId}:
+    get:
+      tags: [Water Demand]
+      summary: Get water demand for a parcel
+      parameters:
+        - name: parcelId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        200:
+          description: Water demand for parcel
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WaterDemandResult'
+
+  /ros/demand/zone/{zoneId}:
+    get:
+      tags: [Water Demand]
+      summary: Get aggregated water demand for a zone
+      parameters:
+        - name: zoneId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        200:
+          description: Zone water demand summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  zoneId:
+                    type: string
+                  date:
+                    type: string
+                    format: date
+                  totalAreaRai:
+                    type: number
+                  totalGrossDemandM3:
+                    type: number
+                  totalNetDemandM3:
+                    type: number
+                  parcels:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WaterDemandResult'
+
+  /ros/demand/seasonal:
+    post:
+      tags: [Water Demand]
+      summary: Calculate seasonal water demand
+      description: Calculate total water demand for entire crop season
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - areaId
+                - areaType
+                - areaRai
+                - cropType
+                - plantingDate
+              properties:
+                areaId:
+                  type: string
+                areaType:
+                  type: string
+                  enum: [project, zone, section, FTO]
+                areaRai:
+                  type: number
+                cropType:
+                  type: string
+                plantingDate:
+                  type: string
+                  format: date
+                includeRainfall:
+                  type: boolean
+                  default: false
+      responses:
+        200:
+          description: Seasonal water demand calculation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeasonalWaterDemandResult'
+
+  # Effective Rainfall
+  /ros/rainfall/effective:
+    get:
+      tags: [Effective Rainfall]
+      summary: Get effective rainfall data
+      description: |
+        Get pre-calculated effective rainfall from Thai Excel data.
+        Values are crop-specific (rice vs field crops).
+      parameters:
+        - name: cropType
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: month
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 12
+        - name: week
+          in: query
+          schema:
+            type: integer
+        - name: year
+          in: query
+          schema:
+            type: integer
+      responses:
+        200:
+          description: Effective rainfall data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cropType:
+                    type: string
+                    enum: [rice, field_crop]
+                  monthlyEffectiveRainfall:
+                    type: number
+                  weeklyEffectiveRainfall:
+                    type: number
+                  month:
+                    type: integer
+                  week:
+                    type: integer
+                  year:
+                    type: integer
+
+  /ros/rainfall/import:
+    post:
+      tags: [Effective Rainfall]
+      summary: Import rainfall data
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                data:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      areaId:
+                        type: string
+                      date:
+                        type: string
+                        format: date
+                      rainfallMm:
+                        type: number
+                efficiencyFactor:
+                  type: number
+                  default: 0.8
+      responses:
+        200:
+          description: Import successful
+
+  # Water Level
+  /ros/water-level/current/{areaId}:
+    get:
+      tags: [Water Level]
+      summary: Get current water level
+      parameters:
+        - name: areaId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Current water level
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WaterLevelData'
+
+  /ros/water-level/save:
+    post:
+      tags: [Water Level]
+      summary: Save water level measurement
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WaterLevelData'
+      responses:
+        200:
+          description: Water level saved
+
+  /ros/water-level/history/{areaId}:
+    get:
+      tags: [Water Level]
+      summary: Get water level history
+      parameters:
+        - name: areaId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: startDate
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: endDate
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        200:
+          description: Water level history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WaterLevelData'
+
+  # Irrigation Schedule
+  /ros/schedule/generate:
+    post:
+      tags: [Schedule]
+      summary: Generate irrigation schedule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - zoneId
+                - date
+                - availableWater
+              properties:
+                zoneId:
+                  type: string
+                date:
+                  type: string
+                  format: date
+                availableWater:
+                  type: number
+                  description: Available water in m³
+      responses:
+        200:
+          description: Generated irrigation schedule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IrrigationSchedule'
+
+  /ros/schedule/zone/{zoneId}/current:
+    get:
+      tags: [Schedule]
+      summary: Get current schedule for zone
+      parameters:
+        - name: zoneId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Current irrigation schedule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IrrigationSchedule'
+
+  # Crop Calendar
+  /ros/calendar/zone/{zoneId}:
+    get:
+      tags: [Calendar]
+      summary: Get crop calendar for zone
+      parameters:
+        - name: zoneId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: year
+          in: query
+          schema:
+            type: integer
+      responses:
+        200:
+          description: Crop calendar
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CropCalendarEntry'
+
+  /ros/calendar/planting:
+    post:
+      tags: [Calendar]
+      summary: Record crop planting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CropCalendarEntry'
+      responses:
+        200:
+          description: Planting recorded
+
+  # Area Management
+  /ros/areas:
+    get:
+      tags: [Area]
+      summary: Get all areas
+      parameters:
+        - name: areaType
+          in: query
+          schema:
+            type: string
+            enum: [project, zone, section, FTO]
+      responses:
+        200:
+          description: List of areas
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AreaInfo'
+
+  /ros/areas/{areaId}:
+    get:
+      tags: [Area]
+      summary: Get area details
+      parameters:
+        - name: areaId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Area details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AreaInfo'
+
+components:
+  schemas:
+    WaterDemandInput:
+      type: object
+      required:
+        - areaId
+        - cropType
+        - areaType
+        - areaRai
+        - cropWeek
+        - calendarWeek
+        - calendarYear
+      properties:
+        areaId:
+          type: string
+          example: "PLOT-123"
+        cropType:
+          type: string
+          enum: [rice, corn, sugarcane]
+          example: "rice"
+        areaType:
+          type: string
+          enum: [project, zone, section, FTO]
+          example: "FTO"
+        areaRai:
+          type: number
+          example: 100
+        cropWeek:
+          type: integer
+          example: 5
+          description: Week in crop growth cycle (1-16 for rice)
+        calendarWeek:
+          type: integer
+          example: 20
+          description: Calendar week of year (1-52)
+        calendarYear:
+          type: integer
+          example: 2025
+        effectiveRainfall:
+          type: number
+          description: Optional - if not provided, uses crop-specific Excel data
+        waterLevel:
+          type: number
+          description: Optional - current water level in meters
+
+    WaterDemandResult:
+      type: object
+      properties:
+        areaId:
+          type: string
+        areaType:
+          type: string
+        areaRai:
+          type: number
+        cropType:
+          type: string
+        cropWeek:
+          type: integer
+        calendarWeek:
+          type: integer
+        calendarYear:
+          type: integer
+        monthlyETo:
+          type: number
+          example: 145.08
+          description: Monthly ETo from station data (mm)
+        weeklyETo:
+          type: number
+          example: 36.27
+          description: Weekly ETo (monthly/4 or adjusted)
+        kcValue:
+          type: number
+          example: 1.03
+          description: Crop coefficient for current growth stage
+        percolation:
+          type: number
+          example: 14
+          description: Fixed percolation rate (mm/week)
+        cropWaterDemandMm:
+          type: number
+          example: 64.05
+          description: Gross water demand (ETo × Kc + percolation)
+        cropWaterDemandM3:
+          type: number
+          example: 10248.42
+          description: Gross water volume (mm × area × 1.6)
+        effectiveRainfall:
+          type: number
+          example: 38.03
+          description: Crop-specific effective rainfall (mm/week)
+        waterLevel:
+          type: number
+          description: Current water level (informational only)
+        netWaterDemandMm:
+          type: number
+          example: 26.02
+          description: Net demand after rainfall (gross - rainfall)
+        netWaterDemandM3:
+          type: number
+          example: 4163.2
+          description: Net volume after rainfall
+
+    SeasonalWaterDemandResult:
+      type: object
+      properties:
+        areaId:
+          type: string
+        areaType:
+          type: string
+        areaRai:
+          type: number
+        cropType:
+          type: string
+        totalCropWeeks:
+          type: integer
+        plantingDate:
+          type: string
+          format: date
+        harvestDate:
+          type: string
+          format: date
+        totalWaterDemandMm:
+          type: number
+        totalWaterDemandM3:
+          type: number
+        totalEffectiveRainfall:
+          type: number
+        totalNetWaterDemandMm:
+          type: number
+        totalNetWaterDemandM3:
+          type: number
+        weeklyDetails:
+          type: array
+          items:
+            $ref: '#/components/schemas/WaterDemandResult'
+
+    CropType:
+      type: object
+      properties:
+        id:
+          type: integer
+        cropCode:
+          type: string
+        cropNameEn:
+          type: string
+        cropNameTh:
+          type: string
+        cropGroup:
+          type: string
+        totalGrowingDays:
+          type: integer
+        madFraction:
+          type: number
+        yieldResponseFactor:
+          type: number
+        maxRootDepthM:
+          type: number
+
+    CropStage:
+      type: object
+      properties:
+        id:
+          type: integer
+        cropCode:
+          type: string
+        stageName:
+          type: string
+        stageOrder:
+          type: integer
+        durationDays:
+          type: integer
+        kcValue:
+          type: number
+        rootDepthFraction:
+          type: number
+        criticalDepletion:
+          type: number
+
+    WaterLevelData:
+      type: object
+      properties:
+        areaId:
+          type: string
+        measurementDate:
+          type: string
+          format: date
+        measurementTime:
+          type: string
+          format: time
+        waterLevelM:
+          type: number
+        referenceLevel:
+          type: string
+          enum: [MSL, local_datum]
+        source:
+          type: string
+          enum: [manual, sensor, scada]
+        sensorId:
+          type: string
+
+    IrrigationSchedule:
+      type: object
+      properties:
+        zoneId:
+          type: string
+        date:
+          type: string
+          format: date
+        totalDemand:
+          type: number
+        availableWater:
+          type: number
+        allocations:
+          type: array
+          items:
+            type: object
+            properties:
+              parcelId:
+                type: string
+              allocated:
+                type: number
+              required:
+                type: number
+              priority:
+                type: number
+        deficitParcels:
+          type: array
+          items:
+            type: string
+
+    CropCalendarEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+        areaId:
+          type: string
+        areaType:
+          type: string
+        cropType:
+          type: string
+        plantingDate:
+          type: string
+          format: date
+        expectedHarvestDate:
+          type: string
+          format: date
+        actualHarvestDate:
+          type: string
+          format: date
+        season:
+          type: string
+          enum: [wet, dry]
+        year:
+          type: integer
+        totalCropWeeks:
+          type: integer
+
+    AreaInfo:
+      type: object
+      properties:
+        id:
+          type: integer
+        areaId:
+          type: string
+        areaType:
+          type: string
+        areaName:
+          type: string
+        totalAreaRai:
+          type: number
+        parentAreaId:
+          type: string
+        aosStation:
+          type: string
+        province:
+          type: string
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+security:
+  - bearerAuth: []

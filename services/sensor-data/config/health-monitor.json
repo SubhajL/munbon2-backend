@@ -1,0 +1,25 @@
+{
+  "tunnelUrl": "https://munbon-api.beautifyai.io",
+  "localApiUrl": "http://localhost:3000",
+  "checkInterval": 300000,
+  "maxRetries": 3,
+  "retryDelay": 30000,
+  "email": {
+    "enabled": false,
+    "smtp": {
+      "host": "smtp.gmail.com",
+      "port": 587,
+      "secure": false,
+      "auth": {
+        "user": "",
+        "pass": ""
+      }
+    },
+    "from": "munbon-monitor@example.com",
+    "to": "admin@example.com"
+  },
+  "webhook": {
+    "enabled": false,
+    "url": ""
+  }
+}

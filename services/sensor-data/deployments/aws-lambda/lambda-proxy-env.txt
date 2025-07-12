@@ -1,0 +1,13 @@
+# Environment variables for Lambda functions
+
+# Your tunnel URL (Cloudflare or ngrok)
+INTERNAL_API_URL=https://munbon-api.YOUR_DOMAIN.com
+
+# Internal API key (generate a secure one)
+INTERNAL_API_KEY=internal-key-$(openssl rand -hex 16)
+
+# External API keys (for clients)
+EXTERNAL_API_KEYS=rid-ms-prod-key1,rid-ms-dev-key2,test-key-123
+
+# Stage
+STAGE=dev

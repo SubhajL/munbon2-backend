@@ -1,0 +1,292 @@
+# Docker Compose for Munbon Backend Local Development
+# Optimized for MacBook M4 Pro
+
+x-common-variables: &common-variables
+  NODE_ENV: development
+  LOG_LEVEL: debug
+  JWT_SECRET: local-dev-secret-change-in-production
+  REDIS_URL: redis://redis:6379
+
+x-resource-limits: &resource-limits
+  deploy:
+    resources:
+      limits:
+        cpus: '0.5'
+        memory: 512M
+      reservations:
+        cpus: '0.1'
+        memory: 128M
+
+services:
+  # =================
+  # Databases
+  # =================
+  
+  postgres:
+    image: postgis/postgis:15-3.3
+    container_name: munbon-postgres
+    environment:
+      POSTGRES_DB: munbon_dev
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./scripts/db/postgres:/docker-entrypoint-initdb.d
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    <<: *resource-limits
+
+  timescaledb:
+    image: timescale/timescaledb:latest-pg15
+    container_name: munbon-timescaledb
+    environment:
+      POSTGRES_DB: munbon_timescale
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - timescale-data:/var/lib/postgresql/data
+      - ./scripts/db/timescale:/docker-entrypoint-initdb.d
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    <<: *resource-limits
+
+  mongodb:
+    image: mongo:7
+    container_name: munbon-mongodb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: admin
+      MONGO_INITDB_DATABASE: munbon_dev
+    volumes:
+      - mongo-data:/data/db
+      - ./scripts/db/mongo:/docker-entrypoint-initdb.d
+    ports:
+      - "27017:27017"
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    <<: *resource-limits
+
+  redis:
+    image: redis:7-alpine
+    container_name: munbon-redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    <<: *resource-limits
+
+  influxdb:
+    image: influxdb:2
+    container_name: munbon-influxdb
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: admin123456
+      DOCKER_INFLUXDB_INIT_ORG: munbon
+      DOCKER_INFLUXDB_INIT_BUCKET: metrics
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: local-dev-token
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+      - influxdb-config:/etc/influxdb2
+    ports:
+      - "8086:8086"
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    <<: *resource-limits
+
+  # =================
+  # Message Queue
+  # =================
+  
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: munbon-kafka
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,PLAINTEXT_INTERNAL://kafka:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+    ports:
+      - "9092:9092"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    <<: *resource-limits
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: munbon-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+      - zookeeper-logs:/var/lib/zookeeper/log
+    <<: *resource-limits
+
+  # =================
+  # Development Tools
+  # =================
+  
+  # Kafka UI for development
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: munbon-kafka-ui
+    depends_on:
+      - kafka
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+    ports:
+      - "8090:8080"
+    profiles:
+      - tools
+    <<: *resource-limits
+
+  # MongoDB Express for development
+  mongo-express:
+    image: mongo-express:latest
+    container_name: munbon-mongo-express
+    depends_on:
+      - mongodb
+    environment:
+      ME_CONFIG_MONGODB_ADMINUSERNAME: admin
+      ME_CONFIG_MONGODB_ADMINPASSWORD: admin
+      ME_CONFIG_MONGODB_URL: mongodb://admin:admin@mongodb:27017/
+    ports:
+      - "8091:8081"
+    profiles:
+      - tools
+    <<: *resource-limits
+
+  # Redis Commander for development
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: munbon-redis-commander
+    depends_on:
+      - redis
+    environment:
+      REDIS_HOSTS: local:redis:6379
+    ports:
+      - "8092:8081"
+    profiles:
+      - tools
+    <<: *resource-limits
+
+  # =================
+  # Core Services (Development)
+  # =================
+  
+  # API Gateway
+  api-gateway:
+    build:
+      context: ./services/infrastructure/api-gateway
+      target: development
+    container_name: munbon-api-gateway
+    environment:
+      <<: *common-variables
+      PORT: 3000
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/munbon_dev
+    volumes:
+      - ./services/infrastructure/api-gateway:/app
+      - /app/node_modules
+    ports:
+      - "3000:3000"
+    depends_on:
+      - postgres
+      - redis
+    profiles:
+      - services
+    <<: *resource-limits
+
+  # Auth Service
+  auth-service:
+    build:
+      context: ./services/infrastructure/auth-service
+      target: development
+    container_name: munbon-auth-service
+    environment:
+      <<: *common-variables
+      PORT: 8001
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/munbon_dev
+    volumes:
+      - ./services/infrastructure/auth-service:/app
+      - /app/node_modules
+    ports:
+      - "8001:8001"
+    depends_on:
+      - postgres
+      - redis
+    profiles:
+      - services
+    <<: *resource-limits
+
+  # AWD Control Service
+  awd-control:
+    build:
+      context: ./services/awd-control
+      dockerfile: Dockerfile.dev
+    container_name: munbon-awd-control
+    environment:
+      <<: *common-variables
+      PORT: 3010
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/munbon_dev
+      TIMESCALE_URL: postgresql://postgres:postgres@timescaledb:5432/munbon_timescale
+      KAFKA_BROKERS: kafka:29092
+      REDIS_DB: 13
+    volumes:
+      - ./services/awd-control:/app
+      - /app/node_modules
+    ports:
+      - "3010:3010"
+    depends_on:
+      - postgres
+      - timescaledb
+      - redis
+      - kafka
+    profiles:
+      - services
+    <<: *resource-limits
+
+volumes:
+  postgres-data:
+  timescale-data:
+  mongo-data:
+  redis-data:
+  influxdb-data:
+  influxdb-config:
+  kafka-data:
+  zookeeper-data:
+  zookeeper-logs:
+
+networks:
+  default:
+    name: munbon-network
+    driver: bridge

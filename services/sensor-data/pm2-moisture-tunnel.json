@@ -1,0 +1,21 @@
+{
+  "apps": [
+    {
+      "name": "munbon-moisture-tunnel",
+      "script": "cloudflared",
+      "args": "tunnel --config /Users/subhajlimanond/.cloudflared/config-moisture.yml run",
+      "cwd": "/Users/subhajlimanond/dev/munbon2-backend/services/sensor-data",
+      "env": {
+        "NODE_ENV": "production"
+      },
+      "autorestart": true,
+      "watch": false,
+      "max_restarts": 10,
+      "min_uptime": "10s",
+      "error_file": "./logs/moisture-tunnel-error.log",
+      "out_file": "./logs/moisture-tunnel-out.log",
+      "log_file": "./logs/moisture-tunnel-combined.log",
+      "time": true
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "apps": [{
+    "name": "munbon-cloudflare-tunnel",
+    "script": "cloudflared",
+    "args": "tunnel --url https://c0zc2kfzd6.execute-api.ap-southeast-1.amazonaws.com",
+    "log_file": "./tunnel.log",
+    "error_file": "./tunnel-error.log",
+    "out_file": "./tunnel-out.log",
+    "merge_logs": true,
+    "autorestart": true,
+    "watch": false,
+    "max_restarts": 10,
+    "min_uptime": "10s"
+  }]
+}

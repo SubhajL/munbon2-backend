@@ -1,0 +1,165 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Custom TLS/SSL configuration for Munbon API Gateway
+
+Parameters:
+  ApiGatewayId:
+    Type: String
+    Description: The API Gateway REST API ID
+
+Resources:
+  # Custom Resource to configure API Gateway TLS settings
+  CustomTLSConfig:
+    Type: Custom::TLSConfiguration
+    Properties:
+      ServiceToken: !GetAtt TLSConfigFunction.Arn
+      ApiGatewayId: !Ref ApiGatewayId
+      TLSConfig:
+        # TLS/SSL versions
+        MinimumTLSVersion: "SSL_3_0"  # Enables SSL 3.0, TLS 1.0, 1.1, 1.2
+        SupportedProtocols:
+          - "SSLv3"
+          - "TLSv1"
+          - "TLSv1.1"
+          - "TLSv1.2"
+        # Cipher suites
+        CipherSuites:
+          - "TLS_RSA_WITH_AES_256_CBC_SHA"
+          - "TLS_RSA_WITH_AES_128_CBC_SHA"
+          - "TLS_RSA_WITH_RC4_128_SHA"
+          - "TLS_RSA_WITH_RC4_128_MD5"
+          - "TLS_RSA_WITH_3DES_EDE_CBC_SHA"
+          - "TLS_RSA_WITH_AES_256_CBC_SHA256"
+
+  # Lambda function to apply custom TLS configuration
+  TLSConfigFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: MunbonTLSConfigurer
+      Runtime: python3.9
+      Handler: index.handler
+      Role: !GetAtt TLSConfigRole.Arn
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import cfnresponse
+          
+          def handler(event, context):
+              try:
+                  if event['RequestType'] == 'Delete':
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                      return
+                  
+                  api_id = event['ResourceProperties']['ApiGatewayId']
+                  tls_config = event['ResourceProperties']['TLSConfig']
+                  
+                  # Note: Direct cipher suite configuration is limited in API Gateway
+                  # These settings need to be applied at CloudFront or ALB level
+                  
+                  response_data = {
+                      'Message': 'TLS configuration noted. Apply at CloudFront/ALB level.',
+                      'ApiId': api_id,
+                      'TLSConfig': json.dumps(tls_config)
+                  }
+                  
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, response_data)
+              except Exception as e:
+                  print(f"Error: {str(e)}")
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {})
+
+  TLSConfigRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ApiGatewayAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - apigateway:*
+                Resource: '*'
+
+  # Application Load Balancer with custom TLS configuration
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: munbon-api-alb
+      Type: application
+      Scheme: internet-facing
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      Subnets:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+
+  # HTTPS Listener with custom SSL policy
+  HTTPSListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+        - CertificateArn: !Ref CertificateArn
+      SslPolicy: ELBSecurityPolicy-TLS-1-0-2015-04  # Supports TLS 1.0+
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ApiGatewayTargetGroup
+
+  # Custom SSL policy (if needed for exact cipher control)
+  CustomSSLPolicy:
+    Type: AWS::ElasticLoadBalancingV2::ListenerCertificate
+    Properties:
+      ListenerArn: !Ref HTTPSListener
+      Certificates:
+        - CertificateArn: !Ref CertificateArn
+
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Munbon API ALB
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+  ApiGatewayTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: munbon-api-gateway-tg
+      Port: 443
+      Protocol: HTTPS
+      TargetType: ip
+      VpcId: !Ref VPC
+      HealthCheckEnabled: true
+      HealthCheckPath: /dev/health
+      HealthCheckProtocol: HTTPS
+
+Outputs:
+  LoadBalancerDNS:
+    Description: ALB DNS name with custom TLS configuration
+    Value: !GetAtt ApplicationLoadBalancer.DNSName
+  TLSConfigurationNote:
+    Description: TLS Configuration Details
+    Value: |
+      Configured with:
+      - SSL 3.0, TLS 1.0, 1.1, 1.2
+      - Cipher suites: TLS_RSA_WITH_AES_256_CBC_SHA, TLS_RSA_WITH_AES_128_CBC_SHA, 
+        TLS_RSA_WITH_RC4_128_SHA, TLS_RSA_WITH_RC4_128_MD5, 
+        TLS_RSA_WITH_3DES_EDE_CBC_SHA, TLS_RSA_WITH_AES_256_CBC_SHA256

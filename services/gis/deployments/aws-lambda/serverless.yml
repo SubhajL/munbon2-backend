@@ -1,0 +1,118 @@
+service: munbon-gis-shapefile
+
+provider:
+  name: aws
+  runtime: nodejs18.x
+  region: ap-southeast-1
+  stage: ${opt:stage, 'dev'}
+  environment:
+    GIS_SQS_QUEUE_URL: 
+      Ref: GISShapefileQueue
+    SHAPE_FILE_BUCKET: munbon-gis-shape-files
+    STAGE: ${self:provider.stage}
+    # API token for authentication
+    EXTERNAL_UPLOAD_TOKEN: munbon-gis-shapefile
+
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - sqs:SendMessage
+            - sqs:GetQueueAttributes
+          Resource:
+            - Fn::GetAtt: [GISShapefileQueue, Arn]
+        - Effect: Allow
+          Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+          Resource: "*"
+        - Effect: Allow
+          Action:
+            - s3:PutObject
+            - s3:PutObjectAcl
+            - s3:GetObject
+          Resource:
+            - "arn:aws:s3:::munbon-gis-shape-files/*"
+        - Effect: Allow
+          Action:
+            - s3:ListBucket
+            - s3:GetBucketLocation
+          Resource:
+            - "arn:aws:s3:::munbon-gis-shape-files"
+
+functions:
+  shapefileUpload:
+    handler: handler.shapefileUpload
+    timeout: 300  # 5 minutes for large file uploads
+    events:
+      - http:
+          path: /api/v1/gis/shapefile/upload
+          method: post
+          cors: true
+          authorizer: bearerTokenAuth
+    environment:
+      QUEUE_URL: 
+        Ref: GISShapefileQueue
+
+  # Bearer token authorizer
+  bearerTokenAuth:
+    handler: handler.bearerTokenAuth
+
+  # Internal upload endpoint (no auth required)
+  internalShapefileUpload:
+    handler: handler.internalShapefileUpload
+    timeout: 300
+    events:
+      - http:
+          path: /api/v1/gis/internal/shapefile/upload
+          method: post
+          cors: true
+
+resources:
+  Resources:
+    GISShapefileQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: munbon-gis-shapefile-queue
+        VisibilityTimeout: 300
+        MessageRetentionPeriod: 1209600  # 14 days
+        ReceiveMessageWaitTimeSeconds: 20
+        RedrivePolicy:
+          deadLetterTargetArn:
+            Fn::GetAtt: [GISShapefileDLQ, Arn]
+          maxReceiveCount: 3
+
+    GISShapefileDLQ:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: munbon-gis-shapefile-dlq
+        MessageRetentionPeriod: 1209600  # 14 days
+
+  Outputs:
+    ApiGatewayUrl:
+      Description: API Gateway endpoint URL
+      Value:
+        Fn::Sub: https://${ApiGatewayRestApi}.execute-api.${AWS::Region}.amazonaws.com/${self:provider.stage}
+    GISShapefileQueueUrl:
+      Description: GIS Shapefile Queue URL
+      Value:
+        Ref: GISShapefileQueue
+    GISShapefileQueueArn:
+      Description: GIS Shapefile Queue ARN
+      Value:
+        Fn::GetAtt: [GISShapefileQueue, Arn]
+
+plugins:
+  - serverless-plugin-typescript
+  - serverless-offline
+  - serverless-apigw-binary
+
+custom:
+  serverless-offline:
+    httpPort: 3008
+  apigwBinary:
+    types:
+      - 'multipart/form-data'
+      - 'application/zip'

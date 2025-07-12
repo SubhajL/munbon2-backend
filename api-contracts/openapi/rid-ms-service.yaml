@@ -1,0 +1,1127 @@
+openapi: 3.1.0
+info:
+  title: RID-MS Service API
+  description: |
+    Royal Irrigation Department - Management System Service API for processing SHAPE files 
+    and managing water demand calculations for the Munbon Irrigation Project.
+  version: 1.0.0
+  contact:
+    name: Munbon Irrigation Project Team
+    email: support@munbon-irrigation.th
+
+servers:
+  - url: http://localhost:3048/api/v1
+    description: Local development server
+  - url: https://api.munbon-irrigation.th/v1
+    description: Production server
+
+tags:
+  - name: parcels
+    description: Parcel management and queries
+  - name: zones
+    description: Zone-based operations and statistics
+  - name: water-demand
+    description: Water demand calculations
+  - name: export
+    description: Data export operations
+  - name: shape-files
+    description: Shape file management
+
+security:
+  - bearerAuth: []
+
+paths:
+  /parcels:
+    get:
+      tags: [parcels]
+      summary: List parcels with filters
+      operationId: listParcels
+      parameters:
+        - $ref: '#/components/parameters/ZoneParam'
+        - $ref: '#/components/parameters/CropTypeParam'
+        - name: ownerName
+          in: query
+          schema:
+            type: string
+          description: Filter by owner name (partial match)
+        - $ref: '#/components/parameters/WaterDemandMethodParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/OffsetParam'
+        - name: sortBy
+          in: query
+          schema:
+            type: string
+            enum: [parcelId, zone, areaRai, createdAt]
+        - name: sortOrder
+          in: query
+          schema:
+            type: string
+            enum: [asc, desc]
+      responses:
+        '200':
+          description: List of parcels
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParcelListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /parcels/search:
+    get:
+      tags: [parcels]
+      summary: Search parcels by text
+      operationId: searchParcels
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Search query
+        - name: searchFields
+          in: query
+          schema:
+            type: string
+          description: Comma-separated fields to search
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParcelSearchResponse'
+
+  /parcels/at-date:
+    get:
+      tags: [parcels]
+      summary: Get parcels valid at specific date
+      operationId: getParcelsAtDate
+      parameters:
+        - name: date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - $ref: '#/components/parameters/ZoneParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/OffsetParam'
+      responses:
+        '200':
+          description: Parcels at specified date
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParcelsAtDateResponse'
+
+  /parcels/{id}:
+    get:
+      tags: [parcels]
+      summary: Get single parcel details
+      operationId: getParcelById
+      parameters:
+        - $ref: '#/components/parameters/ParcelIdParam'
+      responses:
+        '200':
+          description: Parcel details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParcelDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags: [parcels]
+      summary: Update parcel attributes
+      operationId: updateParcel
+      parameters:
+        - $ref: '#/components/parameters/ParcelIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ParcelUpdateRequest'
+      responses:
+        '200':
+          description: Parcel updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParcelUpdateResponse'
+
+  /parcels/history/{parcelId}:
+    get:
+      tags: [parcels]
+      summary: Get parcel version history
+      operationId: getParcelHistory
+      parameters:
+        - name: parcelId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Parcel history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParcelHistoryResponse'
+
+  /zones:
+    get:
+      tags: [zones]
+      summary: List all zones with optional statistics
+      operationId: listZones
+      parameters:
+        - name: includeStats
+          in: query
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: List of zones
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ZoneListResponse'
+
+  /zones/{zone}/parcels:
+    get:
+      tags: [zones]
+      summary: Get all parcels in a zone
+      operationId: getZoneParcels
+      parameters:
+        - $ref: '#/components/parameters/ZonePathParam'
+        - $ref: '#/components/parameters/CropTypeParam'
+        - $ref: '#/components/parameters/WaterDemandMethodParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/OffsetParam'
+      responses:
+        '200':
+          description: Parcels in zone
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ZoneParcelsResponse'
+
+  /zones/{zone}/summary:
+    get:
+      tags: [zones]
+      summary: Get zone summary with statistics
+      operationId: getZoneSummary
+      parameters:
+        - $ref: '#/components/parameters/ZonePathParam'
+        - name: date
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Zone summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ZoneSummary'
+
+  /zones/{zone}/geojson:
+    get:
+      tags: [zones, export]
+      summary: Export zone as GeoJSON
+      operationId: getZoneGeoJSON
+      parameters:
+        - $ref: '#/components/parameters/ZonePathParam'
+        - $ref: '#/components/parameters/IncludeWaterDemandParam'
+        - $ref: '#/components/parameters/SimplifyParam'
+        - $ref: '#/components/parameters/PrecisionParam'
+      responses:
+        '200':
+          description: Zone GeoJSON
+          content:
+            application/geo+json:
+              schema:
+                $ref: '#/components/schemas/GeoJSONFeatureCollection'
+
+  /zones/{zone}/changes:
+    get:
+      tags: [zones]
+      summary: Get zone changes over time
+      operationId: getZoneChanges
+      parameters:
+        - $ref: '#/components/parameters/ZonePathParam'
+        - name: startDate
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: endDate
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Zone changes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ZoneChangesResponse'
+
+  /water-demand/parcels/{id}:
+    get:
+      tags: [water-demand]
+      summary: Get water demand for a parcel
+      operationId: getParcelWaterDemand
+      parameters:
+        - $ref: '#/components/parameters/ParcelIdParam'
+        - name: date
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Water demand data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParcelWaterDemand'
+
+  /water-demand/calculate:
+    post:
+      tags: [water-demand]
+      summary: Calculate water demand for parcels
+      operationId: calculateWaterDemand
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WaterDemandCalculationRequest'
+      responses:
+        '200':
+          description: Calculation results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WaterDemandCalculationResponse'
+
+  /water-demand/zones/{zone}:
+    get:
+      tags: [water-demand]
+      summary: Get aggregated water demand by zone
+      operationId: getZoneWaterDemand
+      parameters:
+        - $ref: '#/components/parameters/ZonePathParam'
+        - name: date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: method
+          in: query
+          schema:
+            $ref: '#/components/schemas/WaterDemandMethod'
+      responses:
+        '200':
+          description: Zone water demand
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ZoneWaterDemand'
+
+  /water-demand/summary:
+    get:
+      tags: [water-demand]
+      summary: Get system-wide water demand summary
+      operationId: getWaterDemandSummary
+      parameters:
+        - name: date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: groupBy
+          in: query
+          schema:
+            type: string
+            enum: [zone, method, cropType]
+      responses:
+        '200':
+          description: Water demand summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WaterDemandSummary'
+
+  /water-demand/history/{parcelId}:
+    get:
+      tags: [water-demand]
+      summary: Get water demand history for parcel
+      operationId: getWaterDemandHistory
+      parameters:
+        - name: parcelId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: startDate
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: endDate
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Water demand history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WaterDemandHistory'
+
+  /export/parcels/geojson:
+    get:
+      tags: [export]
+      summary: Export parcels as GeoJSON
+      operationId: exportParcelsGeoJSON
+      parameters:
+        - $ref: '#/components/parameters/ZoneParam'
+        - $ref: '#/components/parameters/CropTypeParam'
+        - $ref: '#/components/parameters/WaterDemandMethodParam'
+        - $ref: '#/components/parameters/IncludeWaterDemandParam'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            maximum: 10000
+            default: 10000
+        - $ref: '#/components/parameters/SimplifyParam'
+        - $ref: '#/components/parameters/PrecisionParam'
+      responses:
+        '200':
+          description: Parcels GeoJSON
+          content:
+            application/geo+json:
+              schema:
+                $ref: '#/components/schemas/GeoJSONFeatureCollection'
+
+  /export/zones/geojson:
+    get:
+      tags: [export]
+      summary: Export zones as GeoJSON
+      operationId: exportZonesGeoJSON
+      parameters:
+        - name: includeStats
+          in: query
+          schema:
+            type: boolean
+        - name: includeWaterDemand
+          in: query
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Zones GeoJSON
+          content:
+            application/geo+json:
+              schema:
+                $ref: '#/components/schemas/GeoJSONFeatureCollection'
+
+  /export/water-demand/geojson:
+    get:
+      tags: [export]
+      summary: Export water demand heatmap
+      operationId: exportWaterDemandHeatmap
+      parameters:
+        - $ref: '#/components/parameters/ZoneParam'
+        - name: method
+          in: query
+          schema:
+            $ref: '#/components/schemas/WaterDemandMethod'
+        - name: date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: resolution
+          in: query
+          schema:
+            type: string
+            enum: [high, medium, low]
+            default: medium
+      responses:
+        '200':
+          description: Water demand heatmap
+          content:
+            application/geo+json:
+              schema:
+                $ref: '#/components/schemas/GeoJSONFeatureCollection'
+
+  /export/custom:
+    post:
+      tags: [export]
+      summary: Custom export with specific attributes
+      operationId: customExport
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CustomExportRequest'
+      responses:
+        '200':
+          description: Custom export result
+          content:
+            application/geo+json:
+              schema:
+                $ref: '#/components/schemas/GeoJSONFeatureCollection'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    ParcelIdParam:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    ZoneParam:
+      name: zone
+      in: query
+      schema:
+        type: string
+      description: Filter by zone
+
+    ZonePathParam:
+      name: zone
+      in: path
+      required: true
+      schema:
+        type: string
+
+    CropTypeParam:
+      name: cropType
+      in: query
+      schema:
+        type: string
+      description: Filter by crop type
+
+    WaterDemandMethodParam:
+      name: waterDemandMethod
+      in: query
+      schema:
+        $ref: '#/components/schemas/WaterDemandMethod'
+
+    LimitParam:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 1000
+        default: 50
+
+    OffsetParam:
+      name: offset
+      in: query
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+
+    IncludeWaterDemandParam:
+      name: includeWaterDemand
+      in: query
+      schema:
+        type: boolean
+        default: false
+
+    SimplifyParam:
+      name: simplify
+      in: query
+      schema:
+        type: boolean
+        default: false
+
+    PrecisionParam:
+      name: precision
+      in: query
+      schema:
+        type: integer
+        minimum: 0
+        maximum: 10
+        default: 6
+
+  schemas:
+    WaterDemandMethod:
+      type: string
+      enum: [RID-MS, ROS, AWD]
+      description: |
+        Water demand calculation method:
+        - RID-MS: Royal Irrigation Department standard (65% efficiency)
+        - ROS: Rotational Operation System (75% efficiency)
+        - AWD: Alternate Wetting and Drying (85% efficiency)
+
+    Parcel:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        parcelId:
+          type: string
+        zone:
+          type: string
+        subZone:
+          type: string
+        areaRai:
+          type: number
+          format: float
+        areaSqm:
+          type: number
+          format: float
+        cropType:
+          type: string
+        ownerName:
+          type: string
+        waterDemandMethod:
+          $ref: '#/components/schemas/WaterDemandMethod'
+        centroid:
+          $ref: '#/components/schemas/Point'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ParcelDetail:
+      allOf:
+        - $ref: '#/components/schemas/Parcel'
+        - type: object
+          properties:
+            geometry:
+              $ref: '#/components/schemas/Polygon'
+            ownerId:
+              type: string
+            plantingDate:
+              type: string
+              format: date
+            harvestDate:
+              type: string
+              format: date
+            shapeFileName:
+              type: string
+            uploadDate:
+              type: string
+              format: date-time
+            waterDemand:
+              $ref: '#/components/schemas/WaterDemandData'
+
+    ParcelListResponse:
+      type: object
+      properties:
+        parcels:
+          type: array
+          items:
+            $ref: '#/components/schemas/Parcel'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    ParcelSearchResponse:
+      type: object
+      properties:
+        parcels:
+          type: array
+          items:
+            $ref: '#/components/schemas/Parcel'
+        count:
+          type: integer
+
+    ParcelsAtDateResponse:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        parcels:
+          type: array
+          items:
+            $ref: '#/components/schemas/Parcel'
+        count:
+          type: integer
+
+    ParcelHistoryResponse:
+      type: object
+      properties:
+        parcelId:
+          type: string
+        versions:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                format: uuid
+              validFrom:
+                type: string
+                format: date-time
+              validTo:
+                type: string
+                format: date-time
+              zone:
+                type: string
+              areaRai:
+                type: number
+              cropType:
+                type: string
+              ownerName:
+                type: string
+        totalVersions:
+          type: integer
+
+    ParcelUpdateRequest:
+      type: object
+      properties:
+        cropType:
+          type: string
+        waterDemandMethod:
+          $ref: '#/components/schemas/WaterDemandMethod'
+        ownerName:
+          type: string
+        plantingDate:
+          type: string
+          format: date
+        harvestDate:
+          type: string
+          format: date
+
+    ParcelUpdateResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        parcel:
+          $ref: '#/components/schemas/ParcelDetail'
+
+    ZoneListResponse:
+      type: object
+      properties:
+        zones:
+          oneOf:
+            - type: array
+              items:
+                type: string
+            - type: array
+              items:
+                $ref: '#/components/schemas/ZoneWithStats'
+
+    ZoneWithStats:
+      type: object
+      properties:
+        zone:
+          type: string
+        stats:
+          type: object
+          properties:
+            parcelCount:
+              type: integer
+            totalAreaRai:
+              type: number
+            totalAreaSqm:
+              type: number
+            cropTypes:
+              type: integer
+            uniqueOwners:
+              type: integer
+            crops:
+              type: array
+              items:
+                type: object
+                properties:
+                  cropType:
+                    type: string
+                  count:
+                    type: integer
+                  areaRai:
+                    type: number
+
+    ZoneParcelsResponse:
+      type: object
+      properties:
+        zone:
+          type: string
+        parcels:
+          type: array
+          items:
+            $ref: '#/components/schemas/Parcel'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    ZoneSummary:
+      type: object
+      properties:
+        zone:
+          type: string
+        date:
+          type: string
+          format: date
+        totalParcels:
+          type: integer
+        totalAreaRai:
+          type: number
+        totalAreaSqm:
+          type: number
+        cropDistribution:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              count:
+                type: integer
+              areaRai:
+                type: number
+        waterDemandByMethod:
+          type: object
+          additionalProperties:
+            type: number
+        totalDailyDemandCubicMeters:
+          type: number
+        lastUpdated:
+          type: string
+          format: date-time
+
+    ZoneChangesResponse:
+      type: object
+      properties:
+        zone:
+          type: string
+        period:
+          type: object
+          properties:
+            startDate:
+              type: string
+              format: date
+            endDate:
+              type: string
+              format: date
+        summary:
+          type: object
+          properties:
+            startParcels:
+              type: integer
+            endParcels:
+              type: integer
+            parcelChange:
+              type: integer
+            startAreaRai:
+              type: number
+            endAreaRai:
+              type: number
+            areaChangeRai:
+              type: number
+        changes:
+          type: array
+          items:
+            type: object
+        totalChanges:
+          type: integer
+
+    WaterDemandData:
+      type: object
+      properties:
+        calculatedDate:
+          type: string
+          format: date
+        method:
+          $ref: '#/components/schemas/WaterDemandMethod'
+        dailyDemandCubicMeters:
+          type: number
+        weeklyDemandCubicMeters:
+          type: number
+        monthlyDemandCubicMeters:
+          type: number
+        cropCoefficient:
+          type: number
+        referenceET:
+          type: number
+
+    ParcelWaterDemand:
+      type: object
+      properties:
+        parcelId:
+          type: string
+        waterDemand:
+          $ref: '#/components/schemas/WaterDemandData'
+
+    WaterDemandCalculationRequest:
+      type: object
+      required: [parcelIds, method, referenceET]
+      properties:
+        parcelIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+        method:
+          $ref: '#/components/schemas/WaterDemandMethod'
+        referenceET:
+          type: number
+          minimum: 0
+          maximum: 20
+          description: Reference evapotranspiration in mm/day
+        rainfall:
+          type: number
+          minimum: 0
+          description: Rainfall in mm/day
+        growthStage:
+          type: string
+          enum: [initial, development, mid, late]
+
+    WaterDemandCalculationResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            type: object
+            properties:
+              parcelId:
+                type: string
+              dailyDemandCubicMeters:
+                type: number
+              cropCoefficient:
+                type: number
+              netIrrigationRequirement:
+                type: number
+        summary:
+          type: object
+          properties:
+            totalParcels:
+              type: integer
+            totalDailyDemand:
+              type: number
+            averageDailyDemand:
+              type: number
+
+    ZoneWaterDemand:
+      type: object
+      properties:
+        zone:
+          type: string
+        date:
+          type: string
+          format: date
+        totalDailyDemandCubicMeters:
+          type: number
+        averageDailyDemandPerParcel:
+          type: number
+        byMethod:
+          type: object
+          additionalProperties:
+            type: number
+        byCrop:
+          type: object
+          additionalProperties:
+            type: number
+
+    WaterDemandSummary:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        groupBy:
+          type: string
+        summary:
+          type: array
+          items:
+            type: object
+            properties:
+              group:
+                type: string
+              totalDailyDemand:
+                type: number
+              parcelCount:
+                type: integer
+              totalArea:
+                type: number
+
+    WaterDemandHistory:
+      type: object
+      properties:
+        parcelId:
+          type: string
+        period:
+          type: object
+          properties:
+            startDate:
+              type: string
+              format: date
+            endDate:
+              type: string
+              format: date
+        history:
+          type: array
+          items:
+            $ref: '#/components/schemas/WaterDemandData'
+
+    CustomExportRequest:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [parcels, zones, water-demand]
+        filters:
+          type: object
+        attributes:
+          type: array
+          items:
+            type: string
+        format:
+          type: string
+          enum: [geojson, csv, kml]
+          default: geojson
+        simplify:
+          type: boolean
+        precision:
+          type: integer
+          minimum: 0
+          maximum: 10
+
+    Point:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [Point]
+        coordinates:
+          type: array
+          items:
+            type: number
+          minItems: 2
+          maxItems: 2
+
+    Polygon:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [Polygon]
+        coordinates:
+          type: array
+          items:
+            type: array
+            items:
+              type: array
+              items:
+                type: number
+              minItems: 2
+              maxItems: 2
+
+    GeoJSONFeatureCollection:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [FeatureCollection]
+        features:
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+                enum: [Feature]
+              properties:
+                type: object
+              geometry:
+                oneOf:
+                  - $ref: '#/components/schemas/Point'
+                  - $ref: '#/components/schemas/Polygon'
+        metadata:
+          type: object
+
+    Pagination:
+      type: object
+      properties:
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+        pages:
+          type: integer
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        details:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+  responses:
+    BadRequest:
+      description: Bad Request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    NotFound:
+      description: Not Found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    InternalServerError:
+      description: Internal Server Error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'

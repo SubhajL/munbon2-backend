@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: munbon-databases
+  labels:
+    name: munbon-databases
+    project: munbon-irrigation

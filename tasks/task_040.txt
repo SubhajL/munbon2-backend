@@ -1,0 +1,11 @@
+# Task ID: 40
+# Title: Implement Audit Log Service
+# Status: pending
+# Dependencies: 3, 9, 11
+# Priority: high
+# Description: Develop a dedicated microservice for comprehensive audit logging that captures all user actions, system events, data changes, and API calls across all microservices with tamper-proof storage and compliance reporting.
+# Details:
+Create an audit log service using Node.js/TypeScript with Express.js. Implement event sourcing pattern to capture all system events. Use Kafka consumer to subscribe to audit events from all microservices. Store audit logs in MongoDB with encryption at rest. Implement tamper-proof logging using cryptographic hashing and digital signatures. Create APIs for audit log queries with advanced filtering (by user, service, time range, action type). Implement log retention policies and archival strategies. Ensure compliance with Thai government regulations for audit trail requirements. Create audit report generation functionality. Implement role-based access control for audit log viewing. Consider using Apache Pulsar for guaranteed message delivery. Implement log aggregation from distributed services.
+
+# Test Strategy:
+Test audit event capture from multiple services. Verify tamper-proof mechanisms with hash validation. Test query performance with large datasets. Validate retention and archival policies. Test access control and permissions. Verify compliance report generation. Test audit log integrity after simulated tampering attempts. Load test with high-volume concurrent events.

@@ -1,0 +1,12 @@
+{
+  "validation_date": "2025-07-10T13:14:02.003737",
+  "eto_annual_average": 124.25483196270977,
+  "rice_kc_average": 1.2392307692307691,
+  "seepage_rate": 14.0,
+  "rice_area": 45731.0,
+  "expected_values": {
+    "may_daily_eto": 4.680043517290385,
+    "rice_max_kc": 1.5,
+    "rice_weekly_etc": 40.59757749575667
+  }
+}

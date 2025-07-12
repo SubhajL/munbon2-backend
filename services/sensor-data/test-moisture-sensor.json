@@ -1,0 +1,34 @@
+{
+  "deviceId": "MOIST-TEST-001",
+  "sensorType": "moisture",
+  "timestamp": "2025-07-08T14:20:00.000Z",
+  "token": "munbon-m2m-moisture",
+  "tokenGroup": "moisture-munbon",
+  "sensorId": "00002-00003",
+  "location": {
+    "lat": 13.94619,
+    "lng": 100.73617
+  },
+  "data": {
+    "sensor_id": "00003",
+    "sensor_msg_type": "0",
+    "flood": "no",
+    "amb_humid": "55",
+    "amb_temp": "35.00",
+    "humid_hi": "28",
+    "temp_hi": "25.50",
+    "humid_low": "32",
+    "temp_low": "24.00",
+    "sensor_batt": "385",
+    "gateway_id": "00002",
+    "date": "2025/07/08",
+    "time": "21:20:00",
+    "msg_type": "interval"
+  },
+  "metadata": {
+    "manufacturer": "M2M",
+    "gatewayBattery": 4.98,
+    "sensorBattery": 3.85
+  }
+}
+EOF < /dev/null

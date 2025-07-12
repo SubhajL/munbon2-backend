@@ -1,0 +1,28 @@
+# Patch to reduce resource limits for local development
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: local-limits
+  namespace: munbon
+spec:
+  limits:
+  - default:
+      cpu: 500m
+      memory: 512Mi
+    defaultRequest:
+      cpu: 100m
+      memory: 128Mi
+    type: Container
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: local-quota
+  namespace: munbon
+spec:
+  hard:
+    requests.cpu: "10"
+    requests.memory: 20Gi
+    limits.cpu: "20"
+    limits.memory: 40Gi
+    persistentvolumeclaims: "20"

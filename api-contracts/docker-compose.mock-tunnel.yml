@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  # Mock API Server using Prism
+  mock-api:
+    image: stoplight/prism:4
+    container_name: munbon-mock-api
+    command: mock -h 0.0.0.0 -p 4010 /openapi/sensor-data-service.yaml
+    volumes:
+      - ./openapi:/openapi:ro
+    ports:
+      - "4010:4010"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:4010/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - mock-network
+
+  # Cloudflare Tunnel
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: munbon-mock-tunnel
+    command: tunnel --no-autoupdate run
+    volumes:
+      - ~/.cloudflared:/home/nonroot/.cloudflared:ro
+      - ./cloudflared-mock-config.yml:/etc/cloudflared/config.yml:ro
+    restart: unless-stopped
+    depends_on:
+      mock-api:
+        condition: service_healthy
+    networks:
+      - mock-network
+    environment:
+      - TUNNEL_CONFIG=/etc/cloudflared/config.yml
+
+networks:
+  mock-network:
+    driver: bridge
+
+# To use this:
+# 1. Create cloudflared-mock-config.yml with your tunnel config
+# 2. Run: docker-compose -f docker-compose.mock-tunnel.yml up -d
+# 3. View logs: docker-compose -f docker-compose.mock-tunnel.yml logs -f

@@ -1,0 +1,204 @@
+service: munbon-sensor-ingestion
+
+provider:
+  name: aws
+  runtime: nodejs18.x
+  region: ap-southeast-1  # Singapore region for Thailand proximity
+  stage: ${opt:stage, 'dev'}
+  environment:
+    SQS_QUEUE_URL: 
+      Ref: SensorDataQueue
+    VALID_TOKENS: >
+      munbon-ridr-water-level:water-level-munbon,
+      munbon-m2m-moisture:moisture-munbon,
+      munbon-test-devices:test-devices
+    STAGE: ${self:provider.stage}
+
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - sqs:SendMessage
+            - sqs:GetQueueAttributes
+          Resource:
+            - Fn::GetAtt: [SensorDataQueue, Arn]
+        - Effect: Allow
+          Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+          Resource: "*"
+
+functions:
+  telemetry:
+    handler: handler.telemetry
+    events:
+      - http:
+          path: /api/v1/{token}/telemetry
+          method: post
+          cors: true
+          request:
+            parameters:
+              paths:
+                token: true
+
+  attributes:
+    handler: handler.attributes
+    events:
+      - http:
+          path: /api/v1/{token}/attributes
+          method: get
+          cors: true
+          request:
+            parameters:
+              paths:
+                token: true
+              querystrings:
+                sharedKeys: false
+
+  fileUpload:
+    handler: file-upload-handler.handler
+    events:
+      - http:
+          path: /api/v1/rid-ms/upload
+          method: post
+          cors: true
+
+resources:
+  Resources:
+    SensorDataQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:service}-${self:provider.stage}-queue
+        VisibilityTimeout: 300
+        MessageRetentionPeriod: 1209600  # 14 days
+        ReceiveMessageWaitTimeSeconds: 20
+        RedrivePolicy:
+          deadLetterTargetArn:
+            Fn::GetAtt: [SensorDataDLQ, Arn]
+          maxReceiveCount: 3
+
+    SensorDataDLQ:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:service}-${self:provider.stage}-dlq
+        MessageRetentionPeriod: 1209600  # 14 days
+
+    # Custom domain configuration with specific TLS/SSL settings
+    ApiGatewayDomainName:
+      Type: AWS::ApiGateway::DomainName
+      Properties:
+        DomainName: ${self:custom.customDomain.domainName}
+        RegionalCertificateArn: ${self:custom.customDomain.certificateArn}
+        EndpointConfiguration:
+          Types:
+            - REGIONAL
+        SecurityPolicy: TLS_1_0  # This enables TLS 1.0, 1.1, and 1.2
+        MutualTlsAuthentication:
+          TruststoreUri: ""  # Optional: for mutual TLS
+
+    ApiGatewayBasePathMapping:
+      Type: AWS::ApiGateway::BasePathMapping
+      DependsOn:
+        - ApiGatewayDomainName
+      Properties:
+        DomainName: ${self:custom.customDomain.domainName}
+        RestApiId:
+          Ref: ApiGatewayRestApi
+        Stage: ${self:provider.stage}
+
+    # CloudFront distribution for additional TLS control
+    CloudFrontDistribution:
+      Type: AWS::CloudFront::Distribution
+      Properties:
+        DistributionConfig:
+          Enabled: true
+          Comment: Munbon API with custom TLS settings
+          Origins:
+            - Id: ApiGatewayOrigin
+              DomainName:
+                Fn::Sub: ${ApiGatewayRestApi}.execute-api.${AWS::Region}.amazonaws.com
+              OriginPath: /${self:provider.stage}
+              CustomOriginConfig:
+                HTTPPort: 80
+                HTTPSPort: 443
+                OriginProtocolPolicy: https-only
+                OriginSSLProtocols:
+                  - SSLv3
+                  - TLSv1
+                  - TLSv1.1
+                  - TLSv1.2
+          DefaultCacheBehavior:
+            TargetOriginId: ApiGatewayOrigin
+            ViewerProtocolPolicy: https-only
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+              - PUT
+              - POST
+              - PATCH
+              - DELETE
+            CachedMethods:
+              - GET
+              - HEAD
+            Compress: true
+            ForwardedValues:
+              QueryString: true
+              Headers:
+                - Authorization
+                - Content-Type
+              Cookies:
+                Forward: none
+            MinTTL: 0
+            DefaultTTL: 0
+            MaxTTL: 0
+          ViewerCertificate:
+            CloudFrontDefaultCertificate: false
+            AcmCertificateArn: ${self:custom.customDomain.certificateArn}
+            SslSupportMethod: sni-only
+            MinimumProtocolVersion: SSLv3  # Allows SSLv3, TLS 1.0, 1.1, 1.2
+
+  Outputs:
+    ApiGatewayUrl:
+      Description: API Gateway endpoint URL
+      Value:
+        Fn::Sub: https://${ApiGatewayRestApi}.execute-api.${AWS::Region}.amazonaws.com/${self:provider.stage}
+    CustomDomainUrl:
+      Description: Custom domain URL
+      Value: https://${self:custom.customDomain.domainName}
+    CloudFrontUrl:
+      Description: CloudFront distribution URL
+      Value:
+        Fn::GetAtt: [CloudFrontDistribution, DomainName]
+    SensorDataQueueUrl:
+      Description: SQS Queue URL
+      Value:
+        Ref: SensorDataQueue
+    SensorDataQueueArn:
+      Description: SQS Queue ARN
+      Value:
+        Fn::GetAtt: [SensorDataQueue, Arn]
+
+plugins:
+  - serverless-plugin-typescript
+  - serverless-offline
+  - serverless-apigw-binary
+  - serverless-domain-manager
+
+custom:
+  serverless-offline:
+    httpPort: 3001
+  apigwBinary:
+    types:
+      - 'multipart/form-data'
+      - 'application/zip'
+  customDomain:
+    domainName: ${env:CUSTOM_DOMAIN, 'api.munbon.example.com'}  # Replace with your domain
+    certificateArn: ${env:CERTIFICATE_ARN, ''}  # Your ACM certificate ARN
+    basePath: ''
+    stage: ${self:provider.stage}
+    createRoute53Record: true
+    endpointType: 'regional'
+    securityPolicy: tls_1_0  # Allows TLS 1.0, 1.1, 1.2

@@ -1,0 +1,55 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mongodb-init-replica-set
+  namespace: munbon-databases
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: mongo-init
+        image: mongo:7
+        command:
+        - bash
+        - -c
+        - |
+          set -e
+          echo "Waiting for MongoDB pods to be ready..."
+          sleep 30
+          
+          echo "Initializing replica set..."
+          mongosh --host mongodb-0.mongodb:27017 \
+            -u $MONGO_INITDB_ROOT_USERNAME \
+            -p $MONGO_INITDB_ROOT_PASSWORD \
+            --authenticationDatabase admin \
+            --eval '
+            rs.initiate({
+              _id: "munbon-rs",
+              members: [
+                { _id: 0, host: "mongodb-0.mongodb:27017", priority: 2 },
+                { _id: 1, host: "mongodb-1.mongodb:27017", priority: 1 },
+                { _id: 2, host: "mongodb-2.mongodb:27017", priority: 1 }
+              ]
+            })' || echo "Replica set already initialized"
+          
+          echo "Waiting for replica set to stabilize..."
+          sleep 10
+          
+          echo "Checking replica set status..."
+          mongosh --host mongodb-0.mongodb:27017 \
+            -u $MONGO_INITDB_ROOT_USERNAME \
+            -p $MONGO_INITDB_ROOT_PASSWORD \
+            --authenticationDatabase admin \
+            --eval 'rs.status()'
+        env:
+        - name: MONGO_INITDB_ROOT_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: mongodb-secret
+              key: MONGO_INITDB_ROOT_USERNAME
+        - name: MONGO_INITDB_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mongodb-secret
+              key: MONGO_INITDB_ROOT_PASSWORD

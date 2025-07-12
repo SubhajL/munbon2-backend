@@ -1,0 +1,11 @@
+# Task ID: 44
+# Title: Implement Moisture Service
+# Status: pending
+# Dependencies: 8, 7, 27
+# Priority: high
+# Description: Develop a dedicated microservice for soil moisture monitoring, data processing, and moisture-based irrigation recommendations across all agricultural zones.
+# Details:
+Create Moisture Service using Python/FastAPI for scientific computing capabilities. Implement real-time soil moisture data ingestion from field sensors via MQTT. Process moisture data with calibration curves for different soil types (clay, loam, sand). Calculate soil water potential and available water content. Implement spatial interpolation algorithms for moisture mapping between sensor points. Create moisture trend analysis and prediction models. Integrate with weather data for evapotranspiration calculations. Implement moisture threshold alerts for irrigation triggers. Store historical moisture data in TimescaleDB with efficient querying. Create APIs for moisture heatmaps and zone-based moisture reports. Implement data quality checks and sensor fault detection algorithms.
+
+# Test Strategy:
+Test moisture data ingestion with simulated sensors. Verify calibration curve accuracy with known soil samples. Test spatial interpolation algorithms. Validate moisture predictions against historical data. Test alert triggering at various thresholds. Verify API performance for heatmap generation. Test integration with weather service. Validate data quality algorithms.

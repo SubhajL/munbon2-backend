@@ -1,0 +1,21 @@
+{
+  "apps": [{
+    "name": "quick-tunnel",
+    "script": "cloudflared",
+    "args": "tunnel --url http://localhost:3000 --no-autoupdate --protocol http2",
+    "autorestart": true,
+    "max_restarts": 5,
+    "min_uptime": "30s",
+    "restart_delay": 5000,
+    "exp_backoff_restart_delay": 100,
+    "max_memory_restart": "150M",
+    "kill_timeout": 3000,
+    "log_date_format": "YYYY-MM-DD HH:mm:ss",
+    "error_file": "logs/tunnel-error.log",
+    "out_file": "logs/tunnel-out.log",
+    "merge_logs": true,
+    "env": {
+      "NO_COLOR": "1"
+    }
+  }]
+}

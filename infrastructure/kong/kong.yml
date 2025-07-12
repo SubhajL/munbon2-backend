@@ -1,0 +1,489 @@
+_format_version: "3.0"
+_transform: true
+
+# Munbon API Gateway Configuration
+# This file defines all services, routes, and plugins
+
+services:
+  # Authentication Service
+  - name: auth-service
+    url: http://auth-service:3001
+    protocol: http
+    host: auth-service
+    port: 3001
+    path: /
+    retries: 5
+    connect_timeout: 60000
+    write_timeout: 60000
+    read_timeout: 60000
+    tags:
+      - auth
+      - infrastructure
+
+  # Sensor Data Service
+  - name: sensor-data-service
+    url: http://sensor-data-service:3002
+    protocol: http
+    host: sensor-data-service
+    port: 3002
+    path: /
+    retries: 5
+    connect_timeout: 60000
+    write_timeout: 60000
+    read_timeout: 60000
+    tags:
+      - sensor
+      - iot
+
+  # GIS Data Service
+  - name: gis-service
+    url: http://gis-service:3003
+    protocol: http
+    host: gis-service
+    port: 3003
+    path: /
+    retries: 5
+    connect_timeout: 60000
+    write_timeout: 60000
+    read_timeout: 60000
+    tags:
+      - gis
+      - spatial
+
+  # User Management Service
+  - name: user-management-service
+    url: http://user-management-service:3004
+    protocol: http
+    host: user-management-service
+    port: 3004
+    path: /
+    retries: 5
+    connect_timeout: 60000
+    write_timeout: 60000
+    read_timeout: 60000
+    tags:
+      - user
+      - management
+
+  # Weather Integration Service
+  - name: weather-service
+    url: http://weather-service:3005
+    protocol: http
+    host: weather-service
+    port: 3005
+    path: /
+    retries: 5
+    connect_timeout: 60000
+    write_timeout: 60000
+    read_timeout: 60000
+    tags:
+      - weather
+      - integration
+
+  # SCADA Integration Service
+  - name: scada-service
+    url: http://scada-service:3006
+    protocol: http
+    host: scada-service
+    port: 3006
+    path: /
+    retries: 5
+    connect_timeout: 60000
+    write_timeout: 60000
+    read_timeout: 60000
+    tags:
+      - scada
+      - control
+
+  # Water Distribution Control Service
+  - name: water-control-service
+    url: http://water-control-service:3007
+    protocol: http
+    host: water-control-service
+    port: 3007
+    path: /
+    retries: 5
+    connect_timeout: 60000
+    write_timeout: 60000
+    read_timeout: 60000
+    tags:
+      - water
+      - control
+
+  # AI Model Service
+  - name: ai-model-service
+    url: http://ai-model-service:3008
+    protocol: http
+    host: ai-model-service
+    port: 3008
+    path: /
+    retries: 5
+    connect_timeout: 60000
+    write_timeout: 60000
+    read_timeout: 60000
+    tags:
+      - ai
+      - ml
+
+  # Notification Service
+  - name: notification-service
+    url: http://notification-service:3009
+    protocol: http
+    host: notification-service
+    port: 3009
+    path: /
+    retries: 5
+    connect_timeout: 60000
+    write_timeout: 60000
+    read_timeout: 60000
+    tags:
+      - notification
+      - messaging
+
+  # Reporting Service
+  - name: reporting-service
+    url: http://reporting-service:3010
+    protocol: http
+    host: reporting-service
+    port: 3010
+    path: /
+    retries: 5
+    connect_timeout: 60000
+    write_timeout: 60000
+    read_timeout: 60000
+    tags:
+      - reporting
+      - analytics
+
+  # Moisture Monitoring Service
+  - name: moisture-monitoring-service
+    url: http://moisture-monitoring-service:3044
+    protocol: http
+    host: moisture-monitoring-service
+    port: 3044
+    path: /
+    retries: 5
+    connect_timeout: 60000
+    write_timeout: 60000
+    read_timeout: 60000
+    tags:
+      - moisture
+      - monitoring
+      - iot
+
+  # Water Level Monitoring Service
+  - name: water-level-monitoring-service
+    url: http://water-level-monitoring-service:3046
+    protocol: http
+    host: water-level-monitoring-service
+    port: 3046
+    path: /
+    retries: 5
+    connect_timeout: 60000
+    write_timeout: 60000
+    read_timeout: 60000
+    tags:
+      - water-level
+      - monitoring
+      - iot
+
+routes:
+  # Auth Service Routes
+  - name: auth-login
+    service: auth-service
+    paths:
+      - /api/v1/auth/login
+    methods:
+      - POST
+    strip_path: false
+
+  - name: auth-logout
+    service: auth-service
+    paths:
+      - /api/v1/auth/logout
+    methods:
+      - POST
+    strip_path: false
+
+  - name: auth-refresh
+    service: auth-service
+    paths:
+      - /api/v1/auth/refresh
+    methods:
+      - POST
+    strip_path: false
+
+  - name: auth-profile
+    service: auth-service
+    paths:
+      - /api/v1/auth/profile
+    methods:
+      - GET
+    strip_path: false
+
+  - name: auth-oauth
+    service: auth-service
+    paths:
+      - /api/v1/auth/oauth
+    strip_path: false
+
+  # Sensor Data Service Routes (internal ingestion only)
+  - name: sensor-data
+    service: sensor-data-service
+    paths:
+      - /api/v1/sensors
+    strip_path: false
+
+  # GIS Service Routes
+  - name: gis-data
+    service: gis-service
+    paths:
+      - /api/v1/gis
+    strip_path: false
+
+  - name: gis-tiles
+    service: gis-service
+    paths:
+      - /api/v1/tiles
+    strip_path: false
+
+  # User Management Routes
+  - name: users
+    service: user-management-service
+    paths:
+      - /api/v1/users
+    strip_path: false
+
+  # Weather Service Routes
+  - name: weather
+    service: weather-service
+    paths:
+      - /api/v1/weather
+    strip_path: false
+
+  # SCADA Service Routes
+  - name: scada
+    service: scada-service
+    paths:
+      - /api/v1/scada
+    strip_path: false
+
+  # Water Control Routes
+  - name: water-control
+    service: water-control-service
+    paths:
+      - /api/v1/water-control
+    strip_path: false
+
+  # AI Model Routes
+  - name: ai-models
+    service: ai-model-service
+    paths:
+      - /api/v1/ai
+    strip_path: false
+
+  # Notification Routes
+  - name: notifications
+    service: notification-service
+    paths:
+      - /api/v1/notifications
+    strip_path: false
+
+  # Reporting Routes
+  - name: reports
+    service: reporting-service
+    paths:
+      - /api/v1/reports
+    strip_path: false
+
+  # Moisture Monitoring Routes
+  - name: moisture-monitoring
+    service: moisture-monitoring-service
+    paths:
+      - /api/v1/moisture
+    strip_path: false
+
+  # Water Level Monitoring Routes
+  - name: water-level-monitoring
+    service: water-level-monitoring-service
+    paths:
+      - /api/v1/water-levels
+    strip_path: false
+
+# Global Plugins
+plugins:
+  # CORS
+  - name: cors
+    config:
+      origins:
+        - http://localhost:3000
+        - http://localhost:8080
+        - https://*.munbon.go.th
+      methods:
+        - GET
+        - POST
+        - PUT
+        - DELETE
+        - OPTIONS
+        - PATCH
+      headers:
+        - Accept
+        - Accept-Version
+        - Content-Length
+        - Content-MD5
+        - Content-Type
+        - Date
+        - X-Auth-Token
+        - Authorization
+        - X-Requested-With
+      exposed_headers:
+        - X-Auth-Token
+        - X-Total-Count
+        - X-Page
+        - X-Page-Size
+      credentials: true
+      max_age: 3600
+
+  # Rate Limiting (10,000 requests per hour as per requirements)
+  - name: rate-limiting
+    config:
+      minute: 200
+      hour: 10000
+      policy: local
+      fault_tolerant: true
+      hide_client_headers: false
+      redis_ssl: false
+      redis_ssl_verify: false
+
+  # Request Size Limiting
+  - name: request-size-limiting
+    config:
+      allowed_payload_size: 10
+      size_unit: megabytes
+      require_content_length: false
+
+  # Prometheus Metrics
+  - name: prometheus
+    config:
+      per_consumer: true
+      status_code_metrics: true
+      latency_metrics: true
+      bandwidth_metrics: true
+      upstream_health_metrics: true
+
+  # Bot Detection
+  - name: bot-detection
+    config:
+      allow:
+        - "(Uptime-Kuma)"  # Allow monitoring bots
+      deny:
+        - "(C|c)rawler"
+        - "SpeedySpider"
+        - "Scrapy"
+
+  # IP Restriction (example for Thai government IPs - update with actual ranges)
+  - name: ip-restriction
+    config:
+      allow:
+        - 0.0.0.0/0  # Allow all for development, restrict in production
+    enabled: false  # Disabled by default, enable for production
+
+# Consumers (API Key holders)
+consumers:
+  - username: munbon-frontend
+    custom_id: frontend-001
+    tags:
+      - frontend
+      - web
+
+  - username: munbon-mobile
+    custom_id: mobile-001
+    tags:
+      - mobile
+      - app
+
+  - username: munbon-iot
+    custom_id: iot-001
+    tags:
+      - iot
+      - sensor
+
+  - username: munbon-scada
+    custom_id: scada-001
+    tags:
+      - scada
+      - control
+
+# API Keys for consumers
+keyauth_credentials:
+  - consumer: munbon-frontend
+    key: frontend-dev-key-change-in-production
+
+  - consumer: munbon-mobile
+    key: mobile-dev-key-change-in-production
+
+  - consumer: munbon-iot
+    key: iot-dev-key-change-in-production
+
+  - consumer: munbon-scada
+    key: scada-dev-key-change-in-production
+
+# JWT Secrets for OAuth
+jwt_secrets:
+  - consumer: munbon-frontend
+    algorithm: HS256
+    secret: frontend-jwt-secret-change-in-production
+
+  - consumer: munbon-mobile
+    algorithm: HS256
+    secret: mobile-jwt-secret-change-in-production
+
+# OAuth2 Applications
+oauth2_credentials:
+  - consumer: munbon-frontend
+    name: Munbon Web Application
+    client_id: munbon-web-client
+    client_secret: web-secret-change-in-production
+    redirect_uris:
+      - http://localhost:3000/callback
+      - https://munbon.go.th/callback
+
+# Upstreams for load balancing
+upstreams:
+  - name: auth-service-upstream
+    algorithm: round-robin
+    slots: 1000
+    healthchecks:
+      active:
+        type: http
+        http_path: /health
+        healthy:
+          interval: 5
+          successes: 2
+        unhealthy:
+          interval: 5
+          tcp_failures: 2
+          http_failures: 2
+          timeouts: 2
+    targets:
+      - target: auth-service:3001
+        weight: 100
+
+  - name: sensor-data-upstream
+    algorithm: round-robin
+    slots: 1000
+    healthchecks:
+      active:
+        type: http
+        http_path: /health
+        healthy:
+          interval: 5
+          successes: 2
+        unhealthy:
+          interval: 5
+          tcp_failures: 2
+          http_failures: 2
+          timeouts: 2
+    targets:
+      - target: sensor-data-service:3002
+        weight: 100

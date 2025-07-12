@@ -1,0 +1,137 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: timescaledb
+  labels:
+    app: timescaledb
+    component: database
+spec:
+  serviceName: timescaledb
+  replicas: 1
+  selector:
+    matchLabels:
+      app: timescaledb
+      component: database
+  template:
+    metadata:
+      labels:
+        app: timescaledb
+        component: database
+    spec:
+      containers:
+      - name: timescaledb
+        image: timescale/timescaledb-ha:pg15-latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 5432
+          name: postgres
+          protocol: TCP
+        env:
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: timescaledb-secret
+              key: POSTGRES_USER
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: timescaledb-secret
+              key: POSTGRES_PASSWORD
+        - name: POSTGRES_DB
+          valueFrom:
+            secretKeyRef:
+              name: timescaledb-secret
+              key: POSTGRES_DB
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        # TimescaleDB specific configurations
+        - name: TIMESCALEDB_TELEMETRY
+          value: "off"
+        # PostgreSQL configurations for better performance
+        - name: POSTGRES_INITDB_ARGS
+          value: "--encoding=UTF-8 --locale=en_US.UTF-8"
+        # Shared memory settings
+        - name: POSTGRES_SHARED_BUFFERS
+          value: "1GB"
+        - name: POSTGRES_EFFECTIVE_CACHE_SIZE
+          value: "3GB"
+        - name: POSTGRES_MAINTENANCE_WORK_MEM
+          value: "256MB"
+        - name: POSTGRES_WORK_MEM
+          value: "32MB"
+        # WAL settings
+        - name: POSTGRES_WAL_BUFFERS
+          value: "16MB"
+        - name: POSTGRES_CHECKPOINT_COMPLETION_TARGET
+          value: "0.9"
+        - name: POSTGRES_MAX_WAL_SIZE
+          value: "4GB"
+        - name: POSTGRES_MIN_WAL_SIZE
+          value: "1GB"
+        # Connection settings
+        - name: POSTGRES_MAX_CONNECTIONS
+          value: "200"
+        # TimescaleDB specific settings
+        - name: TIMESCALEDB_MAX_BACKGROUND_WORKERS
+          value: "8"
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/postgresql/data
+        - name: init-scripts
+          mountPath: /docker-entrypoint-initdb.d
+          readOnly: true
+        - name: config
+          mountPath: /etc/postgresql/postgresql.conf
+          subPath: postgresql.conf
+          readOnly: true
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1"
+          limits:
+            memory: "4Gi"
+            cpu: "2"
+        livenessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - postgres
+            - -h
+            - localhost
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - postgres
+            - -h
+            - localhost
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+      volumes:
+      - name: init-scripts
+        configMap:
+          name: timescaledb-init
+          defaultMode: 0755
+      - name: config
+        configMap:
+          name: timescaledb-config
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+      labels:
+        app: timescaledb
+        component: database
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: local-path
+      resources:
+        requests:
+          storage: 50Gi

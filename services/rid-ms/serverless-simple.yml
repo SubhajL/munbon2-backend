@@ -1,0 +1,157 @@
+service: munbon-rid-ms
+
+provider:
+  name: aws
+  runtime: nodejs18.x
+  stage: ${opt:stage, 'dev'}
+  region: ap-southeast-1
+  timeout: 30
+  memorySize: 1024
+  environment:
+    STAGE: ${self:provider.stage}
+    SQS_QUEUE_URL: 
+      Ref: ShapeFileProcessingQueue
+    S3_BUCKET_NAME:
+      Ref: ShapeFileStorage
+    POSTGIS_HOST: ${env:POSTGIS_HOST, 'your-rds-endpoint.amazonaws.com'}
+    POSTGIS_PORT: ${env:POSTGIS_PORT, '5432'}
+    POSTGIS_DB: ${env:POSTGIS_DB, 'munbon_dev'}
+    POSTGIS_USER: ${env:POSTGIS_USER, 'postgres'}
+    POSTGIS_PASSWORD: ${env:POSTGIS_PASSWORD, 'your-password'}
+    REDIS_HOST: ${env:REDIS_HOST, 'your-elasticache-endpoint.amazonaws.com'}
+    REDIS_PORT: ${env:REDIS_PORT, '6379'}
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - s3:GetObject
+            - s3:PutObject
+            - s3:DeleteObject
+          Resource:
+            - Fn::Sub: "${ShapeFileStorage.Arn}/*"
+        - Effect: Allow
+          Action:
+            - s3:ListBucket
+          Resource:
+            - Fn::GetAtt: [ShapeFileStorage, Arn]
+        - Effect: Allow
+          Action:
+            - sqs:SendMessage
+            - sqs:GetQueueAttributes
+          Resource:
+            - Fn::GetAtt: [ShapeFileProcessingQueue, Arn]
+
+package:
+  patterns:
+    - '!.git/**'
+    - '!src/**'
+    - '!tests/**'
+    - '!.env*'
+    - '!*.md'
+    - '!.eslintrc*'
+    - '!.prettierrc*'
+    - '!jest.config*'
+    - '!tsconfig*'
+    - '!nodemon*'
+    - 'dist/**'
+    - 'node_modules/**'
+
+functions:
+  shapeFileUpload:
+    handler: dist/lambda/simple-handler.shapeFileUpload
+    events:
+      - http:
+          path: /api/v1/shapefiles/upload
+          method: post
+          cors: true
+
+  shapeFileMetadata:
+    handler: dist/lambda/simple-handler.shapeFileMetadata
+    events:
+      - http:
+          path: /api/v1/shapefiles/{id}
+          method: get
+          cors: true
+
+  shapeFileList:
+    handler: dist/lambda/simple-handler.shapeFileList
+    events:
+      - http:
+          path: /api/v1/shapefiles
+          method: get
+          cors: true
+
+  shapeFileParcels:
+    handler: dist/lambda/simple-handler.shapeFileParcels
+    events:
+      - http:
+          path: /api/v1/shapefiles/{id}/parcels
+          method: get
+          cors: true
+
+  shapeFileExport:
+    handler: dist/lambda/simple-handler.shapeFileExport
+    events:
+      - http:
+          path: /api/v1/shapefiles/{id}/export/geojson
+          method: get
+          cors: true
+
+  shapeFileProcessor:
+    handler: dist/lambda/simple-handler.processShapeFile
+    reservedConcurrency: 2
+    timeout: 300
+    events:
+      - sqs:
+          arn:
+            Fn::GetAtt:
+              - ShapeFileProcessingQueue
+              - Arn
+          batchSize: 1
+
+resources:
+  Resources:
+    ShapeFileStorage:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: munbon-rid-ms-shapefile-${self:provider.stage}
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: true
+          BlockPublicPolicy: true
+          IgnorePublicAcls: true
+          RestrictPublicBuckets: true
+
+    ShapeFileProcessingQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: munbon-rid-ms-processing-${self:provider.stage}
+        VisibilityTimeout: 360
+        MessageRetentionPeriod: 1209600
+        ReceiveMessageWaitTimeSeconds: 20
+        RedrivePolicy:
+          deadLetterTargetArn:
+            Fn::GetAtt:
+              - ShapeFileProcessingDLQ
+              - Arn
+          maxReceiveCount: 3
+
+    ShapeFileProcessingDLQ:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: munbon-rid-ms-processing-dlq-${self:provider.stage}
+        MessageRetentionPeriod: 1209600
+
+  Outputs:
+    ApiGatewayUrl:
+      Description: API Gateway endpoint URL
+      Value:
+        Fn::Sub: "https://${ApiGatewayRestApi}.execute-api.${AWS::Region}.amazonaws.com/${self:provider.stage}"
+    ShapeFileStorageBucket:
+      Description: S3 bucket for shape file storage
+      Value:
+        Ref: ShapeFileStorage
+    ProcessingQueueUrl:
+      Description: SQS queue URL for shape file processing
+      Value:
+        Ref: ShapeFileProcessingQueue

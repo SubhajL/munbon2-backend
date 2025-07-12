@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  ros-service:
+    build: .
+    container_name: munbon-ros-service
+    ports:
+      - "3047:3047"
+    environment:
+      NODE_ENV: development
+      PORT: 3047
+      MONGODB_URI: mongodb://mongodb:27017/munbon_ros
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      - mongodb
+      - redis
+    volumes:
+      - ./logs:/app/logs
+      - ./temp:/app/temp
+      - ./uploads:/app/uploads
+    networks:
+      - munbon-network
+    restart: unless-stopped
+
+  mongodb:
+    image: mongo:6.0
+    container_name: munbon-ros-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+      - mongodb_config:/data/configdb
+    environment:
+      MONGO_INITDB_DATABASE: munbon_ros
+    networks:
+      - munbon-network
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: munbon-ros-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - munbon-network
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+
+volumes:
+  mongodb_data:
+  mongodb_config:
+  redis_data:
+
+networks:
+  munbon-network:
+    driver: bridge

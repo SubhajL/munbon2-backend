@@ -1,0 +1,586 @@
+openapi: 3.0.3
+info:
+  title: Munbon Water Control Service API
+  version: 1.0.0
+  description: Water distribution control and optimization service
+
+servers:
+  - url: https://api.munbon.go.th/api/v1
+    description: Production server
+  - url: http://localhost:8080/api/v1
+    description: Local development
+
+tags:
+  - name: Gates
+    description: Water gate control operations
+  - name: Pumps
+    description: Pump control operations
+  - name: Schedules
+    description: Irrigation scheduling
+  - name: Optimization
+    description: Water distribution optimization
+
+paths:
+  /control/gates:
+    get:
+      tags: [Gates]
+      summary: List all gates
+      operationId: listGates
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: 'common.yaml#/components/parameters/PageParam'
+        - $ref: 'common.yaml#/components/parameters/PerPageParam'
+        - name: zoneId
+          in: query
+          schema:
+            $ref: 'common.yaml#/components/schemas/UUID'
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [open, closed, partial, fault]
+      responses:
+        '200':
+          description: Gates list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: 'common.yaml#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Gate'
+                      pagination:
+                        $ref: 'common.yaml#/components/schemas/PaginationMeta'
+
+  /control/gates/{gateId}:
+    get:
+      tags: [Gates]
+      summary: Get gate details
+      operationId: getGate
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: gateId
+          in: path
+          required: true
+          schema:
+            $ref: 'common.yaml#/components/schemas/UUID'
+      responses:
+        '200':
+          description: Gate details
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: 'common.yaml#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Gate'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+
+  /control/gates/{gateId}/command:
+    post:
+      tags: [Gates]
+      summary: Send gate control command
+      operationId: controlGate
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: gateId
+          in: path
+          required: true
+          schema:
+            $ref: 'common.yaml#/components/schemas/UUID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - command
+              properties:
+                command:
+                  type: string
+                  enum: [open, close, stop]
+                position:
+                  type: integer
+                  minimum: 0
+                  maximum: 100
+                  description: Gate opening percentage (0=closed, 100=open)
+                duration:
+                  type: integer
+                  description: Command duration in seconds
+                reason:
+                  type: string
+                  description: Reason for manual control
+      responses:
+        '200':
+          description: Command accepted
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: 'common.yaml#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ControlCommand'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+
+  /control/pumps:
+    get:
+      tags: [Pumps]
+      summary: List all pumps
+      operationId: listPumps
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: 'common.yaml#/components/parameters/PageParam'
+        - $ref: 'common.yaml#/components/parameters/PerPageParam'
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [running, stopped, fault, maintenance]
+      responses:
+        '200':
+          description: Pumps list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: 'common.yaml#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Pump'
+                      pagination:
+                        $ref: 'common.yaml#/components/schemas/PaginationMeta'
+
+  /control/pumps/{pumpId}/command:
+    post:
+      tags: [Pumps]
+      summary: Send pump control command
+      operationId: controlPump
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: pumpId
+          in: path
+          required: true
+          schema:
+            $ref: 'common.yaml#/components/schemas/UUID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - command
+              properties:
+                command:
+                  type: string
+                  enum: [start, stop, emergency_stop]
+                speed:
+                  type: integer
+                  minimum: 0
+                  maximum: 100
+                  description: Pump speed percentage
+                duration:
+                  type: integer
+                  description: Run duration in seconds
+                reason:
+                  type: string
+      responses:
+        '200':
+          description: Command accepted
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: 'common.yaml#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ControlCommand'
+
+  /schedules:
+    get:
+      tags: [Schedules]
+      summary: List irrigation schedules
+      operationId: listSchedules
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: zoneId
+          in: query
+          schema:
+            $ref: 'common.yaml#/components/schemas/UUID'
+        - name: startDate
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: endDate
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [scheduled, active, completed, cancelled]
+      responses:
+        '200':
+          description: Schedules list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: 'common.yaml#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/IrrigationSchedule'
+
+    post:
+      tags: [Schedules]
+      summary: Create irrigation schedule
+      operationId: createSchedule
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - zoneId
+                - startTime
+                - duration
+              properties:
+                zoneId:
+                  $ref: 'common.yaml#/components/schemas/UUID'
+                plotIds:
+                  type: array
+                  items:
+                    $ref: 'common.yaml#/components/schemas/UUID'
+                startTime:
+                  $ref: 'common.yaml#/components/schemas/Timestamp'
+                duration:
+                  type: integer
+                  description: Duration in minutes
+                waterVolume:
+                  type: number
+                  description: Target water volume in cubic meters
+                recurrence:
+                  type: object
+                  properties:
+                    frequency:
+                      type: string
+                      enum: [daily, weekly, custom]
+                    daysOfWeek:
+                      type: array
+                      items:
+                        type: integer
+                        minimum: 0
+                        maximum: 6
+                    endDate:
+                      type: string
+                      format: date
+      responses:
+        '201':
+          description: Schedule created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: 'common.yaml#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/IrrigationSchedule'
+
+  /optimization/calculate:
+    post:
+      tags: [Optimization]
+      summary: Calculate optimal water distribution
+      operationId: calculateOptimization
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - zoneIds
+                - targetDate
+              properties:
+                zoneIds:
+                  type: array
+                  items:
+                    $ref: 'common.yaml#/components/schemas/UUID'
+                targetDate:
+                  type: string
+                  format: date
+                constraints:
+                  type: object
+                  properties:
+                    maxWaterVolume:
+                      type: number
+                      description: Maximum available water in cubic meters
+                    priorityZones:
+                      type: array
+                      items:
+                        $ref: 'common.yaml#/components/schemas/UUID'
+                    timeWindow:
+                      type: object
+                      properties:
+                        start:
+                          type: string
+                          format: time
+                        end:
+                          type: string
+                          format: time
+                objectives:
+                  type: array
+                  items:
+                    type: string
+                    enum: [minimize_water_loss, maximize_coverage, balance_distribution]
+      responses:
+        '200':
+          description: Optimization results
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: 'common.yaml#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/OptimizationResult'
+
+components:
+  schemas:
+    Gate:
+      type: object
+      required:
+        - id
+        - gateCode
+        - location
+        - status
+      properties:
+        id:
+          $ref: 'common.yaml#/components/schemas/UUID'
+        gateCode:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+          enum: [main, lateral, field]
+        location:
+          $ref: 'common.yaml#/components/schemas/Location'
+        canalId:
+          $ref: 'common.yaml#/components/schemas/UUID'
+        zoneId:
+          $ref: 'common.yaml#/components/schemas/UUID'
+        status:
+          type: string
+          enum: [open, closed, partial, fault]
+        position:
+          type: integer
+          minimum: 0
+          maximum: 100
+        flowRate:
+          type: number
+          description: Current flow rate in l/s
+        scadaTag:
+          type: string
+        lastCommand:
+          type: object
+          properties:
+            timestamp:
+              $ref: 'common.yaml#/components/schemas/Timestamp'
+            command:
+              type: string
+            user:
+              type: string
+
+    Pump:
+      type: object
+      required:
+        - id
+        - pumpCode
+        - location
+        - status
+      properties:
+        id:
+          $ref: 'common.yaml#/components/schemas/UUID'
+        pumpCode:
+          type: string
+        name:
+          type: string
+        location:
+          $ref: 'common.yaml#/components/schemas/Location'
+        status:
+          type: string
+          enum: [running, stopped, fault, maintenance]
+        speed:
+          type: integer
+          minimum: 0
+          maximum: 100
+        flowRate:
+          type: number
+          description: Current flow rate in l/s
+        powerConsumption:
+          type: number
+          description: Power consumption in kW
+        runningHours:
+          type: integer
+        scadaTag:
+          type: string
+
+    ControlCommand:
+      type: object
+      required:
+        - commandId
+        - timestamp
+        - status
+      properties:
+        commandId:
+          $ref: 'common.yaml#/components/schemas/UUID'
+        timestamp:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+        status:
+          type: string
+          enum: [pending, executing, completed, failed]
+        executionTime:
+          type: integer
+          description: Execution time in milliseconds
+        result:
+          type: object
+        error:
+          type: string
+
+    IrrigationSchedule:
+      type: object
+      required:
+        - id
+        - zoneId
+        - startTime
+        - duration
+        - status
+      properties:
+        id:
+          $ref: 'common.yaml#/components/schemas/UUID'
+        zoneId:
+          $ref: 'common.yaml#/components/schemas/UUID'
+        plotIds:
+          type: array
+          items:
+            $ref: 'common.yaml#/components/schemas/UUID'
+        startTime:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+        endTime:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+        duration:
+          type: integer
+          description: Duration in minutes
+        waterVolume:
+          type: number
+          description: Target water volume in cubic meters
+        actualWaterVolume:
+          type: number
+        status:
+          type: string
+          enum: [scheduled, active, completed, cancelled]
+        createdBy:
+          $ref: 'common.yaml#/components/schemas/UUID'
+        createdAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+
+    OptimizationResult:
+      type: object
+      properties:
+        optimizationId:
+          $ref: 'common.yaml#/components/schemas/UUID'
+        status:
+          type: string
+          enum: [calculating, completed, failed]
+        summary:
+          type: object
+          properties:
+            totalWaterRequired:
+              type: number
+            totalWaterAllocated:
+              type: number
+            efficiency:
+              type: number
+              minimum: 0
+              maximum: 100
+            coverage:
+              type: number
+              minimum: 0
+              maximum: 100
+        allocations:
+          type: array
+          items:
+            type: object
+            properties:
+              zoneId:
+                $ref: 'common.yaml#/components/schemas/UUID'
+              waterVolume:
+                type: number
+              startTime:
+                $ref: 'common.yaml#/components/schemas/Timestamp'
+              duration:
+                type: integer
+              gates:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    gateId:
+                      $ref: 'common.yaml#/components/schemas/UUID'
+                    position:
+                      type: integer
+                    timing:
+                      type: object
+        constraints:
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+              satisfied:
+                type: boolean
+              details:
+                type: string
+
+  securitySchemes:
+    BearerAuth:
+      $ref: 'common.yaml#/components/securitySchemes/BearerAuth'

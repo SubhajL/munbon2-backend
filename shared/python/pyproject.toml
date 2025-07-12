@@ -1,0 +1,48 @@
+[tool.poetry]
+name = "munbon-shared"
+version = "1.0.0"
+description = "Shared utilities for Munbon Python microservices"
+authors = ["Munbon Team <dev@munbon.th>"]
+readme = "README.md"
+packages = [{include = "munbon_shared"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+pydantic = "^2.4.2"
+structlog = "^23.1.0"
+httpx = "^0.25.0"
+tenacity = "^8.2.3"
+redis = "^5.0.1"
+prometheus-client = "^0.18.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.2"
+pytest-asyncio = "^0.21.1"
+pytest-cov = "^4.1.0"
+black = "^23.9.1"
+mypy = "^1.5.1"
+ruff = "^0.0.292"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 88
+target-version = ['py311']
+
+[tool.ruff]
+line-length = 88
+select = ["E", "F", "I", "N", "W"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]

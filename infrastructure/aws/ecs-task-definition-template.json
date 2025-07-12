@@ -1,0 +1,68 @@
+{
+  "family": "munbon-${SERVICE_NAME}",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/munbon-ecs-execution-role",
+  "taskRoleArn": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/munbon-ecs-task-role",
+  "containerDefinitions": [
+    {
+      "name": "${SERVICE_NAME}",
+      "image": "${ECR_URI}",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": ${SERVICE_PORT},
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        {
+          "name": "NODE_ENV",
+          "value": "${ENVIRONMENT}"
+        },
+        {
+          "name": "PORT",
+          "value": "${SERVICE_PORT}"
+        },
+        {
+          "name": "SERVICE_NAME",
+          "value": "${SERVICE_NAME}"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "DATABASE_URL",
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:munbon/${ENVIRONMENT}/database-url"
+        },
+        {
+          "name": "REDIS_URL",
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:munbon/${ENVIRONMENT}/redis-url"
+        },
+        {
+          "name": "JWT_SECRET",
+          "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:munbon/${ENVIRONMENT}/jwt-secret"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/munbon/${SERVICE_NAME}",
+          "awslogs-region": "${AWS_REGION}",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "healthCheck": {
+        "command": [
+          "CMD-SHELL",
+          "curl -f http://localhost:${SERVICE_PORT}/health || exit 1"
+        ],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 60
+      }
+    }
+  ]
+}

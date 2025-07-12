@@ -1,0 +1,11 @@
+# Task ID: 18
+# Title: Implement Reporting Service
+# Status: pending
+# Dependencies: 5, 7, 11
+# Priority: medium
+# Description: Develop the Reporting Service for report generation, exports, and dashboard data aggregation.
+# Details:
+Implement reporting service using Spring Boot or NestJS. Integrate with JasperReports (v6.20+) or Apache POI for report generation. Develop export functionality for PDF, Excel, and CSV formats. Implement scheduled report generation using Quartz or native scheduling. Create custom report templates with support for Thai/English. Develop real-time dashboard data aggregation using materialized views or Redis. Implement government compliance reports according to Thai standards. Use RabbitMQ or Kafka for asynchronous report generation.
+
+# Test Strategy:
+Test report generation with sample data. Validate export functionality for different formats. Test scheduled report generation. Verify template rendering with different locales. Test dashboard data aggregation. Benchmark report generation performance under load. Validate compliance reports against government standards.

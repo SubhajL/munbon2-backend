@@ -1,0 +1,721 @@
+openapi: 3.0.3
+info:
+  title: Munbon Unified API Service
+  version: 1.0.0
+  description: |
+    Unified API service that aggregates data from multiple sources including TimescaleDB (sensor data) 
+    and MSSQL (SCADA/AOS weather data). This API is accessed through AWS API Gateway Lambda.
+    
+    **Base URL**: https://5e3l647kpd.execute-api.ap-southeast-1.amazonaws.com
+    
+    **Authentication**: API Key in header (x-api-key)
+
+servers:
+  - url: https://5e3l647kpd.execute-api.ap-southeast-1.amazonaws.com
+    description: Production AWS API Gateway
+  - url: https://munbon-unified-api.onrender.com
+    description: Render.com deployment
+  - url: http://localhost:3000
+    description: Local development
+
+tags:
+  - name: Water Level
+    description: Water level sensor data endpoints
+  - name: Moisture
+    description: Soil moisture sensor data endpoints
+  - name: AOS/Weather
+    description: Meteorological data from AOS weather stations
+  - name: Health
+    description: Service health checks
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Health check endpoint
+      operationId: healthCheck
+      security: []
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  service:
+                    type: string
+                    example: unified-api
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  /api/v1/sensors/water-level/latest:
+    get:
+      tags: [Water Level]
+      summary: Get latest water level readings
+      operationId: getLatestWaterLevels
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Latest water level readings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WaterLevelLatestResponse'
+              example:
+                data_type: water_level
+                request_time: "2025-07-08T10:30:00Z"
+                request_time_buddhist: "08/07/2568"
+                sensor_count: 3
+                sensors:
+                  - sensor_id: "WL001"
+                    sensor_name: "Water Level Station 1"
+                    location:
+                      latitude: 14.4512
+                      longitude: 102.1234
+                    zone: "Zone1"
+                    latest_reading:
+                      timestamp: "2025-07-08T10:25:00Z"
+                      timestamp_buddhist: "08/07/2568"
+                      water_level_m: 2.45
+                      flow_rate_m3s: 0
+                      quality: 95
+
+  /api/v1/sensors/water-level/timeseries:
+    get:
+      tags: [Water Level]
+      summary: Get water level time series data
+      operationId: getWaterLevelTimeSeries
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: date
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^\d{2}/\d{2}/\d{4}$'
+          description: Date in Buddhist calendar format (DD/MM/YYYY)
+          example: "08/07/2568"
+      responses:
+        '200':
+          description: Water level time series data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WaterLevelTimeSeriesResponse'
+        '400':
+          description: Bad request - missing or invalid date parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/sensors/water-level/statistics:
+    get:
+      tags: [Water Level]
+      summary: Get water level statistics
+      operationId: getWaterLevelStatistics
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: date
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^\d{2}/\d{2}/\d{4}$'
+          description: Date in Buddhist calendar format (DD/MM/YYYY)
+          example: "08/07/2568"
+      responses:
+        '200':
+          description: Water level statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WaterLevelStatisticsResponse'
+
+  /api/v1/sensors/moisture/latest:
+    get:
+      tags: [Moisture]
+      summary: Get latest moisture readings
+      operationId: getLatestMoisture
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Latest moisture readings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MoistureLatestResponse'
+              example:
+                data_type: moisture
+                request_time: "2025-07-08T10:30:00Z"
+                request_time_buddhist: "08/07/2568"
+                sensor_count: 2
+                sensors:
+                  - sensor_id: "MS001"
+                    sensor_name: "Moisture Sensor Field 1"
+                    location:
+                      latitude: 14.4612
+                      longitude: 102.1334
+                    zone: "Zone1"
+                    latest_reading:
+                      timestamp: "2025-07-08T10:20:00Z"
+                      timestamp_buddhist: "08/07/2568"
+                      moisture_percentage: 65.5
+                      temperature_celsius: 28.3
+                      quality: 98
+
+  /api/v1/sensors/moisture/timeseries:
+    get:
+      tags: [Moisture]
+      summary: Get moisture time series data
+      operationId: getMoistureTimeSeries
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: date
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^\d{2}/\d{2}/\d{4}$'
+          description: Date in Buddhist calendar format (DD/MM/YYYY)
+          example: "08/07/2568"
+      responses:
+        '200':
+          description: Moisture time series data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MoistureTimeSeriesResponse'
+
+  /api/v1/sensors/aos/latest:
+    get:
+      tags: [AOS/Weather]
+      summary: Get latest AOS meteorological data
+      operationId: getLatestAOSData
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Latest AOS weather data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AOSLatestResponse'
+              example:
+                data_type: aos_meteorological
+                request_time: "2025-07-08T10:30:00Z"
+                request_time_buddhist: "08/07/2568"
+                station_count: 1
+                stations:
+                  - station_id: "AOS001"
+                    station_name: "Munbon AOS Weather Station"
+                    location:
+                      latitude: 14.3754
+                      longitude: 102.8756
+                    zone: "Zone1"
+                    latest_reading:
+                      timestamp: "2025-07-08T10:00:00Z"
+                      timestamp_buddhist: "08/07/2568"
+                      rainfall_mm: 0
+                      temperature_celsius: 32.5
+                      humidity_percentage: 0
+                      wind_speed_ms: 2.5
+                      wind_max_ms: 4.2
+                      wind_direction_degrees: 180
+                      solar_radiation_wm2: 850
+                      battery_voltage: 12.8
+                      pressure_hpa: 0
+
+  /api/v1/sensors/aos/timeseries:
+    get:
+      tags: [AOS/Weather]
+      summary: Get AOS time series data
+      operationId: getAOSTimeSeries
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: date
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^\d{2}/\d{2}/\d{4}$'
+          description: Date in Buddhist calendar format (DD/MM/YYYY)
+          example: "08/07/2568"
+      responses:
+        '200':
+          description: AOS time series data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AOSTimeSeriesResponse'
+
+  /api/v1/sensors/aos/statistics:
+    get:
+      tags: [AOS/Weather]
+      summary: Get AOS statistics
+      operationId: getAOSStatistics
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: date
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^\d{2}/\d{2}/\d{4}$'
+          description: Date in Buddhist calendar format (DD/MM/YYYY)
+          example: "08/07/2568"
+      responses:
+        '200':
+          description: AOS statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AOSStatisticsResponse'
+
+components:
+  schemas:
+    Location:
+      type: object
+      properties:
+        latitude:
+          type: number
+          format: double
+        longitude:
+          type: number
+          format: double
+
+    WaterLevelReading:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        timestamp_buddhist:
+          type: string
+          pattern: '^\d{2}/\d{2}/\d{4}$'
+        water_level_m:
+          type: number
+          format: float
+          description: Water level in meters
+        flow_rate_m3s:
+          type: number
+          format: float
+          description: Flow rate in cubic meters per second
+        quality:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: Data quality score
+
+    WaterLevelSensor:
+      type: object
+      properties:
+        sensor_id:
+          type: string
+        sensor_name:
+          type: string
+        location:
+          $ref: '#/components/schemas/Location'
+        zone:
+          type: string
+        latest_reading:
+          $ref: '#/components/schemas/WaterLevelReading'
+
+    WaterLevelLatestResponse:
+      type: object
+      properties:
+        data_type:
+          type: string
+          enum: [water_level]
+        request_time:
+          type: string
+          format: date-time
+        request_time_buddhist:
+          type: string
+        sensor_count:
+          type: integer
+        sensors:
+          type: array
+          items:
+            $ref: '#/components/schemas/WaterLevelSensor'
+
+    WaterLevelTimeSeriesResponse:
+      type: object
+      properties:
+        data_type:
+          type: string
+          enum: [water_level]
+        request_date:
+          type: string
+          pattern: '^\d{2}/\d{2}/\d{4}$'
+        sensor_count:
+          type: integer
+        sensors:
+          type: array
+          items:
+            type: object
+            properties:
+              sensor_id:
+                type: string
+              sensor_name:
+                type: string
+              location:
+                $ref: '#/components/schemas/Location'
+              zone:
+                type: string
+              date_buddhist:
+                type: string
+              readings:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    timestamp:
+                      type: string
+                      format: date-time
+                    water_level_m:
+                      type: number
+                    flow_rate_m3s:
+                      type: number
+                    quality:
+                      type: number
+
+    WaterLevelStatisticsResponse:
+      type: object
+      properties:
+        data_type:
+          type: string
+          enum: [water_level]
+        request_date:
+          type: string
+        sensor_count:
+          type: integer
+        sensors:
+          type: array
+          items:
+            type: object
+            properties:
+              sensor_id:
+                type: string
+              sensor_name:
+                type: string
+              location:
+                $ref: '#/components/schemas/Location'
+              zone:
+                type: string
+              date_buddhist:
+                type: string
+              statistics:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  min:
+                    type: number
+                  max:
+                    type: number
+                  avg:
+                    type: number
+                  stddev:
+                    type: number
+
+    MoistureReading:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        timestamp_buddhist:
+          type: string
+        moisture_percentage:
+          type: number
+          minimum: 0
+          maximum: 100
+        temperature_celsius:
+          type: number
+        quality:
+          type: number
+
+    MoistureSensor:
+      type: object
+      properties:
+        sensor_id:
+          type: string
+        sensor_name:
+          type: string
+        location:
+          $ref: '#/components/schemas/Location'
+        zone:
+          type: string
+        latest_reading:
+          $ref: '#/components/schemas/MoistureReading'
+
+    MoistureLatestResponse:
+      type: object
+      properties:
+        data_type:
+          type: string
+          enum: [moisture]
+        request_time:
+          type: string
+          format: date-time
+        request_time_buddhist:
+          type: string
+        sensor_count:
+          type: integer
+        sensors:
+          type: array
+          items:
+            $ref: '#/components/schemas/MoistureSensor'
+
+    MoistureTimeSeriesResponse:
+      type: object
+      properties:
+        data_type:
+          type: string
+          enum: [moisture]
+        request_date:
+          type: string
+        sensor_count:
+          type: integer
+        sensors:
+          type: array
+          items:
+            type: object
+            properties:
+              sensor_id:
+                type: string
+              sensor_name:
+                type: string
+              location:
+                $ref: '#/components/schemas/Location'
+              zone:
+                type: string
+              date_buddhist:
+                type: string
+              readings:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    timestamp:
+                      type: string
+                      format: date-time
+                    moisture_percentage:
+                      type: number
+                    temperature_celsius:
+                      type: number
+                    quality:
+                      type: number
+
+    AOSReading:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        timestamp_buddhist:
+          type: string
+        rainfall_mm:
+          type: number
+        temperature_celsius:
+          type: number
+        humidity_percentage:
+          type: number
+        wind_speed_ms:
+          type: number
+        wind_max_ms:
+          type: number
+        wind_direction_degrees:
+          type: number
+          minimum: 0
+          maximum: 360
+        solar_radiation_wm2:
+          type: number
+        battery_voltage:
+          type: number
+        pressure_hpa:
+          type: number
+
+    AOSStation:
+      type: object
+      properties:
+        station_id:
+          type: string
+        station_name:
+          type: string
+        location:
+          $ref: '#/components/schemas/Location'
+        zone:
+          type: string
+        latest_reading:
+          $ref: '#/components/schemas/AOSReading'
+
+    AOSLatestResponse:
+      type: object
+      properties:
+        data_type:
+          type: string
+          enum: [aos_meteorological]
+        request_time:
+          type: string
+          format: date-time
+        request_time_buddhist:
+          type: string
+        station_count:
+          type: integer
+        stations:
+          type: array
+          items:
+            $ref: '#/components/schemas/AOSStation'
+
+    AOSTimeSeriesResponse:
+      type: object
+      properties:
+        data_type:
+          type: string
+          enum: [aos_meteorological]
+        request_date:
+          type: string
+        station_count:
+          type: integer
+        stations:
+          type: array
+          items:
+            type: object
+            properties:
+              station_id:
+                type: string
+              station_name:
+                type: string
+              location:
+                $ref: '#/components/schemas/Location'
+              zone:
+                type: string
+              date_buddhist:
+                type: string
+              readings:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AOSReading'
+
+    AOSStatisticsResponse:
+      type: object
+      properties:
+        data_type:
+          type: string
+          enum: [aos_meteorological]
+        request_date:
+          type: string
+        station_count:
+          type: integer
+        stations:
+          type: array
+          items:
+            type: object
+            properties:
+              station_id:
+                type: string
+              station_name:
+                type: string
+              location:
+                $ref: '#/components/schemas/Location'
+              zone:
+                type: string
+              date_buddhist:
+                type: string
+              statistics:
+                type: object
+                properties:
+                  reading_count:
+                    type: integer
+                  rainfall:
+                    type: object
+                    properties:
+                      min:
+                        type: number
+                      max:
+                        type: number
+                      avg:
+                        type: number
+                      total:
+                        type: number
+                  temperature:
+                    type: object
+                    properties:
+                      min:
+                        type: number
+                      max:
+                        type: number
+                      avg:
+                        type: number
+                      stddev:
+                        type: number
+                  wind_speed:
+                    type: object
+                    properties:
+                      min:
+                        type: number
+                      max:
+                        type: number
+                      avg:
+                        type: number
+                      stddev:
+                        type: number
+                      max_gust:
+                        type: number
+                  wind_direction:
+                    type: object
+                    properties:
+                      min:
+                        type: number
+                      max:
+                        type: number
+                      avg:
+                        type: number
+                  solar_radiation:
+                    type: object
+                    properties:
+                      min:
+                        type: number
+                      max:
+                        type: number
+                      avg:
+                        type: number
+                      stddev:
+                        type: number
+                  battery:
+                    type: object
+                    properties:
+                      min:
+                        type: number
+                      max:
+                        type: number
+                      avg:
+                        type: number
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error message
+
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+      description: API key provided by system administrator

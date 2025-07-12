@@ -1,0 +1,9 @@
+{
+  "name": "@munbon/rid-ms-lambda",
+  "version": "1.0.0",
+  "description": "RID-MS Lambda functions",
+  "main": "lambda/simple-handler.js",
+  "dependencies": {
+    "aws-sdk": "^2.1500.0"
+  }
+}

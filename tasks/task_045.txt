@@ -1,0 +1,11 @@
+# Task ID: 45
+# Title: Implement AOS (Automatic Operation System) Service
+# Status: pending
+# Dependencies: 10, 13, 29
+# Priority: high
+# Description: Develop a microservice for integrating with Aeronautical Observation Stations to collect real-time meteorological data including rainfall, wind speed/direction, temperature, humidity, and atmospheric pressure for weather-based irrigation decisions.
+# Details:
+Build AOS integration service using Go for high-performance data collection. Implement API clients for connecting to Aeronautical Observation Stations. Create data normalization layer to standardize meteorological data from different station types. Develop real-time data streaming pipeline for continuous weather updates. Implement data validation to ensure quality of meteorological readings. Store historical weather data in PostgreSQL for trend analysis. Create caching mechanism for frequently accessed weather parameters. Implement configurable polling intervals for different meteorological data types. Add geospatial indexing for location-based weather queries. Develop alert system for extreme weather conditions. Create data aggregation for regional weather patterns. Implement fallback mechanisms for station outages. Provide REST API endpoints for other services to access weather data for irrigation decision-making.
+
+# Test Strategy:
+Test API integration with multiple Aeronautical Observation Station types. Verify data normalization across different formats. Test real-time data streaming performance. Validate data quality checks. Test historical data storage and retrieval. Verify geospatial query functionality. Test alert triggering for weather thresholds. Validate system behavior during station outages. Test end-to-end data flow from stations to irrigation decision systems.

@@ -1,0 +1,28 @@
+{
+  "name": "munbon-gis-shapefile-lambda",
+  "version": "1.0.0",
+  "description": "AWS Lambda functions for GIS shapefile uploads",
+  "main": "handler.js",
+  "scripts": {
+    "build": "tsc",
+    "deploy": "serverless deploy",
+    "deploy:dev": "serverless deploy --stage dev",
+    "deploy:prod": "serverless deploy --stage prod",
+    "remove": "serverless remove",
+    "logs": "serverless logs -f shapefileUpload",
+    "test": "echo \"No tests yet\""
+  },
+  "dependencies": {
+    "aws-sdk": "^2.1692.0",
+    "parse-multipart-data": "^1.5.0"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.145",
+    "@types/node": "^20.10.4",
+    "serverless": "^3.38.0",
+    "serverless-apigw-binary": "^0.4.4",
+    "serverless-offline": "^13.3.3",
+    "serverless-plugin-typescript": "^2.1.5",
+    "typescript": "^5.3.3"
+  }
+}

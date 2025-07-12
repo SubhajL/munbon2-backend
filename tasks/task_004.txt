@@ -1,0 +1,11 @@
+# Task ID: 4
+# Title: Implement Authentication & Authorization Service
+# Status: pending
+# Dependencies: 3
+# Priority: high
+# Description: Develop the Authentication & Authorization Service with OAuth 2.0 integration, JWT tokens, and RBAC.
+# Details:
+Implement OAuth 2.0 server using Spring Security OAuth (v2.6+) or Keycloak (v20+). Integrate with Thai Digital ID system via their official API. Implement JWT token generation with appropriate claims and expiration. Set up Redis (v7.0+) for session management and token blacklisting. Configure role-based access control with granular permissions. Implement refresh token rotation for security. Set up multi-factor authentication using TOTP (RFC 6238). Configure Single Sign-On integration with Thai government systems. Use bcrypt for password hashing. Implement proper token validation middleware. Consider using Auth0 or Okta if third-party identity providers are acceptable.
+
+# Test Strategy:
+Unit test authentication flows. Integration test OAuth endpoints. Test JWT token generation and validation. Verify RBAC permissions with different user roles. Test MFA workflows. Validate SSO integration with mock government services. Test session management and timeout functionality. Perform security penetration testing.

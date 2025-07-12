@@ -1,0 +1,16 @@
+# This file is only needed if not using StatefulSet volumeClaimTemplates
+# For standalone PVC creation or testing
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: timescaledb-data
+  labels:
+    app: timescaledb
+    component: database
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 50Gi

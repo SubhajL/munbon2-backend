@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: timescaledb
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+      - name: timescaledb
+        env:
+        # Override for local development
+        - name: POSTGRES_SHARED_BUFFERS
+          value: "256MB"
+        - name: POSTGRES_EFFECTIVE_CACHE_SIZE
+          value: "1GB"
+        - name: POSTGRES_MAX_CONNECTIONS
+          value: "50"
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      resources:
+        requests:
+          storage: 10Gi  # Smaller storage for local dev

@@ -1,0 +1,134 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: influxdb
+  namespace: munbon-databases
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 8086
+    targetPort: 8086
+  selector:
+    app: influxdb
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: influxdb-lb
+  namespace: munbon-databases
+spec:
+  type: LoadBalancer
+  ports:
+  - name: http
+    port: 8086
+    targetPort: 8086
+  selector:
+    app: influxdb
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: influxdb
+  namespace: munbon-databases
+spec:
+  serviceName: influxdb
+  replicas: 1
+  selector:
+    matchLabels:
+      app: influxdb
+  template:
+    metadata:
+      labels:
+        app: influxdb
+    spec:
+      containers:
+      - name: influxdb
+        image: influxdb:2.7-alpine
+        ports:
+        - containerPort: 8086
+          name: http
+        env:
+        - name: DOCKER_INFLUXDB_INIT_MODE
+          value: setup
+        - name: DOCKER_INFLUXDB_INIT_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: influxdb-secret
+              key: init-username
+        - name: DOCKER_INFLUXDB_INIT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: influxdb-secret
+              key: init-password
+        - name: DOCKER_INFLUXDB_INIT_ORG
+          valueFrom:
+            secretKeyRef:
+              name: influxdb-secret
+              key: init-org
+        - name: DOCKER_INFLUXDB_INIT_BUCKET
+          valueFrom:
+            secretKeyRef:
+              name: influxdb-secret
+              key: init-bucket
+        - name: DOCKER_INFLUXDB_INIT_ADMIN_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: influxdb-secret
+              key: admin-token
+        - name: INFLUXDB_HTTP_AUTH_ENABLED
+          value: "true"
+        - name: INFLUXDB_REPORTING_DISABLED
+          value: "false"
+        - name: INFLUXDB_LOG_LEVEL
+          value: info
+        - name: INFLUXDB_HTTP_FLUX_ENABLED
+          value: "true"
+        - name: INFLUXDB_HTTP_METRICS_ENABLED
+          value: "true"
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/influxdb2
+        - name: config
+          mountPath: /etc/influxdb2
+        - name: scripts
+          mountPath: /docker-entrypoint-initdb.d
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1"
+          limits:
+            memory: "4Gi"
+            cpu: "2"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8086
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8086
+          initialDelaySeconds: 10
+          periodSeconds: 5
+      volumes:
+      - name: config
+        configMap:
+          name: influxdb-config
+      - name: scripts
+        configMap:
+          name: influxdb-config
+          items:
+          - key: init-script.sh
+            path: init-script.sh
+            mode: 0755
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 100Gi
+      storageClassName: fast-ssd

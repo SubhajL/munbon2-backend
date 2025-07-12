@@ -1,0 +1,8 @@
+# Patch to set replicas to 1 for local development
+# This will be applied to all deployments
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: all
+spec:
+  replicas: 1

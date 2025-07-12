@@ -1,0 +1,77 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: RID-MS SHAPE File Service
+
+Globals:
+  Function:
+    Timeout: 30
+    Runtime: nodejs18.x
+    Environment:
+      Variables:
+        STAGE: dev
+
+Resources:
+  ShapeFileUploadFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: handler.shapeFileUpload
+      Events:
+        Upload:
+          Type: Api
+          Properties:
+            Path: /api/v1/shapefiles/upload
+            Method: post
+
+  ShapeFileMetadataFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: handler.shapeFileMetadata
+      Events:
+        GetMetadata:
+          Type: Api
+          Properties:
+            Path: /api/v1/shapefiles/{id}
+            Method: get
+
+  ShapeFileListFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: handler.shapeFileList
+      Events:
+        ListFiles:
+          Type: Api
+          Properties:
+            Path: /api/v1/shapefiles
+            Method: get
+
+  ShapeFileParcelsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: handler.shapeFileParcels
+      Events:
+        GetParcels:
+          Type: Api
+          Properties:
+            Path: /api/v1/shapefiles/{id}/parcels
+            Method: get
+
+  ShapeFileExportFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: handler.shapeFileExport
+      Events:
+        Export:
+          Type: Api
+          Properties:
+            Path: /api/v1/shapefiles/{id}/export/geojson
+            Method: get
+
+Outputs:
+  ApiUrl:
+    Description: API Gateway endpoint URL
+    Value: !Sub 'https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod'

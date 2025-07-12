@@ -1,0 +1,7 @@
+node_modules/
+.serverless/
+dist/
+.env
+.env.deploy
+*.log
+.DS_Store

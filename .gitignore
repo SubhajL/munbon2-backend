@@ -1,0 +1,155 @@
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+*.tsbuildinfo
+dist/
+build/
+coverage/
+.nyc_output
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+*.egg-info/
+.coverage
+htmlcov/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+go.sum
+
+# Java
+target/
+*.class
+*.jar
+*.war
+*.ear
+*.iml
+.idea/
+.gradle/
+build/
+out/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+.env.*.local
+*.pem
+
+# Docker
+.dockerignore
+
+# Kubernetes
+*.kubeconfig
+
+# Logs
+logs/
+*.log
+
+# Database
+*.sqlite
+*.db
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Build artifacts
+dist/
+build/
+out/
+
+# Test coverage
+coverage/
+.coverage
+*.lcov
+
+# Documentation build
+docs/_build/
+site/
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# SSL certificates
+*.pem
+*.key
+*.crt
+*.csr
+
+# Package files
+*.tar.gz
+*.zip
+*.rar
+
+# System files
+.directory
+*.desktop
+
+# Large GIS files
+GIS_moonbon/
+*.dbf
+*.shp
+*.shx
+*.prj
+*.gpkg
+*.cpg
+*.qpj
+*.sbn
+*.sbx
+
+# PDF documents
+*.pdf
+
+# Deployment and cloud-specific
+.serverless/
+deployment-packages/
+.aws-sam/
+samconfig.toml

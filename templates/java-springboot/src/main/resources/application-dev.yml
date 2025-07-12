@@ -1,0 +1,20 @@
+spring:
+  # Development specific configuration
+  devtools:
+    restart:
+      enabled: true
+    livereload:
+      enabled: true
+
+# Development logging
+logging:
+  level:
+    com.munbon: DEBUG
+    org.springframework.web: DEBUG
+
+# Disable security for development
+spring.security:
+  oauth2:
+    resourceserver:
+      jwt:
+        issuer-uri: http://localhost:8080/auth/realms/munbon

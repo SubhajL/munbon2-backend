@@ -1,0 +1,358 @@
+# Common OpenAPI components shared across all services
+openapi: 3.0.3
+info:
+  title: Munbon Common API Components
+  version: 1.0.0
+  description: Shared components for Munbon Irrigation System APIs
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token obtained from /auth/login endpoint
+    
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API key for service-to-service communication
+    
+    OAuth2:
+      type: oauth2
+      flows:
+        authorizationCode:
+          authorizationUrl: https://auth.munbon.go.th/oauth/authorize
+          tokenUrl: https://auth.munbon.go.th/oauth/token
+          scopes:
+            read:sensors: Read sensor data
+            write:sensors: Write sensor data
+            control:gates: Control water gates
+            admin: Full administrative access
+
+  parameters:
+    PageParam:
+      name: page
+      in: query
+      description: Page number (1-based)
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    
+    PerPageParam:
+      name: perPage
+      in: query
+      description: Items per page
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    
+    SortParam:
+      name: sort
+      in: query
+      description: Sort fields (prefix with - for descending)
+      schema:
+        type: string
+        example: "-createdAt,name"
+    
+    SearchParam:
+      name: q
+      in: query
+      description: Search query
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 100
+    
+    LanguageParam:
+      name: Accept-Language
+      in: header
+      description: Preferred language
+      schema:
+        type: string
+        enum: [th, en]
+        default: th
+
+  schemas:
+    # Base response wrapper
+    ApiResponse:
+      type: object
+      required:
+        - success
+        - meta
+      properties:
+        success:
+          type: boolean
+        data:
+          description: Response payload (can be object, array, or null)
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+    
+    # Error response
+    ErrorResponse:
+      type: object
+      required:
+        - success
+        - error
+        - meta
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          $ref: '#/components/schemas/Error'
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+    
+    # Error details
+    Error:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          enum:
+            - VALIDATION_ERROR
+            - AUTHENTICATION_ERROR
+            - AUTHORIZATION_ERROR
+            - NOT_FOUND
+            - CONFLICT
+            - RATE_LIMIT_EXCEEDED
+            - INTERNAL_ERROR
+            - SERVICE_UNAVAILABLE
+        message:
+          type: string
+        details:
+          type: array
+          items:
+            $ref: '#/components/schemas/ErrorDetail'
+    
+    ErrorDetail:
+      type: object
+      properties:
+        field:
+          type: string
+        message:
+          type: string
+        code:
+          type: string
+    
+    # Response metadata
+    ResponseMeta:
+      type: object
+      required:
+        - timestamp
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        version:
+          type: string
+          example: "1.0.0"
+        requestId:
+          type: string
+          format: uuid
+    
+    # Pagination
+    PaginationMeta:
+      type: object
+      required:
+        - page
+        - perPage
+        - total
+        - totalPages
+      properties:
+        page:
+          type: integer
+          minimum: 1
+        perPage:
+          type: integer
+          minimum: 1
+        total:
+          type: integer
+          minimum: 0
+        totalPages:
+          type: integer
+          minimum: 0
+    
+    # Common data types
+    UUID:
+      type: string
+      format: uuid
+      pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+    
+    Timestamp:
+      type: string
+      format: date-time
+      example: "2024-06-20T10:30:00Z"
+    
+    Location:
+      type: object
+      required:
+        - latitude
+        - longitude
+      properties:
+        latitude:
+          type: number
+          format: double
+          minimum: -90
+          maximum: 90
+        longitude:
+          type: number
+          format: double
+          minimum: -180
+          maximum: 180
+        elevation:
+          type: number
+          format: float
+          description: Elevation in meters above sea level
+    
+    GeoJSON:
+      type: object
+      required:
+        - type
+        - coordinates
+      properties:
+        type:
+          type: string
+          enum: [Point, LineString, Polygon, MultiPoint, MultiLineString, MultiPolygon]
+        coordinates:
+          type: array
+          items:
+            type: number
+    
+    DateRange:
+      type: object
+      properties:
+        startDate:
+          type: string
+          format: date-time
+        endDate:
+          type: string
+          format: date-time
+    
+    # Audit fields
+    AuditFields:
+      type: object
+      properties:
+        createdAt:
+          type: string
+          format: date-time
+          readOnly: true
+        createdBy:
+          type: string
+          format: uuid
+          readOnly: true
+        updatedAt:
+          type: string
+          format: date-time
+          readOnly: true
+        updatedBy:
+          type: string
+          format: uuid
+          readOnly: true
+
+  responses:
+    BadRequest:
+      description: Bad Request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: VALIDATION_ERROR
+              message: Invalid input parameters
+              details:
+                - field: email
+                  message: Invalid email format
+            meta:
+              timestamp: "2024-06-20T10:30:00Z"
+    
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: AUTHENTICATION_ERROR
+              message: Invalid or expired token
+            meta:
+              timestamp: "2024-06-20T10:30:00Z"
+    
+    Forbidden:
+      description: Forbidden
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: AUTHORIZATION_ERROR
+              message: Insufficient permissions
+            meta:
+              timestamp: "2024-06-20T10:30:00Z"
+    
+    NotFound:
+      description: Not Found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: NOT_FOUND
+              message: Resource not found
+            meta:
+              timestamp: "2024-06-20T10:30:00Z"
+    
+    Conflict:
+      description: Conflict
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    
+    TooManyRequests:
+      description: Too Many Requests
+      headers:
+        X-RateLimit-Limit:
+          schema:
+            type: integer
+        X-RateLimit-Remaining:
+          schema:
+            type: integer
+        X-RateLimit-Reset:
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    
+    InternalServerError:
+      description: Internal Server Error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: INTERNAL_ERROR
+              message: An unexpected error occurred
+            meta:
+              timestamp: "2024-06-20T10:30:00Z"
+              requestId: "req_123456"

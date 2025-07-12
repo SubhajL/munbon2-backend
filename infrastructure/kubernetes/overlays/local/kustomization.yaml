@@ -1,0 +1,25 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+bases:
+  - ../../base
+
+# Local development patches
+patchesStrategicMerge:
+  - patches/resource-limits.yaml
+  - patches/replicas.yaml
+
+configMapGenerator:
+  - name: local-config
+    namespace: munbon
+    literals:
+      - ENVIRONMENT=local
+      - LOG_LEVEL=debug
+      - ENABLE_DEBUG=true
+      
+# Add local-specific labels
+commonLabels:
+  environment: local
+  
+# Resource name prefix for local
+namePrefix: local-

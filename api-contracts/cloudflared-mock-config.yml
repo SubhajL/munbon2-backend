@@ -1,0 +1,32 @@
+# Cloudflare Tunnel Configuration for Mock API Server
+# Copy this file and update with your tunnel ID
+
+# Use existing tunnel ID or create new one
+tunnel: YOUR_TUNNEL_ID_HERE
+credentials-file: /home/nonroot/.cloudflared/YOUR_TUNNEL_ID_HERE.json
+
+# Tunnel metrics (optional)
+metrics: 0.0.0.0:2000
+
+# Ingress rules - routes traffic to mock API
+ingress:
+  # All traffic goes to mock API server
+  - service: http://mock-api:4010
+    originRequest:
+      # Disable TLS verification for local connection
+      noTLSVerify: true
+      # Connection settings for reliability
+      connectTimeout: 30s
+      tcpKeepAlive: 30s
+      keepAliveConnections: 100
+      keepAliveTimeout: 90s
+      # Retry settings
+      retryBackoff: 1s
+      maxRetries: 5
+      # Headers
+      httpHostHeader: "localhost"
+      originServerName: "mock-api"
+
+# Logging
+loglevel: info
+retries: 5

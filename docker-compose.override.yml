@@ -1,0 +1,34 @@
+# Override file for local development
+# This file is automatically loaded by docker-compose
+
+services:
+  # Enable all development tools by default
+  kafka-ui:
+    profiles: []  # Remove profile to enable by default
+    
+  mongo-express:
+    profiles: []  # Remove profile to enable by default
+    
+  redis-commander:
+    profiles: []  # Remove profile to enable by default
+
+  # Add pgAdmin for PostgreSQL management
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: munbon-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@munbon.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "8093:80"
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+volumes:
+  pgadmin-data:

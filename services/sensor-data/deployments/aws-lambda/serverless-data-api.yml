@@ -1,0 +1,185 @@
+service: munbon-data-api
+
+provider:
+  name: aws
+  runtime: nodejs18.x
+  region: ap-southeast-1  # Singapore region for Thailand proximity
+  stage: ${opt:stage, 'dev'}
+  environment:
+    # Cloudflare Tunnel Configuration
+    TUNNEL_URL: ${env:TUNNEL_URL, 'https://br-firewall-breath-planner.trycloudflare.com'}
+    INTERNAL_API_KEY: ${env:INTERNAL_API_KEY, 'munbon-internal-f3b89263126548'}
+    
+    # API Keys for external access
+    EXTERNAL_API_KEYS: ${env:EXTERNAL_API_KEYS, 'rid-ms-prod-key1,tmd-weather-key2,university-key3'}
+    
+    # Stage
+    STAGE: ${self:provider.stage}
+
+  # VPC configuration for RDS access (if using RDS in VPC)
+  # vpc:
+  #   securityGroupIds:
+  #     - sg-xxxxxx
+  #   subnetIds:
+  #     - subnet-xxxxxx
+  #     - subnet-yyyyyy
+
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+          Resource: "*"
+        # SSM Parameter Store permissions for API keys and tunnel URL
+        - Effect: Allow
+          Action:
+            - ssm:GetParameter
+            - ssm:PutParameter
+          Resource:
+            - "arn:aws:ssm:${aws:region}:${aws:accountId}:parameter/munbon/api-keys"
+            - "arn:aws:ssm:${aws:region}:${aws:accountId}:parameter/munbon/tunnel-url"
+        # Add VPC permissions if using VPC
+        # - Effect: Allow
+        #   Action:
+        #     - ec2:CreateNetworkInterface
+        #     - ec2:DescribeNetworkInterfaces
+        #     - ec2:DeleteNetworkInterface
+        #   Resource: "*"
+
+functions:
+  # Water Level Endpoints
+  waterLevelLatest:
+    handler: data-exposure-proxy-dynamic.waterLevelLatest
+    events:
+      - http:
+          path: /api/v1/public/water-levels/latest
+          method: get
+          cors: true
+  
+  waterLevelTimeseries:
+    handler: data-exposure-proxy-dynamic.waterLevelTimeseries
+    events:
+      - http:
+          path: /api/v1/public/water-levels/timeseries
+          method: get
+          cors: true
+          request:
+            parameters:
+              querystrings:
+                date: true
+  
+  waterLevelStatistics:
+    handler: data-exposure-proxy-dynamic.waterLevelStatistics
+    events:
+      - http:
+          path: /api/v1/public/water-levels/statistics
+          method: get
+          cors: true
+          request:
+            parameters:
+              querystrings:
+                date: true
+
+  # Moisture Endpoints
+  moistureLatest:
+    handler: data-exposure-proxy-dynamic.moistureLatest
+    events:
+      - http:
+          path: /api/v1/public/moisture/latest
+          method: get
+          cors: true
+  
+  moistureTimeseries:
+    handler: data-exposure-proxy-dynamic.moistureTimeseries
+    events:
+      - http:
+          path: /api/v1/public/moisture/timeseries
+          method: get
+          cors: true
+          request:
+            parameters:
+              querystrings:
+                date: true
+  
+  moistureStatistics:
+    handler: data-exposure-proxy-dynamic.moistureStatistics
+    events:
+      - http:
+          path: /api/v1/public/moisture/statistics
+          method: get
+          cors: true
+          request:
+            parameters:
+              querystrings:
+                date: true
+
+  # AOS/Weather Endpoints
+  aosLatest:
+    handler: data-exposure-proxy-dynamic.aosLatest
+    events:
+      - http:
+          path: /api/v1/public/aos/latest
+          method: get
+          cors: true
+  
+  aosTimeseries:
+    handler: data-exposure-proxy-dynamic.aosTimeseries
+    events:
+      - http:
+          path: /api/v1/public/aos/timeseries
+          method: get
+          cors: true
+          request:
+            parameters:
+              querystrings:
+                date: true
+  
+  aosStatistics:
+    handler: data-exposure-proxy-dynamic.aosStatistics
+    events:
+      - http:
+          path: /api/v1/public/aos/statistics
+          method: get
+          cors: true
+          request:
+            parameters:
+              querystrings:
+                date: true
+
+  # Options handler for CORS preflight
+  corsOptions:
+    handler: data-exposure-proxy-dynamic.corsOptions
+    events:
+      - http:
+          path: /api/v1/public/{proxy+}
+          method: options
+          cors: true
+
+# Custom domain configuration (optional)
+# custom:
+#   customDomain:
+#     domainName: api.munbon-irrigation.com
+#     basePath: 'v1'
+#     stage: ${self:provider.stage}
+#     createRoute53Record: true
+
+resources:
+  Outputs:
+    DataApiGatewayUrl:
+      Description: Data API Gateway endpoint URL
+      Value:
+        Fn::Sub: https://${ApiGatewayRestApi}.execute-api.${AWS::Region}.amazonaws.com/${self:provider.stage}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-ApiUrl
+
+plugins:
+  - serverless-plugin-typescript
+  - serverless-offline
+  # - serverless-domain-manager  # If using custom domain
+
+custom:
+  serverless-offline:
+    httpPort: 3002  # Different port from ingestion API

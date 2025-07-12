@@ -1,0 +1,974 @@
+openapi: 3.0.0
+info:
+  title: Munbon External API
+  version: 2.0.0
+  description: |
+    Unified external API for Munbon Irrigation Control System.
+    This API aggregates data from multiple internal services and provides a single interface for external clients.
+  contact:
+    name: Munbon API Support
+    email: api@munbon.go.th
+    url: https://api.munbon.go.th/support
+  license:
+    name: Proprietary
+    url: https://api.munbon.go.th/license
+
+servers:
+  - url: http://localhost:8000
+    description: Local development (via Kong)
+  - url: https://api.munbon.go.th
+    description: Production server
+  - url: https://api-staging.munbon.go.th
+    description: Staging server
+
+tags:
+  - name: Public
+    description: Public endpoints (no authentication required)
+  - name: Dashboard
+    description: Dashboard aggregation endpoints
+  - name: Sensors
+    description: Sensor data endpoints
+  - name: Analytics
+    description: Analytics and calculations
+  - name: GIS
+    description: Geographic data endpoints
+
+security:
+  - apiKey: []
+
+paths:
+  /health:
+    get:
+      tags:
+        - Public
+      summary: Health check
+      operationId: healthCheck
+      security: []
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /api/v1/status:
+    get:
+      tags:
+        - Public
+      summary: API status and dependencies
+      operationId: getApiStatus
+      security: []
+      responses:
+        '200':
+          description: API status information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+
+  /api/v1/dashboard/summary:
+    get:
+      tags:
+        - Dashboard
+      summary: Dashboard summary with aggregated data
+      operationId: getDashboardSummary
+      parameters:
+        - $ref: '#/components/parameters/Zone'
+        - $ref: '#/components/parameters/Date'
+      responses:
+        '200':
+          description: Dashboard summary data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardSummaryResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+
+  /api/v1/dashboard/sensors/status:
+    get:
+      tags:
+        - Dashboard
+      summary: Get status of all sensors
+      operationId: getSensorStatus
+      responses:
+        '200':
+          description: Sensor status overview
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SensorStatusResponse'
+
+  /api/v1/dashboard/alerts:
+    get:
+      tags:
+        - Dashboard
+      summary: Get active alerts
+      operationId: getAlerts
+      parameters:
+        - $ref: '#/components/parameters/Zone'
+        - name: severity
+          in: query
+          schema:
+            type: string
+            enum: [critical, warning, info]
+        - name: active
+          in: query
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: List of alerts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertsResponse'
+
+  /api/v1/sensors/water-level/latest:
+    get:
+      tags:
+        - Sensors
+      summary: Get latest water level readings
+      operationId: getLatestWaterLevels
+      parameters:
+        - $ref: '#/components/parameters/Zone'
+      responses:
+        '200':
+          description: Latest water level readings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WaterLevelLatestResponse'
+
+  /api/v1/sensors/water-level/timeseries:
+    get:
+      tags:
+        - Sensors
+      summary: Get water level time series data
+      operationId: getWaterLevelTimeseries
+      parameters:
+        - $ref: '#/components/parameters/StartDate'
+        - $ref: '#/components/parameters/EndDate'
+        - $ref: '#/components/parameters/Zone'
+      responses:
+        '200':
+          description: Water level time series data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WaterLevelTimeseriesResponse'
+
+  /api/v1/sensors/moisture/latest:
+    get:
+      tags:
+        - Sensors
+      summary: Get latest moisture readings
+      operationId: getLatestMoisture
+      parameters:
+        - $ref: '#/components/parameters/Zone'
+      responses:
+        '200':
+          description: Latest moisture readings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MoistureLatestResponse'
+
+  /api/v1/sensors/weather/current:
+    get:
+      tags:
+        - Sensors
+      summary: Get current weather conditions
+      operationId: getCurrentWeather
+      parameters:
+        - $ref: '#/components/parameters/Zone'
+      responses:
+        '200':
+          description: Current weather conditions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WeatherCurrentResponse'
+
+  /api/v1/analytics/water-demand:
+    get:
+      tags:
+        - Analytics
+      summary: Calculate water demand
+      operationId: calculateWaterDemand
+      parameters:
+        - $ref: '#/components/parameters/Zone'
+        - $ref: '#/components/parameters/Date'
+      responses:
+        '200':
+          description: Water demand calculation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WaterDemandResponse'
+
+  /api/v1/analytics/irrigation-schedule:
+    get:
+      tags:
+        - Analytics
+      summary: Get irrigation schedule
+      operationId: getIrrigationSchedule
+      parameters:
+        - $ref: '#/components/parameters/Zone'
+      responses:
+        '200':
+          description: Irrigation schedule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IrrigationScheduleResponse'
+
+  /api/v1/analytics/calculate-eto:
+    post:
+      tags:
+        - Analytics
+      summary: Calculate evapotranspiration (ETO)
+      operationId: calculateETO
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ETOCalculationRequest'
+      responses:
+        '200':
+          description: ETO calculation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ETOCalculationResponse'
+
+  /api/v1/gis/parcels:
+    get:
+      tags:
+        - GIS
+      summary: Get land parcels
+      operationId: getParcels
+      parameters:
+        - $ref: '#/components/parameters/Zone'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: List of parcels
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParcelsResponse'
+
+  /api/v1/gis/zones:
+    get:
+      tags:
+        - GIS
+      summary: Get irrigation zones
+      operationId: getZones
+      responses:
+        '200':
+          description: List of zones
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ZonesResponse'
+
+components:
+  securitySchemes:
+    apiKey:
+      type: apiKey
+      in: header
+      name: x-api-key
+      description: API key for external access. Different tiers (free, basic, premium) have different rate limits.
+
+  parameters:
+    Zone:
+      name: zone
+      in: query
+      description: Zone identifier (e.g., Z1, Z2, Z3)
+      schema:
+        type: string
+        pattern: '^Z[0-9]+$'
+        example: Z1
+    
+    Date:
+      name: date
+      in: query
+      description: Date in Buddhist calendar format (DD/MM/YYYY)
+      schema:
+        type: string
+        pattern: '^[0-9]{2}/[0-9]{2}/[0-9]{4}$'
+        example: 08/07/2567
+    
+    StartDate:
+      name: start
+      in: query
+      description: Start date in Buddhist calendar format
+      required: true
+      schema:
+        type: string
+        pattern: '^[0-9]{2}/[0-9]{2}/[0-9]{4}$'
+    
+    EndDate:
+      name: end
+      in: query
+      description: End date in Buddhist calendar format
+      required: true
+      schema:
+        type: string
+        pattern: '^[0-9]{2}/[0-9]{2}/[0-9]{4}$'
+    
+    Page:
+      name: page
+      in: query
+      description: Page number for pagination
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    
+    Limit:
+      name: limit
+      in: query
+      description: Number of items per page
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        service:
+          type: string
+        version:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    StatusResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            service:
+              type: string
+            version:
+              type: string
+            status:
+              type: string
+              enum: [operational, degraded, down]
+            dependencies:
+              type: object
+              additionalProperties:
+                type: string
+                enum: [connected, disconnected]
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+
+    DashboardSummaryResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            zone:
+              type: string
+            date:
+              type: string
+            summary:
+              type: object
+              properties:
+                totalSensors:
+                  type: object
+                  properties:
+                    waterLevel:
+                      type: integer
+                    moisture:
+                      type: integer
+                    weather:
+                      type: integer
+                    total:
+                      type: integer
+                waterStatus:
+                  type: object
+                  properties:
+                    averageLevel:
+                      type: number
+                    totalVolume:
+                      type: number
+                    capacity:
+                      type: number
+                    utilizationPercentage:
+                      type: number
+                irrigationStatus:
+                  type: object
+                  properties:
+                    currentDemand:
+                      type: number
+                    projectedDemand:
+                      type: number
+                    irrigationNeeded:
+                      type: boolean
+                    recommendedSchedule:
+                      type: object
+                      nullable: true
+                weatherConditions:
+                  type: object
+                  properties:
+                    temperature:
+                      type: number
+                    humidity:
+                      type: number
+                    rainfall:
+                      type: number
+                    forecast:
+                      type: string
+                alerts:
+                  type: object
+                  properties:
+                    critical:
+                      type: integer
+                    warning:
+                      type: integer
+                    info:
+                      type: integer
+                    total:
+                      type: integer
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+
+    SensorStatusResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            sensors:
+              type: array
+              items:
+                type: object
+                properties:
+                  type:
+                    type: string
+                  total:
+                    type: integer
+                  active:
+                    type: integer
+                  inactive:
+                    type: integer
+                  online:
+                    type: integer
+                  offline:
+                    type: integer
+                  healthPercentage:
+                    type: string
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+
+    AlertsResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            alerts:
+              type: array
+              items:
+                $ref: '#/components/schemas/Alert'
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+
+    Alert:
+      type: object
+      properties:
+        id:
+          type: string
+        sensorId:
+          type: string
+        type:
+          type: string
+        severity:
+          type: string
+          enum: [critical, warning, info]
+        message:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        acknowledgedAt:
+          type: string
+          format: date-time
+          nullable: true
+        resolvedAt:
+          type: string
+          format: date-time
+          nullable: true
+        metadata:
+          type: object
+
+    WaterLevelLatestResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            data_type:
+              type: string
+            sensor_count:
+              type: integer
+            sensors:
+              type: array
+              items:
+                $ref: '#/components/schemas/WaterLevelSensor'
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+
+    WaterLevelSensor:
+      type: object
+      properties:
+        sensor_id:
+          type: string
+        sensor_name:
+          type: string
+        location:
+          $ref: '#/components/schemas/Location'
+        zone:
+          type: string
+        latest_reading:
+          type: object
+          nullable: true
+          properties:
+            timestamp:
+              type: string
+              format: date-time
+            timestamp_buddhist:
+              type: string
+            water_level_m:
+              type: number
+            flow_rate_m3s:
+              type: number
+            quality:
+              type: number
+
+    Location:
+      type: object
+      properties:
+        latitude:
+          type: number
+        longitude:
+          type: number
+
+    ResponseMeta:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        version:
+          type: string
+        requestId:
+          type: string
+        cached:
+          type: boolean
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          default: false
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: object
+            timestamp:
+              type: string
+              format: date-time
+        meta:
+          type: object
+          properties:
+            requestId:
+              type: string
+            documentation:
+              type: string
+
+    RateLimitError:
+      type: object
+      properties:
+        message:
+          type: string
+        error:
+          type: string
+        tier:
+          type: string
+        window:
+          type: string
+        limit:
+          type: integer
+        retry_after:
+          type: integer
+
+    WaterLevelTimeseriesResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            data_type:
+              type: string
+            request_date:
+              type: string
+            sensor_count:
+              type: integer
+            sensors:
+              type: array
+              items:
+                type: object
+                properties:
+                  sensor_id:
+                    type: string
+                  sensor_name:
+                    type: string
+                  location:
+                    $ref: '#/components/schemas/Location'
+                  zone:
+                    type: string
+                  date_buddhist:
+                    type: string
+                  readings:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        timestamp:
+                          type: string
+                          format: date-time
+                        water_level_m:
+                          type: number
+                        flow_rate_m3s:
+                          type: number
+                        quality:
+                          type: number
+
+    MoistureLatestResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            data_type:
+              type: string
+            sensor_count:
+              type: integer
+            sensors:
+              type: array
+              items:
+                type: object
+                properties:
+                  sensor_id:
+                    type: string
+                  sensor_name:
+                    type: string
+                  location:
+                    $ref: '#/components/schemas/Location'
+                  zone:
+                    type: string
+                  latest_reading:
+                    type: object
+                    nullable: true
+                    properties:
+                      timestamp:
+                        type: string
+                        format: date-time
+                      timestamp_buddhist:
+                        type: string
+                      moisture_percentage:
+                        type: number
+                      temperature_celsius:
+                        type: number
+                      quality:
+                        type: number
+
+    WeatherCurrentResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            data_type:
+              type: string
+            station_count:
+              type: integer
+            stations:
+              type: array
+              items:
+                type: object
+                properties:
+                  station_id:
+                    type: string
+                  station_name:
+                    type: string
+                  location:
+                    $ref: '#/components/schemas/Location'
+                  zone:
+                    type: string
+                  latest_reading:
+                    type: object
+                    nullable: true
+                    properties:
+                      timestamp:
+                        type: string
+                        format: date-time
+                      timestamp_buddhist:
+                        type: string
+                      rainfall_mm:
+                        type: number
+                      temperature_celsius:
+                        type: number
+                      humidity_percentage:
+                        type: number
+                      wind_speed_ms:
+                        type: number
+                      wind_direction_degrees:
+                        type: number
+                      pressure_hpa:
+                        type: number
+
+    WaterDemandResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            zone:
+              type: string
+            date:
+              type: string
+            demand:
+              type: object
+              properties:
+                current:
+                  type: number
+                projected:
+                  type: number
+                breakdown:
+                  type: object
+                  properties:
+                    evapotranspiration:
+                      type: number
+                    soilMoistureDeficit:
+                      type: number
+                    systemLosses:
+                      type: number
+                cropSpecific:
+                  type: object
+                  properties:
+                    crop:
+                      type: string
+                    growthStage:
+                      type: string
+                    dailyRequirement:
+                      type: number
+
+    IrrigationScheduleResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            zone:
+              type: string
+            schedule:
+              type: array
+              items:
+                type: object
+                properties:
+                  zone:
+                    type: string
+                  date:
+                    type: string
+                  startTime:
+                    type: string
+                  endTime:
+                    type: string
+                  waterVolume:
+                    type: number
+                  priority:
+                    type: string
+                    enum: [high, medium, low]
+
+    ETOCalculationRequest:
+      type: object
+      required:
+        - temperature
+        - humidity
+        - windSpeed
+        - solarRadiation
+        - latitude
+      properties:
+        temperature:
+          type: number
+          description: Temperature in Celsius
+        humidity:
+          type: number
+          description: Relative humidity percentage
+        windSpeed:
+          type: number
+          description: Wind speed in m/s
+        solarRadiation:
+          type: number
+          description: Solar radiation in MJ/m²/day
+        latitude:
+          type: number
+          description: Latitude in decimal degrees
+
+    ETOCalculationResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            eto:
+              type: number
+            unit:
+              type: string
+            method:
+              type: string
+
+    ParcelsResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            parcels:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  zone:
+                    type: string
+                  area_rai:
+                    type: number
+                  crop_type:
+                    type: string
+                  owner:
+                    type: string
+                  geometry:
+                    type: object
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    ZonesResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            zones:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                  area_rai:
+                    type: number
+                  parcel_count:
+                    type: integer
+                  active_sensors:
+                    type: integer
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+        perPage:
+          type: integer
+        total:
+          type: integer
+        totalPages:
+          type: integer
+
+  responses:
+    Unauthorized:
+      description: Unauthorized - Missing or invalid API key
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: MISSING_API_KEY
+              message: API key is required
+            meta:
+              requestId: req_abc123
+              documentation: https://api.munbon.go.th/docs#authentication
+
+    RateLimitExceeded:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/RateLimitError'
+          example:
+            message: Free tier limit exceeded. Upgrade to Basic for more requests.
+            error: rate_limit_exceeded
+            tier: free
+            window: hour
+            limit: 100
+            retry_after: 900

@@ -1,0 +1,1 @@
+export { cacheService } from '../config/cache';

@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Munbon Microservices Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .service {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+        .online { border-color: #4CAF50; }
+        .offline { border-color: #f44336; }
+        .status {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .status.online { background: #4CAF50; color: white; }
+        .status.offline { background: #f44336; color: white; }
+        pre {
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+        button {
+            background: #2196F3;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background: #1976D2; }
+    </style>
+</head>
+<body>
+    <h1>Munbon Microservices Test Dashboard</h1>
+    <p>This page tests connectivity to all PM2-managed microservices</p>
+
+    <!-- Service Status -->
+    <div id="services"></div>
+
+    <!-- Test Actions -->
+    <div style="margin-top: 30px;">
+        <h2>Test API Endpoints</h2>
+        <button onclick="testWaterLevel()">Test Water Level API</button>
+        <button onclick="testMoisture()">Test Moisture API</button>
+        <button onclick="testGIS()">Test GIS API</button>
+        <button onclick="testAuth()">Test Auth Health</button>
+    </div>
+
+    <!-- Results -->
+    <div id="results" style="margin-top: 20px;"></div>
+
+    <script>
+        // Configuration
+        const SERVICES = {
+            'Unified API': {
+                url: 'http://localhost:3000',
+                health: '/health'
+            },
+            'Auth Service': {
+                url: 'http://localhost:3001',
+                health: '/api/health'
+            },
+            'Sensor Data Service': {
+                url: 'http://localhost:3003',
+                health: '/health'
+            },
+            'GIS Service': {
+                url: 'http://localhost:3007',
+                health: '/health'
+            }
+        };
+
+        // Check service status
+        async function checkServices() {
+            const container = document.getElementById('services');
+            container.innerHTML = '<h2>Service Status</h2>';
+
+            for (const [name, config] of Object.entries(SERVICES)) {
+                const div = document.createElement('div');
+                div.className = 'service';
+                
+                try {
+                    const response = await fetch(config.url + config.health, {
+                        method: 'GET',
+                        mode: 'cors',
+                        cache: 'no-cache'
+                    });
+                    
+                    if (response.ok) {
+                        div.classList.add('online');
+                        div.innerHTML = `
+                            <h3>${name}</h3>
+                            <span class="status online">ONLINE</span>
+                            <p>Endpoint: ${config.url}</p>
+                        `;
+                    } else {
+                        throw new Error('Not OK');
+                    }
+                } catch (error) {
+                    div.classList.add('offline');
+                    div.innerHTML = `
+                        <h3>${name}</h3>
+                        <span class="status offline">OFFLINE</span>
+                        <p>Endpoint: ${config.url}</p>
+                        <p style="color: #666;">Error: ${error.message}</p>
+                    `;
+                }
+                
+                container.appendChild(div);
+            }
+        }
+
+        // Test functions
+        async function testWaterLevel() {
+            showResult('Testing Water Level API...');
+            try {
+                const response = await fetch('http://localhost:3000/api/v1/sensors/water-level/latest', {
+                    headers: {
+                        'X-Internal-Key': 'munbon-internal-f3b89263126548'
+                    }
+                });
+                const data = await response.json();
+                showResult('Water Level Data:', data);
+            } catch (error) {
+                showResult('Error:', { error: error.message });
+            }
+        }
+
+        async function testMoisture() {
+            showResult('Testing Moisture API...');
+            try {
+                const response = await fetch('http://localhost:3000/api/v1/sensors/moisture/latest', {
+                    headers: {
+                        'X-Internal-Key': 'munbon-internal-f3b89263126548'
+                    }
+                });
+                const data = await response.json();
+                showResult('Moisture Data:', data);
+            } catch (error) {
+                showResult('Error:', { error: error.message });
+            }
+        }
+
+        async function testGIS() {
+            showResult('Testing GIS API...');
+            try {
+                const response = await fetch('http://localhost:3007/api/v1/gis/parcels?limit=5');
+                const data = await response.json();
+                showResult('GIS Parcels:', data);
+            } catch (error) {
+                showResult('Error:', { error: error.message });
+            }
+        }
+
+        async function testAuth() {
+            showResult('Testing Auth Service...');
+            try {
+                const response = await fetch('http://localhost:3001/api/health');
+                const data = await response.json();
+                showResult('Auth Health:', data);
+            } catch (error) {
+                showResult('Error:', { error: error.message });
+            }
+        }
+
+        function showResult(title, data) {
+            const results = document.getElementById('results');
+            if (typeof data === 'object') {
+                results.innerHTML = `<h3>${title}</h3><pre>${JSON.stringify(data, null, 2)}</pre>`;
+            } else {
+                results.innerHTML = `<h3>${title}</h3>`;
+            }
+        }
+
+        // Check services on load
+        window.onload = () => {
+            checkServices();
+            // Refresh every 30 seconds
+            setInterval(checkServices, 30000);
+        };
+    </script>
+</body>
+</html>

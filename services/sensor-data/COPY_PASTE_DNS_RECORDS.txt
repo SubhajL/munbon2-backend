@@ -1,0 +1,17 @@
+COPY AND PASTE THESE VALUES INTO CLOUDFLARE:
+
+=== RECORD 1 ===
+Type: CNAME
+Name: munbon-moisture
+Target: 01a272d3-abf2-4c58-9a03-f2d08072adf0.cfargotunnel.com
+Proxy: ON (orange cloud)
+TTL: Auto
+
+=== RECORD 2 ===
+Type: CNAME  
+Name: munbon-moisture-health
+Target: 01a272d3-abf2-4c58-9a03-f2d08072adf0.cfargotunnel.com
+Proxy: ON (orange cloud)
+TTL: Auto
+
+IMPORTANT: Make sure the Proxy cloud icon is ORANGE (not gray)!

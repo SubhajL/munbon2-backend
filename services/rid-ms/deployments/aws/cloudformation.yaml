@@ -1,0 +1,474 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'RID-MS Service - AWS Infrastructure for Shape File Processing and Water Demand Calculation'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Environment name
+
+  ServiceName:
+    Type: String
+    Default: rid-ms
+    Description: Service name
+
+Resources:
+  # S3 Buckets
+  ShapeFileUploadBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${ServiceName}-uploads-${Environment}'
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldFiles
+            Status: Enabled
+            ExpirationInDays: 30
+            NoncurrentVersionExpirationInDays: 7
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [GET, PUT, POST, DELETE, HEAD]
+            AllowedOrigins: ['*']
+            MaxAge: 3000
+
+  ProcessedDataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${ServiceName}-processed-${Environment}'
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: TransitionToIA
+            Status: Enabled
+            Transitions:
+              - TransitionInDays: 30
+                StorageClass: STANDARD_IA
+              - TransitionInDays: 90
+                StorageClass: GLACIER
+
+  # DynamoDB Tables
+  ShapeFileTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${ServiceName}-shapefiles-${Environment}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: uploadTime
+          AttributeType: S
+        - AttributeName: status
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: status-uploadTime-index
+          KeySchema:
+            - AttributeName: status
+              KeyType: HASH
+            - AttributeName: uploadTime
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+
+  ParcelTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${ServiceName}-parcels-${Environment}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: shapeFileId
+          AttributeType: S
+        - AttributeName: zone
+          AttributeType: S
+        - AttributeName: parcelId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: shapeFileId-index
+          KeySchema:
+            - AttributeName: shapeFileId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: zone-index
+          KeySchema:
+            - AttributeName: zone
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: parcelId-index
+          KeySchema:
+            - AttributeName: parcelId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+  WaterDemandTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${ServiceName}-water-demand-${Environment}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: parcelId
+          AttributeType: S
+        - AttributeName: calculatedAt
+          AttributeType: S
+      KeySchema:
+        - AttributeName: parcelId
+          KeyType: HASH
+        - AttributeName: calculatedAt
+          KeyType: RANGE
+
+  # SQS Queues
+  ShapeFileQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ServiceName}-shapefile-queue-${Environment}'
+      VisibilityTimeout: 900  # 15 minutes for processing
+      MessageRetentionPeriod: 1209600  # 14 days
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ShapeFileDLQ.Arn
+        maxReceiveCount: 3
+
+  ShapeFileDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ServiceName}-shapefile-dlq-${Environment}'
+      MessageRetentionPeriod: 1209600  # 14 days
+
+  WaterDemandQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ServiceName}-water-demand-${Environment}'
+      VisibilityTimeout: 300
+      MessageRetentionPeriod: 1209600
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt WaterDemandDLQ.Arn
+        maxReceiveCount: 3
+
+  WaterDemandDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ServiceName}-water-demand-dlq-${Environment}'
+      MessageRetentionPeriod: 1209600
+
+  # Lambda Functions
+  ApiGatewayHandlerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ServiceName}-api-handler-${Environment}'
+      Runtime: nodejs18.x
+      Handler: api-gateway-handler.handler
+      Code:
+        S3Bucket: !Sub '${ServiceName}-lambda-code-${AWS::Region}'
+        S3Key: api-gateway-handler.zip
+      Environment:
+        Variables:
+          QUEUE_URL: !Ref ShapeFileQueue
+          BUCKET_NAME: !Ref ShapeFileUploadBucket
+          API_TOKEN: 'munbon-ridms-shape'
+      MemorySize: 512
+      Timeout: 30
+      Role: !GetAtt LambdaExecutionRole.Arn
+
+  SqsConsumerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ServiceName}-sqs-consumer-${Environment}'
+      Runtime: nodejs18.x
+      Handler: sqs-consumer.handler
+      Code:
+        S3Bucket: !Sub '${ServiceName}-lambda-code-${AWS::Region}'
+        S3Key: sqs-consumer.zip
+      Environment:
+        Variables:
+          SHAPE_FILE_TABLE: !Ref ShapeFileTable
+          PARCEL_TABLE: !Ref ParcelTable
+          WATER_DEMAND_QUEUE_URL: !Ref WaterDemandQueue
+          PROCESSED_BUCKET: !Ref ProcessedDataBucket
+      MemorySize: 3008  # Maximum memory for processing large files
+      Timeout: 900      # 15 minutes
+      Role: !GetAtt LambdaExecutionRole.Arn
+      ReservedConcurrentExecutions: 5
+
+  WaterDemandProcessorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ServiceName}-water-demand-processor-${Environment}'
+      Runtime: nodejs18.x
+      Handler: water-demand-processor.handler
+      Code:
+        S3Bucket: !Sub '${ServiceName}-lambda-code-${AWS::Region}'
+        S3Key: water-demand-processor.zip
+      Environment:
+        Variables:
+          PARCEL_TABLE: !Ref ParcelTable
+          WATER_DEMAND_TABLE: !Ref WaterDemandTable
+      MemorySize: 1024
+      Timeout: 300
+      Role: !GetAtt LambdaExecutionRole.Arn
+      ReservedConcurrentExecutions: 10
+
+  # Lambda Event Source Mappings
+  SqsConsumerEventSource:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      EventSourceArn: !GetAtt ShapeFileQueue.Arn
+      FunctionName: !Ref SqsConsumerFunction
+      BatchSize: 1  # Process one shape file at a time
+
+  WaterDemandProcessorEventSource:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      EventSourceArn: !GetAtt WaterDemandQueue.Arn
+      FunctionName: !Ref WaterDemandProcessorFunction
+      BatchSize: 10
+
+  # IAM Role for Lambda
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ServiceName}-lambda-role-${Environment}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:Query
+                  - dynamodb:BatchWriteItem
+                Resource:
+                  - !GetAtt ShapeFileTable.Arn
+                  - !GetAtt ParcelTable.Arn
+                  - !GetAtt WaterDemandTable.Arn
+                  - !Sub '${ShapeFileTable.Arn}/index/*'
+                  - !Sub '${ParcelTable.Arn}/index/*'
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource:
+                  - !Sub '${ShapeFileUploadBucket.Arn}/*'
+                  - !Sub '${ProcessedDataBucket.Arn}/*'
+        - PolicyName: SQSAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                Resource:
+                  - !GetAtt ShapeFileQueue.Arn
+                  - !GetAtt ShapeFileDLQ.Arn
+                  - !GetAtt WaterDemandQueue.Arn
+                  - !GetAtt WaterDemandDLQ.Arn
+
+  # API Gateway for external shape file push
+  RidMsExternalApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub '${ServiceName}-external-api-${Environment}'
+      Description: RID-MS External API for Shape File Push
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+
+  # API Gateway Resources
+  ApiResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RidMsExternalApi
+      ParentId: !GetAtt RidMsExternalApi.RootResourceId
+      PathPart: api
+
+  ExternalResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RidMsExternalApi
+      ParentId: !Ref ApiResource
+      PathPart: external
+
+  ShapefileResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RidMsExternalApi
+      ParentId: !Ref ExternalResource
+      PathPart: shapefile
+
+  PushResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RidMsExternalApi
+      ParentId: !Ref ShapefileResource
+      PathPart: push
+
+  # API Gateway Methods
+  PushMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RidMsExternalApi
+      ResourceId: !Ref PushResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiGatewayHandlerFunction.Arn}/invocations'
+        IntegrationResponses:
+          - StatusCode: 200
+
+  OptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RidMsExternalApi
+      ResourceId: !Ref PushResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization'"
+              method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+
+  # API Gateway Deployment
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - PushMethod
+      - OptionsMethod
+    Properties:
+      RestApiId: !Ref RidMsExternalApi
+      StageName: !Ref Environment
+
+  # Lambda Permission for API Gateway
+  ApiGatewayInvokeLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ApiGatewayHandlerFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RidMsExternalApi}/*/*'
+
+  # Internal API for data access (separate from external push API)
+  RidMsInternalApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub '${ServiceName}-internal-api-${Environment}'
+      Description: RID-MS Internal API for Data Access
+
+  # CloudWatch Alarms
+  ShapeFileProcessingErrors:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ServiceName}-processing-errors-${Environment}'
+      AlarmDescription: Alert when shape file processing fails
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref SqsConsumerFunction
+
+Outputs:
+  UploadBucketName:
+    Description: S3 bucket for shape file uploads
+    Value: !Ref ShapeFileUploadBucket
+    Export:
+      Name: !Sub '${ServiceName}-upload-bucket-${Environment}'
+
+  ProcessedBucketName:
+    Description: S3 bucket for processed data
+    Value: !Ref ProcessedDataBucket
+    Export:
+      Name: !Sub '${ServiceName}-processed-bucket-${Environment}'
+
+  ShapeFileQueueUrl:
+    Description: SQS queue URL for shape file processing
+    Value: !Ref ShapeFileQueue
+    Export:
+      Name: !Sub '${ServiceName}-shapefile-queue-${Environment}'
+
+  WaterDemandQueueUrl:
+    Description: SQS queue URL for water demand calculations
+    Value: !Ref WaterDemandQueue
+    Export:
+      Name: !Sub '${ServiceName}-water-demand-queue-${Environment}'
+
+  ExternalApiUrl:
+    Description: External API Gateway URL for shape file push
+    Value: !Sub 'https://${RidMsExternalApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}'
+    Export:
+      Name: !Sub '${ServiceName}-external-api-url-${Environment}'
+
+  InternalApiUrl:
+    Description: Internal API Gateway URL for data access
+    Value: !Sub 'https://${RidMsInternalApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}'
+    Export:
+      Name: !Sub '${ServiceName}-internal-api-url-${Environment}'
+
+  ShapeFileTableName:
+    Description: DynamoDB table for shape file metadata
+    Value: !Ref ShapeFileTable
+    Export:
+      Name: !Sub '${ServiceName}-shapefile-table-${Environment}'
+
+  ParcelTableName:
+    Description: DynamoDB table for parcels
+    Value: !Ref ParcelTable
+    Export:
+      Name: !Sub '${ServiceName}-parcel-table-${Environment}'
+
+  WaterDemandTableName:
+    Description: DynamoDB table for water demand calculations
+    Value: !Ref WaterDemandTable
+    Export:
+      Name: !Sub '${ServiceName}-water-demand-table-${Environment}'

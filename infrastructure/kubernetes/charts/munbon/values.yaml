@@ -1,0 +1,131 @@
+# Default values for munbon
+# This is optimized for local development on MacBook M4 Pro
+
+global:
+  environment: local
+  domain: localhost
+  imageRegistry: localhost:5000
+  imagePullPolicy: IfNotPresent
+  
+# Resource limits for local development
+defaults:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Infrastructure services
+nginx-ingress:
+  enabled: true
+  controller:
+    service:
+      type: NodePort
+      nodePorts:
+        http: 30080
+        https: 30443
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+prometheus:
+  enabled: false  # Disabled by default for local dev
+  server:
+    persistentVolume:
+      enabled: false
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+grafana:
+  enabled: false  # Disabled by default for local dev
+  persistence:
+    enabled: false
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+# Munbon services configuration
+services:
+  # API Gateway
+  apiGateway:
+    enabled: true
+    replicas: 1
+    image:
+      repository: munbon/api-gateway
+      tag: latest
+    service:
+      type: ClusterIP
+      port: 3000
+    ingress:
+      enabled: true
+      path: /
+      
+  # Authentication Service
+  authService:
+    enabled: true
+    replicas: 1
+    image:
+      repository: munbon/auth-service
+      tag: latest
+    service:
+      type: ClusterIP
+      port: 8080
+      
+  # Sensor Data Service
+  sensorService:
+    enabled: true
+    replicas: 1
+    image:
+      repository: munbon/sensor-service
+      tag: latest
+    service:
+      type: ClusterIP
+      port: 8080
+      
+  # GIS Service
+  gisService:
+    enabled: true
+    replicas: 1
+    image:
+      repository: munbon/gis-service
+      tag: latest
+    service:
+      type: ClusterIP
+      port: 8080
+
+# Database configurations (for reference - use docker-compose)
+databases:
+  postgresql:
+    enabled: false  # Use docker-compose instead
+    host: host.docker.internal
+    port: 5432
+    
+  timescaledb:
+    enabled: false  # Use docker-compose instead
+    host: host.docker.internal
+    port: 5433
+    
+  mongodb:
+    enabled: false  # Use docker-compose instead
+    host: host.docker.internal
+    port: 27017
+    
+  redis:
+    enabled: false  # Use docker-compose instead
+    host: host.docker.internal
+    port: 6379

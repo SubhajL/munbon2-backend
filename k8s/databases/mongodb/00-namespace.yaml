@@ -1,0 +1,8 @@
+# Using the same namespace as PostgreSQL
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: munbon-databases
+  labels:
+    name: munbon-databases
+    project: munbon-irrigation

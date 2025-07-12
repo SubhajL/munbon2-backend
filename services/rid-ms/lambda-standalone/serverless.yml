@@ -1,0 +1,52 @@
+service: munbon-rid-ms
+
+provider:
+  name: aws
+  runtime: nodejs18.x
+  stage: ${opt:stage, 'dev'}
+  region: ap-southeast-1
+  timeout: 30
+  memorySize: 256
+  environment:
+    STAGE: ${self:provider.stage}
+
+functions:
+  shapeFileUpload:
+    handler: handler.shapeFileUpload
+    events:
+      - http:
+          path: /api/v1/shapefiles/upload
+          method: post
+          cors: true
+
+  shapeFileMetadata:
+    handler: handler.shapeFileMetadata
+    events:
+      - http:
+          path: /api/v1/shapefiles/{id}
+          method: get
+          cors: true
+
+  shapeFileList:
+    handler: handler.shapeFileList
+    events:
+      - http:
+          path: /api/v1/shapefiles
+          method: get
+          cors: true
+
+  shapeFileParcels:
+    handler: handler.shapeFileParcels
+    events:
+      - http:
+          path: /api/v1/shapefiles/{id}/parcels
+          method: get
+          cors: true
+
+  shapeFileExport:
+    handler: handler.shapeFileExport
+    events:
+      - http:
+          path: /api/v1/shapefiles/{id}/export/geojson
+          method: get
+          cors: true

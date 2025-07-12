@@ -1,0 +1,54 @@
+services:
+  # Web Service
+  - type: web
+    name: munbon-unified-api
+    runtime: node
+    buildCommand: npm install --production
+    startCommand: node src/unified-api-v2.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: INTERNAL_API_KEY
+        value: munbon-internal-f3b89263126548
+      # TimescaleDB settings (we'll use Render's PostgreSQL instead)
+      - key: TIMESCALE_HOST
+        fromDatabase:
+          name: munbon-timescale
+          property: host
+      - key: TIMESCALE_PORT
+        fromDatabase:
+          name: munbon-timescale
+          property: port
+      - key: TIMESCALE_DB
+        fromDatabase:
+          name: munbon-timescale
+          property: database
+      - key: TIMESCALE_USER
+        fromDatabase:
+          name: munbon-timescale
+          property: user
+      - key: TIMESCALE_PASSWORD
+        fromDatabase:
+          name: munbon-timescale
+          property: password
+      # MSSQL settings (external)
+      - key: MSSQL_HOST
+        value: moonup.hopto.org
+      - key: MSSQL_PORT
+        value: 1433
+      - key: MSSQL_DB
+        value: db_scada
+      - key: MSSQL_USER
+        value: sa
+      - key: MSSQL_PASSWORD
+        value: bangkok1234
+
+databases:
+  # PostgreSQL with TimescaleDB extension
+  - name: munbon-timescale
+    databaseName: sensor_data
+    user: munbon
+    plan: free
