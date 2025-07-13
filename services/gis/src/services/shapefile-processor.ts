@@ -82,10 +82,50 @@ export class ShapeFileProcessor {
   private async parseShapeFiles(directory: string): Promise<ParsedParcel[]> {
     const files = fs.readdirSync(directory);
     const shpFile = files.find(f => f.toLowerCase().endsWith('.shp'));
+    const gpkgFile = files.find(f => f.toLowerCase().endsWith('.gpkg'));
     const dbfFile = files.find(f => f.toLowerCase().endsWith('.dbf'));
 
+    // Check if we have a GeoPackage file
+    if (gpkgFile) {
+      const gpkgPath = path.join(directory, gpkgFile);
+      logger.info('Found GeoPackage file in archive', { file: gpkgFile });
+      
+      // Import GeoPackageProcessor dynamically to avoid circular dependencies
+      const { GeoPackageProcessor } = await import('./geopackage-processor');
+      const geopackageProcessor = new GeoPackageProcessor();
+      
+      // Process the GeoPackage file
+      const results = await geopackageProcessor.processGeoPackageFile(gpkgPath, 'temp-upload');
+      
+      // Convert ProcessingResult to ParsedParcel format
+      const parcels: ParsedParcel[] = [];
+      for (const result of results) {
+        if (result.parcels) {
+          for (const parcel of result.parcels) {
+            parcels.push({
+              parcelId: parcel.plotCode || `P${Date.now()}-${parcels.length}`,
+              geometry: parcel.geometry,
+              area: parcel.areaHectares ? parcel.areaHectares * 10000 : 0, // Convert hectares to m²
+              zoneId: String(parcel.zoneId || '1'),
+              attributes: parcel.properties || {},
+              ridAttributes: parcel.properties?.ridAttributes,
+              cropType: parcel.cropType,
+              ownerName: parcel.properties?.ownerName,
+              ownerId: parcel.properties?.ownerId,
+              subZone: parcel.properties?.subZone,
+              landUseType: parcel.properties?.landUseType,
+            });
+          }
+        }
+      }
+      
+      logger.info('Parsed parcels from GeoPackage', { count: parcels.length });
+      return parcels;
+    }
+
+    // If no GeoPackage, look for shapefile
     if (!shpFile) {
-      throw new Error('No .shp file found in archive');
+      throw new Error('No .shp or .gpkg file found in archive');
     }
 
     const shpPath = path.join(directory, shpFile);

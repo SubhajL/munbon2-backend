@@ -88,11 +88,9 @@ jobs:
           cache-to: type=gha,mode=max
           platforms: linux/amd64,linux/arm64
 
-  # Deploy job commented out until ECS services are created
-  # Uncomment this section when you have ECS task definitions and services set up
-  # deploy:
-  #   needs: build-and-push
-  #   runs-on: ubuntu-latest
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
     environment: ${{ github.event.inputs.environment || (github.ref == 'refs/heads/production' && 'production' || 'staging') }}
     strategy:
       matrix:
@@ -124,14 +122,14 @@ jobs:
         with:
           task-definition: task-definition.json
           container-name: ${{ matrix.service }}
-          image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_PREFIX }}-${{ matrix.service }}:${{ github.sha }}
+          image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ matrix.service }}-${{ github.sha }}
 
       - name: Deploy to ECS
         uses: aws-actions/amazon-ecs-deploy-task-definition@v1
         with:
           task-definition: ${{ steps.task-def.outputs.task-definition }}
           service: munbon-${{ matrix.service }}-service
-          cluster: munbon-${{ github.event.inputs.environment || 'staging' }}
+          cluster: munbon-staging
           wait-for-service-stability: true
 
       - name: Notify deployment
