@@ -1,3 +1,10 @@
+# DISABLED - ECR push not needed for EC2 deployment
+# This workflow has been disabled as we're using direct Docker deployment to EC2
+# The main deployment workflow is: deploy-ec2.yml
+#
+# Original content moved to .disabled extension
+# To re-enable, rename this file back to .yml
+
 name: Build and Push to ECR
 
 on:

@@ -1,3 +1,10 @@
+# DISABLED - Duplicate of deploy-ec2.yml
+# This workflow has been disabled to avoid duplicate deployments
+# The main deployment workflow is: deploy-ec2.yml
+#
+# Original content moved to .disabled extension
+# To re-enable, rename this file back to .yml
+
 name: Deploy to EC2 with Docker
 
 on:
