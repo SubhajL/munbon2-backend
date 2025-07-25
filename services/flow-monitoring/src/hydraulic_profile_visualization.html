@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Munbon Irrigation - Hydraulic Profile Visualization</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        h1, h2 { color: #333; }
+        .info-box {
+            background: #e8f4f8;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .gate-effect {
+            background: #fff3cd;
+            padding: 10px;
+            margin: 10px 0;
+            border-left: 4px solid #ffc107;
+        }
+        .chart { 
+            margin: 30px 0;
+            min-height: 500px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: left;
+        }
+        th {
+            background: #4CAF50;
+            color: white;
+        }
+        .level-drop { color: #d32f2f; font-weight: bold; }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Hydraulic Profile Analysis - Munbon Irrigation Network</h1>
+        
+        <div class="info-box">
+            <h3>Understanding Water Levels in the Network</h3>
+            <p>This visualization shows:</p>
+            <ul>
+                <li><strong>Water Surface Elevation:</strong> Actual water level (m MSL) at each node</li>
+                <li><strong>Head Loss Across Gates:</strong> Water level drop due to gate restrictions</li>
+                <li><strong>Canal Friction Losses:</strong> Gradual water level decrease along canals</li>
+                <li><strong>Energy Grade Line:</strong> Total energy including velocity head</li>
+            </ul>
+        </div>
+        
+        <h2>1. Longitudinal Hydraulic Profiles</h2>
+        <div id="profileChart" class="chart"></div>
+        
+        <h2>2. Water Level Changes Across Gates</h2>
+        <div id="gateEffectChart" class="chart"></div>
+        
+        <h2>3. Gate Operation Summary</h2>
+        <table>
+            <tr>
+                <th>Gate</th>
+                <th>Upstream Level</th>
+                <th>Downstream Level</th>
+                <th>Head Drop</th>
+                <th>Flow Rate</th>
+                <th>Velocity</th>
+                <th>Flow Regime</th>
+            </tr>
+
+            <tr>
+                <td>Source->M(0,0)</td>
+                <td>221.00 m</td>
+                <td>218.89 m</td>
+                <td class="level-drop">0.00 m</td>
+                <td>0.00 m³/s</td>
+                <td>0.00 m/s</td>
+                <td>closed</td>
+            </tr>
+
+            <tr>
+                <td>M(0,0)->M(0,1)</td>
+                <td>218.89 m</td>
+                <td>218.83 m</td>
+                <td class="level-drop">0.10 m</td>
+                <td>0.72 m³/s</td>
+                <td>0.72 m/s</td>
+                <td>submerged_flow</td>
+            </tr>
+
+            <tr>
+                <td>M(0,0)->M(0,2)</td>
+                <td>218.89 m</td>
+                <td>218.79 m</td>
+                <td class="level-drop">0.10 m</td>
+                <td>1.08 m³/s</td>
+                <td>0.72 m/s</td>
+                <td>submerged_flow</td>
+            </tr>
+
+            <tr>
+                <td>M(0,2)->M(0,3)</td>
+                <td>218.79 m</td>
+                <td>218.58 m</td>
+                <td class="level-drop">0.10 m</td>
+                <td>0.90 m³/s</td>
+                <td>0.72 m/s</td>
+                <td>submerged_flow</td>
+            </tr>
+
+            <tr>
+                <td>M(0,3)->M(0,4)</td>
+                <td>218.58 m</td>
+                <td>217.53 m</td>
+                <td class="level-drop">1.80 m</td>
+                <td>2.06 m³/s</td>
+                <td>1.65 m/s</td>
+                <td>free_flow</td>
+            </tr>
+
+            <tr>
+                <td>M(0,4)->M(0,5)</td>
+                <td>217.53 m</td>
+                <td>217.07 m</td>
+                <td class="level-drop">-1.00 m</td>
+                <td>0.00 m³/s</td>
+                <td>0.00 m/s</td>
+                <td>submerged_flow</td>
+            </tr>
+
+            <tr>
+                <td>M(0,3)->M (0,3; 1,0)</td>
+                <td>218.58 m</td>
+                <td>218.48 m</td>
+                <td class="level-drop">1.80 m</td>
+                <td>1.24 m³/s</td>
+                <td>1.65 m/s</td>
+                <td>free_flow</td>
+            </tr>
+
+            <tr>
+                <td>M(0,1)->M (0,1; 1,0)</td>
+                <td>218.83 m</td>
+                <td>218.73 m</td>
+                <td class="level-drop">1.40 m</td>
+                <td>0.74 m³/s</td>
+                <td>1.65 m/s</td>
+                <td>free_flow</td>
+            </tr>
+
+        </table>
+        
+        <h2>4. Network-Wide Water Levels</h2>
+        <div id="networkLevelChart" class="chart"></div>
+        
+        <div class="info-box" style="margin-top: 30px;">
+            <h3>Key Observations</h3>
+            <ul>
+                <li><strong>Major Head Losses:</strong> Occur at gate restrictions (1-3m typical)</li>
+                <li><strong>Friction Losses:</strong> Gradual decrease along canals (0.1-0.5m/km)</li>
+                <li><strong>Backwater Effects:</strong> High downstream levels can reduce gate capacity</li>
+                <li><strong>Energy Conservation:</strong> Total energy decreases downstream due to losses</li>
+            </ul>
+        </div>
+        
+        <script>
+            // Profile data
+
+            var profileTraces = [];
+            
+            // Canal bottom profile
+
+            profileTraces.push({
+                x: [0.0, 1.0, 2.0, 3.04, 4.04, 5.04],
+                y: [221.0, 218.0, 217.9, 217.8, 217.0, 215.0],
+                name: 'LMC Main - Bottom',
+                type: 'scatter',
+                mode: 'lines',
+                line: { color: '#FF6B6B', width: 2, dash: 'dash' },
+                showlegend: false
+            });
+            
+            // Water surface
+            profileTraces.push({
+                x: [0.0, 1.0, 2.0, 3.04, 4.04, 5.04],
+                y: [221.0, 218.89223512460939, 218.7922351246094, 218.58439928876925, 217.0696957698381, 213.18527310426413],
+                name: 'LMC Main - Water',
+                type: 'scatter',
+                mode: 'lines+markers',
+                line: { color: '#FF6B6B', width: 3 },
+                marker: { size: 8 }
+            });
+            
+            // Node annotations
+
+            profileTraces.push({
+                x: [0.0],
+                y: [221.0],
+                mode: 'text',
+                text: ['Source'],
+                textposition: 'top',
+                showlegend: false
+            });
+
+            profileTraces.push({
+                x: [2.0],
+                y: [218.7922351246094],
+                mode: 'text',
+                text: ['M(0,2)'],
+                textposition: 'top',
+                showlegend: false
+            });
+
+            profileTraces.push({
+                x: [4.04],
+                y: [217.0696957698381],
+                mode: 'text',
+                text: ['M(0,5)'],
+                textposition: 'top',
+                showlegend: false
+            });
+
+            profileTraces.push({
+                x: [0.0, 1.0, 1.3, 2.3, 3.3],
+                y: [221.0, 218.0, 217.9, 216.5, 216.0],
+                name: 'RMC Branch - Bottom',
+                type: 'scatter',
+                mode: 'lines',
+                line: { color: '#4ECDC4', width: 2, dash: 'dash' },
+                showlegend: false
+            });
+            
+            // Water surface
+            profileTraces.push({
+                x: [0.0, 1.0, 1.3, 2.3, 3.3],
+                y: [221.0, 218.89223512460939, 218.8322824796555, 218.7322824796555, 218.63228247965552],
+                name: 'RMC Branch - Water',
+                type: 'scatter',
+                mode: 'lines+markers',
+                line: { color: '#4ECDC4', width: 3 },
+                marker: { size: 8 }
+            });
+            
+            // Node annotations
+
+            profileTraces.push({
+                x: [0.0],
+                y: [221.0],
+                mode: 'text',
+                text: ['Source'],
+                textposition: 'top',
+                showlegend: false
+            });
+
+            profileTraces.push({
+                x: [1.3],
+                y: [218.8322824796555],
+                mode: 'text',
+                text: ['M(0,1)'],
+                textposition: 'top',
+                showlegend: false
+            });
+
+            profileTraces.push({
+                x: [3.3],
+                y: [218.63228247965552],
+                mode: 'text',
+                text: ['M(0,1; 1,0; 1,0)'],
+                textposition: 'top',
+                showlegend: false
+            });
+
+            profileTraces.push({
+                x: [0.0, 1.0, 2.04, 3.04, 4.04],
+                y: [218.0, 217.9, 217.8, 216.0, 216.0],
+                name: '9R-LMC - Bottom',
+                type: 'scatter',
+                mode: 'lines',
+                line: { color: '#45B7D1', width: 2, dash: 'dash' },
+                showlegend: false
+            });
+            
+            // Water surface
+            profileTraces.push({
+                x: [0.0, 1.0, 2.04, 3.04, 4.04],
+                y: [218.89223512460939, 218.7922351246094, 218.58439928876925, 218.48439928876925, 218.48439928876925],
+                name: '9R-LMC - Water',
+                type: 'scatter',
+                mode: 'lines+markers',
+                line: { color: '#45B7D1', width: 3 },
+                marker: { size: 8 }
+            });
+            
+            // Node annotations
+
+            profileTraces.push({
+                x: [0.0],
+                y: [218.89223512460939],
+                mode: 'text',
+                text: ['M(0,0)'],
+                textposition: 'top',
+                showlegend: false
+            });
+
+            profileTraces.push({
+                x: [2.04],
+                y: [218.58439928876925],
+                mode: 'text',
+                text: ['M(0,3)'],
+                textposition: 'top',
+                showlegend: false
+            });
+
+            profileTraces.push({
+                x: [4.04],
+                y: [218.48439928876925],
+                mode: 'text',
+                text: ['M (0,3; 1,1)'],
+                textposition: 'top',
+                showlegend: false
+            });
+
+            var profileLayout = {
+                title: 'Hydraulic Profiles Along Main Canals',
+                xaxis: { 
+                    title: 'Distance (km)',
+                    gridcolor: '#eee'
+                },
+                yaxis: { 
+                    title: 'Elevation (m MSL)',
+                    gridcolor: '#eee',
+                    range: [213, 222]
+                },
+                hovermode: 'x unified',
+                plot_bgcolor: '#fafafa'
+            };
+            
+            Plotly.newPlot('profileChart', profileTraces, profileLayout);
+            
+            // Gate effect visualization
+            var gateNames = [];
+            var upstreamLevels = [];
+            var downstreamLevels = [];
+            var headDrops = [];
+            
+
+            gateNames = ["Source->M(0,0)", "M(0,0)->M(0,1)", "M(0,0)->M(0,2)", "M(0,2)->M(0,3)", "M(0,3)->M(0,4)", "M(0,4)->M(0,5)", "M(0,3)->M (0,3; 1,0)", "M(0,1)->M (0,1; 1,0)"];
+            upstreamLevels = [221.0, 218.89223512460939, 218.89223512460939, 218.7922351246094, 218.58439928876925, 217.53329895769036, 218.58439928876925, 218.8322824796555];
+            downstreamLevels = [218.89223512460939, 218.8322824796555, 218.7922351246094, 218.58439928876925, 217.53329895769036, 217.0696957698381, 218.48439928876925, 218.7322824796555];
+            headDrops = [0, 0.09999999999999432, 0.09999999999999432, 0.09999999999999432, 1.8000000000000114, -1.0, 1.8000000000000114, 1.4000000000000057];
+            
+            var trace1 = {
+                x: gateNames,
+                y: upstreamLevels,
+                name: 'Upstream Level',
+                type: 'bar',
+                marker: { color: '#4CAF50' }
+            };
+            
+            var trace2 = {
+                x: gateNames,
+                y: downstreamLevels,
+                name: 'Downstream Level',
+                type: 'bar',
+                marker: { color: '#2196F3' }
+            };
+            
+            var trace3 = {
+                x: gateNames,
+                y: headDrops,
+                name: 'Head Drop',
+                type: 'scatter',
+                mode: 'lines+markers',
+                yaxis: 'y2',
+                line: { color: '#FF5722', width: 3 },
+                marker: { size: 10 }
+            };
+            
+            var gateData = [trace1, trace2, trace3];
+            
+            var gateLayout = {
+                title: 'Water Level Changes Across Gates',
+                xaxis: { 
+                    title: 'Gate',
+                    tickangle: -45
+                },
+                yaxis: { 
+                    title: 'Water Level (m MSL)',
+                    side: 'left'
+                },
+                yaxis2: {
+                    title: 'Head Drop (m)',
+                    side: 'right',
+                    overlaying: 'y',
+                    showgrid: false
+                },
+                barmode: 'group',
+                hovermode: 'x unified'
+            };
+            
+            Plotly.newPlot('gateEffectChart', gateData, gateLayout);
+            
+            // Network-wide level visualization
+            var nodeLevels = [];
+            var nodeNames = [];
+            var nodeDepths = [];
+            
+
+            nodeNames = ["M(0,0)", "M(0,1)", "M(0,2)", "M(0,0; 1,0)", "M(0,1; 1,0; 1,0)", "M(0,1; 1,1; 1,0)", "M(0,1; 1,1; 1,1)", "M(0,1; 1,1; 1,2)", "M(0,1; 1,1; 1,3)", "M(0,1; 1,1; 1,4)", "M(0,3)", "M(0,1; 1,1; 1,2; 1,0)", "M(0,4)", "M(0,5)", "M(0,6)", "M(0,7)", "M(0,8)", "M(0,9)", "M(0,10)", "M(0,11)"];
+            nodeLevels = [218.89223512460939, 218.8322824796555, 218.7922351246094, 218.7922351246094, 218.63228247965552, 218.63228247965552, 218.63228247965552, 218.63228247965552, 218.63228247965552, 218.63228247965552, 218.58439928876925, 218.53228247965552, 217.53329895769036, 217.0696957698381, 216.54920786948503, 215.5082320687789, 214.70750128789663, 214.24407834846102, 213.94380430563015, 213.5434777383973];
+            nodeBottoms = [218.0, 217.9, 217.9, 217.0, 216.0, 216.0, 216.0, 216.0, 216.0, 216.0, 217.8, 215.5, 216.0, 217.0, 215.0, 214.5, 214.0, 213.5, 213.0, 212.5];
+            
+            var networkTrace1 = {
+                x: nodeNames,
+                y: nodeLevels,
+                name: 'Water Surface',
+                type: 'scatter',
+                mode: 'lines+markers',
+                line: { color: '#2196F3', width: 3 },
+                marker: { size: 10 }
+            };
+            
+            var networkTrace2 = {
+                x: nodeNames,
+                y: nodeBottoms,
+                name: 'Canal Bottom',
+                type: 'scatter',
+                mode: 'lines+markers',
+                line: { color: '#795548', width: 2, dash: 'dash' },
+                marker: { size: 6 }
+            };
+            
+            // Add water depth bars
+            var waterDepths = [];
+            for (var i = 0; i < nodeLevels.length; i++) {
+                waterDepths.push(nodeLevels[i] - nodeBottoms[i]);
+            }
+            
+            var networkTrace3 = {
+                x: nodeNames,
+                y: waterDepths,
+                name: 'Water Depth',
+                type: 'bar',
+                yaxis: 'y2',
+                marker: { color: 'rgba(33, 150, 243, 0.3)' }
+            };
+            
+            var networkLayout = {
+                title: 'Water Levels Throughout Network',
+                xaxis: { 
+                    title: 'Network Node',
+                    tickangle: -45
+                },
+                yaxis: { 
+                    title: 'Elevation (m MSL)',
+                    side: 'left'
+                },
+                yaxis2: {
+                    title: 'Water Depth (m)',
+                    side: 'right',
+                    overlaying: 'y',
+                    showgrid: false,
+                    range: [0, 5]
+                },
+                hovermode: 'x unified'
+            };
+            
+            Plotly.newPlot('networkLevelChart', [networkTrace1, networkTrace2, networkTrace3], networkLayout);
+        </script>
+    </div>
+</body>
+</html>

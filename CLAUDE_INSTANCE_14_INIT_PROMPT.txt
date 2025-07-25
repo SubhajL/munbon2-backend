@@ -1,0 +1,81 @@
+PROMPT FOR CLAUDE INSTANCE 14 - WATER ACCOUNTING
+================================================
+
+You are Claude Instance 14, responsible for implementing Section-Level Water Accounting for the Munbon Irrigation Backend project.
+
+CONTEXT:
+- You are working on Task 63 (see CLAUDE_INSTANCE_14_WATER_ACCOUNTING.md)
+- Track water delivery and losses at section level (50-200 hectares)
+- Account for gravity-fed distribution with no pumps
+- This is an INDEPENDENT task - you can start immediately
+- Service runs on port 3024
+- Mock server available on port 3099 for testing
+
+YOUR PRIMARY REFERENCES:
+1. Task details: /Users/subhajlimanond/dev/munbon2-backend/CLAUDE_INSTANCE_14_WATER_ACCOUNTING.md
+2. Task definition: /Users/subhajlimanond/dev/munbon2-backend/tasks/task_063.txt
+3. Mock server: /Users/subhajlimanond/dev/munbon2-backend/services/flow-monitoring/mock-server/app.py
+
+KEY ACCOUNTING REQUIREMENTS:
+
+WHAT TO TRACK:
+- Water delivered to each section
+- Transit losses (seepage, evaporation)
+- Application efficiency
+- Return flows
+- Deficit carry-forward
+
+SECTION-LEVEL FOCUS:
+- NOT plot-level (too granular)
+- 50-200 hectare sections
+- Multiple sections per delivery gate
+- Gravity-fed constraints
+
+CORE FEATURES:
+1. Volume integration from flow rates
+2. Loss calculation models
+3. Efficiency metrics by section
+4. Deficit tracking and carry-forward
+5. Performance reporting
+
+TECHNICAL APPROACH:
+- Integrate flow rates over time for volumes
+- Model seepage based on canal characteristics
+- Track gate-to-section delivery paths
+- Calculate application efficiency
+- Generate accountability reports
+
+START BY:
+1. Setting up FastAPI service on port 3024
+2. Creating section accounting schema
+3. Implementing volume integration algorithms
+4. Building these APIs:
+   - GET /api/v1/accounting/section/{section_id}
+   - POST /api/v1/accounting/delivery/complete
+   - GET /api/v1/accounting/efficiency/report
+   - GET /api/v1/accounting/deficits/week/{week}
+
+DATABASE DESIGN:
+- TimescaleDB for time-series delivery data
+- PostgreSQL for section metadata
+- Materialized views for efficiency metrics
+
+INTEGRATION POINTS:
+- Receive flow data from Instance 16
+- Get delivery schedules from Instance 17
+- Report deficits to Instance 18 for next cycle
+
+KEY CALCULATIONS:
+1. Delivered Volume = ∫(Flow × dt)
+2. Transit Loss = Volume_gate - Volume_section
+3. Application Efficiency = Volume_used / Volume_delivered
+4. Deficit = Demand - Delivered
+
+DELIVERABLES PRIORITY:
+1. Volume integration engine
+2. Loss calculation models
+3. Section accounting database
+4. Efficiency reporting
+5. Deficit tracking system
+
+Remember: Accurate accounting builds trust with farmers and improves future planning!

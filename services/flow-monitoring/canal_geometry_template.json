@@ -1,0 +1,173 @@
+{
+  "canal_sections": [
+    {
+      "section_id": "LMC_01",
+      "from_node": "M(0,0)",
+      "to_node": "M(0,1)",
+      "description": "LMC Section 1 - Outlet to first gate",
+      "geometry": {
+        "length_m": 300,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 15.0,
+          "top_width_m": 25.0,
+          "depth_m": 3.5,
+          "side_slope": 1.5,
+          "lining": "concrete"
+        },
+        "hydraulic_params": {
+          "manning_n": 0.014,
+          "bed_slope": 0.00015,
+          "design_discharge": 11.2,
+          "freeboard_m": 0.5
+        }
+      }
+    },
+    {
+      "section_id": "LMC_02",
+      "from_node": "M(0,1)",
+      "to_node": "M(0,2)",
+      "description": "LMC Section 2",
+      "geometry": {
+        "length_m": 1320,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 15.0,
+          "top_width_m": 25.0,
+          "depth_m": 3.5,
+          "side_slope": 1.5,
+          "lining": "concrete"
+        },
+        "hydraulic_params": {
+          "manning_n": 0.014,
+          "bed_slope": 0.00015,
+          "design_discharge": 11.2,
+          "freeboard_m": 0.5
+        }
+      }
+    },
+    {
+      "section_id": "LMC_03",
+      "from_node": "M(0,2)",
+      "to_node": "M(0,3)",
+      "description": "LMC Section 3 - Zone 1",
+      "geometry": {
+        "length_m": 5260,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 12.0,
+          "top_width_m": 20.0,
+          "depth_m": 3.0,
+          "side_slope": 1.5,
+          "lining": "concrete"
+        },
+        "hydraulic_params": {
+          "manning_n": 0.014,
+          "bed_slope": 0.00012,
+          "design_discharge": 8.737,
+          "freeboard_m": 0.5
+        }
+      }
+    },
+    {
+      "section_id": "RMC_01",
+      "from_node": "M(0,1)",
+      "to_node": "M(0,1; 1,0)",
+      "description": "RMC Branch from LMC",
+      "geometry": {
+        "length_m": 500,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 8.0,
+          "top_width_m": 14.0,
+          "depth_m": 2.5,
+          "side_slope": 1.5,
+          "lining": "earth"
+        },
+        "hydraulic_params": {
+          "manning_n": 0.035,
+          "bed_slope": 0.0001,
+          "design_discharge": 5.0,
+          "freeboard_m": 0.4
+        }
+      }
+    },
+    {
+      "section_id": "4L-RMC_01",
+      "from_node": "M(0,1; 1,1)",
+      "to_node": "M(0,1; 1,1; 1,0)",
+      "description": "4L-RMC sub-branch",
+      "geometry": {
+        "length_m": 800,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 5.0,
+          "top_width_m": 9.0,
+          "depth_m": 2.0,
+          "side_slope": 1.5,
+          "lining": "earth"
+        },
+        "hydraulic_params": {
+          "manning_n": 0.035,
+          "bed_slope": 0.00008,
+          "design_discharge": 2.5,
+          "freeboard_m": 0.3
+        }
+      }
+    }
+  ],
+  "control_structures": [
+    {
+      "structure_id": "GATE_M001",
+      "location": "M(0,1)",
+      "type": "slide_gate",
+      "specifications": {
+        "width_m": 3.0,
+        "height_m": 3.5,
+        "sill_elevation_m": 220.5,
+        "discharge_coefficient": 0.61,
+        "max_opening_m": 3.0
+      }
+    },
+    {
+      "structure_id": "GATE_M002",
+      "location": "M(0,2)",
+      "type": "slide_gate",
+      "specifications": {
+        "width_m": 2.5,
+        "height_m": 3.0,
+        "sill_elevation_m": 220.3,
+        "discharge_coefficient": 0.61,
+        "max_opening_m": 2.5
+      }
+    }
+  ],
+  "measurement_points": [
+    {
+      "point_id": "MP_LMC_01",
+      "location": "M(0,1)",
+      "type": "water_level",
+      "sensor_id": "WL001",
+      "reference_elevation_m": 221.0
+    },
+    {
+      "point_id": "MP_LMC_02",
+      "location": "M(0,3)",
+      "type": "flow_meter",
+      "sensor_id": "FM001",
+      "calibration_date": "2024-01-15"
+    }
+  ],
+  "notes": {
+    "coordinate_system": "UTM Zone 48N",
+    "vertical_datum": "MSL",
+    "last_survey": "2024-01-15",
+    "manning_n_values": {
+      "concrete_good": 0.014,
+      "concrete_fair": 0.017,
+      "earth_maintained": 0.025,
+      "earth_unmaintained": 0.035,
+      "rock_cut": 0.030
+    }
+  }
+}

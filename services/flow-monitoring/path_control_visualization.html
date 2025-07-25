@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Path-Based Gate Control Visualization</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        h1, h2 { color: #333; }
+        .network-diagram {
+            background: #fff;
+            border: 2px solid #ddd;
+            padding: 20px;
+            margin: 20px 0;
+            position: relative;
+            min-height: 400px;
+        }
+        .node {
+            position: absolute;
+            width: 80px;
+            height: 40px;
+            background: #4CAF50;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 5px;
+            font-size: 12px;
+            font-weight: bold;
+            z-index: 10;
+        }
+        .source { background: #2196F3; }
+        .destination { background: #FF9800; }
+        .gate {
+            position: absolute;
+            background: #666;
+            height: 4px;
+            transform-origin: left center;
+            z-index: 5;
+        }
+        .gate-label {
+            position: absolute;
+            background: #fff;
+            border: 1px solid #666;
+            padding: 2px 5px;
+            font-size: 11px;
+            border-radius: 3px;
+            z-index: 15;
+        }
+        .flow-arrow {
+            position: absolute;
+            color: #2196F3;
+            font-size: 20px;
+            z-index: 8;
+        }
+        .path-highlight {
+            background: #FFEB3B !important;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 0.6; }
+            50% { opacity: 1; }
+            100% { opacity: 0.6; }
+        }
+        .control-panel {
+            background: #f9f9f9;
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 5px;
+        }
+        .gate-control {
+            display: inline-block;
+            margin: 5px;
+            padding: 8px 12px;
+            background: #e0e0e0;
+            border-radius: 3px;
+            font-size: 14px;
+        }
+        .gate-open { background: #c8e6c9; }
+        .flow-info {
+            background: #e3f2fd;
+            padding: 10px;
+            margin: 10px 0;
+            border-left: 4px solid #2196F3;
+        }
+        .path-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .path-diagram {
+            font-family: monospace;
+            font-size: 14px;
+            line-height: 1.6;
+            background: #f5f5f5;
+            padding: 10px;
+            margin: 10px 0;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Path-Based Gate Control in Irrigation Networks</h1>
+        
+        <div class="flow-info">
+            <strong>Key Concept:</strong> Water must flow through ALL gates along the path from source to destination. 
+            Each gate must be properly opened to deliver the target flow.
+        </div>
+
+        <h2>Network Structure</h2>
+        <div class="network-diagram" id="network">
+            <!-- Source -->
+            <div class="node source" style="left: 50px; top: 180px;">Source<br>(Dam)</div>
+            
+            <!-- Main nodes -->
+            <div class="node" style="left: 200px; top: 180px;">M(0,0)</div>
+            <div class="node" style="left: 350px; top: 100px;">M(0,1)</div>
+            <div class="node" style="left: 350px; top: 260px;">M(0,2)</div>
+            <div class="node" style="left: 500px; top: 260px;">M(0,3)</div>
+            <div class="node" style="left: 650px; top: 200px;">M(0,5)</div>
+            <div class="node" style="left: 650px; top: 320px;">M(0,3;1,0)</div>
+            
+            <!-- Destinations -->
+            <div class="node destination" style="left: 500px; top: 100px;">Zone 1<br>(RMC)</div>
+            <div class="node destination" style="left: 800px; top: 200px;">Zone 2<br>(LMC)</div>
+            <div class="node destination" style="left: 800px; top: 320px;">Zone 3<br>(Branch)</div>
+            
+            <!-- Gates (simplified positioning) -->
+            <div class="gate" style="left: 130px; top: 200px; width: 70px;"></div>
+            <div class="gate-label" style="left: 140px; top: 210px;">G1: 100%</div>
+            
+            <div class="gate" style="left: 280px; top: 140px; width: 70px; transform: rotate(-30deg);"></div>
+            <div class="gate-label" style="left: 290px; top: 120px;">G2: 72%</div>
+            
+            <div class="gate" style="left: 280px; top: 220px; width: 70px; transform: rotate(30deg);"></div>
+            <div class="gate-label" style="left: 290px; top: 270px;">G3: 100%</div>
+            
+            <!-- Flow arrows -->
+            <div class="flow-arrow" style="left: 150px; top: 160px;">→</div>
+            <div class="flow-arrow" style="left: 300px; top: 80px;">→</div>
+            <div class="flow-arrow" style="left: 300px; top: 240px;">→</div>
+        </div>
+
+        <h2>Path-Based Control in Action</h2>
+        
+        <div class="path-section">
+            <h3>Path to Zone 1 (Target: 1.5 m³/s)</h3>
+            <div class="path-diagram">
+Source ─[100%]→ M(0,0) ─[72%]→ M(0,1) ─[72%]→ Zone 1
+        │         │        │        │
+      Gate 1    Gate 2   Gate 3  Delivery
+      Open      Open     Open    1.46 m³/s
+            </div>
+            <div class="control-panel">
+                <strong>Gates to operate:</strong>
+                <span class="gate-control gate-open">Source→M(0,0): 100%</span>
+                <span class="gate-control gate-open">M(0,0)→M(0,1): 72%</span>
+                <span class="gate-control gate-open">M(0,1)→Zone1: 72%</span>
+            </div>
+        </div>
+
+        <div class="path-section">
+            <h3>Path to Zone 2 (Target: 2.0 m³/s)</h3>
+            <div class="path-diagram">
+Source ─[100%]→ M(0,0) ─[100%]→ M(0,2) ─[100%]→ M(0,3) ─[97%]→ M(0,5) ─[97%]→ Zone 2
+        │         │         │         │        │        │
+      Gate 1    Gate 2    Gate 3   Gate 4   Gate 5  Delivery
+      Open      Open      Open     Open     Open    1.96 m³/s
+            </div>
+            <div class="control-panel">
+                <strong>Gates to operate:</strong>
+                <span class="gate-control gate-open">Source→M(0,0): 100%</span>
+                <span class="gate-control gate-open">M(0,0)→M(0,2): 100%</span>
+                <span class="gate-control gate-open">M(0,2)→M(0,3): 100%</span>
+                <span class="gate-control gate-open">M(0,3)→M(0,5): 97%</span>
+                <span class="gate-control gate-open">M(0,5)→Zone2: 97%</span>
+            </div>
+        </div>
+
+        <div class="path-section">
+            <h3>Path to Zone 3 (Target: 1.0 m³/s)</h3>
+            <div class="path-diagram">
+Source ─[100%]→ M(0,0) ─[100%]→ M(0,2) ─[100%]→ M(0,3) ─[48%]→ M(0,3;1,0) ─[48%]→ Zone 3
+        │         │         │         │        │           │
+      Gate 1    Gate 2    Gate 3   Gate 4   Gate 5     Delivery
+      Open      Open      Open     Open     Open       0.97 m³/s
+            </div>
+            <div class="control-panel">
+                <strong>Gates to operate:</strong>
+                <span class="gate-control gate-open">Source→M(0,0): 100%</span>
+                <span class="gate-control gate-open">M(0,0)→M(0,2): 100%</span>
+                <span class="gate-control gate-open">M(0,2)→M(0,3): 100%</span>
+                <span class="gate-control gate-open">M(0,3)→M(0,3;1,0): 48%</span>
+                <span class="gate-control gate-open">M(0,3;1,0)→Zone3: 48%</span>
+            </div>
+        </div>
+
+        <h2>Shared Path Analysis</h2>
+        <div class="flow-info">
+            <strong>Important:</strong> Gates on shared path segments must handle combined flows:
+            <ul>
+                <li><strong>M(0,0)→M(0,2)</strong>: Carries water for both Zone 2 (2.0) and Zone 3 (1.0) = 3.0 m³/s total</li>
+                <li><strong>M(0,2)→M(0,3)</strong>: Also carries 3.0 m³/s before splitting</li>
+                <li>At <strong>M(0,3)</strong>: Flow splits - 2.0 to Zone 2, 1.0 to Zone 3</li>
+            </ul>
+        </div>
+
+        <h2>Key Principles</h2>
+        <div class="control-panel">
+            <h3>1. Complete Path Control</h3>
+            <p>❌ <strong>Wrong:</strong> Opening only the last gate</p>
+            <p>✅ <strong>Right:</strong> Opening ALL gates along the path</p>
+            
+            <h3>2. Flow Conservation</h3>
+            <p>At each node: Flow In = Flow Out</p>
+            <p>Example at M(0,3): 3.0 in = 2.0 (to Zone 2) + 1.0 (to Zone 3)</p>
+            
+            <h3>3. Bottleneck Principle</h3>
+            <p>The most restrictive gate limits the entire path flow</p>
+            <p>If one gate is 50% open in a path, maximum flow is limited to 50% capacity</p>
+        </div>
+
+        <h2>Operational Sequence</h2>
+        <div class="path-section">
+            <h3>To deliver water to all three zones:</h3>
+            <ol>
+                <li><strong>Step 1:</strong> Open main gate (Source→M(0,0)) to 100%</li>
+                <li><strong>Step 2:</strong> Open distribution gates:
+                    <ul>
+                        <li>M(0,0)→M(0,1): 72% (for Zone 1)</li>
+                        <li>M(0,0)→M(0,2): 100% (for Zones 2 & 3)</li>
+                    </ul>
+                </li>
+                <li><strong>Step 3:</strong> Open all downstream gates along each path</li>
+                <li><strong>Step 4:</strong> Monitor actual flows and adjust if needed</li>
+            </ol>
+        </div>
+
+        <div class="flow-info" style="background: #fff3cd; border-color: #ffc107;">
+            <strong>Remember:</strong> The path-based solver ensures that:
+            <ul>
+                <li>Every gate along each path is properly set</li>
+                <li>Shared segments handle combined flows correctly</li>
+                <li>Target flows are achieved through coordinated gate control</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>

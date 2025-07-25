@@ -1,0 +1,3 @@
+sensor_id,sensor_type,manufacturer,model,installation_date,last_seen,location_lat,location_lng,metadata,is_active,created_at,updated_at
+00001-00001,moisture,M2M,,,2025-06-03 20:41:29.821,13.7563,100.5018,"{""msgType"": ""interval"", ""gatewayId"": ""00001"", ""manufacturer"": ""M2M"", ""sensorBattery"": 3.95, ""gatewayBattery"": 3.72}",t,2025-06-03 13:41:29.987087,2025-06-03 13:41:59.991424
+222410831183230,water_level,RID-R,AWD-Series,2025-07-01 00:00:00,2025-07-02 13:53:07,14.00284,100.627,"{""name"": ""AWD Water Level Sensor B7E6"", ""zone"": ""Zone1"", ""deviceId"": ""AWD-B7E6""}",t,2025-07-07 04:58:23.308867,2025-07-07 04:58:23.308867

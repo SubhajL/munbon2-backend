@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
 import { query, validationResult } from 'express-validator';
 import { AppDataSource } from '../config/database';
 import { logger } from '../utils/logger';
@@ -20,7 +20,7 @@ router.get('/parcels',
     query('limit').optional().isInt({ min: 1, max: 100 }).default(20),
     query('bbox').optional().matches(/^-?\d+\.?\d*,-?\d+\.?\d*,-?\d+\.?\d*,-?\d+\.?\d*$/),
   ],
-  asyncHandler(async (req, res) => {
+  asyncHandler(async (req: Request, res: Response) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ errors: errors.array() });
@@ -161,7 +161,7 @@ router.get('/parcels',
 // Get parcel by ID
 router.get('/parcels/:id',
   authenticateJWT,
-  asyncHandler(async (req, res) => {
+  asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
 
     try {
@@ -224,7 +224,7 @@ router.get('/statistics',
     query('amphoe').optional().isString(),
     query('tambon').optional().isString(),
   ],
-  asyncHandler(async (req, res) => {
+  asyncHandler(async (req: Request, res: Response) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ errors: errors.array() });
@@ -334,7 +334,7 @@ router.get('/search',
     query('type').optional().isIn(['amphoe', 'tambon', 'both']).default('both'),
     query('limit').optional().isInt({ min: 1, max: 50 }).default(10),
   ],
-  asyncHandler(async (req, res) => {
+  asyncHandler(async (req: Request, res: Response) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ errors: errors.array() });
@@ -405,7 +405,7 @@ router.get('/water-demand',
     query('tambon').optional().isString(),
     query('month').optional().isInt({ min: 1, max: 12 }),
   ],
-  asyncHandler(async (req, res) => {
+  asyncHandler(async (req: Request, res: Response) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ errors: errors.array() });

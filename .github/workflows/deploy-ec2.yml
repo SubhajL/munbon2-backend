@@ -1,0 +1,162 @@
+name: Deploy to EC2 with Docker
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  AWS_REGION: ap-southeast-1
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to EC2
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          # Create SSH key file
+          echo "$EC2_SSH_KEY" > deploy_key
+          chmod 600 deploy_key
+          
+          # Create deployment script
+          cat > deploy.sh << 'EOF'
+          #!/bin/bash
+          set -e
+          
+          # Colors
+          GREEN='\033[0;32m'
+          BLUE='\033[0;34m'
+          NC='\033[0m'
+          
+          echo -e "${BLUE}Starting Docker deployment to EC2...${NC}"
+          
+          # Navigate to project directory
+          cd ~/munbon2-backend || {
+            echo "Creating project directory..."
+            mkdir -p ~/munbon2-backend
+            cd ~/munbon2-backend
+          }
+          
+          # Pull latest code
+          if [ -d ".git" ]; then
+            echo -e "${BLUE}Pulling latest changes...${NC}"
+            git pull origin main
+          else
+            echo -e "${BLUE}Cloning repository...${NC}"
+            git clone https://github.com/SubhajL/munbon2-backend.git .
+          fi
+          
+          # Check if Docker is installed
+          if ! command -v docker &> /dev/null; then
+            echo -e "${BLUE}Installing Docker...${NC}"
+            curl -fsSL https://get.docker.com -o get-docker.sh
+            sudo sh get-docker.sh
+            sudo usermod -aG docker $USER
+            rm get-docker.sh
+          fi
+          
+          # Check if Docker Compose is installed
+          if ! command -v docker-compose &> /dev/null; then
+            echo -e "${BLUE}Installing Docker Compose V2...${NC}"
+            sudo apt-get update
+            sudo apt-get install -y docker-compose-plugin
+          fi
+          
+          # Stop PM2 processes if migrating from PM2
+          if command -v pm2 &> /dev/null; then
+            echo -e "${BLUE}Stopping PM2 processes (migrating to Docker)...${NC}"
+            pm2 stop all || true
+            pm2 delete all || true
+          fi
+          
+          # Create .env.ec2 if not exists
+          if [ ! -f ".env.ec2" ]; then
+            echo -e "${BLUE}Creating .env.ec2 file...${NC}"
+            cp .env.ec2.example .env.ec2
+          fi
+          
+          # Stop existing Docker containers
+          echo -e "${BLUE}Stopping existing Docker containers...${NC}"
+          sudo docker compose -f docker-compose.ec2.yml down || true
+          
+          # Build and start all services
+          echo -e "${BLUE}Building Docker images...${NC}"
+          sudo docker compose -f docker-compose.ec2.yml build
+          
+          echo -e "${BLUE}Starting all services...${NC}"
+          sudo docker compose -f docker-compose.ec2.yml up -d
+          
+          # Wait for services to be ready
+          echo -e "${BLUE}Waiting for services to be ready...${NC}"
+          sleep 30
+          
+          # Check Docker container status
+          echo -e "${BLUE}Checking container status...${NC}"
+          sudo docker compose -f docker-compose.ec2.yml ps
+          
+          # Health checks
+          echo -e "${BLUE}Performing health checks...${NC}"
+          services=(
+            "sensor-data:3001"
+            "auth:3002"
+            "moisture-monitoring:3003"
+            "weather-monitoring:3004"
+            "water-level-monitoring:3005"
+            "gis:3006"
+            "rid-ms:3011"
+            "ros:3012"
+            "awd-control:3013"
+            "flow-monitoring:3014"
+          )
+          
+          for service in "${services[@]}"; do
+            IFS=':' read -r name port <<< "$service"
+            printf "Checking $name on port $port... "
+            if curl -f -s "http://localhost:$port/health" > /dev/null 2>&1; then
+              echo -e "${GREEN}✓ Healthy${NC}"
+            else
+              echo -e "${YELLOW}✗ Not responding${NC}"
+            fi
+          done
+          
+          echo -e "${GREEN}Docker deployment completed successfully!${NC}"
+          echo -e "${BLUE}Service URLs:${NC}"
+          echo "- http://$EC2_HOST:3001 (Sensor Data)"
+          echo "- http://$EC2_HOST:3002 (Auth)"
+          echo "- http://$EC2_HOST:3003 (Moisture Monitoring)"
+          echo "- http://$EC2_HOST:3004 (Weather Monitoring)"
+          echo "- http://$EC2_HOST:3005 (Water Level Monitoring)"
+          echo "- http://$EC2_HOST:3006 (GIS)"
+          echo "- http://$EC2_HOST:3011 (RID-MS)"
+          echo "- http://$EC2_HOST:3012 (ROS)"
+          echo "- http://$EC2_HOST:3013 (AWD Control)"
+          echo "- http://$EC2_HOST:3014 (Flow Monitoring)"
+          EOF
+          
+          # Copy and execute deployment script
+          scp -o StrictHostKeyChecking=no -i deploy_key deploy.sh $EC2_USER@$EC2_HOST:~/
+          ssh -o StrictHostKeyChecking=no -i deploy_key $EC2_USER@$EC2_HOST 'bash ~/deploy.sh'
+          
+          # Cleanup
+          rm deploy_key deploy.sh
+
+      - name: Health Check
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          echo "Waiting for services to start..."
+          sleep 30
+          
+          # Check if services are responding
+          echo "Checking service health..."
+          curl -f http://$EC2_HOST:3001/health || echo "Sensor Data service not responding"
+          curl -f http://$EC2_HOST:3002/health || echo "Auth service not responding"
+          curl -f http://$EC2_HOST:3006/health || echo "GIS service not responding"

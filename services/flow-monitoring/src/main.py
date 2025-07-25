@@ -7,10 +7,12 @@ from prometheus_client import make_asgi_app
 
 from config import settings
 from api import router as api_router
+from api import gates as gates_api
 from core.logging import setup_logging
 from core.metrics import setup_metrics
 from db.connections import DatabaseManager
 from services.kafka_consumer import KafkaConsumerService
+from controllers.dual_mode_gate_controller import DualModeGateController
 
 
 # Setup structured logging
@@ -20,11 +22,14 @@ logger = structlog.get_logger()
 # Global instances
 db_manager = DatabaseManager()
 kafka_consumer = KafkaConsumerService()
+gate_controller = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager"""
+    global gate_controller
+    
     logger.info("Starting Flow Monitoring Service", port=settings.port)
     
     # Startup
@@ -32,6 +37,13 @@ async def lifespan(app: FastAPI):
         # Initialize database connections
         await db_manager.connect_all()
         logger.info("Database connections established")
+        
+        # Initialize gate controller
+        network_file = "src/munbon_network_final.json"
+        geometry_file = "canal_geometry_template.json"
+        gate_controller = DualModeGateController(db_manager, network_file, geometry_file)
+        gates_api.gate_controller = gate_controller
+        logger.info("Gate controller initialized")
         
         # Start Kafka consumer
         asyncio.create_task(kafka_consumer.start())

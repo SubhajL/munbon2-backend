@@ -15,6 +15,7 @@ import { canalRoutes } from './routes/canal.routes';
 import { tileRoutes } from './routes/tile.routes';
 import { shapeFileRoutes } from './routes/shapefile.routes';
 import ridPlanRoutes from './routes/rid-plan.routes';
+import rosDemandRoutes from './routes/ros-demands-v2';
 
 async function startServer() {
   try {
@@ -66,6 +67,7 @@ async function startServer() {
     app.use(`${apiPrefix}/tiles`, tileRoutes);
     app.use(`${apiPrefix}/shapefiles`, shapeFileRoutes);
     app.use(`${apiPrefix}/rid-plan`, ridPlanRoutes);
+    app.use(`${apiPrefix}/ros-demands`, rosDemandRoutes);
     
     // Health check endpoint
     app.get('/health', (req, res) => {
@@ -89,6 +91,7 @@ async function startServer() {
           canals: `${apiPrefix}/canals`,
           tiles: `${apiPrefix}/tiles`,
           ridPlan: `${apiPrefix}/rid-plan`,
+          rosDemands: `${apiPrefix}/ros-demands`,
           health: '/health',
         },
       });

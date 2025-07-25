@@ -1,0 +1,234 @@
+{
+  "Low Flow": {
+    "M(0,3)": {
+      "description": "LMC + 9R Branch",
+      "zone": 1,
+      "time_minutes": 80.57113335204562,
+      "time_hours": 1.3428522225340938,
+      "avg_velocity": 0.2151308118950924,
+      "distance": 1040
+    },
+    "M(0,5)": {
+      "description": "Zone 2 Start",
+      "zone": 2,
+      "time_minutes": 272.6692804470407,
+      "time_hours": 4.544488007450679,
+      "avg_velocity": 0.5268898147643382,
+      "distance": 8620
+    },
+    "M(0,10)": {
+      "description": "Zone 2 Mid",
+      "zone": 2,
+      "time_minutes": 627.1567076314287,
+      "time_hours": 10.452611793857146,
+      "avg_velocity": 0.6440442424543802,
+      "distance": 24235
+    },
+    "M(0,12)": {
+      "description": "LMC + 38R Branch",
+      "zone": 2,
+      "time_minutes": 694.6367072539668,
+      "time_hours": 11.577278454232781,
+      "avg_velocity": 0.6654557629517789,
+      "distance": 27735
+    },
+    "M (0,3; 1,1)": {
+      "description": "9R-LMC",
+      "zone": 3,
+      "time_minutes": 118.23780001871229,
+      "time_hours": 1.9706300003118715,
+      "avg_velocity": 0.146597224665802,
+      "distance": 1040
+    },
+    "M (0,12; 1,0)": {
+      "description": "38R-LMC Start",
+      "zone": 4,
+      "time_minutes": 1956.6033739206334,
+      "time_hours": 32.61005623201056,
+      "avg_velocity": 0.23625125365788643,
+      "distance": 27735
+    },
+    "M (0,12; 1,3)": {
+      "description": "38R-LMC Zone 5",
+      "zone": 5,
+      "time_minutes": 1806.6033739206334,
+      "time_hours": 30.110056232010557,
+      "avg_velocity": 0.2558668973349915,
+      "distance": 27735
+    }
+  },
+  "Medium Flow": {
+    "M(0,3)": {
+      "description": "LMC + 9R Branch",
+      "zone": 1,
+      "time_minutes": 73.29878878156357,
+      "time_hours": 1.2216464796927262,
+      "avg_velocity": 0.2364750307810419,
+      "distance": 1040
+    },
+    "M(0,5)": {
+      "description": "Zone 2 Start",
+      "zone": 2,
+      "time_minutes": 193.12456511222942,
+      "time_hours": 3.2187427518704905,
+      "avg_velocity": 0.7439067452821366,
+      "distance": 8620
+    },
+    "M(0,10)": {
+      "description": "Zone 2 Mid",
+      "zone": 2,
+      "time_minutes": 370.36827870442335,
+      "time_hours": 6.172804645073723,
+      "avg_velocity": 1.0905811590549768,
+      "distance": 24235
+    },
+    "M(0,12)": {
+      "description": "LMC + 38R Branch",
+      "zone": 2,
+      "time_minutes": 404.1082785156924,
+      "time_hours": 6.73513797526154,
+      "avg_velocity": 1.143876590942073,
+      "distance": 27735
+    },
+    "M (0,3; 1,1)": {
+      "description": "9R-LMC",
+      "zone": 3,
+      "time_minutes": 110.96545544823023,
+      "time_hours": 1.8494242574705038,
+      "avg_velocity": 0.15620476898254176,
+      "distance": 1040
+    },
+    "M (0,12; 1,0)": {
+      "description": "38R-LMC Start",
+      "zone": 4,
+      "time_minutes": 1666.074945182359,
+      "time_hours": 27.767915753039315,
+      "avg_velocity": 0.2774485033441306,
+      "distance": 27735
+    },
+    "M (0,12; 1,3)": {
+      "description": "38R-LMC Zone 5",
+      "zone": 5,
+      "time_minutes": 1516.074945182359,
+      "time_hours": 25.267915753039315,
+      "avg_velocity": 0.30489917498399055,
+      "distance": 27735
+    }
+  },
+  "High Flow": {
+    "M(0,3)": {
+      "description": "LMC + 9R Branch",
+      "zone": 1,
+      "time_minutes": 66.86585918770905,
+      "time_hours": 1.1144309864618174,
+      "avg_velocity": 0.25922546339641533,
+      "distance": 1040
+    },
+    "M(0,5)": {
+      "description": "Zone 2 Start",
+      "zone": 2,
+      "time_minutes": 146.7497100748196,
+      "time_hours": 2.4458285012469934,
+      "avg_velocity": 0.9789911448098871,
+      "distance": 8620
+    },
+    "M(0,10)": {
+      "description": "Zone 2 Mid",
+      "zone": 2,
+      "time_minutes": 264.9121858029489,
+      "time_hours": 4.415203096715815,
+      "avg_velocity": 1.5247190892423281,
+      "distance": 24235
+    },
+    "M(0,12)": {
+      "description": "LMC + 38R Branch",
+      "zone": 2,
+      "time_minutes": 287.4055190104616,
+      "time_hours": 4.790091983507693,
+      "avg_velocity": 1.6083546397839843,
+      "distance": 27735
+    },
+    "M (0,3; 1,1)": {
+      "description": "9R-LMC",
+      "zone": 3,
+      "time_minutes": 104.53252585437572,
+      "time_hours": 1.7422087642395954,
+      "avg_velocity": 0.16581760740652535,
+      "distance": 1040
+    },
+    "M (0,12; 1,0)": {
+      "description": "38R-LMC Start",
+      "zone": 4,
+      "time_minutes": 1549.3721856771283,
+      "time_hours": 25.82286976128547,
+      "avg_velocity": 0.29834664922552556,
+      "distance": 27735
+    },
+    "M (0,12; 1,3)": {
+      "description": "38R-LMC Zone 5",
+      "zone": 5,
+      "time_minutes": 1399.3721856771283,
+      "time_hours": 23.32286976128547,
+      "avg_velocity": 0.33032670273943343,
+      "distance": 27735
+    }
+  },
+  "Very High Flow": {
+    "M(0,3)": {
+      "description": "LMC + 9R Branch",
+      "zone": 1,
+      "time_minutes": 63.64939439078179,
+      "time_hours": 1.060823239846363,
+      "avg_velocity": 0.27232518862494764,
+      "distance": 1040
+    },
+    "M(0,5)": {
+      "description": "Zone 2 Start",
+      "zone": 2,
+      "time_minutes": 123.56228255611471,
+      "time_hours": 2.059371375935245,
+      "avg_velocity": 1.1627064804457763,
+      "distance": 8620
+    },
+    "M(0,10)": {
+      "description": "Zone 2 Mid",
+      "zone": 2,
+      "time_minutes": 212.18413935221167,
+      "time_hours": 3.536402322536861,
+      "avg_velocity": 1.903613851156856,
+      "distance": 24235
+    },
+    "M(0,12)": {
+      "description": "LMC + 38R Branch",
+      "zone": 2,
+      "time_minutes": 229.0541392578462,
+      "time_hours": 3.81756898763077,
+      "avg_velocity": 2.018081845181786,
+      "distance": 27735
+    },
+    "M (0,3; 1,1)": {
+      "description": "9R-LMC",
+      "zone": 3,
+      "time_minutes": 101.31606105744845,
+      "time_hours": 1.6886010176241408,
+      "avg_velocity": 0.1710817924860398,
+      "distance": 1040
+    },
+    "M (0,12; 1,0)": {
+      "description": "38R-LMC Start",
+      "zone": 4,
+      "time_minutes": 1491.0208059245128,
+      "time_hours": 24.85034676540855,
+      "avg_velocity": 0.31002250147232535,
+      "distance": 27735
+    },
+    "M (0,12; 1,3)": {
+      "description": "38R-LMC Zone 5",
+      "zone": 5,
+      "time_minutes": 1341.0208059245128,
+      "time_hours": 22.35034676540855,
+      "avg_velocity": 0.3447000955971897,
+      "distance": 27735
+    }
+  }
+}

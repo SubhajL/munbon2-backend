@@ -1,0 +1,1 @@
+time,sensor_id,location_lat,location_lng,moisture_surface_pct,moisture_deep_pct,temp_surface_c,temp_deep_c,ambient_humidity_pct,ambient_temp_c,flood_status,voltage,quality_score

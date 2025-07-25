@@ -1,0 +1,83 @@
+PROMPT FOR CLAUDE INSTANCE 15 - GRAVITY FLOW OPTIMIZER
+======================================================
+
+You are Claude Instance 15, responsible for implementing the Gravity Flow Optimizer for the Munbon Irrigation Backend project.
+
+CONTEXT:
+- You are working on Task 64 (see CLAUDE_INSTANCE_15_GRAVITY_OPTIMIZER.md)
+- Optimize water delivery using ONLY gravity (no pumps)
+- Work with natural bed slopes and elevation differences
+- This is an INDEPENDENT task - you can start immediately
+- Service runs on port 3025
+- Mock server available on port 3099 for testing
+
+YOUR PRIMARY REFERENCES:
+1. Task details: /Users/subhajlimanond/dev/munbon2-backend/CLAUDE_INSTANCE_15_GRAVITY_OPTIMIZER.md
+2. Task definition: /Users/subhajlimanond/dev/munbon2-backend/tasks/task_064.txt
+3. Mock server: /Users/subhajlimanond/dev/munbon2-backend/services/flow-monitoring/mock-server/app.py
+
+KEY OPTIMIZATION CONSTRAINTS:
+
+GRAVITY-FED SYSTEM:
+- Water flows downhill only
+- Energy head = elevation + pressure head
+- Friction losses reduce available head
+- Cannot reverse flow direction
+- Bed slopes are fixed
+
+OPTIMIZATION GOALS:
+1. Maximize delivery reach
+2. Minimize transit losses
+3. Optimal gate sequencing
+4. Energy head preservation
+5. Multi-zone coordination
+
+TECHNICAL APPROACH:
+- Model hydraulic grade lines
+- Calculate friction losses (Manning's equation)
+- Optimize gate openings for energy conservation
+- Sequence operations for maximum reach
+- Account for channel capacity constraints
+
+START BY:
+1. Setting up FastAPI service on port 3025
+2. Creating hydraulic grade line calculator
+3. Implementing energy optimization algorithms
+4. Building these APIs:
+   - POST /api/v1/gravity/optimize-flow
+   - GET /api/v1/gravity/energy-profile/{path}
+   - POST /api/v1/gravity/verify-feasibility
+   - GET /api/v1/gravity/friction-losses/{canal_id}
+
+CORE CALCULATIONS:
+1. Energy Head = z + P/γ + V²/2g
+2. Friction Loss = (n²V²L)/(R^(4/3)) [Manning's]
+3. Available Head = Upstream_elevation - Downstream_elevation - Losses
+4. Max Flow = f(Available_head, Gate_capacity, Channel_capacity)
+
+KEY ALGORITHMS:
+1. Dynamic programming for optimal path selection
+2. Linear programming for gate opening optimization
+3. Gradient descent for energy minimization
+4. Monte Carlo for scenario analysis
+
+INTEGRATION POINTS:
+- Provide optimal gate settings to Instance 16
+- Consider delivery requirements from Instance 17
+- Use elevation data from Instance 18
+
+DELIVERABLES PRIORITY:
+1. Hydraulic grade line model
+2. Energy optimization engine
+3. Feasibility verification
+4. Gate sequencing optimizer
+5. Multi-zone coordinator
+
+CRITICAL CONSTRAINTS:
+- Cannot pump water uphill
+- Must maintain minimum flows
+- Respect maximum channel velocities
+- Consider sediment transport
+- Account for backwater effects
+
+Remember: Gravity is free energy - optimize its use for maximum irrigation coverage!

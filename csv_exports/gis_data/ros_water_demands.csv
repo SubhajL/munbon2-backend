@@ -1,0 +1,2 @@
+id,parcel_id,section_id,calculation_date,calendar_week,calendar_year,crop_type,crop_week,growth_stage,planting_date,harvest_date,area_rai,et0_mm,kc_factor,percolation_mm,gross_demand_mm,gross_demand_m3,effective_rainfall_mm,net_demand_mm,net_demand_m3,moisture_deficit_percent,stress_level,source,created_at,updated_at
+1,f0732542-a2b5-47c7-97c0-34f62019f38d,section_test,2025-07-15 15:16:03.08671,18,2024,rice,5,tillering,,,1.5000,5.2,1.05,14.0,19.46,325.0,,15.46,258.0,,,ros_calculation,2025-07-15 15:16:03.08671,2025-07-15 15:16:03.08671

@@ -1,0 +1,24 @@
+Manual Security Group Update Instructions:
+
+1. If this is an AWS EC2 instance:
+   - Go to AWS Console > EC2 > Security Groups
+   - Find the security group attached to your instance
+   - Add inbound rule:
+     * Type: PostgreSQL
+     * Port: 5432
+     * Source: 0.0.0.0/0 (or restrict to Lambda IP ranges)
+
+2. If this is a non-AWS VPS/Cloud instance:
+   - Check firewall rules (ufw, iptables, etc.)
+   - Allow incoming connections on port 5432
+   - Example for ufw:
+     sudo ufw allow 5432/tcp
+     sudo ufw reload
+
+3. AWS Lambda IP Ranges for ap-southeast-1:
+   You can get the latest IP ranges from:
+   https://ip-ranges.amazonaws.com/ip-ranges.json
+   
+   Filter for:
+   - Region: ap-southeast-1
+   - Service: LAMBDA

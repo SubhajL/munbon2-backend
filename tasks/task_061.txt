@@ -1,0 +1,11 @@
+# Task ID: 61
+# Title: Implement Field Operations Mobile App with Real-time Sync
+# Status: pending
+# Dependencies: 59, 60
+# Priority: high
+# Description: Develop mobile application for field teams that provides gate operation instructions, captures manual operations data, and synchronizes with automated control system.
+# Details:
+Create React Native mobile app for field teams operating manual gates. Implement offline-first architecture for areas with poor connectivity. Display weekly operation schedules with gate-specific instructions (including physical markings for settings). Show real-time status of nearby automated gates. Implement GPS-based gate location and navigation. Create digital forms for recording actual gate settings, water levels, and observations. Build photo capture for gate positions and field conditions. Implement real-time sync when connected, updating central system with manual gate states. Create push notifications for schedule changes or emergency operations. Display relevant sensor readings and hydraulic predictions. Build team communication features for coordination. Implement safety checklists and incident reporting.
+
+# Test Strategy:
+Test offline functionality in areas without connectivity. Verify GPS navigation accuracy to gate locations. Test data capture forms with various inputs. Validate photo upload and compression. Test real-time sync with automated system. Verify push notification delivery. Test team communication features. Validate safety checklist workflows. Test app performance on various Android devices.

@@ -1,0 +1,289 @@
+# Docker Compose for EC2 Production Deployment with Consolidated Database
+# Uses single PostgreSQL instance on EC2 (port 5432) for all services
+
+version: '3.8'
+
+x-common-variables: &common-variables
+  NODE_ENV: production
+  LOG_LEVEL: info
+  JWT_SECRET: ${JWT_SECRET}
+  REDIS_URL: redis://redis:6379
+  # Single PostgreSQL instance for all services
+  POSTGRES_HOST: 43.209.12.182
+  POSTGRES_PORT: 5432
+  POSTGRES_USER: postgres
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-P@ssw0rd123!}
+  # TimescaleDB is in the same PostgreSQL instance
+  TIMESCALE_HOST: 43.209.12.182
+  TIMESCALE_PORT: 5432
+  TIMESCALE_USER: postgres
+  TIMESCALE_PASSWORD: ${POSTGRES_PASSWORD:-P@ssw0rd123!}
+
+x-resource-limits: &resource-limits
+  deploy:
+    resources:
+      limits:
+        cpus: '0.5'
+        memory: 512M
+      reservations:
+        cpus: '0.1'
+        memory: 128M
+
+services:
+  # =================
+  # Infrastructure Services (Only Redis in Docker)
+  # =================
+  
+  redis:
+    image: redis:7-alpine
+    container_name: munbon-redis
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    ports:
+      - "127.0.0.1:6379:6379"
+    restart: unless-stopped
+    <<: *resource-limits
+
+  # =================
+  # Microservices
+  # =================
+
+  sensor-data:
+    build:
+      context: ./services/sensor-data
+      dockerfile: Dockerfile
+    container_name: munbon-sensor-data
+    environment:
+      <<: *common-variables
+      PORT: 3001
+      TIMESCALE_DB: sensor_data
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:5432/sensor_data
+    ports:
+      - "3001:3001"
+    depends_on:
+      - redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    <<: *resource-limits
+
+  sensor-data-consumer:
+    build:
+      context: ./services/sensor-data
+      dockerfile: Dockerfile
+    container_name: munbon-sensor-data-consumer
+    command: ["npm", "run", "consumer:prod"]
+    environment:
+      <<: *common-variables
+      CONSUMER_PORT: 3002
+      TIMESCALE_HOST: ${POSTGRES_HOST}
+      TIMESCALE_PORT: 5432
+      TIMESCALE_DB: sensor_data
+      TIMESCALE_USER: ${POSTGRES_USER}
+      TIMESCALE_PASSWORD: ${POSTGRES_PASSWORD}
+      AWS_REGION: ${AWS_REGION:-ap-southeast-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      SQS_QUEUE_URL: ${SQS_QUEUE_URL}
+    ports:
+      - "3002:3002"
+    depends_on:
+      - redis
+    restart: unless-stopped
+    <<: *resource-limits
+
+  auth:
+    build:
+      context: ./services/auth
+      dockerfile: Dockerfile
+    container_name: munbon-auth
+    environment:
+      <<: *common-variables
+      PORT: 3002
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:5432/munbon_dev?schema=auth
+    ports:
+      - "3002:3002"
+    depends_on:
+      - redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    <<: *resource-limits
+
+  moisture-monitoring:
+    build:
+      context: ./services/moisture-monitoring
+      dockerfile: Dockerfile
+    container_name: munbon-moisture-monitoring
+    environment:
+      <<: *common-variables
+      PORT: 3003
+      TIMESCALE_DATABASE: sensor_data
+    ports:
+      - "3003:3003"
+    depends_on:
+      - redis
+    restart: unless-stopped
+    <<: *resource-limits
+
+  weather-monitoring:
+    build:
+      context: ./services/weather-monitoring
+      dockerfile: Dockerfile
+    container_name: munbon-weather-monitoring
+    environment:
+      <<: *common-variables
+      PORT: 3004
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:5432/sensor_data
+    ports:
+      - "3004:3004"
+    depends_on:
+      - redis
+    restart: unless-stopped
+    <<: *resource-limits
+
+  water-level-monitoring:
+    build:
+      context: ./services/water-level-monitoring
+      dockerfile: Dockerfile
+    container_name: munbon-water-level-monitoring
+    environment:
+      <<: *common-variables
+      PORT: 3005
+      TIMESCALE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:5432/sensor_data
+    ports:
+      - "3005:3005"
+    depends_on:
+      - redis
+    restart: unless-stopped
+    <<: *resource-limits
+
+  gis:
+    build:
+      context: ./services/gis
+      dockerfile: Dockerfile
+    container_name: munbon-gis
+    environment:
+      <<: *common-variables
+      PORT: 3006
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:5432/munbon_dev?schema=gis
+      GIS_SCHEMA: gis
+    ports:
+      - "3006:3006"
+    depends_on:
+      - redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3006/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    <<: *resource-limits
+
+  ros:
+    build:
+      context: ./services/ros
+      dockerfile: Dockerfile
+    container_name: munbon-ros
+    environment:
+      <<: *common-variables
+      PORT: 3012
+      DB_HOST: ${POSTGRES_HOST}
+      DB_PORT: 5432
+      DB_NAME: munbon_dev
+      DB_SCHEMA: ros
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "3012:3012"
+    depends_on:
+      - redis
+    restart: unless-stopped
+    <<: *resource-limits
+
+  rid-ms:
+    build:
+      context: ./services/rid-ms
+      dockerfile: Dockerfile
+    container_name: munbon-rid-ms
+    environment:
+      <<: *common-variables
+      PORT: 3011
+      POSTGRES_DB: munbon_dev
+      POSTGRES_SCHEMA: gis
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:5432/munbon_dev?schema=gis
+    ports:
+      - "3011:3011"
+    depends_on:
+      - redis
+    restart: unless-stopped
+    <<: *resource-limits
+
+  awd-control:
+    build:
+      context: ./services/awd-control
+      dockerfile: Dockerfile
+    container_name: munbon-awd-control
+    environment:
+      <<: *common-variables
+      PORT: 3013
+      POSTGRES_DB: munbon_dev
+      POSTGRES_SCHEMA: awd
+      TIMESCALE_DB: sensor_data
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:5432/munbon_dev?schema=awd
+    ports:
+      - "3013:3013"
+    depends_on:
+      - redis
+    restart: unless-stopped
+    <<: *resource-limits
+
+  flow-monitoring:
+    build:
+      context: ./services/flow-monitoring
+      dockerfile: Dockerfile
+    container_name: munbon-flow-monitoring
+    environment:
+      PORT: 3014
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:5432/munbon_dev
+      TIMESCALE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:5432/sensor_data
+      INFLUXDB_URL: ${INFLUXDB_URL}
+    ports:
+      - "3014:3014"
+    restart: unless-stopped
+    <<: *resource-limits
+
+  # Optional: Nginx reverse proxy
+  nginx:
+    image: nginx:alpine
+    container_name: munbon-nginx
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - sensor-data
+      - auth
+      - gis
+      - ros
+    restart: unless-stopped
+    profiles:
+      - with-nginx
+
+volumes:
+  redis-data:
+    driver: local
+
+networks:
+  default:
+    name: munbon-network
+    driver: bridge

@@ -1,0 +1,152 @@
+{
+  "Low Flow": {
+    "M(0,2)": {
+      "description": "LMC Start",
+      "zone": 1,
+      "time_minutes": 54.0,
+      "time_hours": 0.9
+    },
+    "M(0,3)": {
+      "description": "LMC + 9R Branch",
+      "zone": 1,
+      "time_minutes": 77.20576553960349,
+      "time_hours": 1.2867627589933914
+    },
+    "M(0,5)": {
+      "description": "Zone 2 Start",
+      "zone": 2,
+      "time_minutes": 255.89096598430206,
+      "time_hours": 4.264849433071701
+    },
+    "M(0,12)": {
+      "description": "LMC + 38R Branch",
+      "zone": 2,
+      "time_minutes": 765.2085698120197,
+      "time_hours": 12.753476163533662
+    },
+    "M(0,14)": {
+      "description": "LMC End",
+      "zone": 2,
+      "time_minutes": 853.6471098319664,
+      "time_hours": 14.227451830532774
+    },
+    "M (0,1; 1,0)": {
+      "description": "RMC Start",
+      "zone": 6,
+      "time_minutes": 16.693970828731775,
+      "time_hours": 0.2782328471455296
+    },
+    "M (0,3; 1,1)": {
+      "description": "9R-LMC",
+      "zone": 3,
+      "time_minutes": 114.87243220627015,
+      "time_hours": 1.9145405367711692
+    },
+    "M (0,12; 1,2)": {
+      "description": "38R-LMC",
+      "zone": 4,
+      "time_minutes": 1927.1752364786867,
+      "time_hours": 32.11958727464478
+    }
+  },
+  "Medium Flow": {
+    "M(0,2)": {
+      "description": "LMC Start",
+      "zone": 1,
+      "time_minutes": 54.0,
+      "time_hours": 0.9
+    },
+    "M(0,3)": {
+      "description": "LMC + 9R Branch",
+      "zone": 1,
+      "time_minutes": 77.20576553960349,
+      "time_hours": 1.2867627589933914
+    },
+    "M(0,5)": {
+      "description": "Zone 2 Start",
+      "zone": 2,
+      "time_minutes": 255.89096598430206,
+      "time_hours": 4.264849433071701
+    },
+    "M(0,12)": {
+      "description": "LMC + 38R Branch",
+      "zone": 2,
+      "time_minutes": 765.2085698120197,
+      "time_hours": 12.753476163533662
+    },
+    "M(0,14)": {
+      "description": "LMC End",
+      "zone": 2,
+      "time_minutes": 853.6471098319664,
+      "time_hours": 14.227451830532774
+    },
+    "M (0,1; 1,0)": {
+      "description": "RMC Start",
+      "zone": 6,
+      "time_minutes": 16.693970828731775,
+      "time_hours": 0.2782328471455296
+    },
+    "M (0,3; 1,1)": {
+      "description": "9R-LMC",
+      "zone": 3,
+      "time_minutes": 114.87243220627015,
+      "time_hours": 1.9145405367711692
+    },
+    "M (0,12; 1,2)": {
+      "description": "38R-LMC",
+      "zone": 4,
+      "time_minutes": 1927.1752364786867,
+      "time_hours": 32.11958727464478
+    }
+  },
+  "High Flow": {
+    "M(0,2)": {
+      "description": "LMC Start",
+      "zone": 1,
+      "time_minutes": 54.0,
+      "time_hours": 0.9
+    },
+    "M(0,3)": {
+      "description": "LMC + 9R Branch",
+      "zone": 1,
+      "time_minutes": 77.20576553960349,
+      "time_hours": 1.2867627589933914
+    },
+    "M(0,5)": {
+      "description": "Zone 2 Start",
+      "zone": 2,
+      "time_minutes": 255.89096598430206,
+      "time_hours": 4.264849433071701
+    },
+    "M(0,12)": {
+      "description": "LMC + 38R Branch",
+      "zone": 2,
+      "time_minutes": 765.2085698120197,
+      "time_hours": 12.753476163533662
+    },
+    "M(0,14)": {
+      "description": "LMC End",
+      "zone": 2,
+      "time_minutes": 853.6471098319664,
+      "time_hours": 14.227451830532774
+    },
+    "M (0,1; 1,0)": {
+      "description": "RMC Start",
+      "zone": 6,
+      "time_minutes": 16.693970828731775,
+      "time_hours": 0.2782328471455296
+    },
+    "M (0,3; 1,1)": {
+      "description": "9R-LMC",
+      "zone": 3,
+      "time_minutes": 114.87243220627015,
+      "time_hours": 1.9145405367711692
+    },
+    "M (0,12; 1,2)": {
+      "description": "38R-LMC",
+      "zone": 4,
+      "time_minutes": 1927.1752364786867,
+      "time_hours": 32.11958727464478
+    }
+  }
+}

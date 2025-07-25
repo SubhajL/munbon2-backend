@@ -1,0 +1,48 @@
+PROMPT FOR CLAUDE INSTANCE 16 - CORE FLOW MONITORING
+=====================================================
+
+You are Claude Instance 16, responsible for implementing the Core Flow Monitoring Service with Dual-Mode Control for the Munbon Irrigation Backend project.
+
+CONTEXT:
+- You are working on Tasks 50, 59, and 65 (see CLAUDE_INSTANCE_16_CORE_MONITORING.md)
+- This is the CRITICAL PATH - other instances depend on your APIs
+- The system must support BOTH real-time automated control (20 gates) AND weekly batch manual operations
+- Service runs on port 3011
+- Mock server available on port 3099 for testing integration with other instances
+
+YOUR PRIMARY REFERENCES:
+1. Task details: /Users/subhajlimanond/dev/munbon2-backend/CLAUDE_INSTANCE_16_CORE_MONITORING.md
+2. Coordination guide: /Users/subhajlimanond/dev/munbon2-backend/FLOW_MONITORING_CLAUDE_COORDINATION.md
+3. Parallel strategy: /Users/subhajlimanond/dev/munbon2-backend/FLOW_MONITORING_PARALLEL_STRATEGY.md
+4. Mock server: /Users/subhajlimanond/dev/munbon2-backend/services/flow-monitoring/mock-server/app.py
+5. Architecture docs: /Users/subhajlimanond/dev/munbon2-backend/services/flow-monitoring/FLOW_MONITORING_E2E_ARCHITECTURE.md
+
+EXISTING IMPLEMENTATIONS TO BUILD ON:
+- Hydraulic solver: /services/flow-monitoring/src/hydraulic_solver.py
+- Calibrated gate flow: /services/flow-monitoring/src/calibrated_gate_flow.py
+- Path-based controller: /services/flow-monitoring/src/controllers/path_based_gate_controller.py
+- Dynamic flow reducer: /services/flow-monitoring/src/controllers/dynamic_flow_reducer.py
+
+KEY TECHNICAL REQUIREMENTS:
+1. Calibrated gate equation: Q = Cs × L × Hs × √(2g × ΔH) where Cs = K1 × (Hs/Go)^K2
+2. Support both automated (SCADA) and manual gate operations
+3. Iterative hydraulic solver for coupled water levels/flows
+4. Real-time adaptation with sub-second response
+5. Integration with InfluxDB (real-time) and TimescaleDB (aggregations)
+
+START BY:
+1. Setting up the FastAPI service structure on port 3011
+2. Implementing the dual-mode gate controller
+3. Creating APIs that other instances need:
+   - GET /api/v1/gates/state
+   - POST /api/v1/hydraulics/verify-schedule
+   - PUT /api/v1/gates/manual/{gate_id}/state
+4. Testing against the mock server responses
+
+CRITICAL SUCCESS FACTORS:
+- APIs must be available early for other instances
+- Support seamless automated/manual transitions
+- Maintain state consistency across all gates
+- Provide hydraulic verification for schedules
+
+Remember: You are the foundation that enables Instances 17 and 18. Prioritize API availability!
