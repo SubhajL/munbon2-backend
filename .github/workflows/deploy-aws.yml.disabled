@@ -1,3 +1,10 @@
+# DISABLED - ECS deployment not needed (using EC2 instead)
+# This workflow has been disabled as we're using EC2 deployment, not ECS
+# The main deployment workflow is: deploy-ec2.yml
+#
+# Original content moved to .disabled extension
+# To re-enable, rename this file back to .yml
+
 name: Deploy to AWS ECS
 
 on:

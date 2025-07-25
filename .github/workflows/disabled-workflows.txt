@@ -1,0 +1,12 @@
+# Disabled Workflows
+
+To reduce confusion and avoid duplicate deployments, the following workflows should be disabled:
+
+1. deploy-ec2-docker.yml - Duplicate of deploy-ec2.yml
+2. deploy-aws.yml - ECS deployment (not using ECS)
+3. build-and-push.yml - ECR push (not needed for EC2 deployment)
+
+Keep only:
+- deploy-ec2.yml - Main EC2 deployment workflow
+- docker-build.yml - For CI/CD build verification
+- test-aws-connection.yml - Manual testing only
