@@ -183,3 +183,54 @@ async def calibrate_hydraulic_model(
                 status="500"
             ).inc()
             raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/verify-schedule", response_model=APIResponse[Dict[str, Any]])
+async def verify_irrigation_schedule(
+    schedule: Dict[str, Any] = Body(..., description="Irrigation schedule to verify"),
+    safety_margin: float = Body(0.1, ge=0, le=0.3, description="Safety margin for hydraulic constraints"),
+    hydraulic_service: HydraulicService = Depends(get_hydraulic_service)
+):
+    """
+    Verify if an irrigation schedule is hydraulically feasible.
+    Checks water availability, delivery constraints, and system capacity.
+    """
+    with http_request_duration_seconds.labels(method="POST", endpoint="/hydraulics/verify-schedule").time():
+        try:
+            # Extract schedule details
+            deliveries = schedule.get("deliveries", [])
+            if not deliveries:
+                raise ValueError("No deliveries specified in schedule")
+            
+            # Run hydraulic verification
+            verification_result = await hydraulic_service.verify_schedule(
+                deliveries=deliveries,
+                safety_margin=safety_margin
+            )
+            
+            http_requests_total.labels(
+                method="POST",
+                endpoint="/hydraulics/verify-schedule",
+                status="200"
+            ).inc()
+            
+            return APIResponse.success_response(
+                data=verification_result,
+                message="Schedule verification completed"
+            )
+            
+        except ValueError as e:
+            http_requests_total.labels(
+                method="POST",
+                endpoint="/hydraulics/verify-schedule",
+                status="400"
+            ).inc()
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            logger.error("Failed to verify schedule", error=str(e))
+            http_requests_total.labels(
+                method="POST",
+                endpoint="/hydraulics/verify-schedule",
+                status="500"
+            ).inc()
+            raise HTTPException(status_code=500, detail=str(e))

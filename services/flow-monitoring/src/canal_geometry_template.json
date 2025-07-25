@@ -1,0 +1,123 @@
+{
+  "canal_sections": [
+    {
+      "section_id": "LMC_01",
+      "description": "Main canal from outlet to first LMC gate",
+      "from_node": "M(0,0)",
+      "to_node": "M(0,2)",
+      "geometry": {
+        "length_m": 1620,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 15.0,
+          "depth_m": 3.5,
+          "side_slope": 1.5,
+          "comment": "1:1.5 (V:H) slope"
+        },
+        "hydraulic_params": {
+          "manning_n": 0.014,
+          "bed_slope": 0.00015,
+          "lining_type": "concrete"
+        }
+      },
+      "design_flow": {
+        "q_max_m3s": 8.737,
+        "q_min_m3s": 0.5
+      }
+    },
+    {
+      "section_id": "LMC_02",
+      "description": "LMC between M(0,2) and M(0,3)",
+      "from_node": "M(0,2)",
+      "to_node": "M(0,3)",
+      "geometry": {
+        "length_m": 5260,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 14.0,
+          "depth_m": 3.5,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.014,
+          "bed_slope": 0.00015,
+          "lining_type": "concrete"
+        }
+      },
+      "design_flow": {
+        "q_max_m3s": 8.737,
+        "q_min_m3s": 0.5
+      }
+    },
+    {
+      "section_id": "RMC_01",
+      "description": "RMC start from M(0,1)",
+      "from_node": "M(0,1)",
+      "to_node": "M (0,1; 1,0)",
+      "geometry": {
+        "length_m": 300,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 3.0,
+          "depth_m": 2.0,
+          "side_slope": 1.0
+        },
+        "hydraulic_params": {
+          "manning_n": 0.014,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete"
+        }
+      },
+      "design_flow": {
+        "q_max_m3s": 1.375,
+        "q_min_m3s": 0.1
+      }
+    },
+    {
+      "section_id": "9R_LMC_01",
+      "description": "9R branch from M(0,3)",
+      "from_node": "M(0,3)",
+      "to_node": "M (0,3; 1,0)",
+      "geometry": {
+        "length_m": 100,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 5.0,
+          "depth_m": 2.5,
+          "side_slope": 1.0
+        },
+        "hydraulic_params": {
+          "manning_n": 0.014,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete"
+        }
+      },
+      "design_flow": {
+        "q_max_m3s": 2.201,
+        "q_min_m3s": 0.2
+      }
+    }
+  ],
+  "instructions": {
+    "description": "Please fill in the actual canal geometry data for all sections",
+    "required_fields": [
+      "length_m - Distance between nodes in meters",
+      "bottom_width_m - Canal bottom width in meters",
+      "depth_m - Normal water depth in meters",
+      "side_slope - Side slope ratio (V:H)",
+      "manning_n - Manning's roughness coefficient",
+      "bed_slope - Canal bed slope (m/m)"
+    ],
+    "optional_fields": [
+      "lining_type - Type of canal lining",
+      "q_max_m3s - Maximum design flow",
+      "q_min_m3s - Minimum operational flow"
+    ],
+    "cross_section_types": [
+      "trapezoidal",
+      "rectangular",
+      "circular",
+      "irregular"
+    ]
+  }
+}

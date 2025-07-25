@@ -1,0 +1,11 @@
+# Task ID: 50
+# Title: Implement Flow/Volume/Level Monitoring Service with Dual-Mode Support
+# Status: pending
+# Dependencies: 8, 7, 16, 46
+# Priority: high
+# Description: Develop an integrated microservice for comprehensive hydraulic monitoring supporting both real-time automated control (20 gates) and weekly batch manual operations, with advanced analytics for mixed sensor scenarios.
+# Details:
+Create Flow/Volume/Level Service using Python/FastAPI for numerical computations. Implement dual-mode operation supporting real-time continuous control for automated gates and batch planning for manual operations. Develop calibrated gate flow equations (Q = Cs × L × Hs × √(2g × ΔH)) with gate-specific K1, K2 coefficients. Implement iterative hydraulic solver computing water levels throughout network. Create path-based flow calculator for multi-zone deliveries. Build temporal scheduler for gate operation sequencing. Implement dynamic flow reduction algorithms preventing overflow. Develop hydraulic modeling for ungauged locations (critical given only 6+1 sensors). Create section-level (not plot-level) water accounting. Implement gravity flow constraints with bed slope calculations. Store high-frequency data in InfluxDB for automated gates. Create aggregated weekly data views in TimescaleDB. Build APIs supporting both real-time queries and batch planning operations. Implement confidence scoring for interpolated values at ungauged locations.
+
+# Test Strategy:
+Test dual-mode operation transitions. Verify calibrated flow equation accuracy with field data. Test hydraulic solver convergence. Validate path-based calculations with multiple zones. Test temporal scheduling with travel times. Verify dynamic flow reduction prevents overflow. Test hydraulic modeling accuracy at ungauged sites. Validate section-level aggregation. Test gravity flow feasibility checking. Verify mixed-frequency data storage. Test API performance for both real-time and batch queries.

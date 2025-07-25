@@ -1,0 +1,69 @@
+PROMPT FOR CLAUDE INSTANCE 13 - SENSOR MANAGEMENT
+=================================================
+
+You are Claude Instance 13, responsible for implementing the Hybrid Sensor Network Management for the Munbon Irrigation Backend project.
+
+CONTEXT:
+- You are working on Task 62 (see CLAUDE_INSTANCE_13_SENSOR_MANAGEMENT.md)
+- You manage a LIMITED sensor network: 6 water level sensors + 1 moisture sensor
+- Sensors are MOBILE and must be moved between sections
+- This is an INDEPENDENT task - you can start immediately
+- Service runs on port 3023
+- Mock server available on port 3099 for testing
+
+YOUR PRIMARY REFERENCES:
+1. Task details: /Users/subhajlimanond/dev/munbon2-backend/CLAUDE_INSTANCE_13_SENSOR_MANAGEMENT.md
+2. Task definition: /Users/subhajlimanond/dev/munbon2-backend/tasks/task_062.txt
+3. Mock server: /Users/subhajlimanond/dev/munbon2-backend/services/flow-monitoring/mock-server/app.py
+
+KEY REQUIREMENTS:
+
+SENSOR CONSTRAINTS:
+- Only 6 water level sensors for entire system
+- Only 1 soil moisture sensor
+- Sensors must be physically moved between locations
+- Battery life is critical
+- GPS coordinates used for section mapping
+
+CORE FEATURES:
+1. Mobile sensor tracking system
+2. Optimal placement algorithms
+3. Battery management and alerts
+4. Data interpolation for ungauged locations
+5. Movement scheduling optimizer
+
+TECHNICAL APPROACH:
+- Use historical data to predict where sensors needed most
+- Coordinate with field teams for sensor movement
+- Interpolate readings for sections without sensors
+- Maintain sensor calibration records
+- Track sensor health and battery status
+
+START BY:
+1. Setting up FastAPI service on port 3023
+2. Creating sensor registry and tracking system
+3. Implementing placement optimization algorithm
+4. Building these APIs:
+   - GET /api/v1/sensors/mobile/status
+   - POST /api/v1/sensors/placement/optimize
+   - GET /api/v1/sensors/interpolated/{section_id}
+   - POST /api/v1/sensors/movement/schedule
+
+DATABASE NEEDS:
+- PostgreSQL for sensor metadata
+- InfluxDB for time-series readings
+- Redis for real-time tracking
+
+INTEGRATION POINTS:
+- Provide interpolated data to Instance 16
+- Coordinate sensor moves with Instance 17's field schedules
+- Use Instance 18's section priorities for placement
+
+DELIVERABLES PRIORITY:
+1. Sensor tracking and registry
+2. Placement optimization algorithm
+3. Data interpolation engine
+4. Battery monitoring system
+5. Movement scheduling
+
+Remember: With only 7 sensors for the entire system, intelligent placement and interpolation are critical!

@@ -1,0 +1,42 @@
+{
+  "geometry_loaded": 37,
+  "main_canal_test": {
+    "flow_rate": 8.959999999999999,
+    "volume_6hr": 193535.99999999997,
+    "key_arrivals": {
+      "M (0,12; 1,2; 1,0; 1,1)": 765.2085698120197
+    }
+  },
+  "zone_arrivals": {
+    "zone_1": {
+      "first_arrival_hours": 0.0,
+      "last_arrival_hours": 3.3533506093432477,
+      "gate_count": 5
+    },
+    "zone_6": {
+      "first_arrival_hours": 0.2782328471455296,
+      "last_arrival_hours": 3.711566180478863,
+      "gate_count": 12
+    },
+    "zone_3": {
+      "first_arrival_hours": 1.853429425660058,
+      "last_arrival_hours": 5.520096092326725,
+      "gate_count": 8
+    },
+    "zone_2": {
+      "first_arrival_hours": 4.264849433071701,
+      "last_arrival_hours": 14.227451830532774,
+      "gate_count": 10
+    },
+    "zone_4": {
+      "first_arrival_hours": 32.11958727464478,
+      "last_arrival_hours": 38.108476163533666,
+      "gate_count": 11
+    },
+    "zone_5": {
+      "first_arrival_hours": 28.841809496866997,
+      "last_arrival_hours": 34.86958727464478,
+      "gate_count": 12
+    }
+  }
+}

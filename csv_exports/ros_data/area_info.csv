@@ -1,0 +1,4 @@
+id,area_id,area_type,area_name,total_area_rai,parent_area_id,aos_station,province,created_at,updated_at
+1,THAI-TEST-01,plot,Thai Test Plot 1,100.00,,นครราชสีมา,นครราชสีมา,2025-07-10 08:31:38.529559,2025-07-10 08:31:38.529559
+2,THAI-TEST-02,plot,Thai Test Plot 2,1000.00,,นครราชสีมา,นครราชสีมา,2025-07-10 08:31:38.529559,2025-07-10 08:31:38.529559
+3,MUNBON-PROJECT,project,โครงการชลประทานมูลบน,45731.00,,นครราชสีมา,นครราชสีมา,2025-07-10 08:31:38.529559,2025-07-10 08:31:38.529559

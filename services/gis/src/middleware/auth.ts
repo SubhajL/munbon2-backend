@@ -43,6 +43,9 @@ export const authenticate = async (
   }
 };
 
+// Alias for backward compatibility
+export const authenticateJWT = authenticate;
+
 function extractToken(req: Request): string | null {
   if (req.headers.authorization?.startsWith('Bearer ')) {
     return req.headers.authorization.substring(7);

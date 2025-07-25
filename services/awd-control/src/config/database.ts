@@ -4,13 +4,17 @@ import { logger } from '../utils/logger';
 let postgresPool: Pool;
 let timescalePool: Pool;
 
+// Schema configuration
+const POSTGRES_SCHEMA = process.env.POSTGRES_SCHEMA || 'awd';
+const TIMESCALE_SCHEMA = process.env.TIMESCALE_SCHEMA || 'public';
+
 export const connectDatabases = async (): Promise<void> => {
   try {
     // PostgreSQL connection for configuration data
     postgresPool = new Pool({
       host: process.env.POSTGRES_HOST || 'localhost',
       port: parseInt(process.env.POSTGRES_PORT || '5432'),
-      database: process.env.POSTGRES_DB || 'munbon_awd',
+      database: process.env.POSTGRES_DB || 'munbon_dev',
       user: process.env.POSTGRES_USER || 'postgres',
       password: process.env.POSTGRES_PASSWORD || 'postgres',
       max: 20,
@@ -18,15 +22,18 @@ export const connectDatabases = async (): Promise<void> => {
       connectionTimeoutMillis: 2000,
     });
 
+    // Set search path for PostgreSQL
+    await postgresPool.query(`SET search_path TO ${POSTGRES_SCHEMA}, public`);
+    
     // Test PostgreSQL connection
     await postgresPool.query('SELECT NOW()');
-    logger.info('PostgreSQL connected successfully');
+    logger.info(`PostgreSQL connected successfully with schema: ${POSTGRES_SCHEMA}`);
 
     // TimescaleDB connection for time-series data
     timescalePool = new Pool({
       host: process.env.TIMESCALE_HOST || 'localhost',
-      port: parseInt(process.env.TIMESCALE_PORT || '5433'),
-      database: process.env.TIMESCALE_DB || 'munbon_timeseries',
+      port: parseInt(process.env.TIMESCALE_PORT || '5432'),
+      database: process.env.TIMESCALE_DB || 'sensor_data',
       user: process.env.TIMESCALE_USER || 'postgres',
       password: process.env.TIMESCALE_PASSWORD || 'postgres',
       max: 20,
@@ -34,9 +41,12 @@ export const connectDatabases = async (): Promise<void> => {
       connectionTimeoutMillis: 2000,
     });
 
+    // Set search path for TimescaleDB
+    await timescalePool.query(`SET search_path TO ${TIMESCALE_SCHEMA}, public`);
+    
     // Test TimescaleDB connection
     await timescalePool.query('SELECT NOW()');
-    logger.info('TimescaleDB connected successfully');
+    logger.info(`TimescaleDB connected successfully with schema: ${TIMESCALE_SCHEMA}`);
 
     // Initialize database schema
     await initializeSchema();
@@ -62,8 +72,14 @@ export const getTimescalePool = (): Pool => {
 
 const initializeSchema = async (): Promise<void> => {
   try {
-    // Create tables in PostgreSQL
+    // Create schema if not exists
+    await postgresPool.query(`CREATE SCHEMA IF NOT EXISTS ${POSTGRES_SCHEMA}`);
+    
+    // Create tables in PostgreSQL with schema prefix
     await postgresPool.query(`
+      -- Set search path for this session
+      SET search_path TO ${POSTGRES_SCHEMA}, public;
+      
       CREATE TABLE IF NOT EXISTS awd_fields (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         field_code VARCHAR(50) UNIQUE NOT NULL,
@@ -133,42 +149,13 @@ const initializeSchema = async (): Promise<void> => {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
-
-      -- Create GIS schema if not exists
-      CREATE SCHEMA IF NOT EXISTS gis;
-      
-      -- Water level measurements from GIS/SHAPE data
-      CREATE TABLE IF NOT EXISTS gis.water_level_measurements (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        field_id UUID NOT NULL,
-        plot_id VARCHAR(50),
-        water_height_cm DECIMAL(6, 2),
-        crop_height_cm DECIMAL(6, 2),
-        measurement_date TIMESTAMP,
-        area DECIMAL(10, 2),
-        geometry GEOMETRY(Polygon, 4326),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-      
-      -- Field attributes from GIS/SHAPE data
-      CREATE TABLE IF NOT EXISTS gis.field_attributes (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        field_id UUID NOT NULL UNIQUE,
-        planting_method VARCHAR(20),
-        crop_type VARCHAR(50),
-        variety VARCHAR(100),
-        planting_date DATE,
-        expected_harvest_date DATE,
-        area_hectares DECIMAL(10, 2),
-        geometry GEOMETRY(Polygon, 4326),
-        metadata JSONB,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
     `);
 
-    // Create hypertables in TimescaleDB
+    // Create AWD-specific tables in TimescaleDB
     await timescalePool.query(`
+      -- Set search path for this session
+      SET search_path TO ${TIMESCALE_SCHEMA}, public;
+      
       CREATE TABLE IF NOT EXISTS awd_sensor_readings (
         time TIMESTAMPTZ NOT NULL,
         sensor_id VARCHAR(50) NOT NULL,
@@ -202,45 +189,33 @@ const initializeSchema = async (): Promise<void> => {
         if_not_exists => TRUE,
         chunk_time_interval => INTERVAL '7 days'
       );
-
-      CREATE TABLE IF NOT EXISTS water_level_readings (
-        time TIMESTAMPTZ NOT NULL,
-        sensor_id VARCHAR(50) NOT NULL,
-        field_id UUID NOT NULL,
-        water_level_cm DECIMAL(6, 2),
-        temperature_celsius DECIMAL(5, 2),
-        humidity_percent DECIMAL(5, 2),
-        battery_voltage DECIMAL(4, 2),
-        signal_strength INTEGER,
-        PRIMARY KEY (time, sensor_id)
-      );
-
-      SELECT create_hypertable('water_level_readings', 'time',
-        if_not_exists => TRUE,
-        chunk_time_interval => INTERVAL '1 day'
-      );
-
-      CREATE TABLE IF NOT EXISTS moisture_readings (
-        time TIMESTAMPTZ NOT NULL,
-        sensor_id VARCHAR(50) NOT NULL,
-        field_id UUID NOT NULL,
-        moisture_percent DECIMAL(5, 2),
-        depth_cm DECIMAL(5, 2),
-        temperature_celsius DECIMAL(5, 2),
-        battery_voltage DECIMAL(4, 2),
-        PRIMARY KEY (time, sensor_id)
-      );
-
-      SELECT create_hypertable('moisture_readings', 'time',
-        if_not_exists => TRUE,
-        chunk_time_interval => INTERVAL '1 day'
-      );
     `);
 
     logger.info('Database schema initialized successfully');
   } catch (error) {
     logger.error(error, 'Failed to initialize database schema');
     throw error;
+  }
+};
+
+// Helper function to execute queries with schema context
+export const executeQuery = async (
+  pool: Pool,
+  query: string,
+  params?: any[],
+  schema?: string
+): Promise<any> => {
+  const client = await pool.connect();
+  try {
+    // Set schema search path if provided
+    if (schema) {
+      await client.query(`SET search_path TO ${schema}, public`);
+    }
+    
+    const result = await client.query(query, params);
+    return result;
+  } finally {
+    client.release();
   }
 };
 

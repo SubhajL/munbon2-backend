@@ -1,0 +1,281 @@
+{
+  "start_time": "2025-07-13T06:00:00",
+  "requests": [
+    {
+      "zone": "Zone2",
+      "volume_m3": 10000,
+      "flow_rate_m3s": 2.0,
+      "duration_hours": 1.3888888888888888
+    },
+    {
+      "zone": "Zone5",
+      "volume_m3": 7500,
+      "flow_rate_m3s": 1.5,
+      "duration_hours": 1.3888888888888888
+    },
+    {
+      "zone": "Zone6",
+      "volume_m3": 5000,
+      "flow_rate_m3s": 1.0,
+      "duration_hours": 1.3888888888888888
+    }
+  ],
+  "operations": [
+    {
+      "time": "2025-07-13T06:00:00",
+      "gate": "Source->M(0,0)",
+      "action": "open",
+      "opening_percent": 40.0,
+      "reason": "Open for Zone2 irrigation"
+    },
+    {
+      "time": "2025-07-13T06:00:00",
+      "gate": "Source->M(0,0)",
+      "action": "open",
+      "opening_percent": 30.0,
+      "reason": "Open for Zone5 irrigation"
+    },
+    {
+      "time": "2025-07-13T06:00:00",
+      "gate": "Source->M(0,0)",
+      "action": "open",
+      "opening_percent": 20.0,
+      "reason": "Open for Zone6 irrigation"
+    },
+    {
+      "time": "2025-07-13T06:02:00",
+      "gate": "M(0,0)->M(0,2)",
+      "action": "open",
+      "opening_percent": 40.0,
+      "reason": "Open for Zone2 irrigation"
+    },
+    {
+      "time": "2025-07-13T06:02:00",
+      "gate": "M(0,0)->M(0,2)",
+      "action": "open",
+      "opening_percent": 30.0,
+      "reason": "Open for Zone5 irrigation"
+    },
+    {
+      "time": "2025-07-13T06:02:00",
+      "gate": "M(0,0)->M(0,2)",
+      "action": "open",
+      "opening_percent": 20.0,
+      "reason": "Open for Zone6 irrigation"
+    },
+    {
+      "time": "2025-07-13T06:04:00",
+      "gate": "M(0,2)->M(0,3)",
+      "action": "open",
+      "opening_percent": 40.0,
+      "reason": "Open for Zone2 irrigation"
+    },
+    {
+      "time": "2025-07-13T06:04:00",
+      "gate": "M(0,2)->M(0,3)",
+      "action": "open",
+      "opening_percent": 30.0,
+      "reason": "Open for Zone5 irrigation"
+    },
+    {
+      "time": "2025-07-13T06:04:00",
+      "gate": "M(0,2)->M(0,3)",
+      "action": "open",
+      "opening_percent": 20.0,
+      "reason": "Open for Zone6 irrigation"
+    },
+    {
+      "time": "2025-07-13T06:06:00",
+      "gate": "M(0,3)->M(0,5)",
+      "action": "open",
+      "opening_percent": 40.0,
+      "reason": "Open for Zone2 irrigation"
+    },
+    {
+      "time": "2025-07-13T06:06:00",
+      "gate": "M(0,3)->M(0,5)",
+      "action": "open",
+      "opening_percent": 30.0,
+      "reason": "Open for Zone5 irrigation"
+    },
+    {
+      "time": "2025-07-13T06:06:00",
+      "gate": "M(0,3)->M(0,5)",
+      "action": "open",
+      "opening_percent": 20.0,
+      "reason": "Open for Zone6 irrigation"
+    },
+    {
+      "time": "2025-07-13T06:08:00",
+      "gate": "M(0,5)->Zone2",
+      "action": "open",
+      "opening_percent": 40.0,
+      "reason": "Open for Zone2 irrigation"
+    },
+    {
+      "time": "2025-07-13T06:08:00",
+      "gate": "M(0,5)->M(0,12)",
+      "action": "open",
+      "opening_percent": 30.0,
+      "reason": "Open for Zone5 irrigation"
+    },
+    {
+      "time": "2025-07-13T06:08:00",
+      "gate": "M(0,5)->M(0,12)",
+      "action": "open",
+      "opening_percent": 20.0,
+      "reason": "Open for Zone6 irrigation"
+    },
+    {
+      "time": "2025-07-13T06:10:00",
+      "gate": "M(0,12)->Zone5",
+      "action": "open",
+      "opening_percent": 30.0,
+      "reason": "Open for Zone5 irrigation"
+    },
+    {
+      "time": "2025-07-13T06:10:00",
+      "gate": "M(0,12)->M(0,14)",
+      "action": "open",
+      "opening_percent": 20.0,
+      "reason": "Open for Zone6 irrigation"
+    },
+    {
+      "time": "2025-07-13T06:12:00",
+      "gate": "M(0,14)->Zone6",
+      "action": "open",
+      "opening_percent": 20.0,
+      "reason": "Open for Zone6 irrigation"
+    },
+    {
+      "time": "2025-07-13T08:38:20",
+      "gate": "M(0,5)->Zone2",
+      "action": "close",
+      "opening_percent": 0,
+      "reason": "Complete Zone2 irrigation"
+    },
+    {
+      "time": "2025-07-13T08:43:20",
+      "gate": "M(0,3)->M(0,5)",
+      "action": "close",
+      "opening_percent": 0,
+      "reason": "Complete Zone2 irrigation"
+    },
+    {
+      "time": "2025-07-13T08:48:20",
+      "gate": "M(0,2)->M(0,3)",
+      "action": "close",
+      "opening_percent": 0,
+      "reason": "Complete Zone2 irrigation"
+    },
+    {
+      "time": "2025-07-13T08:53:20",
+      "gate": "M(0,0)->M(0,2)",
+      "action": "close",
+      "opening_percent": 0,
+      "reason": "Complete Zone2 irrigation"
+    },
+    {
+      "time": "2025-07-13T08:53:20",
+      "gate": "M(0,12)->Zone5",
+      "action": "close",
+      "opening_percent": 0,
+      "reason": "Complete Zone5 irrigation"
+    },
+    {
+      "time": "2025-07-13T08:58:20",
+      "gate": "Source->M(0,0)",
+      "action": "close",
+      "opening_percent": 0,
+      "reason": "Complete Zone2 irrigation"
+    },
+    {
+      "time": "2025-07-13T08:58:20",
+      "gate": "M(0,5)->M(0,12)",
+      "action": "close",
+      "opening_percent": 0,
+      "reason": "Complete Zone5 irrigation"
+    },
+    {
+      "time": "2025-07-13T09:03:20",
+      "gate": "M(0,3)->M(0,5)",
+      "action": "close",
+      "opening_percent": 0,
+      "reason": "Complete Zone5 irrigation"
+    },
+    {
+      "time": "2025-07-13T09:08:20",
+      "gate": "M(0,2)->M(0,3)",
+      "action": "close",
+      "opening_percent": 0,
+      "reason": "Complete Zone5 irrigation"
+    },
+    {
+      "time": "2025-07-13T09:08:20",
+      "gate": "M(0,14)->Zone6",
+      "action": "close",
+      "opening_percent": 0,
+      "reason": "Complete Zone6 irrigation"
+    },
+    {
+      "time": "2025-07-13T09:13:20",
+      "gate": "M(0,0)->M(0,2)",
+      "action": "close",
+      "opening_percent": 0,
+      "reason": "Complete Zone5 irrigation"
+    },
+    {
+      "time": "2025-07-13T09:13:20",
+      "gate": "M(0,12)->M(0,14)",
+      "action": "close",
+      "opening_percent": 0,
+      "reason": "Complete Zone6 irrigation"
+    },
+    {
+      "time": "2025-07-13T09:18:20",
+      "gate": "Source->M(0,0)",
+      "action": "close",
+      "opening_percent": 0,
+      "reason": "Complete Zone5 irrigation"
+    },
+    {
+      "time": "2025-07-13T09:18:20",
+      "gate": "M(0,5)->M(0,12)",
+      "action": "close",
+      "opening_percent": 0,
+      "reason": "Complete Zone6 irrigation"
+    },
+    {
+      "time": "2025-07-13T09:23:20",
+      "gate": "M(0,3)->M(0,5)",
+      "action": "close",
+      "opening_percent": 0,
+      "reason": "Complete Zone6 irrigation"
+    },
+    {
+      "time": "2025-07-13T09:28:20",
+      "gate": "M(0,2)->M(0,3)",
+      "action": "close",
+      "opening_percent": 0,
+      "reason": "Complete Zone6 irrigation"
+    },
+    {
+      "time": "2025-07-13T09:33:20",
+      "gate": "M(0,0)->M(0,2)",
+      "action": "close",
+      "opening_percent": 0,
+      "reason": "Complete Zone6 irrigation"
+    },
+    {
+      "time": "2025-07-13T09:38:20",
+      "gate": "Source->M(0,0)",
+      "action": "close",
+      "opening_percent": 0,
+      "reason": "Complete Zone6 irrigation"
+    }
+  ],
+  "summary": {
+    "total_volume_m3": 22500,
+    "total_duration_hours": 3.638888888888889
+  }
+}

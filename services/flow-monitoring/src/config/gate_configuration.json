@@ -1,0 +1,186 @@
+{
+  "gates": {
+    "Source->M(0,0)": {
+      "type": "automated",
+      "name": "Main Source Gate",
+      "location": {"lat": 14.8200, "lon": 103.1500},
+      "zone": 0,
+      "width_m": 3.0,
+      "max_opening_m": 3.0,
+      "max_flow_m3s": 10.0,
+      "calibration": {
+        "k1": 0.61,
+        "k2": -0.12
+      },
+      "scada_id": "SCADA_001",
+      "physical_markers": "Red post with 10 notches",
+      "maintenance_schedule": "monthly"
+    },
+    "M(0,0)->M(0,2)": {
+      "type": "manual",
+      "name": "Distribution Gate 1",
+      "location": {"lat": 14.8220, "lon": 103.1520},
+      "zone": 0,
+      "width_m": 2.5,
+      "max_opening_m": 2.5,
+      "max_flow_m3s": 6.0,
+      "calibration": {
+        "k1": 0.58,
+        "k2": -0.10
+      },
+      "physical_markers": "Blue post with 8 notches",
+      "manual_operation": {
+        "turns_to_open": 25,
+        "time_to_operate_minutes": 15,
+        "tool_required": "standard_wheel"
+      }
+    },
+    "M(0,2)->Zone_2": {
+      "type": "automated",
+      "name": "Zone 2 Inlet",
+      "location": {"lat": 14.8234, "lon": 103.1567},
+      "zone": 2,
+      "width_m": 2.0,
+      "max_opening_m": 2.0,
+      "max_flow_m3s": 5.0,
+      "calibration": {
+        "k1": 0.60,
+        "k2": -0.11
+      },
+      "scada_id": "SCADA_002",
+      "physical_markers": "Green post with 6 notches (backup)",
+      "fallback_manual": true
+    },
+    "M(0,2)->Zone_3": {
+      "type": "automated",
+      "name": "Zone 3 Inlet",
+      "location": {"lat": 14.8345, "lon": 103.1678},
+      "zone": 3,
+      "width_m": 2.0,
+      "max_opening_m": 2.0,
+      "max_flow_m3s": 4.0,
+      "calibration": {
+        "k1": 0.59,
+        "k2": -0.11
+      },
+      "scada_id": "SCADA_003",
+      "physical_markers": "Yellow post with 6 notches (backup)",
+      "fallback_manual": true
+    },
+    "M(0,0)->M(0,5)": {
+      "type": "manual",
+      "name": "Distribution Gate 2",
+      "location": {"lat": 14.8400, "lon": 103.1700},
+      "zone": 0,
+      "width_m": 2.5,
+      "max_opening_m": 2.5,
+      "max_flow_m3s": 6.0,
+      "calibration": {
+        "k1": 0.58,
+        "k2": -0.10
+      },
+      "physical_markers": "Blue post with 8 notches",
+      "manual_operation": {
+        "turns_to_open": 25,
+        "time_to_operate_minutes": 15,
+        "tool_required": "standard_wheel"
+      }
+    },
+    "M(0,5)->Zone_5": {
+      "type": "manual",
+      "name": "Zone 5 Inlet",
+      "location": {"lat": 14.8456, "lon": 103.1789},
+      "zone": 5,
+      "width_m": 2.0,
+      "max_opening_m": 2.0,
+      "max_flow_m3s": 4.5,
+      "calibration": {
+        "k1": 0.59,
+        "k2": -0.11
+      },
+      "physical_markers": "Orange post with 6 notches",
+      "manual_operation": {
+        "turns_to_open": 20,
+        "time_to_operate_minutes": 12,
+        "tool_required": "standard_wheel"
+      }
+    },
+    "M(0,5)->Zone_6": {
+      "type": "manual",
+      "name": "Zone 6 Inlet",
+      "location": {"lat": 14.8567, "lon": 103.1890},
+      "zone": 6,
+      "width_m": 1.8,
+      "max_opening_m": 1.8,
+      "max_flow_m3s": 4.0,
+      "calibration": {
+        "k1": 0.58,
+        "k2": -0.12
+      },
+      "physical_markers": "White post with 5 notches",
+      "manual_operation": {
+        "turns_to_open": 18,
+        "time_to_operate_minutes": 10,
+        "tool_required": "standard_wheel"
+      }
+    }
+  },
+  "summary": {
+    "total_gates": 59,
+    "automated_gates": 20,
+    "manual_gates": 39,
+    "zones": 6,
+    "note": "This file shows 7 example gates. Full network has 59 gates total."
+  },
+  "automation_distribution": {
+    "zone_0": {
+      "automated": 3,
+      "manual": 5,
+      "description": "Main distribution level"
+    },
+    "zone_1": {
+      "automated": 2,
+      "manual": 4,
+      "description": "Not active in current season"
+    },
+    "zone_2": {
+      "automated": 5,
+      "manual": 7,
+      "description": "Rice cultivation - high priority"
+    },
+    "zone_3": {
+      "automated": 4,
+      "manual": 6,
+      "description": "Rice cultivation - medium priority"
+    },
+    "zone_4": {
+      "automated": 1,
+      "manual": 5,
+      "description": "Not active in current season"
+    },
+    "zone_5": {
+      "automated": 3,
+      "manual": 8,
+      "description": "Sugarcane - continuous flow"
+    },
+    "zone_6": {
+      "automated": 2,
+      "manual": 4,
+      "description": "Mixed crops"
+    }
+  },
+  "operational_rules": {
+    "automated_gates": {
+      "control_mode": "SCADA via OPC UA",
+      "fallback": "Manual operation if SCADA fails",
+      "update_frequency": "Real-time (1-minute intervals)",
+      "emergency_override": "Physical disconnect available"
+    },
+    "manual_gates": {
+      "operation_days": ["Tuesday", "Thursday"],
+      "team_assignment": "Based on geographic clustering",
+      "reporting": "Mobile app with photo verification",
+      "tools_required": ["standard_wheel", "large_wheel", "lever_type"]
+    }
+  }
+}

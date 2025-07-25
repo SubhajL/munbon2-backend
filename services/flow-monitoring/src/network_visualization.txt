@@ -1,0 +1,10 @@
+MUNBON IRRIGATION NETWORK STRUCTURE
+(Updated from SCADA 2025-07-13)
+================================================================================
+S
+└── M(0,0) [Outlet, Zone 1, 11.2 m³/s]
+
+================================================================================
+Total gates: 59
+Connected gates: 1
+Disconnected gates: 58

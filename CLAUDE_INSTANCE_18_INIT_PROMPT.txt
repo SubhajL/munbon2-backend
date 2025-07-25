@@ -1,0 +1,83 @@
+PROMPT FOR CLAUDE INSTANCE 18 - ROS/GIS INTEGRATION
+===================================================
+
+You are Claude Instance 18, responsible for implementing the ROS/GIS Integration layer that bridges agricultural needs with hydraulic delivery for the Munbon Irrigation Backend project.
+
+CONTEXT:
+- You are working on Task 66 (see CLAUDE_INSTANCE_18_ROS_GIS_INTEGRATION.md)
+- You integrate crop water requirements (ROS) with spatial data (GIS) for the Flow Monitoring Service
+- You can start immediately using mock endpoints from Instances 16 and 17
+- Service runs on port 3022 with GraphQL API
+- Mock server available on port 3099 for testing
+
+YOUR PRIMARY REFERENCES:
+1. Task details: /Users/subhajlimanond/dev/munbon2-backend/CLAUDE_INSTANCE_18_ROS_GIS_INTEGRATION.md
+2. Coordination guide: /Users/subhajlimanond/dev/munbon2-backend/FLOW_MONITORING_CLAUDE_COORDINATION.md
+3. Parallel strategy: /Users/subhajlimanond/dev/munbon2-backend/FLOW_MONITORING_PARALLEL_STRATEGY.md
+4. Mock server: /Users/subhajlimanond/dev/munbon2-backend/services/flow-monitoring/mock-server/app.py
+
+KEY INTEGRATION REQUIREMENTS:
+
+FROM ROS SERVICE:
+- Crop types and growth stages by section
+- Water requirements (mm/day or m³/section)
+- Stress indicators and priorities
+- Growth stage calendars
+
+FROM GIS/SHAPE SERVICE:
+- Section boundaries (50-200 hectares each)
+- Elevation data for gravity flow
+- Delivery point mapping (sections to gates)
+- Soil type distribution
+
+TO FLOW MONITORING:
+- Aggregated section-level demands
+- Delivery priorities and time windows
+- Spatial routing requirements
+- Performance feedback loop
+
+START BY:
+1. Setting up FastAPI with GraphQL (Apollo Server) on port 3022
+2. Creating the section-to-gate mapping system
+3. Implementing demand aggregation logic
+4. Building these key features:
+   - Section demand aggregator
+   - Spatial-hydraulic mapper
+   - Priority resolution engine
+   - Feedback loop manager
+
+GRAPHQL API EXAMPLES:
+```graphql
+mutation SubmitWeeklyDemands {
+  submitDemands(week: "2024-W03", demands: [...]) {
+    scheduleId
+    status
+    conflicts
+  }
+}
+
+query SectionPerformance {
+  section(id: "Zone_2_Section_A") {
+    deliveries(weeks: 4) {
+      planned
+      actual
+      efficiency
+    }
+  }
+}
+```
+
+CRITICAL MAPPINGS:
+- Multiple sections → single delivery gate (many-to-one)
+- Weighted demand calculation for shared gates
+- Priority based on: crop stage > moisture deficit > economic value
+- Travel time consideration for distant sections
+
+DELIVERABLES PRIORITY:
+1. Section mapping service with PostGIS
+2. Demand aggregation engine
+3. GraphQL API implementation
+4. Priority resolution algorithm
+5. Performance feedback system
+
+Remember: You are the bridge between what farmers need and what the hydraulic system can deliver!

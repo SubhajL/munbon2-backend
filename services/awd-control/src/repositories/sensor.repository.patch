@@ -1,0 +1,78 @@
+--- sensor.repository.ts	original
++++ sensor.repository.ts	updated
+@@ -1,6 +1,7 @@
+ import { Pool } from 'pg';
+ import { logger } from '../utils/logger';
+ import { getPostgresPool, getTimescalePool } from '../config/database';
++import { schemaHelper } from '../utils/schema-helper';
+ import {
+   SensorData,
+   WaterLevelHistory,
+@@ -32,7 +33,7 @@ export class SensorRepository {
+   async getSensorsByFieldId(fieldId: string): Promise<SensorData[]> {
+     try {
+       const sensorQuery = `
+-        SELECT * FROM awd_sensors
++        SELECT * FROM ${schemaHelper.getTableName('awd_sensors')}
+         WHERE field_id = $1 AND status = 'active'
+         ORDER BY created_at DESC
+       `;
+@@ -178,8 +179,8 @@ export class SensorRepository {
+   async getLatestGISMeasurement(fieldId: string): Promise<any> {
+     try {
+       const query = `
+-        SELECT * 
+-        FROM gis.water_level_measurements
++        SELECT *
++        FROM ${schemaHelper.getTableName('gis.water_level_measurements')}
+         WHERE field_id = $1
+         ORDER BY measurement_date DESC
+         LIMIT 1
+@@ -214,7 +215,7 @@ export class SensorRepository {
+       const sensorQuery = `
+         SELECT 
+           COUNT(*) as total_sensors
+-        FROM awd_sensors
++        FROM ${schemaHelper.getTableName('awd_sensors')}
+         WHERE field_id = $1 AND status = 'active'
+       `;
+       
+@@ -236,7 +237,7 @@ export class SensorRepository {
+           drying_day_count,
+           target_water_level,
+           created_at
+-        FROM awd_field_cycles
++        FROM ${schemaHelper.getTableName('awd_field_cycles')}
+         WHERE field_id = $1 AND cycle_status = 'active'
+         ORDER BY created_at DESC
+         LIMIT 1
+@@ -278,7 +279,7 @@ export class SensorRepository {
+   async getSensorInfo(sensorId: string): Promise<any> {
+     try {
+       const query = `
+-        SELECT s.*, f.field_name, f.field_code 
+-        FROM awd_sensors s
++        SELECT s.*, f.field_name, f.field_code
++        FROM ${schemaHelper.getTableName('awd_sensors')} s
+         JOIN awd_fields f ON s.field_id = f.id
+         WHERE s.sensor_id = $1
+       `;
+@@ -367,8 +368,8 @@ export class SensorRepository {
+         c.emergency_threshold_cm,
+         c.growth_stage,
+         c.irrigation_duration_minutes
+-      FROM awd_configurations c
+-      JOIN awd_fields f ON c.field_id = f.id
++      FROM ${schemaHelper.getTableName('awd_configurations')} c
++      JOIN ${schemaHelper.getTableName('awd_fields')} f ON c.field_id = f.id
+       WHERE f.field_code = $1 AND c.active = true
+     `;
+ 
+@@ -546,7 +547,7 @@ export class SensorRepository {
+       fa.variety,
+       fa.area_hectares,
+       fa.geometry
+-    FROM gis.field_attributes fa
++    FROM ${schemaHelper.getTableName('gis.field_attributes')} fa
+     WHERE fa.field_id = $1
+   `;

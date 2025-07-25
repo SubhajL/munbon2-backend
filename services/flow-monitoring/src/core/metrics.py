@@ -84,6 +84,37 @@ db_operation_duration_seconds = Histogram(
     ['operation', 'database']
 )
 
+# Gate control metrics
+gate_operations_counter = Counter(
+    'flow_monitoring_gate_operations_total',
+    'Total gate operations',
+    ['gate_id', 'operation', 'mode']
+)
+
+gate_mode_gauge = Gauge(
+    'flow_monitoring_gate_mode',
+    'Current gate mode (1=automated, 0=manual)',
+    ['gate_id']
+)
+
+gate_opening_gauge = Gauge(
+    'flow_monitoring_gate_opening_percentage',
+    'Current gate opening percentage',
+    ['gate_id']
+)
+
+# Hydraulic solver metrics
+hydraulic_solver_iterations = Histogram(
+    'flow_monitoring_hydraulic_solver_iterations',
+    'Number of iterations for hydraulic solver convergence',
+    buckets=(5, 10, 20, 50, 100, 200, 500)
+)
+
+hydraulic_verification_duration = Histogram(
+    'flow_monitoring_hydraulic_verification_duration_seconds',
+    'Time taken to verify hydraulic schedules'
+)
+
 
 def setup_metrics():
     """Initialize service metrics"""

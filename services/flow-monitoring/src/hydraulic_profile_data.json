@@ -1,0 +1,608 @@
+{
+  "scenarios": {
+    "Normal Operation": {
+      "node_levels": {
+        "Source": {
+          "water_level": 221.0,
+          "water_depth": 0.0,
+          "canal_bottom": 221.0
+        },
+        "M(0,0)": {
+          "water_level": 218.89223512460939,
+          "water_depth": 0.8922351246093854,
+          "canal_bottom": 218.0
+        },
+        "M(0,1)": {
+          "water_level": 218.8322824796555,
+          "water_depth": 0.9322824796554983,
+          "canal_bottom": 217.9
+        },
+        "M(0,2)": {
+          "water_level": 218.7922351246094,
+          "water_depth": 0.8922351246093854,
+          "canal_bottom": 217.9
+        },
+        "M(0,3)": {
+          "water_level": 218.58439928876925,
+          "water_depth": 0.7843992887692366,
+          "canal_bottom": 217.8
+        },
+        "M(0,4)": {
+          "water_level": 217.53329895769036,
+          "water_depth": 1.5332989576903628,
+          "canal_bottom": 216.0
+        },
+        "M(0,5)": {
+          "water_level": 217.0696957698381,
+          "water_depth": 0.06969576983809134,
+          "canal_bottom": 217.0
+        },
+        "M(0,6)": {
+          "water_level": 216.54920786948503,
+          "water_depth": 1.5492078694850306,
+          "canal_bottom": 215.0
+        },
+        "M(0,7)": {
+          "water_level": 215.5082320687789,
+          "water_depth": 1.0082320687789093,
+          "canal_bottom": 214.5
+        },
+        "M(0,8)": {
+          "water_level": 214.70750128789663,
+          "water_depth": 0.7075012878966334,
+          "canal_bottom": 214.0
+        },
+        "M(0,9)": {
+          "water_level": 214.24407834846102,
+          "water_depth": 0.7440783484610165,
+          "canal_bottom": 213.5
+        },
+        "M(0,10)": {
+          "water_level": 213.94380430563015,
+          "water_depth": 0.9438043056301524,
+          "canal_bottom": 213.0
+        },
+        "M(0,11)": {
+          "water_level": 213.5434777383973,
+          "water_depth": 1.0434777383973142,
+          "canal_bottom": 212.5
+        },
+        "M(0,12)": {
+          "water_level": 213.18527310426413,
+          "water_depth": -1.8147268957358733,
+          "canal_bottom": 215.0
+        },
+        "M(0,13)": {
+          "water_level": 212.98587252459666,
+          "water_depth": 1.4858725245966582,
+          "canal_bottom": 211.5
+        },
+        "M(0,14)": {
+          "water_level": 211.55264201221502,
+          "water_depth": -2.947357987784983,
+          "canal_bottom": 214.5
+        },
+        "M(0,0; 1,0)": {
+          "water_level": 218.7922351246094,
+          "water_depth": 1.792235124609391,
+          "canal_bottom": 217.0
+        },
+        "M (0,1; 1,0)": {
+          "water_level": 218.7322824796555,
+          "water_depth": 2.2322824796555096,
+          "canal_bottom": 216.5
+        },
+        "M (0,1; 1,1)": {
+          "water_level": 218.7322824796555,
+          "water_depth": 2.2322824796555096,
+          "canal_bottom": 216.5
+        },
+        "M (0,1; 1,2)": {
+          "water_level": 218.7322824796555,
+          "water_depth": 2.2322824796555096,
+          "canal_bottom": 216.5
+        },
+        "M (0,1; 1,3)": {
+          "water_level": 218.7322824796555,
+          "water_depth": 2.2322824796555096,
+          "canal_bottom": 216.5
+        },
+        "M (0,1; 1,4)": {
+          "water_level": 218.7322824796555,
+          "water_depth": 2.2322824796555096,
+          "canal_bottom": 216.5
+        },
+        "M(0,1; 1,0; 1,0)": {
+          "water_level": 218.63228247965552,
+          "water_depth": 2.6322824796555153,
+          "canal_bottom": 216.0
+        },
+        "M(0,1; 1,1; 1,0)": {
+          "water_level": 218.63228247965552,
+          "water_depth": 2.6322824796555153,
+          "canal_bottom": 216.0
+        },
+        "M(0,1; 1,1; 1,1)": {
+          "water_level": 218.63228247965552,
+          "water_depth": 2.6322824796555153,
+          "canal_bottom": 216.0
+        },
+        "M(0,1; 1,1; 1,2)": {
+          "water_level": 218.63228247965552,
+          "water_depth": 2.6322824796555153,
+          "canal_bottom": 216.0
+        },
+        "M(0,1; 1,1; 1,3)": {
+          "water_level": 218.63228247965552,
+          "water_depth": 2.6322824796555153,
+          "canal_bottom": 216.0
+        },
+        "M(0,1; 1,1; 1,4)": {
+          "water_level": 218.63228247965552,
+          "water_depth": 2.6322824796555153,
+          "canal_bottom": 216.0
+        },
+        "M(0,1; 1,1; 1,2; 1,0)": {
+          "water_level": 218.53228247965552,
+          "water_depth": 3.032282479655521,
+          "canal_bottom": 215.5
+        },
+        "M (0,3; 1,0)": {
+          "water_level": 218.48439928876925,
+          "water_depth": 2.4843992887692536,
+          "canal_bottom": 216.0
+        },
+        "M (0,3; 1,1)": {
+          "water_level": 218.48439928876925,
+          "water_depth": 2.4843992887692536,
+          "canal_bottom": 216.0
+        },
+        "M (0,3; 1,2)": {
+          "water_level": 218.48439928876925,
+          "water_depth": 2.4843992887692536,
+          "canal_bottom": 216.0
+        },
+        "M (0,3; 1,3)": {
+          "water_level": 218.48439928876925,
+          "water_depth": 2.4843992887692536,
+          "canal_bottom": 216.0
+        },
+        "M (0,3; 1,1; 1,0)": {
+          "water_level": 218.38439928876926,
+          "water_depth": 2.8843992887692593,
+          "canal_bottom": 215.5
+        },
+        "M (0,3; 1,1; 1,1)": {
+          "water_level": 218.38439928876926,
+          "water_depth": 2.8843992887692593,
+          "canal_bottom": 215.5
+        },
+        "M (0,3; 1,1; 2,0)": {
+          "water_level": 218.38439928876926,
+          "water_depth": 2.8843992887692593,
+          "canal_bottom": 215.5
+        },
+        "M (0,3; 1,1; 2,1)": {
+          "water_level": 218.38439928876926,
+          "water_depth": 2.8843992887692593,
+          "canal_bottom": 215.5
+        },
+        "M (0,12; 1,0)": {
+          "water_level": 213.08527310426413,
+          "water_depth": 1.5852731042641324,
+          "canal_bottom": 211.5
+        },
+        "M (0,12; 1,1)": {
+          "water_level": 213.08527310426413,
+          "water_depth": 1.5852731042641324,
+          "canal_bottom": 211.5
+        },
+        "M (0,12; 1,2)": {
+          "water_level": 213.08527310426413,
+          "water_depth": 1.5852731042641324,
+          "canal_bottom": 211.5
+        },
+        "M (0,12; 1,3)": {
+          "water_level": 213.08527310426413,
+          "water_depth": 1.5852731042641324,
+          "canal_bottom": 211.5
+        },
+        "M (0,12; 1,4)": {
+          "water_level": 213.08527310426413,
+          "water_depth": 1.5852731042641324,
+          "canal_bottom": 211.5
+        },
+        "M (0,12; 1,5)": {
+          "water_level": 213.08527310426413,
+          "water_depth": 1.5852731042641324,
+          "canal_bottom": 211.5
+        },
+        "M (0,12; 1,0; 1,0)": {
+          "water_level": 212.98527310426414,
+          "water_depth": 1.985273104264138,
+          "canal_bottom": 211.0
+        },
+        "M (0,12; 1,0; 1,1)": {
+          "water_level": 212.98527310426414,
+          "water_depth": 1.985273104264138,
+          "canal_bottom": 211.0
+        },
+        "M (0,12; 1,1; 1,0)": {
+          "water_level": 212.98527310426414,
+          "water_depth": 1.985273104264138,
+          "canal_bottom": 211.0
+        },
+        "M (0,12; 1,1; 1,1)": {
+          "water_level": 212.98527310426414,
+          "water_depth": 1.985273104264138,
+          "canal_bottom": 211.0
+        },
+        "M (0,12; 1,1; 1,2)": {
+          "water_level": 212.98527310426414,
+          "water_depth": 1.985273104264138,
+          "canal_bottom": 211.0
+        },
+        "M (0,12; 1,1; 1,0; 1,0)": {
+          "water_level": 212.88527310426414,
+          "water_depth": 2.3852731042641437,
+          "canal_bottom": 210.5
+        },
+        "M (0,12; 1,1; 1,0; 1,1)": {
+          "water_level": 212.88527310426414,
+          "water_depth": 2.3852731042641437,
+          "canal_bottom": 210.5
+        },
+        "M (0,12; 1,1; 1,0; 1,2)": {
+          "water_level": 212.88527310426414,
+          "water_depth": 2.3852731042641437,
+          "canal_bottom": 210.5
+        },
+        "M (0,12; 1,2; 1,0)": {
+          "water_level": 212.98527310426414,
+          "water_depth": 1.985273104264138,
+          "canal_bottom": 211.0
+        },
+        "M (0,12; 1,2; 1,1)": {
+          "water_level": 212.98527310426414,
+          "water_depth": 1.985273104264138,
+          "canal_bottom": 211.0
+        },
+        "M (0,12; 1,2; 1,2)": {
+          "water_level": 212.98527310426414,
+          "water_depth": 1.985273104264138,
+          "canal_bottom": 211.0
+        },
+        "M (0,12; 1,2; 1,0; 1,0)": {
+          "water_level": 212.88527310426414,
+          "water_depth": 2.3852731042641437,
+          "canal_bottom": 210.5
+        },
+        "M (0,12; 1,2; 1,0; 1,1)": {
+          "water_level": 212.88527310426414,
+          "water_depth": 2.3852731042641437,
+          "canal_bottom": 210.5
+        },
+        "M (0,12; 1,3; 1,0)": {
+          "water_level": 212.98527310426414,
+          "water_depth": 1.985273104264138,
+          "canal_bottom": 211.0
+        },
+        "M (0,12; 1,3; 1,1)": {
+          "water_level": 212.98527310426414,
+          "water_depth": 1.985273104264138,
+          "canal_bottom": 211.0
+        },
+        "M (0,12; 1,4; 1,0)": {
+          "water_level": 212.98527310426414,
+          "water_depth": 1.985273104264138,
+          "canal_bottom": 211.0
+        },
+        "M (0,12; 1,4; 1,1)": {
+          "water_level": 212.98527310426414,
+          "water_depth": 1.985273104264138,
+          "canal_bottom": 211.0
+        }
+      },
+      "operations": [
+        {
+          "gate": "Source->M(0,0)",
+          "opening": 0.8,
+          "flow_rate": 0,
+          "velocity": 0,
+          "regime": "closed",
+          "head_diff": 0
+        },
+        {
+          "gate": "M(0,0)->M(0,1)",
+          "opening": 0.4,
+          "flow_rate": 0.7184325026040874,
+          "velocity": 0.7184325026040874,
+          "regime": "submerged_flow",
+          "head_diff": 0.09999999999999432
+        },
+        {
+          "gate": "M(0,0)->M(0,2)",
+          "opening": 0.6,
+          "flow_rate": 1.077648753906131,
+          "velocity": 0.7184325026040873,
+          "regime": "submerged_flow",
+          "head_diff": 0.09999999999999432
+        },
+        {
+          "gate": "M(0,2)->M(0,3)",
+          "opening": 0.5,
+          "flow_rate": 0.8980406282551093,
+          "velocity": 0.7184325026040874,
+          "regime": "submerged_flow",
+          "head_diff": 0.09999999999999432
+        },
+        {
+          "gate": "M(0,3)->M(0,4)",
+          "opening": 0.5,
+          "flow_rate": 2.0602464977673183,
+          "velocity": 1.6481971982138546,
+          "regime": "free_flow",
+          "head_diff": 1.8000000000000114
+        },
+        {
+          "gate": "M(0,4)->M(0,5)",
+          "opening": 0.5,
+          "flow_rate": 0.0,
+          "velocity": 0.0,
+          "regime": "submerged_flow",
+          "head_diff": -1.0
+        },
+        {
+          "gate": "M(0,3)->M (0,3; 1,0)",
+          "opening": 0.3,
+          "flow_rate": 1.2361478986603909,
+          "velocity": 1.6481971982138546,
+          "regime": "free_flow",
+          "head_diff": 1.8000000000000114
+        },
+        {
+          "gate": "M(0,1)->M (0,1; 1,0)",
+          "opening": 0.3,
+          "flow_rate": 0.7416887391962346,
+          "velocity": 1.6481971982138548,
+          "regime": "free_flow",
+          "head_diff": 1.4000000000000057
+        }
+      ],
+      "reach_hydraulics": [
+        {
+          "reach": "M(0,0)->M(0,1)",
+          "flow": 0.7184325026040874,
+          "velocity": 0.415711074236914,
+          "head_loss": 0.05995264495388142,
+          "travel_time_min": 12.027584324468819,
+          "froude": 0.18967456314054149
+        },
+        {
+          "reach": "M(0,2)->M(0,3)",
+          "flow": 0.8980406282551093,
+          "velocity": 0.44851713799199916,
+          "head_loss": 0.2078358358401431,
+          "travel_time_min": 38.64586626708238,
+          "froude": 0.19024750573906096
+        },
+        {
+          "reach": "M(0,3)->M(0,4)",
+          "flow": 2.0602464977673183,
+          "velocity": 0.5943971012977056,
+          "head_loss": 1.0511003310788851,
+          "travel_time_min": 147.48838188354244,
+          "froude": 0.17853927583919338
+        }
+      ]
+    }
+  },
+  "profiles": {
+    "LMC Main": {
+      "distance": [
+        0,
+        1000,
+        2000,
+        3040,
+        4040,
+        5040
+      ],
+      "canal_bottom": [
+        221.0,
+        218.0,
+        217.9,
+        217.8,
+        217.0,
+        215.0
+      ],
+      "water_surface": [
+        221.0,
+        218.89223512460939,
+        218.7922351246094,
+        218.58439928876925,
+        217.0696957698381,
+        213.18527310426413
+      ],
+      "energy_grade": [
+        221.05096839959225,
+        218.94320352420164,
+        218.84320352420164,
+        218.6353676883615,
+        217.12066416943034,
+        213.23624150385638
+      ],
+      "nodes": [
+        "Source",
+        "M(0,0)",
+        "M(0,2)",
+        "M(0,3)",
+        "M(0,5)",
+        "M(0,12)"
+      ]
+    },
+    "RMC Branch": {
+      "distance": [
+        0,
+        1000,
+        1300,
+        2300,
+        3300
+      ],
+      "canal_bottom": [
+        221.0,
+        218.0,
+        217.9,
+        216.5,
+        216.0
+      ],
+      "water_surface": [
+        221.0,
+        218.89223512460939,
+        218.8322824796555,
+        218.7322824796555,
+        218.63228247965552
+      ],
+      "energy_grade": [
+        221.05096839959225,
+        218.94320352420164,
+        218.88325087924775,
+        218.78325087924776,
+        218.68325087924777
+      ],
+      "nodes": [
+        "Source",
+        "M(0,0)",
+        "M(0,1)",
+        "M (0,1; 1,0)",
+        "M(0,1; 1,0; 1,0)"
+      ]
+    },
+    "9R-LMC": {
+      "distance": [
+        0,
+        1000,
+        2040,
+        3040,
+        4040
+      ],
+      "canal_bottom": [
+        218.0,
+        217.9,
+        217.8,
+        216.0,
+        216.0
+      ],
+      "water_surface": [
+        218.89223512460939,
+        218.7922351246094,
+        218.58439928876925,
+        218.48439928876925,
+        218.48439928876925
+      ],
+      "energy_grade": [
+        218.94320352420164,
+        218.84320352420164,
+        218.6353676883615,
+        218.5353676883615,
+        218.5353676883615
+      ],
+      "nodes": [
+        "M(0,0)",
+        "M(0,2)",
+        "M(0,3)",
+        "M (0,3; 1,0)",
+        "M (0,3; 1,1)"
+      ]
+    }
+  },
+  "gate_effects": [
+    {
+      "gate": "Source->M(0,0)",
+      "upstream_node": "Source",
+      "downstream_node": "M(0,0)",
+      "upstream_level": 221.0,
+      "downstream_level": 218.89223512460939,
+      "head_drop": 0,
+      "flow_rate": 0,
+      "velocity": 0,
+      "regime": "closed"
+    },
+    {
+      "gate": "M(0,0)->M(0,1)",
+      "upstream_node": "M(0,0)",
+      "downstream_node": "M(0,1)",
+      "upstream_level": 218.89223512460939,
+      "downstream_level": 218.8322824796555,
+      "head_drop": 0.09999999999999432,
+      "flow_rate": 0.7184325026040874,
+      "velocity": 0.7184325026040874,
+      "regime": "submerged_flow"
+    },
+    {
+      "gate": "M(0,0)->M(0,2)",
+      "upstream_node": "M(0,0)",
+      "downstream_node": "M(0,2)",
+      "upstream_level": 218.89223512460939,
+      "downstream_level": 218.7922351246094,
+      "head_drop": 0.09999999999999432,
+      "flow_rate": 1.077648753906131,
+      "velocity": 0.7184325026040873,
+      "regime": "submerged_flow"
+    },
+    {
+      "gate": "M(0,2)->M(0,3)",
+      "upstream_node": "M(0,2)",
+      "downstream_node": "M(0,3)",
+      "upstream_level": 218.7922351246094,
+      "downstream_level": 218.58439928876925,
+      "head_drop": 0.09999999999999432,
+      "flow_rate": 0.8980406282551093,
+      "velocity": 0.7184325026040874,
+      "regime": "submerged_flow"
+    },
+    {
+      "gate": "M(0,3)->M(0,4)",
+      "upstream_node": "M(0,3)",
+      "downstream_node": "M(0,4)",
+      "upstream_level": 218.58439928876925,
+      "downstream_level": 217.53329895769036,
+      "head_drop": 1.8000000000000114,
+      "flow_rate": 2.0602464977673183,
+      "velocity": 1.6481971982138546,
+      "regime": "free_flow"
+    },
+    {
+      "gate": "M(0,4)->M(0,5)",
+      "upstream_node": "M(0,4)",
+      "downstream_node": "M(0,5)",
+      "upstream_level": 217.53329895769036,
+      "downstream_level": 217.0696957698381,
+      "head_drop": -1.0,
+      "flow_rate": 0.0,
+      "velocity": 0.0,
+      "regime": "submerged_flow"
+    },
+    {
+      "gate": "M(0,3)->M (0,3; 1,0)",
+      "upstream_node": "M(0,3)",
+      "downstream_node": "M (0,3; 1,0)",
+      "upstream_level": 218.58439928876925,
+      "downstream_level": 218.48439928876925,
+      "head_drop": 1.8000000000000114,
+      "flow_rate": 1.2361478986603909,
+      "velocity": 1.6481971982138546,
+      "regime": "free_flow"
+    },
+    {
+      "gate": "M(0,1)->M (0,1; 1,0)",
+      "upstream_node": "M(0,1)",
+      "downstream_node": "M (0,1; 1,0)",
+      "upstream_level": 218.8322824796555,
+      "downstream_level": 218.7322824796555,
+      "head_drop": 1.4000000000000057,
+      "flow_rate": 0.7416887391962346,
+      "velocity": 1.6481971982138548,
+      "regime": "free_flow"
+    }
+  ]
+}

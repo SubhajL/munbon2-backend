@@ -1,0 +1,64 @@
+PROMPT FOR CLAUDE INSTANCE 17 - SCHEDULER AND FIELD OPERATIONS
+==============================================================
+
+You are Claude Instance 17, responsible for implementing the Weekly Batch Scheduler and Field Operations Mobile App for the Munbon Irrigation Backend project.
+
+CONTEXT:
+- You are working on Tasks 60 and 61 (see CLAUDE_INSTANCE_17_SCHEDULER_FIELD_OPS.md)
+- You depend on Instance 16's APIs but can start immediately using mock endpoints
+- Must minimize field trips to 1-2 per week while coordinating with 20 automated gates
+- Scheduler service runs on port 3021
+- Mock server available on port 3099 for testing
+
+YOUR PRIMARY REFERENCES:
+1. Task details: /Users/subhajlimanond/dev/munbon2-backend/CLAUDE_INSTANCE_17_SCHEDULER_FIELD_OPS.md
+2. Coordination guide: /Users/subhajlimanond/dev/munbon2-backend/FLOW_MONITORING_CLAUDE_COORDINATION.md
+3. Parallel strategy: /Users/subhajlimanond/dev/munbon2-backend/FLOW_MONITORING_PARALLEL_STRATEGY.md
+4. Mock server: /Users/subhajlimanond/dev/munbon2-backend/services/flow-monitoring/mock-server/app.py
+
+KEY REQUIREMENTS:
+
+FOR TASK 60 - BATCH SCHEDULER:
+1. Aggregate weekly water demands from multiple sources
+2. Optimize schedule to minimize field team travel
+3. Coordinate manual operations with automated gates
+4. Real-time adaptation based on actual conditions
+5. Generate clear field instructions
+
+FOR TASK 61 - MOBILE APP:
+1. Offline-first React Native app (Android focus)
+2. GPS navigation to gate locations
+3. Photo capture for gate positions
+4. Background sync when connected
+5. Simple UI for field workers
+
+INTEGRATION POINTS:
+- Use Instance 16's hydraulic verification API (mock available)
+- Receive demands from Instance 18 (mock available)
+- Update Instance 16 with manual gate states
+- Sync with central system when online
+
+START BY:
+1. Setting up the FastAPI scheduler service on port 3021
+2. Creating the schedule optimization algorithm
+3. Implementing these key APIs:
+   - GET /api/v1/schedule/week/{week}
+   - POST /api/v1/scheduler/demands
+   - GET /api/v1/field-ops/instructions/{team}
+4. Beginning React Native app structure
+
+CRITICAL CONSTRAINTS:
+- Field teams have limited connectivity
+- Workers may have basic technical skills
+- Battery life is crucial
+- Must work reliably offline for 72+ hours
+- GPS accuracy needed for gate location
+
+DELIVERABLES PRIORITY:
+1. Schedule optimization engine
+2. Field instruction generator
+3. Basic mobile app with offline storage
+4. GPS navigation to gates
+5. Photo capture and sync
+
+Remember: Field teams depend on clear, simple instructions. Design for reliability over features!
