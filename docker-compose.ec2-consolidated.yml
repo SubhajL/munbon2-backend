@@ -56,16 +56,16 @@ services:
     container_name: munbon-sensor-data
     environment:
       <<: *common-variables
-      PORT: 3001
+      PORT: 3003
       TIMESCALE_DB: sensor_data
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:5432/sensor_data
     ports:
-      - "3001:3001"
+      - "3003:3003"
     depends_on:
       - redis
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3001/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3003/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -79,7 +79,7 @@ services:
     command: ["npm", "run", "consumer:prod"]
     environment:
       <<: *common-variables
-      CONSUMER_PORT: 3002
+      CONSUMER_PORT: 3004
       TIMESCALE_HOST: ${POSTGRES_HOST}
       TIMESCALE_PORT: 5432
       TIMESCALE_DB: sensor_data
@@ -90,7 +90,7 @@ services:
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       SQS_QUEUE_URL: ${SQS_QUEUE_URL}
     ports:
-      - "3002:3002"
+      - "3004:3004"
     depends_on:
       - redis
     restart: unless-stopped
@@ -103,15 +103,15 @@ services:
     container_name: munbon-auth
     environment:
       <<: *common-variables
-      PORT: 3002
+      PORT: 3001
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:5432/munbon_dev?schema=auth
     ports:
-      - "3002:3002"
+      - "3001:3001"
     depends_on:
       - redis
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3002/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3001/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -124,10 +124,10 @@ services:
     container_name: munbon-moisture-monitoring
     environment:
       <<: *common-variables
-      PORT: 3003
+      PORT: 3005
       TIMESCALE_DATABASE: sensor_data
     ports:
-      - "3003:3003"
+      - "3005:3005"
     depends_on:
       - redis
     restart: unless-stopped
@@ -140,10 +140,10 @@ services:
     container_name: munbon-weather-monitoring
     environment:
       <<: *common-variables
-      PORT: 3004
+      PORT: 3006
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:5432/sensor_data
     ports:
-      - "3004:3004"
+      - "3006:3006"
     depends_on:
       - redis
     restart: unless-stopped
@@ -156,10 +156,10 @@ services:
     container_name: munbon-water-level-monitoring
     environment:
       <<: *common-variables
-      PORT: 3005
+      PORT: 3008
       TIMESCALE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:5432/sensor_data
     ports:
-      - "3005:3005"
+      - "3008:3008"
     depends_on:
       - redis
     restart: unless-stopped
@@ -172,16 +172,16 @@ services:
     container_name: munbon-gis
     environment:
       <<: *common-variables
-      PORT: 3006
+      PORT: 3007
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:5432/munbon_dev?schema=gis
       GIS_SCHEMA: gis
     ports:
-      - "3006:3006"
+      - "3007:3007"
     depends_on:
       - redis
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3006/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3007/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -194,7 +194,7 @@ services:
     container_name: munbon-ros
     environment:
       <<: *common-variables
-      PORT: 3012
+      PORT: 3047
       DB_HOST: ${POSTGRES_HOST}
       DB_PORT: 5432
       DB_NAME: munbon_dev
@@ -202,7 +202,7 @@ services:
       DB_USER: ${POSTGRES_USER}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
-      - "3012:3012"
+      - "3047:3047"
     depends_on:
       - redis
     restart: unless-stopped
