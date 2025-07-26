@@ -1,0 +1,72 @@
+name: Debug Build Context
+
+on:
+  workflow_dispatch:
+
+jobs:
+  debug-services:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Debug file structure
+        run: |
+          echo "=== Current directory ==="
+          pwd
+          
+          echo -e "\n=== Git status ==="
+          git status
+          
+          echo -e "\n=== Flow monitoring files ==="
+          ls -la services/flow-monitoring/
+          
+          echo -e "\n=== Check if requirements.txt exists ==="
+          if [ -f "services/flow-monitoring/requirements.txt" ]; then
+            echo "requirements.txt exists"
+            echo "First 10 lines:"
+            head -10 services/flow-monitoring/requirements.txt
+          else
+            echo "requirements.txt NOT FOUND"
+          fi
+          
+          echo -e "\n=== Check Python services ==="
+          for service in flow-monitoring gravity-optimizer water-accounting sensor-network-management; do
+            echo -e "\n--- $service ---"
+            if [ -d "services/$service" ]; then
+              ls -la services/$service/ | grep -E "requirements|Dockerfile|main" || echo "No matching files"
+            else
+              echo "Directory not found"
+            fi
+          done
+
+      - name: Test Docker build locally
+        run: |
+          echo -e "\n=== Testing Docker build for flow-monitoring ==="
+          cd services/flow-monitoring
+          docker build -t test-flow-monitoring .
+
+  test-ec2-alternatives:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check EC2 Details
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          echo "=== EC2 Connection Info ==="
+          echo "EC2_HOST is set: $(if [ -n "$EC2_HOST" ]; then echo "Yes"; else echo "No"; fi)"
+          echo "EC2_USER is set: $(if [ -n "$EC2_USER" ]; then echo "Yes"; else echo "No"; fi)"
+          echo "EC2_USER value: $EC2_USER"
+          
+          # Try different connection methods
+          echo -e "\n=== Testing DNS resolution ==="
+          nslookup $EC2_HOST || echo "DNS lookup failed"
+          
+          echo -e "\n=== Testing network connectivity ==="
+          ping -c 3 $EC2_HOST || echo "Ping failed (this is normal if ICMP is blocked)"
+          
+          echo -e "\n=== Testing SSH port ==="
+          nc -zv -w 5 $EC2_HOST 22 || echo "Port 22 appears to be closed or filtered"
