@@ -1,0 +1,171 @@
+name: Deploy Docker Images to EC2
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  DOCKER_HUB_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
+  REGISTRY: docker.io
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        if: env.DOCKER_HUB_USERNAME != ''
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_PASSWORD }}
+
+      - name: Build and push images
+        run: |
+          # Build all services
+          docker-compose -f docker-compose.ec2-consolidated.yml build
+          
+          # If Docker Hub credentials are provided, push images
+          if [ ! -z "$DOCKER_HUB_USERNAME" ]; then
+            # Tag and push each service
+            services=(sensor-data auth moisture-monitoring weather-monitoring water-level-monitoring gis ros rid-ms awd-control flow-monitoring)
+            for service in "${services[@]}"; do
+              docker tag munbon-$service:latest $DOCKER_HUB_USERNAME/munbon-$service:latest
+              docker push $DOCKER_HUB_USERNAME/munbon-$service:latest
+            done
+          fi
+
+  deploy-to-ec2:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to EC2
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          # Create SSH key file
+          echo "$EC2_SSH_KEY" > deploy_key
+          chmod 600 deploy_key
+          
+          # Create docker-compose file for EC2 (images only)
+          cat > docker-compose-ec2-prod.yml << 'EOF'
+          version: '3.8'
+          
+          services:
+            postgres:
+              image: postgres:15-alpine
+              container_name: munbon-postgres
+              environment:
+                POSTGRES_USER: postgres
+                POSTGRES_PASSWORD: P@ssw0rd123!
+                POSTGRES_DB: munbon_dev
+              volumes:
+                - postgres-data:/var/lib/postgresql/data
+              ports:
+                - "5432:5432"
+              restart: unless-stopped
+          
+            redis:
+              image: redis:7-alpine
+              container_name: munbon-redis
+              ports:
+                - "6379:6379"
+              restart: unless-stopped
+          
+            sensor-data:
+              image: ${DOCKER_HUB_USERNAME:-munbon}/munbon-sensor-data:latest
+              container_name: munbon-sensor-data
+              environment:
+                NODE_ENV: production
+                PORT: 3003
+                POSTGRES_HOST: postgres
+                POSTGRES_PORT: 5432
+                POSTGRES_USER: postgres
+                POSTGRES_PASSWORD: P@ssw0rd123!
+                TIMESCALE_DB: sensor_data
+                REDIS_URL: redis://redis:6379
+                JWT_SECRET: ${JWT_SECRET}
+              ports:
+                - "3003:3003"
+              depends_on:
+                - postgres
+                - redis
+              restart: unless-stopped
+          
+            sensor-data-consumer:
+              image: ${DOCKER_HUB_USERNAME:-munbon}/munbon-sensor-data:latest
+              container_name: munbon-sensor-data-consumer
+              command: ["npm", "run", "consumer:prod"]
+              environment:
+                NODE_ENV: production
+                CONSUMER_PORT: 3004
+                TIMESCALE_HOST: postgres
+                TIMESCALE_PORT: 5432
+                TIMESCALE_DB: sensor_data
+                TIMESCALE_USER: postgres
+                TIMESCALE_PASSWORD: P@ssw0rd123!
+                AWS_REGION: ap-southeast-1
+                AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+                AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+                SQS_QUEUE_URL: ${SQS_QUEUE_URL}
+                REDIS_URL: redis://redis:6379
+                JWT_SECRET: ${JWT_SECRET}
+              ports:
+                - "3004:3004"
+              depends_on:
+                - postgres
+                - redis
+              restart: unless-stopped
+          
+          volumes:
+            postgres-data:
+          
+          networks:
+            default:
+              name: munbon-network
+          EOF
+          
+          # Create .env file for EC2
+          cat > .env << 'EOF'
+          AWS_ACCESS_KEY_ID=AKIARSUGAPRU5GWX5G6I
+          AWS_SECRET_ACCESS_KEY=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
+          SQS_QUEUE_URL=https://sqs.ap-southeast-1.amazonaws.com/108728974441/munbon-sensor-ingestion-dev-queue
+          JWT_SECRET=fZtyKjPf2vdCfqZrHYAioaVKSYzmwlMt
+          DOCKER_HUB_USERNAME=${{ secrets.DOCKER_HUB_USERNAME }}
+          EOF
+          
+          # Copy files to EC2
+          scp -o StrictHostKeyChecking=no -i deploy_key docker-compose-ec2-prod.yml $EC2_USER@$EC2_HOST:~/
+          scp -o StrictHostKeyChecking=no -i deploy_key .env $EC2_USER@$EC2_HOST:~/
+          
+          # Deploy on EC2
+          ssh -o StrictHostKeyChecking=no -i deploy_key $EC2_USER@$EC2_HOST << 'ENDSSH'
+          # Stop existing containers
+          docker-compose -f docker-compose-ec2-prod.yml down || true
+          
+          # Pull latest images (if using Docker Hub)
+          if [ ! -z "$DOCKER_HUB_USERNAME" ]; then
+            docker-compose -f docker-compose-ec2-prod.yml pull
+          fi
+          
+          # Start services
+          docker-compose -f docker-compose-ec2-prod.yml up -d
+          
+          # Wait for services
+          sleep 30
+          
+          # Check status
+          docker-compose -f docker-compose-ec2-prod.yml ps
+          ENDSSH
+          
+          # Cleanup
+          rm deploy_key docker-compose-ec2-prod.yml .env
