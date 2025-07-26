@@ -17,15 +17,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Debug - List services
-        run: |
-          echo "Current directory:"
-          pwd
-          echo "Services directory:"
-          ls -la services/
-          echo "Gravity optimizer directory:"
-          ls -la services/gravity-optimizer/ || echo "Directory not found"
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
