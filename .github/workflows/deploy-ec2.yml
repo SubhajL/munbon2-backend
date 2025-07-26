@@ -1,4 +1,4 @@
-name: Deploy to EC2 with Docker
+name: Build and Deploy to EC2
 
 on:
   push:
@@ -8,9 +8,178 @@ on:
 
 env:
   AWS_REGION: ap-southeast-1
+  DOCKER_BUILDKIT: 1
 
 jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Debug - List services
+        run: |
+          echo "Current directory:"
+          pwd
+          echo "Services directory:"
+          ls -la services/
+          echo "Gravity optimizer directory:"
+          ls -la services/gravity-optimizer/ || echo "Directory not found"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push sensor-data
+        uses: docker/build-push-action@v5
+        with:
+          context: ./services/sensor-data
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/munbon-sensor-data:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/munbon-sensor-data:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push auth
+        uses: docker/build-push-action@v5
+        with:
+          context: ./services/auth
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/munbon-auth:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/munbon-auth:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push moisture-monitoring
+        uses: docker/build-push-action@v5
+        with:
+          context: ./services/moisture-monitoring
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/munbon-moisture-monitoring:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/munbon-moisture-monitoring:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push weather-monitoring
+        uses: docker/build-push-action@v5
+        with:
+          context: ./services/weather-monitoring
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/munbon-weather-monitoring:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/munbon-weather-monitoring:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push water-level-monitoring
+        uses: docker/build-push-action@v5
+        with:
+          context: ./services/water-level-monitoring
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/munbon-water-level-monitoring:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/munbon-water-level-monitoring:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push gis
+        uses: docker/build-push-action@v5
+        with:
+          context: ./services/gis
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/munbon-gis:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/munbon-gis:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push rid-ms
+        uses: docker/build-push-action@v5
+        with:
+          context: ./services/rid-ms
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/munbon-rid-ms:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/munbon-rid-ms:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push ros
+        uses: docker/build-push-action@v5
+        with:
+          context: ./services/ros
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/munbon-ros:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/munbon-ros:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push awd-control
+        uses: docker/build-push-action@v5
+        with:
+          context: ./services/awd-control
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/munbon-awd-control:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/munbon-awd-control:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push flow-monitoring
+        uses: docker/build-push-action@v5
+        with:
+          context: ./services/flow-monitoring
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/munbon-flow-monitoring:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/munbon-flow-monitoring:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push gravity-optimizer
+        uses: docker/build-push-action@v5
+        with:
+          context: ./services/gravity-optimizer
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/munbon-gravity-optimizer:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/munbon-gravity-optimizer:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push water-accounting
+        uses: docker/build-push-action@v5
+        with:
+          context: ./services/water-accounting
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/munbon-water-accounting:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/munbon-water-accounting:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push sensor-network-management
+        uses: docker/build-push-action@v5
+        with:
+          context: ./services/sensor-network-management
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/munbon-sensor-network-management:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/munbon-sensor-network-management:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
   deploy:
+    needs: build-and-push
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -21,6 +190,7 @@ jobs:
           EC2_HOST: ${{ secrets.EC2_HOST }}
           EC2_USER: ${{ secrets.EC2_USER }}
           EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
           # Create SSH key file
           echo "$EC2_SSH_KEY" > deploy_key
@@ -34,6 +204,7 @@ jobs:
           # Colors
           GREEN='\033[0;32m'
           BLUE='\033[0;34m'
+          YELLOW='\033[1;33m'
           NC='\033[0m'
           
           echo -e "${BLUE}Starting Docker deployment to EC2...${NC}"
@@ -48,6 +219,8 @@ jobs:
           # Pull latest code
           if [ -d ".git" ]; then
             echo -e "${BLUE}Pulling latest changes...${NC}"
+            git fetch --all
+            git reset --hard origin/main
             git pull origin main
           else
             echo -e "${BLUE}Cloning repository...${NC}"
@@ -64,7 +237,7 @@ jobs:
           fi
           
           # Check if Docker Compose is installed
-          if ! command -v docker-compose &> /dev/null; then
+          if ! command -v docker compose &> /dev/null; then
             echo -e "${BLUE}Installing Docker Compose V2...${NC}"
             sudo apt-get update
             sudo apt-get install -y docker-compose-plugin
@@ -80,19 +253,28 @@ jobs:
           # Create .env.ec2 if not exists
           if [ ! -f ".env.ec2" ]; then
             echo -e "${BLUE}Creating .env.ec2 file...${NC}"
-            cp .env.ec2.example .env.ec2
+            if [ -f ".env.ec2.example" ]; then
+              cp .env.ec2.example .env.ec2
+            else
+              echo "Warning: .env.ec2.example not found"
+            fi
           fi
+          
+          # Update docker-compose.ec2.yml with Docker Hub username
+          echo -e "${BLUE}Updating docker-compose with Docker Hub images...${NC}"
+          export DOCKERHUB_USERNAME="${DOCKERHUB_USERNAME}"
           
           # Stop existing Docker containers
           echo -e "${BLUE}Stopping existing Docker containers...${NC}"
           sudo docker compose -f docker-compose.ec2.yml down || true
           
-          # Build and start all services
-          echo -e "${BLUE}Building Docker images...${NC}"
-          sudo docker compose -f docker-compose.ec2.yml build
+          # Pull latest images from Docker Hub
+          echo -e "${BLUE}Pulling latest Docker images from Docker Hub...${NC}"
+          sudo DOCKERHUB_USERNAME="${DOCKERHUB_USERNAME}" docker compose -f docker-compose.ec2.yml pull
           
+          # Start all services
           echo -e "${BLUE}Starting all services...${NC}"
-          sudo docker compose -f docker-compose.ec2.yml up -d
+          sudo DOCKERHUB_USERNAME="${DOCKERHUB_USERNAME}" docker compose -f docker-compose.ec2.yml up -d
           
           # Wait for services to be ready
           echo -e "${BLUE}Waiting for services to be ready...${NC}"
@@ -129,21 +311,24 @@ jobs:
           
           echo -e "${GREEN}Docker deployment completed successfully!${NC}"
           echo -e "${BLUE}Service URLs:${NC}"
-          echo "- http://$EC2_HOST:3001 (Sensor Data)"
-          echo "- http://$EC2_HOST:3002 (Auth)"
-          echo "- http://$EC2_HOST:3003 (Moisture Monitoring)"
-          echo "- http://$EC2_HOST:3004 (Weather Monitoring)"
-          echo "- http://$EC2_HOST:3005 (Water Level Monitoring)"
-          echo "- http://$EC2_HOST:3006 (GIS)"
-          echo "- http://$EC2_HOST:3011 (RID-MS)"
-          echo "- http://$EC2_HOST:3012 (ROS)"
-          echo "- http://$EC2_HOST:3013 (AWD Control)"
-          echo "- http://$EC2_HOST:3014 (Flow Monitoring)"
+          echo "- http://${EC2_HOST}:3001 (Sensor Data)"
+          echo "- http://${EC2_HOST}:3002 (Auth)"
+          echo "- http://${EC2_HOST}:3003 (Moisture Monitoring)"
+          echo "- http://${EC2_HOST}:3004 (Weather Monitoring)"
+          echo "- http://${EC2_HOST}:3005 (Water Level Monitoring)"
+          echo "- http://${EC2_HOST}:3006 (GIS)"
+          echo "- http://${EC2_HOST}:3011 (RID-MS)"
+          echo "- http://${EC2_HOST}:3012 (ROS)"
+          echo "- http://${EC2_HOST}:3013 (AWD Control)"
+          echo "- http://${EC2_HOST}:3014 (Flow Monitoring)"
           EOF
           
-          # Copy and execute deployment script
+          # Make deployment script executable and copy it
+          chmod +x deploy.sh
           scp -o StrictHostKeyChecking=no -i deploy_key deploy.sh $EC2_USER@$EC2_HOST:~/
-          ssh -o StrictHostKeyChecking=no -i deploy_key $EC2_USER@$EC2_HOST 'bash ~/deploy.sh'
+          
+          # Execute deployment with Docker Hub username
+          ssh -o StrictHostKeyChecking=no -i deploy_key $EC2_USER@$EC2_HOST "DOCKERHUB_USERNAME='$DOCKERHUB_USERNAME' bash ~/deploy.sh"
           
           # Cleanup
           rm deploy_key deploy.sh

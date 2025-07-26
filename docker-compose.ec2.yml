@@ -1,6 +1,7 @@
 # Docker Compose for EC2 Production Deployment
 # This file is designed to run all services in Docker containers on EC2
 # Uses AWS RDS instead of local databases
+# Images are pulled from Docker Hub instead of building locally
 
 version: '3.8'
 
@@ -68,9 +69,7 @@ services:
   # =================
 
   sensor-data:
-    build:
-      context: ./services/sensor-data
-      dockerfile: Dockerfile
+    image: ${DOCKERHUB_USERNAME}/munbon-sensor-data:latest
     container_name: munbon-sensor-data
     environment:
       <<: *common-variables
@@ -91,9 +90,7 @@ services:
     <<: *resource-limits
 
   auth:
-    build:
-      context: ./services/auth
-      dockerfile: Dockerfile
+    image: ${DOCKERHUB_USERNAME}/munbon-auth:latest
     container_name: munbon-auth
     environment:
       <<: *common-variables
@@ -113,9 +110,7 @@ services:
     <<: *resource-limits
 
   moisture-monitoring:
-    build:
-      context: ./services/moisture-monitoring
-      dockerfile: Dockerfile
+    image: ${DOCKERHUB_USERNAME}/munbon-moisture-monitoring:latest
     container_name: munbon-moisture-monitoring
     environment:
       <<: *common-variables
@@ -131,9 +126,7 @@ services:
     <<: *resource-limits
 
   weather-monitoring:
-    build:
-      context: ./services/weather-monitoring
-      dockerfile: Dockerfile
+    image: ${DOCKERHUB_USERNAME}/munbon-weather-monitoring:latest
     container_name: munbon-weather-monitoring
     environment:
       <<: *common-variables
@@ -149,9 +142,7 @@ services:
     <<: *resource-limits
 
   water-level-monitoring:
-    build:
-      context: ./services/water-level-monitoring
-      dockerfile: Dockerfile
+    image: ${DOCKERHUB_USERNAME}/munbon-water-level-monitoring:latest
     container_name: munbon-water-level-monitoring
     environment:
       <<: *common-variables
@@ -166,9 +157,7 @@ services:
     <<: *resource-limits
 
   gis:
-    build:
-      context: ./services/gis
-      dockerfile: Dockerfile
+    image: ${DOCKERHUB_USERNAME}/munbon-gis:latest
     container_name: munbon-gis
     environment:
       <<: *common-variables
@@ -188,9 +177,7 @@ services:
     <<: *resource-limits
 
   ros:
-    build:
-      context: ./services/ros
-      dockerfile: Dockerfile
+    image: ${DOCKERHUB_USERNAME}/munbon-ros:latest
     container_name: munbon-ros
     environment:
       <<: *common-variables
@@ -209,9 +196,7 @@ services:
     <<: *resource-limits
 
   rid-ms:
-    build:
-      context: ./services/rid-ms
-      dockerfile: Dockerfile
+    image: ${DOCKERHUB_USERNAME}/munbon-rid-ms:latest
     container_name: munbon-rid-ms
     environment:
       <<: *common-variables
@@ -226,9 +211,7 @@ services:
     <<: *resource-limits
 
   awd-control:
-    build:
-      context: ./services/awd-control
-      dockerfile: Dockerfile
+    image: ${DOCKERHUB_USERNAME}/munbon-awd-control:latest
     container_name: munbon-awd-control
     environment:
       <<: *common-variables
@@ -244,9 +227,7 @@ services:
     <<: *resource-limits
 
   flow-monitoring:
-    build:
-      context: ./services/flow-monitoring
-      dockerfile: Dockerfile
+    image: ${DOCKERHUB_USERNAME}/munbon-flow-monitoring:latest
     container_name: munbon-flow-monitoring
     environment:
       PORT: 3014
