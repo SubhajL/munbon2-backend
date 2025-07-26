@@ -1,0 +1,100 @@
+name: Build with Shared Dependencies
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+env:
+  DOCKER_BUILDKIT: 1
+
+jobs:
+  build-services:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - auth
+          - gis
+          - sensor-data
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Prepare build context
+        run: |
+          # Create a build directory with all necessary files
+          mkdir -p build-context/service
+          mkdir -p build-context/shared/nodejs
+          
+          # Copy service files
+          cp -r services/${{ matrix.service }}/* build-context/service/
+          
+          # Copy shared dependencies if they exist
+          if [ -d "shared/nodejs" ]; then
+            cp -r shared/nodejs/* build-context/shared/nodejs/
+          fi
+          
+          # Update package.json to use relative path from build context
+          if grep -q "@munbon/shared" build-context/service/package.json; then
+            sed -i 's|"@munbon/shared": "file:../../shared/nodejs"|"@munbon/shared": "file:../shared/nodejs"|g' build-context/service/package.json
+          fi
+
+      - name: Build and push ${{ matrix.service }}
+        uses: docker/build-push-action@v5
+        with:
+          context: ./build-context/service
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/munbon-${{ matrix.service }}:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/munbon-${{ matrix.service }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: build-services
+    runs-on: ubuntu-latest
+    if: success()
+    steps:
+      - name: Deploy to EC2
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          # Test if EC2 is accessible first
+          echo "$EC2_SSH_KEY" > deploy_key
+          chmod 600 deploy_key
+          
+          if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i deploy_key $EC2_USER@$EC2_HOST "echo 'EC2 is accessible'"; then
+            echo "Deploying to EC2..."
+            ssh -o StrictHostKeyChecking=no -i deploy_key $EC2_USER@$EC2_HOST << 'ENDSSH'
+            cd ~/munbon2-backend || exit 1
+            git pull origin main
+            export DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}
+            sudo docker compose -f docker-compose.ec2.yml pull auth gis sensor-data postgres redis
+            sudo docker compose -f docker-compose.ec2.yml up -d auth gis sensor-data postgres redis
+            sudo docker ps
+            ENDSSH
+          else
+            echo "EC2 is not accessible. Skipping deployment."
+            echo "Please check:"
+            echo "1. EC2 instance is running"
+            echo "2. Security group allows SSH"
+            echo "3. EC2_HOST and credentials are correct"
+          fi
+          
+          rm -f deploy_key
