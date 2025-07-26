@@ -1,0 +1,37 @@
+name: Test EC2 Connection
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-connection:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test EC2 SSH Connection
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          # Create SSH key file
+          echo "$EC2_SSH_KEY" > deploy_key
+          chmod 600 deploy_key
+          
+          # Test connection
+          echo "Testing connection to EC2..."
+          echo "Host: $EC2_HOST"
+          echo "User: $EC2_USER"
+          
+          # Try simple SSH command
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i deploy_key $EC2_USER@$EC2_HOST "echo 'Connection successful!' && hostname && pwd" || {
+            echo "Connection failed!"
+            echo "Possible issues:"
+            echo "1. EC2 instance is not running"
+            echo "2. Security group doesn't allow SSH (port 22)"
+            echo "3. SSH key is incorrect"
+            echo "4. EC2_HOST is incorrect"
+            exit 1
+          }
+          
+          # Cleanup
+          rm deploy_key
