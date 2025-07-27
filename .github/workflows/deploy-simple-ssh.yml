@@ -1,0 +1,79 @@
+name: Deploy Simple SSH
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy using SSH action
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: 43.209.12.182
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -e
+            echo "=== Deployment starting ==="
+            
+            # Create directory
+            mkdir -p /home/ubuntu/munbon2-backend
+            cd /home/ubuntu/munbon2-backend
+            
+            # Create docker-compose.yml
+            cat > docker-compose.yml << 'EOF'
+            version: '3.8'
+            services:
+              postgres:
+                image: postgres:14
+                environment:
+                  POSTGRES_PASSWORD: postgres123
+                  POSTGRES_DB: munbon_db
+                volumes:
+                  - postgres_data:/var/lib/postgresql/data
+                ports:
+                  - "5432:5432"
+              sensor-data:
+                image: subhaj888/munbon-sensor-data:latest
+                ports:
+                  - "3001:3001"
+                environment:
+                  NODE_ENV: production
+                  DATABASE_URL: postgresql://postgres:postgres123@postgres:5432/munbon_db
+                depends_on:
+                  - postgres
+              auth:
+                image: subhaj888/munbon-auth:latest
+                ports:
+                  - "3002:3000"
+                environment:
+                  NODE_ENV: production
+                  DATABASE_URL: postgresql://postgres:postgres123@postgres:5432/munbon_db
+                  JWT_SECRET: your-secret-key-here
+                depends_on:
+                  - postgres
+              gis:
+                image: subhaj888/munbon-gis:latest
+                ports:
+                  - "3003:3000"
+                environment:
+                  NODE_ENV: production
+                  DATABASE_URL: postgresql://postgres:postgres123@postgres:5432/munbon_db
+                depends_on:
+                  - postgres
+            volumes:
+              postgres_data:
+            EOF
+            
+            # Deploy
+            docker pull subhaj888/munbon-sensor-data:latest
+            docker pull subhaj888/munbon-auth:latest
+            docker pull subhaj888/munbon-gis:latest
+            docker-compose down || true
+            docker-compose up -d
+            
+            # Status
+            sleep 5
+            docker ps
+            echo "=== Deployment complete ==="
