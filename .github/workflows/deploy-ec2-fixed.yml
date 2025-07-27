@@ -111,7 +111,7 @@ services:
 
 volumes:
   postgres_data:
-EOF
+          EOF
           
           # Pull latest images
           echo "Pulling images..."
