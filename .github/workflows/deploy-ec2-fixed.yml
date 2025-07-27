@@ -34,7 +34,12 @@ jobs:
           
           # Setup SSH with proper permissions
           mkdir -p ~/.ssh
-          echo "$EC2_SSH_KEY" > ~/.ssh/deploy_key
+          # Try to decode if base64, otherwise use as-is
+          if echo "$EC2_SSH_KEY" | base64 -d > ~/.ssh/deploy_key 2>/dev/null; then
+            echo "Decoded base64 SSH key"
+          else
+            echo "$EC2_SSH_KEY" > ~/.ssh/deploy_key
+          fi
           chmod 600 ~/.ssh/deploy_key
           
           # Add host key with IP address directly (bypass DNS)
