@@ -1,0 +1,113 @@
+name: Deploy with Proper Decode
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup and decode SSH key properly
+        env:
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          # Create SSH directory
+          mkdir -p ~/.ssh
+          
+          # Check if key is base64 by looking for PEM header
+          if echo "$EC2_SSH_KEY" | grep -q "BEGIN RSA PRIVATE KEY"; then
+            echo "Key is already in PEM format"
+            echo "$EC2_SSH_KEY" > ~/.ssh/deploy_key
+          else
+            echo "Key appears to be base64 encoded, decoding..."
+            # Use printf and base64 decode properly
+            printf '%s' "$EC2_SSH_KEY" | base64 --decode > ~/.ssh/deploy_key
+            
+            # Verify the decode worked
+            if head -1 ~/.ssh/deploy_key | grep -q "BEGIN RSA PRIVATE KEY"; then
+              echo "✅ Successfully decoded base64 to PEM format"
+            else
+              echo "❌ Failed to decode - key might be corrupted"
+              echo "First line after decode: $(head -1 ~/.ssh/deploy_key)"
+              exit 1
+            fi
+          fi
+          
+          # Set permissions
+          chmod 600 ~/.ssh/deploy_key
+          
+          # Show key info
+          echo "Key size: $(wc -c < ~/.ssh/deploy_key) bytes"
+          echo "First line: $(head -1 ~/.ssh/deploy_key)"
+          echo "Last line: $(tail -1 ~/.ssh/deploy_key)"
+          
+      - name: Test SSH connection
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/deploy_key ubuntu@43.209.12.182 "echo 'Connected successfully!'"
+          
+      - name: Deploy to EC2
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/deploy_key ubuntu@43.209.12.182 << 'DEPLOY'
+          set -e
+          echo "=== Starting deployment ==="
+          
+          mkdir -p /home/ubuntu/munbon2-backend
+          cd /home/ubuntu/munbon2-backend
+          
+          # Write docker-compose.yml
+          cat > docker-compose.yml << 'EOF'
+          version: '3.8'
+          services:
+            postgres:
+              image: postgres:14
+              environment:
+                POSTGRES_PASSWORD: postgres123
+                POSTGRES_DB: munbon_db
+              volumes:
+                - postgres_data:/var/lib/postgresql/data
+              ports:
+                - "5432:5432"
+            sensor-data:
+              image: subhaj888/munbon-sensor-data:latest
+              ports:
+                - "3001:3001"
+              environment:
+                NODE_ENV: production
+                DATABASE_URL: postgresql://postgres:postgres123@postgres:5432/munbon_db
+              depends_on:
+                - postgres
+            auth:
+              image: subhaj888/munbon-auth:latest
+              ports:
+                - "3002:3000"
+              environment:
+                NODE_ENV: production
+                DATABASE_URL: postgresql://postgres:postgres123@postgres:5432/munbon_db
+                JWT_SECRET: your-secret-key-here
+              depends_on:
+                - postgres
+            gis:
+              image: subhaj888/munbon-gis:latest
+              ports:
+                - "3003:3000"
+              environment:
+                NODE_ENV: production
+                DATABASE_URL: postgresql://postgres:postgres123@postgres:5432/munbon_db
+              depends_on:
+                - postgres
+          volumes:
+            postgres_data:
+          EOF
+          
+          # Pull and deploy
+          docker pull subhaj888/munbon-sensor-data:latest
+          docker pull subhaj888/munbon-auth:latest
+          docker pull subhaj888/munbon-gis:latest
+          
+          docker-compose down || true
+          docker-compose up -d
+          
+          sleep 5
+          docker ps
+          echo "=== Deployment complete ==="
+          DEPLOY
