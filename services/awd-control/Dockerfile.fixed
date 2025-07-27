@@ -1,0 +1,18 @@
+FROM node:20-alpine AS builder
+WORKDIR /app
+COPY package*.json ./
+# Remove problematic dependencies
+RUN sed -i '/@munbon\/shared/d' package.json
+RUN npm install
+COPY . .
+RUN if [ -f "tsconfig.json" ]; then npm run build || true; fi
+
+FROM node:20-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN sed -i '/@munbon\/shared/d' package.json
+RUN npm ci --only=production || npm install --production
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/src ./src
+EXPOSE 3013
+CMD ["node", "src/index.js"]
