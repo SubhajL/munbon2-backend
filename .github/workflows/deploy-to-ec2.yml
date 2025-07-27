@@ -29,7 +29,60 @@ jobs:
           set -e
           
           echo "=== Starting deployment ==="
+          
+          # Create directory if it doesn't exist
+          mkdir -p /home/ubuntu/munbon2-backend
           cd /home/ubuntu/munbon2-backend
+          
+          # Create docker-compose.ec2.yml
+          cat > docker-compose.ec2.yml << 'EOF'
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:14
+    environment:
+      POSTGRES_PASSWORD: postgres123
+      POSTGRES_DB: munbon_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  sensor-data:
+    image: subhaj888/munbon-sensor-data:latest
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://postgres:postgres123@postgres:5432/munbon_db
+    depends_on:
+      - postgres
+
+  auth:
+    image: subhaj888/munbon-auth:latest
+    ports:
+      - "3002:3000"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://postgres:postgres123@postgres:5432/munbon_db
+      JWT_SECRET: your-secret-key-here
+    depends_on:
+      - postgres
+
+  gis:
+    image: subhaj888/munbon-gis:latest
+    ports:
+      - "3003:3000"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://postgres:postgres123@postgres:5432/munbon_db
+    depends_on:
+      - postgres
+
+volumes:
+  postgres_data:
+EOF
           
           # Pull latest images from Docker Hub
           echo "Pulling latest images..."
@@ -37,20 +90,21 @@ jobs:
           docker pull subhaj888/munbon-auth:latest
           docker pull subhaj888/munbon-gis:latest
           
-          # Update docker-compose with Docker Hub images
-          export DOCKERHUB_USERNAME=subhaj888
-          
           # Stop existing services
           echo "Stopping existing services..."
           docker-compose -f docker-compose.ec2.yml down || true
           
           # Start services with new images
           echo "Starting services..."
-          docker-compose -f docker-compose.ec2.yml up -d sensor-data auth gis
+          docker-compose -f docker-compose.ec2.yml up -d
+          
+          # Wait for services to start
+          sleep 10
           
           # Show status
           echo "=== Deployment complete ==="
           docker-compose -f docker-compose.ec2.yml ps
+          docker ps
           DEPLOY_SCRIPT
 
           # Copy and execute deployment script
