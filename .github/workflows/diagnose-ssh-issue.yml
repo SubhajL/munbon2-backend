@@ -1,0 +1,69 @@
+name: Diagnose SSH Issue
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test SSH Key Format
+        env:
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          echo "=== Checking SSH Key Format ==="
+          echo "$EC2_SSH_KEY" > test_key
+          
+          # Check if key starts correctly
+          if head -1 test_key | grep -q "BEGIN"; then
+            echo "✅ Key starts with BEGIN line"
+          else
+            echo "❌ Key doesn't start with BEGIN line - might be incorrectly formatted"
+          fi
+          
+          # Check if key ends correctly
+          if tail -1 test_key | grep -q "END"; then
+            echo "✅ Key ends with END line"
+          else
+            echo "❌ Key doesn't end with END line - might be truncated"
+          fi
+          
+          # Check key permissions
+          chmod 600 test_key
+          
+          # Check key format
+          if ssh-keygen -l -f test_key &>/dev/null; then
+            echo "✅ SSH key format is valid"
+          else
+            echo "❌ SSH key format is invalid"
+          fi
+          
+          rm test_key
+
+      - name: Test Network Connectivity
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          echo "=== Testing Network to $EC2_HOST ==="
+          
+          # Test if we can reach the host
+          if ping -c 3 $EC2_HOST; then
+            echo "✅ Can ping EC2 host"
+          else
+            echo "⚠️  Cannot ping (might be normal if ICMP blocked)"
+          fi
+          
+          # Test SSH port specifically
+          if timeout 5 bash -c "</dev/tcp/$EC2_HOST/22"; then
+            echo "✅ Port 22 is open"
+          else
+            echo "❌ Port 22 is not reachable"
+          fi
+
+      - name: Get GitHub Actions IP
+        run: |
+          echo "=== GitHub Actions Runner IP ==="
+          curl -s https://api.ipify.org
+          echo ""
+          echo ""
+          echo "Make sure your EC2 security group allows SSH from this IP or use 0.0.0.0/0"
