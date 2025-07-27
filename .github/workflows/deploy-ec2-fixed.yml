@@ -1,0 +1,130 @@
+name: Deploy to EC2 (Fixed)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Debug secrets
+        run: |
+          echo "Checking if secrets are set..."
+          echo "EC2_HOST is: ${{ secrets.EC2_HOST != '' && 'SET' || 'NOT SET' }}"
+          echo "EC2_USER is: ${{ secrets.EC2_USER != '' && 'SET' || 'NOT SET' }}"
+          echo "EC2_SSH_KEY is: ${{ secrets.EC2_SSH_KEY != '' && 'SET' || 'NOT SET' }}"
+          
+      - name: Deploy to EC2
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          # Check if variables are set
+          if [ -z "$EC2_HOST" ] || [ -z "$EC2_USER" ] || [ -z "$EC2_SSH_KEY" ]; then
+            echo "ERROR: Missing required secrets!"
+            echo "EC2_HOST: ${EC2_HOST:-NOT SET}"
+            echo "EC2_USER: ${EC2_USER:-NOT SET}"
+            echo "EC2_SSH_KEY length: ${#EC2_SSH_KEY}"
+            exit 1
+          fi
+          
+          # Setup SSH with proper permissions
+          mkdir -p ~/.ssh
+          echo "$EC2_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          
+          # Add host key with IP address directly (bypass DNS)
+          ssh-keyscan -H 43.209.12.182 >> ~/.ssh/known_hosts 2>/dev/null || true
+          
+          # Test connection first
+          echo "Testing SSH connection..."
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/deploy_key ubuntu@43.209.12.182 "echo 'SSH connection successful'"
+          
+          # Deploy using direct IP
+          ssh -i ~/.ssh/deploy_key ubuntu@43.209.12.182 << 'DEPLOY'
+          set -e
+          
+          echo "=== Starting deployment ==="
+          
+          # Create directory
+          mkdir -p /home/ubuntu/munbon2-backend
+          cd /home/ubuntu/munbon2-backend
+          
+          # Create docker-compose.yml
+          cat > docker-compose.yml << 'EOF'
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:14
+    environment:
+      POSTGRES_PASSWORD: postgres123
+      POSTGRES_DB: munbon_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+
+  sensor-data:
+    image: subhaj888/munbon-sensor-data:latest
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://postgres:postgres123@postgres:5432/munbon_db
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  auth:
+    image: subhaj888/munbon-auth:latest
+    ports:
+      - "3002:3000"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://postgres:postgres123@postgres:5432/munbon_db
+      JWT_SECRET: your-secret-key-here
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  gis:
+    image: subhaj888/munbon-gis:latest
+    ports:
+      - "3003:3000"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://postgres:postgres123@postgres:5432/munbon_db
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+EOF
+          
+          # Pull latest images
+          echo "Pulling images..."
+          docker pull subhaj888/munbon-sensor-data:latest || echo "Failed to pull sensor-data"
+          docker pull subhaj888/munbon-auth:latest || echo "Failed to pull auth"
+          docker pull subhaj888/munbon-gis:latest || echo "Failed to pull gis"
+          
+          # Stop and start services
+          docker-compose down || true
+          docker-compose up -d
+          
+          # Show status
+          sleep 5
+          echo "=== Deployment Status ==="
+          docker ps
+          echo ""
+          echo "Services available at:"
+          echo "- Sensor: http://43.209.12.182:3001"
+          echo "- Auth: http://43.209.12.182:3002"
+          echo "- GIS: http://43.209.12.182:3003"
+          DEPLOY
