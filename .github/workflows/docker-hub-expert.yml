@@ -1,0 +1,134 @@
+name: Docker Hub Expert Build
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  test-one-service:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          version: latest
+          driver-opts: |
+            image=moby/buildkit:latest
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Debug - Check service structure
+        run: |
+          echo "=== Checking sensor-data service ==="
+          ls -la services/sensor-data/
+          echo ""
+          echo "=== package.json first 20 lines ==="
+          head -20 services/sensor-data/package.json
+          echo ""
+          echo "=== Checking for @munbon/shared ==="
+          grep "@munbon/shared" services/sensor-data/package.json || echo "No @munbon/shared found"
+
+      - name: Create simple Dockerfile for sensor-data
+        run: |
+          cat > services/sensor-data/Dockerfile.github << 'EOF'
+          FROM node:20-alpine
+          WORKDIR /app
+          COPY package*.json ./
+          RUN sed -i '/@munbon\/shared/d' package.json || true
+          RUN npm install --production --verbose || npm install --production --force
+          COPY . .
+          EXPOSE 3001
+          CMD ["node", "src/index.js"]
+          EOF
+
+      - name: Build sensor-data locally first
+        run: |
+          cd services/sensor-data
+          docker build -f Dockerfile.github -t test-build .
+          echo "✅ Local build successful"
+
+      - name: Push to Docker Hub using buildx
+        uses: docker/build-push-action@v5
+        with:
+          context: ./services/sensor-data
+          file: ./services/sensor-data/Dockerfile.github
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/munbon-sensor-data:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/munbon-sensor-data:test-${{ github.run_number }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+          sbom: false
+
+      - name: Verify image was pushed
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          echo "Waiting for image to be available..."
+          sleep 5
+          docker pull $DOCKERHUB_USERNAME/munbon-sensor-data:latest
+          echo "✅ Image successfully pushed and pulled!"
+
+  build-remaining-services:
+    needs: test-one-service
+    runs-on: ubuntu-latest
+    if: success()
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - auth
+          - gis
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Use existing fixed Dockerfile if available
+        run: |
+          if [ -f "services/${{ matrix.service }}/Dockerfile.fixed" ]; then
+            cp services/${{ matrix.service }}/Dockerfile.fixed services/${{ matrix.service }}/Dockerfile.github
+          else
+            # Create a simple one
+            cat > services/${{ matrix.service }}/Dockerfile.github << 'EOF'
+            FROM node:20-alpine
+            WORKDIR /app
+            COPY package*.json ./
+            RUN sed -i '/@munbon\/shared/d' package.json || true
+            RUN npm install --production || npm install --force --production
+            COPY . .
+            EXPOSE 3000
+            CMD ["node", "src/index.js"]
+            EOF
+          fi
+
+      - name: Build and push ${{ matrix.service }}
+        uses: docker/build-push-action@v5
+        with:
+          context: ./services/${{ matrix.service }}
+          file: ./services/${{ matrix.service }}/Dockerfile.github
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/munbon-${{ matrix.service }}:latest
+          provenance: false
+          sbom: false
