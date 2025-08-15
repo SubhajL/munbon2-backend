@@ -1,0 +1,291 @@
+import express from 'express';
+import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
+import pino from 'pino';
+import crypto from 'crypto';
+import * as fs from 'fs';
+
+// Advanced forensic logging HTTP server
+const app = express();
+app.use(express.json({ limit: '10mb' }));
+app.use(express.raw({ type: '*/*', limit: '10mb' }));
+
+// Initialize logger with detailed formatting
+const logger = pino({
+  level: 'trace',
+  transport: {
+    target: 'pino-pretty',
+    options: {
+      colorize: true,
+      translateTime: 'yyyy-mm-dd HH:MM:ss.l',
+      ignore: 'pid,hostname'
+    }
+  }
+});
+
+// Forensic log file
+const forensicLogPath = '/home/ubuntu/moisture-forensic.log';
+const forensicStream = fs.createWriteStream(forensicLogPath, { flags: 'a' });
+
+// Request counter
+let requestCounter = 0;
+const startTime = new Date();
+
+// Track source IPs
+const sourceIPs = new Map<string, { count: number; lastSeen: Date; userAgent: string }>();
+
+// SQS Configuration
+const sqsClient = new SQSClient({
+  region: process.env.AWS_REGION || 'ap-southeast-1'
+});
+
+const SQS_QUEUE_URL = process.env.SQS_QUEUE_URL || 'https://sqs.ap-southeast-1.amazonaws.com/108728974441/munbon-sensor-ingestion-dev-queue';
+
+// Middleware to capture ALL requests
+app.use((req, res, next) => {
+  const requestId = crypto.randomUUID();
+  const timestamp = new Date().toISOString();
+  requestCounter++;
+  
+  // Capture raw body
+  let rawBody = '';
+  req.on('data', chunk => {
+    rawBody += chunk.toString();
+  });
+  
+  // Get client info
+  const clientIP = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+  const userAgent = req.headers['user-agent'] || 'unknown';
+  
+  // Update source IP tracking
+  const ipInfo = sourceIPs.get(clientIP as string) || { count: 0, lastSeen: new Date(), userAgent };
+  ipInfo.count++;
+  ipInfo.lastSeen = new Date();
+  ipInfo.userAgent = userAgent;
+  sourceIPs.set(clientIP as string, ipInfo);
+  
+  // Forensic logging
+  const forensicEntry = {
+    requestId,
+    timestamp,
+    requestNumber: requestCounter,
+    method: req.method,
+    url: req.url,
+    headers: req.headers,
+    clientIP,
+    userAgent,
+    protocol: req.protocol,
+    hostname: req.hostname,
+    path: req.path,
+    query: req.query,
+    secure: req.secure,
+    xhr: req.xhr
+  };
+  
+  forensicStream.write(JSON.stringify(forensicEntry) + '\n');
+  
+  // Log to console
+  logger.info({
+    requestId,
+    requestNumber: requestCounter,
+    method: req.method,
+    url: req.url,
+    clientIP,
+    userAgent: userAgent.substring(0, 50)
+  }, '🔍 FORENSIC: Incoming request');
+  
+  // Attach to request for later use
+  (req as any).requestId = requestId;
+  (req as any).rawBody = rawBody;
+  
+  // Response interceptor
+  const originalSend = res.send;
+  res.send = function(data) {
+    res.send = originalSend;
+    
+    // Log response
+    const responseLog = {
+      requestId,
+      timestamp: new Date().toISOString(),
+      statusCode: res.statusCode,
+      responseSize: data ? data.length : 0
+    };
+    
+    forensicStream.write(JSON.stringify({ response: responseLog }) + '\n');
+    
+    return originalSend.call(this, data);
+  };
+  
+  next();
+});
+
+// Main moisture endpoint with detailed logging
+app.post('/api/sensor-data/moisture/munbon-m2m-moisture', async (req, res) => {
+  const requestId = (req as any).requestId;
+  const receiveTime = new Date();
+  
+  try {
+    const body = req.body;
+    
+    // Log complete request details
+    logger.info({
+      requestId,
+      bodySize: JSON.stringify(body).length,
+      hasGwId: !!body.gw_id,
+      gwId: body.gw_id,
+      hasSensorArray: Array.isArray(body.sensor),
+      sensorCount: body.sensor?.length || 0,
+      timestamp: receiveTime.toISOString()
+    }, '📊 Moisture data structure analysis');
+    
+    // Detailed validation logging
+    if (!body.gw_id) {
+      logger.warn({ requestId }, 'Missing gateway ID');
+      return res.status(400).json({ 
+        status: 'error', 
+        message: 'Missing gateway ID',
+        requestId 
+      });
+    }
+    
+    // Check for empty sensor array
+    if (!body.sensor || !Array.isArray(body.sensor) || body.sensor.length === 0) {
+      logger.info({ requestId, gwId: body.gw_id }, 'Empty sensor array - acknowledging without processing');
+      return res.status(200).json({ 
+        status: 'success', 
+        message: 'Data received (empty payload acknowledged)',
+        requestId 
+      });
+    }
+    
+    // Process sensor data
+    let validSensorCount = 0;
+    let emptySensorCount = 0;
+    
+    body.sensor.forEach((sensor: any, index: number) => {
+      if (!sensor.sensor_id || sensor.sensor_id === '') {
+        emptySensorCount++;
+        logger.debug({ requestId, sensorIndex: index }, 'Empty sensor entry');
+      } else {
+        validSensorCount++;
+        logger.debug({
+          requestId,
+          sensorIndex: index,
+          sensorId: sensor.sensor_id,
+          humidity: { surface: sensor.humid_hi, deep: sensor.humid_low },
+          timestamp: sensor.sensor_date + ' ' + sensor.sensor_utc
+        }, 'Valid sensor data');
+      }
+    });
+    
+    // Send to SQS if valid data exists
+    if (validSensorCount > 0) {
+      const sqsMessage = {
+        ...body,
+        sensorType: 'moisture',
+        sensorId: body.gw_id,
+        location: {
+          lat: parseFloat(body.gps_lat) || 0,
+          lng: parseFloat(body.gps_lng) || 0
+        },
+        timestamp: receiveTime.toISOString(),
+        metadata: {
+          receiveTime: receiveTime.toISOString(),
+          requestId,
+          sourceIP: req.headers['x-forwarded-for'] || req.socket.remoteAddress
+        }
+      };
+      
+      const command = new SendMessageCommand({
+        QueueUrl: SQS_QUEUE_URL,
+        MessageBody: JSON.stringify(sqsMessage)
+      });
+      
+      await sqsClient.send(command);
+      
+      logger.info({
+        requestId,
+        gwId: body.gw_id,
+        validSensors: validSensorCount,
+        emptySensors: emptySensorCount
+      }, '✅ Sent to SQS for processing');
+    }
+    
+    res.status(200).json({ 
+      status: 'success', 
+      message: 'Data received and processed',
+      requestId,
+      processed: {
+        validSensors: validSensorCount,
+        emptySensors: emptySensorCount
+      }
+    });
+    
+  } catch (error) {
+    logger.error({ error, requestId }, '❌ Failed to process moisture data');
+    res.status(500).json({ 
+      status: 'error', 
+      message: 'Internal server error',
+      requestId 
+    });
+  }
+});
+
+// Health check with statistics
+app.get('/health', (_req, res) => {
+  const uptime = Math.floor((new Date().getTime() - startTime.getTime()) / 1000);
+  const stats = {
+    status: 'healthy',
+    uptime: `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m ${uptime % 60}s`,
+    totalRequests: requestCounter,
+    uniqueIPs: sourceIPs.size,
+    requestsPerMinute: (requestCounter / (uptime / 60)).toFixed(2)
+  };
+  
+  logger.info(stats, 'Health check');
+  res.json(stats);
+});
+
+// IP statistics endpoint
+app.get('/stats/ips', (req, res) => {
+  const ipStats = Array.from(sourceIPs.entries())
+    .map(([ip, info]) => ({
+      ip,
+      count: info.count,
+      lastSeen: info.lastSeen,
+      userAgent: info.userAgent
+    }))
+    .sort((a, b) => b.count - a.count);
+    
+  res.json({
+    totalUniqueIPs: sourceIPs.size,
+    topIPs: ipStats.slice(0, 10),
+    requestId: (req as any).requestId
+  });
+});
+
+// 404 handler to catch any misrouted requests
+app.use((req, res) => {
+  const requestId = (req as any).requestId;
+  logger.warn({
+    requestId,
+    method: req.method,
+    url: req.url,
+    clientIP: req.headers['x-forwarded-for'] || req.socket.remoteAddress
+  }, '⚠️ 404 - Unknown endpoint accessed');
+  
+  res.status(404).json({
+    status: 'error',
+    message: 'Endpoint not found',
+    requestId,
+    attemptedUrl: req.url
+  });
+});
+
+// Start server
+const PORT = parseInt(process.env.HTTP_PORT || '8080');
+app.listen(PORT, '0.0.0.0', () => {
+  logger.info(`🔬 Forensic HTTP server listening on port ${PORT}`);
+  logger.info(`📁 Forensic logs: ${forensicLogPath}`);
+  logger.info(`📊 Stats endpoint: http://localhost:${PORT}/stats/ips`);
+  logger.info(`🏥 Health endpoint: http://localhost:${PORT}/health`);
+});

@@ -13,6 +13,7 @@ from config import settings
 from core import get_logger
 from db import DatabaseManager
 from api import schema
+from api.routes import admin
 from services.ros_sync_service import RosSyncService
 
 # Configure logging
@@ -73,6 +74,9 @@ graphql_app = GraphQLRouter(
 
 # Include GraphQL router
 app.include_router(graphql_app, prefix="")
+
+# Include admin routes
+app.include_router(admin.router, prefix="/api/v1")
 
 # Add Prometheus metrics endpoint
 metrics_app = make_asgi_app()

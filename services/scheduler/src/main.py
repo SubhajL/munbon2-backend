@@ -1,141 +1,120 @@
-"""
-Weekly Batch Scheduler Service
-Coordinates manual field operations with automated gates
-"""
-
-import asyncio
-import structlog
-from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from typing import Any, Dict
+from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
-from prometheus_client import make_asgi_app
+from fastapi.responses import JSONResponse
+from contextlib import asynccontextmanager
+import uvicorn
 
-from config import settings
-from api import router as api_router
-from core.logging import setup_logging
-from core.metrics import setup_metrics
-from db.connections import DatabaseManager
-from services.schedule_optimizer import ScheduleOptimizer
-from services.demand_aggregator import DemandAggregator
-from services.real_time_adapter import RealTimeAdapter
+from .core.config import settings
+from .core.database import init_db, close_db, engine
+from .core.redis import get_redis_client
+from .core.logger import setup_logging, get_logger
+from .api.v1.routes import api_router
+from .models import *  # Import all models to register them
+from .models.base import Base
 
-# Setup structured logging
-setup_logging(settings.log_level)
-logger = structlog.get_logger()
-
-# Global instances
-db_manager = DatabaseManager()
-schedule_optimizer = None
-demand_aggregator = None
-real_time_adapter = None
+# Setup logging
+setup_logging()
+logger = get_logger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan manager"""
-    global schedule_optimizer, demand_aggregator, real_time_adapter
-    
-    logger.info("Starting Scheduler Service", port=settings.port)
-    
+    """Handle application startup and shutdown"""
     # Startup
-    try:
-        # Initialize database connections
-        await db_manager.connect_all()
-        logger.info("Database connections established")
-        
-        # Initialize services
-        schedule_optimizer = ScheduleOptimizer(db_manager)
-        demand_aggregator = DemandAggregator(db_manager)
-        real_time_adapter = RealTimeAdapter(db_manager, settings.flow_monitoring_url)
-        
-        # Start background tasks
-        asyncio.create_task(real_time_adapter.start_monitoring())
-        logger.info("Real-time monitoring started")
-        
-        # Setup metrics
-        setup_metrics()
-        
-        yield
-        
-    finally:
-        # Shutdown
-        logger.info("Shutting down Scheduler Service")
-        
-        # Stop background tasks
-        await real_time_adapter.stop_monitoring()
-        
-        # Close database connections
-        await db_manager.disconnect_all()
-        
-        logger.info("Cleanup completed")
+    logger.info(f"Starting {settings.service_name} service on port {settings.service_port}")
+    
+    # Initialize database tables
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    logger.info("Database tables created/verified")
+    
+    # Connect to Redis
+    redis_client = await get_redis_client()
+    logger.info("Redis client initialized")
+    
+    yield
+    
+    # Shutdown
+    logger.info("Shutting down service")
+    logger.info("Service stopped")
 
 
-# Create FastAPI application
+# Create FastAPI app
 app = FastAPI(
-    title="Weekly Batch Scheduler Service",
-    description="Optimizes weekly irrigation schedules and generates field operation instructions",
-    version="1.0.0",
-    lifespan=lifespan
+    title=settings.app_name,
+    description="Weekly batch scheduler with real-time adaptation for Munbon Irrigation System",
+    version=settings.app_version,
+    docs_url="/docs",
+    redoc_url="/redoc",
+    lifespan=lifespan,
 )
 
-# Add CORS middleware
+# Add middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins_list,
+    allow_origins=settings.allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Include API routes
-app.include_router(api_router, prefix=settings.api_prefix)
-
-# Add Prometheus metrics endpoint
-metrics_app = make_asgi_app()
-app.mount("/metrics", metrics_app)
-
-
-@app.get("/health")
-async def health_check():
-    """Health check endpoint"""
-    health_status = await db_manager.check_health()
-    external_services = {
-        "flow_monitoring": await real_time_adapter.check_flow_monitoring_health() if real_time_adapter else False
-    }
-    
-    all_healthy = all(health_status.values()) and all(external_services.values())
-    
-    return {
-        "status": "healthy" if all_healthy else "unhealthy",
-        "service": settings.service_name,
-        "version": "1.0.0",
-        "databases": health_status,
-        "external_services": external_services
-    }
-
-
-@app.get("/")
+# Root endpoint
+@app.get("/", response_model=Dict[str, Any])
 async def root():
     """Root endpoint"""
     return {
-        "service": settings.service_name,
-        "version": "1.0.0",
-        "description": "Weekly Batch Scheduler Service for Munbon Irrigation System",
-        "endpoints": {
-            "schedule": "/api/v1/schedule/week/{week}",
-            "demands": "/api/v1/scheduler/demands",
-            "field_ops": "/api/v1/field-ops/instructions/{team}"
-        }
+        "service": settings.app_name,
+        "version": settings.app_version,
+        "status": "operational",
+        "docs": "/docs",
     }
+
+# Health check endpoint
+@app.get("/health", response_model=Dict[str, Any])
+async def health_check():
+    """Health check endpoint"""
+    return {
+        "status": "healthy",
+        "service": settings.app_name,
+        "version": settings.app_version,
+    }
+
+# Readiness check endpoint
+@app.get("/ready", response_model=Dict[str, Any])
+async def readiness_check():
+    """Readiness check endpoint"""
+    # Check database connection
+    try:
+        async with engine.connect() as conn:
+            await conn.execute("SELECT 1")
+        db_status = "connected"
+    except Exception as e:
+        logger.error(f"Database connection failed: {str(e)}")
+        db_status = "disconnected"
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={
+                "status": "not ready",
+                "database": db_status,
+                "error": str(e),
+            }
+        )
+    
+    return {
+        "status": "ready",
+        "database": db_status,
+    }
+
+# Include API routes
+app.include_router(api_router, prefix="/api/v1")
 
 
 if __name__ == "__main__":
-    import uvicorn
-    
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=settings.port,
+        port=settings.service_port,
         reload=settings.environment == "development",
-        log_level=settings.log_level.lower()
+        log_level=settings.log_level.lower(),
     )

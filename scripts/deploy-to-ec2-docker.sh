@@ -6,7 +6,7 @@ echo "=== Deploying Services to EC2 with Docker ==="
 echo ""
 
 # Configuration
-EC2_HOST="43.209.12.182"
+EC2_HOST="43.209.22.250"
 EC2_USER="ubuntu"  # Adjust if different
 PROJECT_DIR="/home/ubuntu/munbon2-backend"
 LOCAL_DIR="/Users/subhajlimanond/dev/munbon2-backend"
@@ -87,10 +87,10 @@ docker-compose logs -f
 ## 3. Verify Services
 
 Check that services are running:
-- Sensor Data API: http://43.209.12.182:3001/health
-- Consumer Dashboard: http://43.209.12.182:3002
-- Auth Service: http://43.209.12.182:3003/health
-- GIS Service: http://43.209.12.182:3004/health
+- Sensor Data API: http://43.209.22.250:3001/health
+- Consumer Dashboard: http://43.209.22.250:3002
+- Auth Service: http://43.209.22.250:3003/health
+- GIS Service: http://43.209.22.250:3004/health
 
 ## 4. Database Setup
 
@@ -198,5 +198,5 @@ echo "   - Use the script: $LOCAL_DIR/scripts/deploy-via-docker-commands.sh"
 echo "   - Copy and run the commands on your EC2 instance"
 echo ""
 echo "The services will be available at:"
-echo "- Sensor Data API: http://43.209.12.182:3001"
-echo "- Consumer Dashboard: http://43.209.12.182:3002"
+echo "- Sensor Data API: http://43.209.22.250:3001"
+echo "- Consumer Dashboard: http://43.209.22.250:3002"

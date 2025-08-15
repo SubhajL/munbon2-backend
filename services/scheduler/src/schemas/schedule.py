@@ -1,117 +1,102 @@
-"""
-Schedule-related Pydantic schemas
-"""
-
-from enum import Enum
-from typing import List, Dict, Optional, Any
+from typing import Dict, List, Optional, Any
 from datetime import datetime, date
+from uuid import UUID
+
 from pydantic import BaseModel, Field, validator
 
 
-class ScheduleStatus(str, Enum):
-    """Schedule status options"""
-    DRAFT = "draft"
-    APPROVED = "approved"
-    IN_PROGRESS = "in_progress"
-    COMPLETED = "completed"
-    CANCELLED = "cancelled"
-
-
-class OperationStatus(str, Enum):
-    """Operation status options"""
-    SCHEDULED = "scheduled"
-    ASSIGNED = "assigned"
-    IN_PROGRESS = "in_progress"
-    COMPLETED = "completed"
-    SKIPPED = "skipped"
-    FAILED = "failed"
-
-
-class ScheduleOperation(BaseModel):
-    """Individual gate operation in schedule"""
-    operation_id: str
-    gate_id: str
-    action: str = Field(description="open, close, or adjust")
-    target_opening_m: float = Field(ge=0, description="Target gate opening in meters")
-    scheduled_time: datetime
-    team_assigned: Optional[str] = None
-    day: str = Field(description="Day of week")
-    estimated_duration_minutes: int = Field(default=30)
-    priority: int = Field(ge=1, le=10, default=5)
-    location: Dict[str, float] = Field(description="GPS coordinates")
-    status: OperationStatus = Field(default=OperationStatus.SCHEDULED)
-    completion_time: Optional[datetime] = None
-    actual_opening_m: Optional[float] = None
-    notes: Optional[str] = None
+class ScheduleGenerateRequest(BaseModel):
+    """Request to generate a new schedule"""
+    week_number: int = Field(..., ge=1, le=53, description="Week number (1-53)")
+    year: int = Field(..., ge=2024, le=2030, description="Year")
+    constraints: Optional[Dict[str, Any]] = Field(None, description="Custom constraints")
+    operation_days: Optional[List[int]] = Field(
+        None, 
+        description="Days of week for operations (0=Monday, 6=Sunday)"
+    )
+    max_operations_per_day: Optional[int] = Field(None, description="Max operations per day")
     
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
-
-
-class WeeklySchedule(BaseModel):
-    """Complete weekly irrigation schedule"""
-    week: str = Field(description="Week in YYYY-WW format")
-    status: ScheduleStatus = Field(default=ScheduleStatus.DRAFT)
-    operations: List[ScheduleOperation]
-    created_at: datetime
-    updated_at: datetime
-    approved_by: Optional[str] = None
-    approved_at: Optional[datetime] = None
-    total_demand_m3: Optional[float] = None
-    expected_deliveries: Optional[Dict[str, float]] = None
-    optimization_metrics: Optional[Dict[str, Any]] = None
-    
-    @validator('week')
-    def validate_week_format(cls, v):
-        try:
-            year, week = v.split('-')
-            year = int(year)
-            week = int(week)
-            if week < 1 or week > 53:
-                raise ValueError
-        except:
-            raise ValueError("Week must be in YYYY-WW format")
+    @validator("operation_days")
+    def validate_operation_days(cls, v):
+        if v is not None:
+            if not all(0 <= day <= 6 for day in v):
+                raise ValueError("Operation days must be between 0 (Monday) and 6 (Sunday)")
         return v
 
 
-class ScheduleUpdate(BaseModel):
-    """Update request for schedule status"""
-    status: ScheduleStatus
-    notes: Optional[str] = None
-    approved_by: Optional[str] = None
+class ScheduleBase(BaseModel):
+    """Base schedule model"""
+    schedule_code: str
+    week_number: int
+    year: int
+    start_date: date
+    end_date: date
+    status: str
+    version: int
+    total_water_demand_m3: float
+    total_water_allocated_m3: Optional[float]
+    efficiency_percent: Optional[float]
+    total_operations: int
+    field_days: List[date]
+    total_travel_km: Optional[float]
+    estimated_labor_hours: Optional[float]
 
 
-class ScheduleOptimizationRequest(BaseModel):
-    """Request to optimize schedule"""
-    force_regenerate: bool = Field(default=False)
-    optimization_params: Optional[Dict[str, Any]] = Field(
-        default={
-            "max_iterations": 1000,
-            "travel_weight": 0.5,
-            "demand_weight": 0.3,
-            "balance_weight": 0.2
-        }
-    )
+class ScheduleCreate(BaseModel):
+    """Create schedule model"""
+    week_number: int
+    year: int
     constraints: Optional[Dict[str, Any]] = None
 
 
-class ScheduleConflict(BaseModel):
-    """Conflict in schedule"""
-    conflict_type: str
-    severity: str = Field(description="low, medium, high")
-    affected_operations: List[str]
-    description: str
-    resolution_options: List[str]
-
-
-class OperationCompletion(BaseModel):
-    """Completion report for operation"""
-    operation_id: str
-    completion_time: datetime
-    actual_opening_m: float
-    operator_id: str
-    photos: Optional[List[str]] = None
+class ScheduleUpdate(BaseModel):
+    """Update schedule model"""
+    status: Optional[str] = None
     notes: Optional[str] = None
-    issues_encountered: Optional[List[str]] = None
+    weather_forecast: Optional[Dict[str, Any]] = None
+
+
+class ScheduleResponse(ScheduleBase):
+    """Schedule response model"""
+    id: UUID
+    created_at: datetime
+    updated_at: Optional[datetime]
+    created_by: str
+    updated_by: Optional[str]
+    approved_at: Optional[datetime]
+    approved_by: Optional[str]
+    activated_at: Optional[datetime]
+    optimization_time_seconds: Optional[float]
+    optimization_iterations: Optional[int]
+    objective_value: Optional[float]
+    constraints_summary: Optional[Dict[str, Any]]
+    weather_forecast: Optional[Dict[str, Any]]
+    notes: Optional[str]
+    
+    class Config:
+        orm_mode = True
+
+
+class ScheduleSummary(BaseModel):
+    """Schedule summary for list views"""
+    id: UUID
+    schedule_code: str
+    week_number: int
+    year: int
+    status: str
+    total_operations: int
+    efficiency_percent: Optional[float]
+    created_at: datetime
+    
+    class Config:
+        orm_mode = True
+
+
+class ScheduleAnalytics(BaseModel):
+    """Schedule analytics"""
+    schedule_id: UUID
+    performance_metrics: Dict[str, float]
+    resource_utilization: Dict[str, float]
+    water_delivery_stats: Dict[str, float]
+    team_performance: Dict[str, Any]
+    deviation_analysis: Dict[str, Any]

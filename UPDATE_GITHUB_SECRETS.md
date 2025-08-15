@@ -7,7 +7,7 @@ Your EC2 instance is running! Here's what you need to update:
 Go to: https://github.com/SubhajL/munbon2-backend/settings/secrets/actions
 
 Update these secrets:
-- **EC2_HOST**: `43.209.12.182`
+- **EC2_HOST**: `43.209.22.250`
 - **EC2_USER**: `ubuntu`
 - **EC2_SSH_KEY**: (Copy the contents of your th-lab01.pem file)
 
@@ -23,7 +23,7 @@ Copy the entire output (including the BEGIN and END lines) and paste it as the E
 ## 3. Verify EC2 Setup
 
 Your EC2 details:
-- Public IP: 43.209.12.182
+- Public IP: 43.209.22.250
 - Username: ubuntu
 - OS: Ubuntu 24.04.2 LTS
 - Instance appears to be in AWS Asia Pacific region
@@ -32,7 +32,7 @@ Your EC2 details:
 
 ```bash
 # SSH into your EC2
-ssh -i th-lab01.pem ubuntu@43.209.12.182
+ssh -i th-lab01.pem ubuntu@43.209.22.250
 
 # Check Docker
 docker --version

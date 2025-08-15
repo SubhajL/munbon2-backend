@@ -5,6 +5,8 @@ from collections import defaultdict
 from core import get_logger
 from config import settings
 from services.integration_client import IntegrationClient
+from services.cache_manager import get_cache_manager, cached
+from services.query_optimizer import QueryOptimizer
 from schemas.demand import AggregatedDemand, DemandPriorityEnum
 
 logger = get_logger(__name__)
@@ -16,6 +18,16 @@ class DemandAggregatorService:
     def __init__(self):
         self.client = IntegrationClient()
         self.logger = logger.bind(service="demand_aggregator")
+        self.cache = None
+        self.query_optimizer = QueryOptimizer()
+        self._initialized = False
+    
+    async def initialize(self):
+        """Initialize cache and query optimizer"""
+        if not self._initialized:
+            self.cache = await get_cache_manager()
+            await self.query_optimizer.initialize()
+            self._initialized = True
     
     async def aggregate_demands(
         self,
@@ -36,6 +48,15 @@ class DemandAggregatorService:
         Returns:
             List of aggregated demands by delivery gate
         """
+        await self.initialize()
+        
+        # Check cache first
+        cache_key = f"{week}_{weather_adjustment}_{rainfall_mm}_{len(demands)}"
+        cached_result = await self.cache.get("aggregated_demands", cache_key)
+        if cached_result:
+            self.logger.info("Using cached aggregated demands", week=week)
+            return cached_result
+        
         self.logger.info(
             "Aggregating demands",
             week=week,
@@ -43,8 +64,9 @@ class DemandAggregatorService:
             weather_adjustment=weather_adjustment
         )
         
-        # Get section-to-gate mappings
-        mappings = await self._get_section_mappings([d["section_id"] for d in demands])
+        # Get section-to-gate mappings using optimized query
+        section_ids = [d["section_id"] for d in demands]
+        mappings = await self._get_section_mappings_optimized(section_ids)
         
         # Group demands by delivery gate
         gate_demands = defaultdict(list)
@@ -74,30 +96,46 @@ class DemandAggregatorService:
             total_volume_m3=sum(d.total_demand_m3 for d in aggregated)
         )
         
+        # Cache the result
+        await self.cache.set("aggregated_demands", cache_key, aggregated, ttl=900)
+        
         return aggregated
     
-    async def _get_section_mappings(self, section_ids: List[str]) -> Dict[str, Dict]:
-        """Get delivery gate mappings for sections"""
-        # In production, this would query PostGIS
-        # For now, return mock mappings
-        mappings = {}
+    async def _get_section_mappings_optimized(self, section_ids: List[str]) -> Dict[str, Dict]:
+        """Get delivery gate mappings for sections using optimized queries"""
+        # Use query optimizer for batch fetch
+        sections = await self.query_optimizer.get_sections_batch(section_ids)
         
-        for section_id in section_ids:
-            zone = int(section_id.split("_")[1])
-            if zone in [2, 3]:
-                gate = "M(0,2)->Zone_2"
-            elif zone in [5, 6]:
-                gate = "M(0,5)->Zone_5"
-            else:
-                gate = "M(0,0)->M(0,2)"
-            
+        mappings = {}
+        for section_id, section_data in sections.items():
             mappings[section_id] = {
-                "delivery_gate": gate,
-                "distance_km": 2.5,
+                "delivery_gate": section_data.get("delivery_gate", "M(0,0)"),
+                "distance_km": 2.5,  # Would calculate from spatial data
                 "travel_time_hours": 0.75
             }
         
+        # Fallback for sections not in database
+        for section_id in section_ids:
+            if section_id not in mappings:
+                zone = int(section_id.split("_")[1]) if "_" in section_id else 1
+                if zone in [2, 3]:
+                    gate = "M(0,2)->Zone_2"
+                elif zone in [5, 6]:
+                    gate = "M(0,5)->Zone_5"
+                else:
+                    gate = "M(0,0)->M(0,2)"
+                
+                mappings[section_id] = {
+                    "delivery_gate": gate,
+                    "distance_km": 2.5,
+                    "travel_time_hours": 0.75
+                }
+        
         return mappings
+    
+    async def _get_section_mappings(self, section_ids: List[str]) -> Dict[str, Dict]:
+        """Legacy method - redirects to optimized version"""
+        return await self._get_section_mappings_optimized(section_ids)
     
     async def _aggregate_gate_demands(
         self,

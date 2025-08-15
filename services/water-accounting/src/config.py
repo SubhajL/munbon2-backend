@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     TIMESCALE_PASSWORD: str = "timescale_pass"
     
     # Integration Points
+    SENSOR_DATA_SERVICE_URL: str = "http://localhost:3003"
+    GIS_SERVICE_URL: str = "http://localhost:3007"
+    WEATHER_SERVICE_URL: str = "http://localhost:3008"
+    SCADA_SERVICE_URL: str = "http://localhost:3023"
     FLOW_MONITORING_URL: str = "http://localhost:3016/api/v1"
     SCHEDULER_URL: str = "http://localhost:3017/api/v1"
     MOCK_SERVER_URL: str = "http://localhost:3099/api/v1"

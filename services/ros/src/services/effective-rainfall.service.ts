@@ -60,8 +60,11 @@ export class EffectiveRainfallService {
         );
       }
       
-      // Calculate weekly effective rainfall (monthly ÷ 4)
-      const weeklyEffectiveRainfall = monthlyEffectiveRainfall / 4;
+      // Calculate weekly effective rainfall (daily × 7)
+      // Get days in month
+      const daysInMonth = this.getDaysInMonth(month, calendarYear);
+      const dailyEffectiveRainfall = monthlyEffectiveRainfall / daysInMonth;
+      const weeklyEffectiveRainfall = dailyEffectiveRainfall * 7;
       
       return {
         monthlyEffectiveRainfall,
@@ -163,6 +166,26 @@ export class EffectiveRainfallService {
     };
     
     return effectiveRainfallData[cropType][month] || 0;
+  }
+  
+  /**
+   * Get number of days in a month
+   */
+  private getDaysInMonth(month: number, year: number): number {
+    // Check for leap year for February
+    const isLeapYear = (year % 4 === 0 && year % 100 !== 0) || (year % 400 === 0);
+    
+    switch (month) {
+      case 2: // February
+        return isLeapYear ? 29 : 28;
+      case 4: // April
+      case 6: // June
+      case 9: // September
+      case 11: // November
+        return 30;
+      default:
+        return 31;
+    }
   }
   
   /**

@@ -19,6 +19,9 @@ import calendarRouter from '@routes/calendar.routes';
 import areaRouter from '@routes/area.routes';
 import rainfallRouter from '@routes/rainfall.routes';
 import waterLevelRouter from '@routes/water-level.routes';
+import plotDemandRouter from '@routes/plot-demand.routes';
+import plotPlantingDateRouter from '@routes/plot-planting-date.routes';
+import waterDemandRouter from '@routes/water-demand.routes';
 
 const app = express();
 
@@ -59,6 +62,11 @@ app.use('/api/v1/ros/calendar', calendarRouter);
 app.use('/api/v1/ros/areas', areaRouter);
 app.use('/api/v1/ros/rainfall', rainfallRouter);
 app.use('/api/v1/ros/water-level', waterLevelRouter);
+app.use('/api/v1/ros/plot-demand', plotDemandRouter);
+app.use('/api/v1/ros/plot-planting', plotPlantingDateRouter);
+
+// New water demand calculation endpoints
+app.use('/api/water-demand', waterDemandRouter);
 
 // Error handling
 app.use(errorHandler);

@@ -43,14 +43,14 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           
           # Add host key with IP address directly (bypass DNS)
-          ssh-keyscan -H 43.209.12.182 >> ~/.ssh/known_hosts 2>/dev/null || true
+          ssh-keyscan -H 43.209.22.250 >> ~/.ssh/known_hosts 2>/dev/null || true
           
           # Test connection first
           echo "Testing SSH connection..."
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/deploy_key ubuntu@43.209.12.182 "echo 'SSH connection successful'"
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/deploy_key ubuntu@43.209.22.250 "echo 'SSH connection successful'"
           
           # Deploy using direct IP
-          ssh -i ~/.ssh/deploy_key ubuntu@43.209.12.182 << 'DEPLOY'
+          ssh -i ~/.ssh/deploy_key ubuntu@43.209.22.250 << 'DEPLOY'
           set -e
           
           echo "=== Starting deployment ==="
@@ -129,7 +129,7 @@ EOF
           docker ps
           echo ""
           echo "Services available at:"
-          echo "- Sensor: http://43.209.12.182:3001"
-          echo "- Auth: http://43.209.12.182:3002"
-          echo "- GIS: http://43.209.12.182:3003"
+          echo "- Sensor: http://43.209.22.250:3001"
+          echo "- Auth: http://43.209.22.250:3002"
+          echo "- GIS: http://43.209.22.250:3003"
           DEPLOY

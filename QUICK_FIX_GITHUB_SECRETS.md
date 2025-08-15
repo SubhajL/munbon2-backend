@@ -11,7 +11,7 @@ Click "New repository secret" for each:
 
 #### Secret 1: EC2_HOST
 - **Name:** EC2_HOST
-- **Secret:** 43.209.12.182
+- **Secret:** 43.209.22.250
 
 #### Secret 2: EC2_USER
 - **Name:** EC2_USER
@@ -65,7 +65,7 @@ After adding all 3 secrets:
 While waiting for GitHub Actions, you can deploy manually:
 
 ```bash
-ssh -i th-lab01.pem ubuntu@43.209.12.182
+ssh -i th-lab01.pem ubuntu@43.209.22.250
 
 # Then run:
 cd munbon2-backend && git pull && cp .env.ec2 .env && docker-compose -f docker-compose.ec2-consolidated.yml up -d --build

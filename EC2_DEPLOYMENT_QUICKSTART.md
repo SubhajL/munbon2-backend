@@ -8,7 +8,7 @@
 
 ## Quick Deployment Commands
 
-Run these commands on your EC2 instance (43.209.12.182):
+Run these commands on your EC2 instance (43.209.22.250):
 
 ### 1. Install Docker and Docker Compose (if not installed)
 ```bash
@@ -116,7 +116,7 @@ volumes:
 Upload the sensor-data service directory from your local machine to EC2:
 ```bash
 # From local machine
-scp -r /Users/subhajlimanond/dev/munbon2-backend/services/sensor-data user@43.209.12.182:~/munbon2-backend/services/
+scp -r /Users/subhajlimanond/dev/munbon2-backend/services/sensor-data user@43.209.22.250:~/munbon2-backend/services/
 
 # Or use any file transfer method available
 ```
@@ -160,8 +160,8 @@ curl http://localhost:3001/health
 curl http://localhost:3002
 
 # Test from external
-curl http://43.209.12.182:3001/health
-curl http://43.209.12.182:3002
+curl http://43.209.22.250:3001/health
+curl http://43.209.22.250:3002
 ```
 
 ## Current Data Flow

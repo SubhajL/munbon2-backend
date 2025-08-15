@@ -3,7 +3,7 @@
 # Fix all services to use correct local Docker databases
 set -e
 
-EC2_IP="43.209.12.182"
+EC2_IP="43.209.22.250"
 SSH_KEY="/Users/subhajlimanond/dev/munbon2-backend/th-lab01.pem"
 EC2_USER="ubuntu"
 

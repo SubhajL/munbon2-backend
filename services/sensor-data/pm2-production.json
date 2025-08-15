@@ -1,0 +1,26 @@
+{
+  "apps": [{
+    "name": "sensor-data-service",
+    "script": "./dist/cmd/server/main.js",
+    "cwd": "/Users/subhajlimanond/dev/munbon2-backend/services/sensor-data",
+    "instances": 1,
+    "exec_mode": "cluster",
+    "env": {
+      "NODE_ENV": "production",
+      "PORT": "3003",
+      "POSTGRES_HOST": "localhost",
+      "POSTGRES_PORT": "5432",
+      "POSTGRES_DB": "munbon",
+      "POSTGRES_USER": "postgres",
+      "POSTGRES_PASSWORD": "postgres",
+      "TIMESCALE_HOST": "localhost",
+      "TIMESCALE_PORT": "5433",
+      "TIMESCALE_DB": "munbon_timescale",
+      "TIMESCALE_USER": "postgres",
+      "TIMESCALE_PASSWORD": "postgres",
+      "MQTT_BROKER_URL": "mqtt://localhost:1883",
+      "INTERNAL_API_KEY": "munbon-internal-key-2024",
+      "VALID_TOKENS": "munbon-m2m-moisture:Moisture Sensor,munbon-water-level:Water Level Sensor"
+    }
+  }]
+}

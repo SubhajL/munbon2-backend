@@ -9,7 +9,7 @@
 
 ```bash
 # SSH to EC2
-ssh -i th-lab01.pem ubuntu@43.209.12.182
+ssh -i th-lab01.pem ubuntu@43.209.22.250
 
 # Check if consumer is running
 docker ps | grep consumer
@@ -132,7 +132,7 @@ docker-compose -f docker-compose.ec2-consolidated.yml ...
 ```
 
 ### 4. Consumer Dashboard Check
-Open: http://43.209.12.182:3004
+Open: http://43.209.22.250:3004
 - Should show statistics
 - "Messages Received" should increase when testing
 

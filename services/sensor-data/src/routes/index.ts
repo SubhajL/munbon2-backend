@@ -44,6 +44,8 @@ export function setupRoutes(app: Express, options: RouteOptions): void {
       const token = req.params.token;
       const validTokens = getValidTokens();
       
+      // Debug logging removed for production
+      
       if (!validTokens[token]) {
         res.status(401).json({ error: 'Invalid token' });
         return;

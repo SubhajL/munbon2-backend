@@ -15,10 +15,12 @@ class SpatialMappingService:
     def __init__(self):
         self.db = DatabaseManager()
         self.logger = logger.bind(service="spatial_mapping")
+        self._use_mock = settings.use_mock_server
         
-        # Mock data for development
-        self._sections = self._initialize_mock_sections()
-        self._gates = self._initialize_mock_gates()
+        # Mock data for development/testing
+        if self._use_mock:
+            self._sections = self._initialize_mock_sections()
+            self._gates = self._initialize_mock_gates()
     
     def _initialize_mock_sections(self) -> Dict[str, Dict]:
         """Initialize mock section data"""
@@ -79,46 +81,71 @@ class SpatialMappingService:
     
     async def get_section(self, section_id: str) -> Optional[Dict]:
         """Get section details including spatial data"""
-        return self._sections.get(section_id)
+        if self._use_mock:
+            return self._sections.get(section_id)
+        
+        # Use database
+        async with self.db.get_section_repository() as repo:
+            return await repo.get_section(section_id)
     
     async def get_sections_by_zone(self, zone: int) -> List[Dict]:
         """Get all sections in a specific zone"""
-        return [
-            section for section in self._sections.values()
-            if section["zone"] == zone
-        ]
+        if self._use_mock:
+            return [
+                section for section in self._sections.values()
+                if section["zone"] == zone
+            ]
+        
+        # Use database
+        async with self.db.get_section_repository() as repo:
+            return await repo.get_sections_by_zone(zone)
     
     async def get_section_mapping(self, section_id: str) -> Optional[Dict]:
         """Get spatial mapping for a section to its delivery gate"""
-        section = self._sections.get(section_id)
-        if not section:
-            return None
+        if self._use_mock:
+            section = self._sections.get(section_id)
+            if not section:
+                return None
+            
+            gate_id = section["delivery_gate"]
+            gate = self._gates.get(gate_id)
+            if not gate:
+                return None
+            
+            # Calculate distance and travel time
+            distance_km = self._calculate_distance(
+                section["centroid"]["lat"],
+                section["centroid"]["lon"],
+                gate["location"]["lat"],
+                gate["location"]["lon"]
+            )
+            
+            # Estimate travel time based on gravity flow
+            # Assuming average flow velocity of 1.5 m/s in canals
+            travel_time_hours = distance_km / (1.5 * 3.6)  # Convert m/s to km/h
+            
+            return {
+                "section_id": section_id,
+                "delivery_gate": gate_id,
+                "distance_km": round(distance_km, 2),
+                "elevation_difference_m": gate["elevation_m"] - section["elevation_m"],
+                "delivery_path": [gate_id, f"Zone_{section['zone']}_Node", section_id],
+                "travel_time_hours": round(travel_time_hours, 2)
+            }
         
-        gate_id = section["delivery_gate"]
-        gate = self._gates.get(gate_id)
-        if not gate:
-            return None
-        
-        # Calculate distance and travel time
-        distance_km = self._calculate_distance(
-            section["centroid"]["lat"],
-            section["centroid"]["lon"],
-            gate["location"]["lat"],
-            gate["location"]["lon"]
-        )
-        
-        # Estimate travel time based on gravity flow
-        # Assuming average flow velocity of 1.5 m/s in canals
-        travel_time_hours = distance_km / (1.5 * 3.6)  # Convert m/s to km/h
-        
-        return {
-            "section_id": section_id,
-            "delivery_gate": gate_id,
-            "distance_km": round(distance_km, 2),
-            "elevation_difference_m": gate["elevation_m"] - section["elevation_m"],
-            "delivery_path": [gate_id, f"Zone_{section['zone']}_Node", section_id],
-            "travel_time_hours": round(travel_time_hours, 2)
-        }
+        # Use database
+        async with self.db.get_gate_mapping_repository() as repo:
+            mapping = await repo.get_section_mapping(section_id)
+            if mapping:
+                # Add delivery path
+                section = await self.get_section(section_id)
+                if section:
+                    mapping["delivery_path"] = [
+                        mapping["gate_id"], 
+                        f"Zone_{section['zone']}_Node", 
+                        section_id
+                    ]
+            return mapping
     
     async def get_all_delivery_points(self) -> List[Dict]:
         """Get all delivery gates with their served sections"""

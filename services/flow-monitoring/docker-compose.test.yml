@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  flow-monitoring:
+    build: .
+    container_name: flow-monitoring-test
+    ports:
+      - "3011:3011"
+    environment:
+      - PORT=3011
+      - SERVICE_NAME=flow-monitoring
+      - ENVIRONMENT=development
+      - LOG_LEVEL=DEBUG
+      - API_PREFIX=/api/v1
+      - CORS_ORIGINS=*
+      # Local database connections
+      - DATABASE_URL=postgresql://postgres:postgres@host.docker.internal:5434/munbon_dev
+      - POSTGRES_URL=postgresql://postgres:postgres@host.docker.internal:5434/munbon_dev
+      - TIMESCALE_URL=postgresql://postgres:postgres@host.docker.internal:5433/sensor_data
+      # Other services
+      - REDIS_URL=redis://host.docker.internal:6379/12
+      - INFLUXDB_URL=http://host.docker.internal:8086
+      - INFLUXDB_TOKEN=test-token
+      - INFLUXDB_ORG=munbon
+      - INFLUXDB_BUCKET=flow-data
+      # Kafka
+      - KAFKA_BROKERS=host.docker.internal:9092
+      - KAFKA_TOPIC_SENSORS=flow.sensor.data
+      - KAFKA_CONSUMER_GROUP=flow-monitoring-service
+      # Service config
+      - MAX_BATCH_SIZE=1000
+      - BATCH_TIMEOUT_MS=500
+      - MANUAL_UPDATE_INTERVAL=3600
+    volumes:
+      - ./src/munbon_network_final.json:/app/src/munbon_network_final.json:ro
+      - ./canal_geometry_template.json:/app/canal_geometry_template.json:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3011/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+
+# Use this to test locally:
+# docker-compose -f docker-compose.test.yml up --build

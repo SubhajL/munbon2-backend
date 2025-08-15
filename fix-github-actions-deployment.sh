@@ -22,7 +22,7 @@ echo ""
 
 echo -e "${YELLOW}2. If secrets are missing, add them:${NC}"
 echo ""
-echo "   ${BLUE}EC2_HOST:${NC} 43.209.12.182"
+echo "   ${BLUE}EC2_HOST:${NC} 43.209.22.250"
 echo "   ${BLUE}EC2_USER:${NC} ubuntu"
 echo "   ${BLUE}EC2_SSH_KEY:${NC} Copy entire content from th-lab01.pem including:"
 echo "   -----BEGIN RSA PRIVATE KEY-----"
@@ -31,7 +31,7 @@ echo "   -----END RSA PRIVATE KEY-----"
 echo ""
 
 echo -e "${YELLOW}3. Test SSH connection locally:${NC}"
-echo "   ssh -i th-lab01.pem ubuntu@43.209.12.182"
+echo "   ssh -i th-lab01.pem ubuntu@43.209.22.250"
 echo ""
 
 echo -e "${YELLOW}4. Manual deployment option:${NC}"
@@ -39,7 +39,7 @@ echo "   If GitHub Actions keeps failing, deploy manually:"
 echo ""
 cat << 'EOF'
 # SSH to EC2
-ssh -i th-lab01.pem ubuntu@43.209.12.182
+ssh -i th-lab01.pem ubuntu@43.209.22.250
 
 # Once connected, run:
 cd munbon2-backend

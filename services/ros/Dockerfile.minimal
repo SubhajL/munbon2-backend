@@ -1,0 +1,24 @@
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Install minimal runtime dependencies
+RUN apk add --no-cache python3 make g++ cairo-dev jpeg-dev pango-dev giflib-dev
+
+# Copy and install dependencies
+COPY package*.json ./
+RUN npm ci --only=production
+
+# Copy TypeScript config
+COPY tsconfig.json ./
+
+# Copy source
+COPY src ./src
+
+# Install ts-node for runtime
+RUN npm install -g ts-node typescript @types/node
+
+EXPOSE 3047
+
+# Run directly with ts-node
+CMD ["ts-node", "--transpile-only", "-r", "tsconfig-paths/register", "src/index.ts"]

@@ -3,6 +3,7 @@ export enum SensorType {
   MOISTURE = 'moisture',
   FLOW = 'flow',
   WEATHER = 'weather',
+  GATEWAY = 'gateway',
   UNKNOWN = 'unknown'
 }
 

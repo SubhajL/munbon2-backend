@@ -13,7 +13,7 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 # Target database credentials - EC2 PostgreSQL
-TARGET_HOST="43.209.12.182"
+TARGET_HOST="43.209.22.250"
 TARGET_PORT="5432"
 TARGET_USER="postgres"
 TARGET_PASSWORD="${TARGET_PASSWORD:-__ROTATED_DB_PASSWORD__}"  # Can be overridden by environment variable

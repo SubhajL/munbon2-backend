@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  gravity-optimizer:
+    build: .
+    container_name: gravity-optimizer
+    ports:
+      - "3020:3020"
+    environment:
+      - GRAVITY_POSTGRES_HOST=postgres
+      - GRAVITY_POSTGRES_PORT=5432
+      - GRAVITY_POSTGRES_DB=munbon_gis
+      - GRAVITY_POSTGRES_USER=postgres
+      - GRAVITY_POSTGRES_PASSWORD=postgres
+      - GRAVITY_REDIS_HOST=redis
+      - GRAVITY_REDIS_PORT=6379
+      - GRAVITY_LOG_LEVEL=INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - munbon-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3020/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  postgres:
+    image: postgis/postgis:15-3.3
+    container_name: gravity-postgres
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=munbon_gis
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/01-init.sql
+    networks:
+      - munbon-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: gravity-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - munbon-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  munbon-network:
+    driver: bridge

@@ -73,6 +73,26 @@ class Settings(BaseSettings):
     economic_value_weight: float = 0.2
     stress_indicator_weight: float = 0.1
     
+    # Flow Monitoring Network Configuration
+    flow_monitoring_network_file: Optional[str] = Field(
+        default=None,
+        env="FLOW_MONITORING_NETWORK_FILE",
+        description="Path to canal network JSON file"
+    )
+    
+    # Demand Calculation Configuration
+    demand_combination_strategy: str = Field(
+        default="aquacrop_priority",
+        env="DEMAND_COMBINATION_STRATEGY",
+        description="Strategy for combining ROS and AquaCrop demands"
+    )
+    
+    # Scheduler Service Configuration
+    scheduler_service_url: str = Field(
+        default="http://localhost:3021",
+        env="SCHEDULER_SERVICE_URL"
+    )
+    
     @property
     def cors_origins_list(self) -> List[str]:
         return [origin.strip() for origin in self.cors_origins.split(",")]

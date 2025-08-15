@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: munbon
+  labels:
+    name: munbon
+    project: irrigation-control

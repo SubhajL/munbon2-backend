@@ -83,7 +83,7 @@ Go to: https://console.aws.amazon.com/sqs/v2/home?region=ap-southeast-1#/queues
 
 ### Step 2: Check Consumer Dashboard
 ```
-http://43.209.12.182:3004
+http://43.209.22.250:3004
 ```
 - Should show real-time sensor data
 - Shows message processing statistics
@@ -160,4 +160,4 @@ curl -X GET https://5e3l647kpd.execute-api.ap-southeast-1.amazonaws.com/prod/api
 | Send Moisture Data | https://5e3l647kpd.execute-api.ap-southeast-1.amazonaws.com/dev/api/v1/munbon-m2m-moisture/telemetry | POST |
 | Get Water Level Data | https://5e3l647kpd.execute-api.ap-southeast-1.amazonaws.com/prod/api/v1/water-level/latest | GET |
 | Get Moisture Data | https://5e3l647kpd.execute-api.ap-southeast-1.amazonaws.com/prod/api/v1/moisture/latest | GET |
-| Consumer Dashboard | http://43.209.12.182:3004 | Browser |
+| Consumer Dashboard | http://43.209.22.250:3004 | Browser |

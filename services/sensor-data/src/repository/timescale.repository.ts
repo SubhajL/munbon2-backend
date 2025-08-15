@@ -7,6 +7,7 @@ import {
   SensorLocationHistory,
   SensorType
 } from '../models/sensor.model';
+import { toUTCTimestamp } from '../utils/timezone-fix';
 
 export class TimescaleRepository {
   private pool: Pool;
@@ -56,12 +57,28 @@ export class TimescaleRepository {
       // Create tables
       await this.createTables(client as any);
       
-      // Create hypertables
-      await this.createHypertables(client as any);
+      // Create hypertables - handle existing ones gracefully
+      try {
+        await this.createHypertables(client as any);
+      } catch (error: any) {
+        // Ignore errors about existing hypertables or triggers
+        if (!error.message?.includes('already a hypertable') && 
+            !error.message?.includes('already exists') &&
+            error.code !== '42710') { // trigger already exists error code
+          console.warn('Hypertable creation warning:', error.message);
+        }
+      }
       
       // Create indexes
       await this.createIndexes(client as any);
       
+    } catch (error: any) {
+      // Don't fail initialization for existing object errors
+      if (error.code === '42710') { // trigger already exists
+        console.log('Database objects already exist, continuing...');
+      } else {
+        throw error;
+      }
     } finally {
       client.release();
     }
@@ -231,7 +248,7 @@ export class TimescaleRepository {
     `;
     
     await this.pool.query(query, [
-      reading.timestamp,
+      toUTCTimestamp(reading.timestamp),  // Convert to UTC timestamp string
       reading.sensorId,
       reading.sensorType,
       reading.location?.lat || null,
@@ -250,7 +267,7 @@ export class TimescaleRepository {
     `;
     
     await this.pool.query(query, [
-      reading.timestamp,
+      toUTCTimestamp(reading.timestamp),  // Convert to UTC timestamp string
       reading.sensorId,
       reading.location?.lat || null,
       reading.location?.lng || null,
@@ -272,7 +289,7 @@ export class TimescaleRepository {
     `;
     
     await this.pool.query(query, [
-      reading.timestamp,
+      toUTCTimestamp(reading.timestamp),  // Convert to UTC timestamp string
       reading.sensorId,
       reading.location?.lat || null,
       reading.location?.lng || null,
@@ -307,7 +324,7 @@ export class TimescaleRepository {
       sensor.manufacturer || (sensor.sensorType === SensorType.WATER_LEVEL ? 'RID-R' : 'M2M'),
       sensor.currentLocation?.lat || null,
       sensor.currentLocation?.lng || null,
-      sensor.lastSeen,
+      sensor.lastSeen ? toUTCTimestamp(sensor.lastSeen) : null,  // Convert to UTC timestamp string
       sensor.metadata || {}
     ]);
   }

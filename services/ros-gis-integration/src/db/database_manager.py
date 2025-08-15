@@ -1,10 +1,19 @@
 import asyncio
 import asyncpg
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, AsyncGenerator
 from datetime import datetime
 import redis.asyncio as redis
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.pool import NullPool
+from contextlib import asynccontextmanager
+
 from core import get_logger
 from config import settings
+from .models import Base
+from .repository import (
+    SectionRepository, DemandRepository, PerformanceRepository,
+    GateMappingRepository, GateDemandRepository
+)
 
 logger = get_logger(__name__)
 
@@ -16,16 +25,56 @@ class DatabaseManager:
         self.logger = logger.bind(component="database_manager")
         self._pg_pool: Optional[asyncpg.Pool] = None
         self._redis_client: Optional[redis.Redis] = None
+        self.engine = None
+        self.async_session = None
     
     async def initialize(self):
         """Initialize database connections"""
         try:
-            # PostgreSQL connection pool
+            # URL-encode the password if needed
+            from urllib.parse import urlparse, urlunparse, quote
+            parsed = urlparse(settings.postgres_url)
+            
+            # Encode the password if it contains special characters
+            if parsed.password:
+                encoded_password = quote(parsed.password, safe='')
+                netloc = f"{parsed.username}:{encoded_password}@{parsed.hostname}"
+                if parsed.port:
+                    netloc += f":{parsed.port}"
+                
+                encoded_postgres_url = urlunparse((
+                    parsed.scheme,
+                    netloc,
+                    parsed.path,
+                    parsed.params,
+                    parsed.query,
+                    parsed.fragment
+                ))
+            else:
+                encoded_postgres_url = settings.postgres_url
+            
+            # PostgreSQL connection pool for raw queries
             self._pg_pool = await asyncpg.create_pool(
-                settings.postgres_url,
+                encoded_postgres_url,
                 min_size=5,
                 max_size=20,
                 command_timeout=60
+            )
+            
+            # SQLAlchemy async engine for ORM
+            # Note: When using NullPool, we can't specify pool_size or max_overflow
+            self.engine = create_async_engine(
+                encoded_postgres_url.replace('postgresql://', 'postgresql+asyncpg://'),
+                echo=settings.environment == "development",
+                pool_pre_ping=True,
+                poolclass=NullPool
+            )
+            
+            # Create async session factory
+            self.async_session = async_sessionmaker(
+                self.engine,
+                class_=AsyncSession,
+                expire_on_commit=False
             )
             
             # Redis connection
@@ -34,6 +83,11 @@ class DatabaseManager:
                 encoding="utf-8",
                 decode_responses=True
             )
+            
+            # Create tables if they don't exist (for development)
+            if settings.environment == "development":
+                async with self.engine.begin() as conn:
+                    await conn.run_sync(Base.metadata.create_all)
             
             # Test connections
             await self._test_connections()
@@ -48,6 +102,9 @@ class DatabaseManager:
         """Close database connections"""
         if self._pg_pool:
             await self._pg_pool.close()
+        
+        if self.engine:
+            await self.engine.dispose()
         
         if self._redis_client:
             await self._redis_client.close()
@@ -297,3 +354,35 @@ class DatabaseManager:
             section_id
         ]
         return path
+    
+    # Repository access methods
+    @asynccontextmanager
+    async def get_session(self):
+        """Get database session for repository operations"""
+        async with self.async_session() as session:
+            yield session
+    
+    async def get_section_repository(self):
+        """Get section repository with session"""
+        async with self.get_session() as session:
+            yield SectionRepository(session)
+    
+    async def get_demand_repository(self):
+        """Get demand repository with session"""
+        async with self.get_session() as session:
+            yield DemandRepository(session)
+    
+    async def get_performance_repository(self):
+        """Get performance repository with session"""
+        async with self.get_session() as session:
+            yield PerformanceRepository(session)
+    
+    async def get_gate_mapping_repository(self):
+        """Get gate mapping repository with session"""
+        async with self.get_session() as session:
+            yield GateMappingRepository(session)
+    
+    async def get_gate_demand_repository(self):
+        """Get gate demand repository with session"""
+        async with self.get_session() as session:
+            yield GateDemandRepository(session)

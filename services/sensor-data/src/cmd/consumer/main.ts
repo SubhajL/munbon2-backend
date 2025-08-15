@@ -3,15 +3,20 @@ import { SQSClient, ReceiveMessageCommand, DeleteMessageCommand } from '@aws-sdk
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-import * as fs from 'fs';
 import * as path from 'path';
 import pino from 'pino';
 import { TimescaleRepository } from '../../repository/timescale.repository';
+import { DualWriteRepository } from '../../repository/dual-write.repository';
+import { getDualWriteConfig, validateEc2Config } from '../../config/dual-write.config';
 import { processIncomingData } from '../../services/sqs-processor';
+import { extractWaterLevelSensorId } from '../../utils/sensor-id-formatter';
 
-dotenv.config();
+// Load environment variables from .env.local first, then .env as fallback
+dotenv.config({ path: path.join(__dirname, '../../../.env.local') });
+dotenv.config(); // This will only set variables that aren't already set
 
 const logger = pino({
+  level: 'debug',
   transport: {
     target: 'pino-pretty',
     options: {
@@ -19,6 +24,21 @@ const logger = pino({
     }
   }
 });
+
+// Configuration with defaults
+const config = {
+  SQS_QUEUE_URL: process.env.SQS_QUEUE_URL || '',
+  AWS_REGION: process.env.AWS_REGION || 'ap-southeast-1',
+  TIMESCALE_HOST: process.env.TIMESCALE_HOST || 'localhost',
+  TIMESCALE_PORT: parseInt(process.env.TIMESCALE_PORT || '5433'),
+  TIMESCALE_DB: process.env.TIMESCALE_DB || 'munbon_timescale',
+  TIMESCALE_USER: process.env.TIMESCALE_USER || 'postgres',
+  TIMESCALE_PASSWORD: process.env.TIMESCALE_PASSWORD || 'postgres',
+  PORT: parseInt(process.env.CONSUMER_PORT || '3004'),
+  MAX_RETRIES: 5,
+  RETRY_DELAY: 5000,
+  HEALTH_CHECK_INTERVAL: 30000
+};
 
 // Statistics tracking
 interface ConsumerStats {
@@ -29,6 +49,9 @@ interface ConsumerStats {
   startTime: string;
   sensorTypes: Record<string, number>;
   sensorIds: Set<string>;
+  errors: { timestamp: string; error: string }[];
+  isHealthy: boolean;
+  lastHealthCheck: string;
 }
 
 const stats: ConsumerStats = {
@@ -38,117 +61,143 @@ const stats: ConsumerStats = {
   lastMessageTime: null,
   startTime: new Date().toISOString(),
   sensorTypes: {},
-  sensorIds: new Set()
+  sensorIds: new Set(),
+  errors: [],
+  isHealthy: false,
+  lastHealthCheck: new Date().toISOString()
 };
 
-// AWS SQS Configuration
-const sqsClient = new SQSClient({
-  region: process.env.AWS_REGION || 'ap-southeast-1',
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!
+// AWS SQS Configuration with retry logic
+let sqsClient: SQSClient;
+let isPolling = true;
+let pollErrors = 0;
+const MAX_POLL_ERRORS = 10;
+
+// Initialize SQS client with proper error handling
+function initializeSQSClient() {
+  try {
+    // Check if we have AWS credentials via environment or default
+    const hasEnvCredentials = process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY;
+    
+    if (hasEnvCredentials) {
+      logger.info('Using AWS credentials from environment variables');
+      sqsClient = new SQSClient({
+        region: config.AWS_REGION,
+        credentials: {
+          accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+          secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!
+        }
+      });
+    } else {
+      logger.info('Using AWS credentials from default chain (~/.aws/credentials or IAM role)');
+      sqsClient = new SQSClient({
+        region: config.AWS_REGION
+      });
+    }
+  } catch (error) {
+    logger.error({ error }, 'Failed to initialize SQS client');
+    throw error;
   }
-});
+}
 
 // Express app for dashboard
 const app = express();
 const server = createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: '*',
-    methods: ['GET', 'POST']
+    origin: "*",
+    methods: ["GET", "POST"]
   }
 });
 
-// Recent sensor data storage
+// Recent telemetry data storage
 const recentData: any[] = [];
 const MAX_RECENT_DATA = 100;
 
-// TimescaleDB repository
-let timescaleRepo: TimescaleRepository;
+// TimescaleDB repository - can be either single or dual-write
+let timescaleRepo: TimescaleRepository | DualWriteRepository;
 
 // Process telemetry data
-async function processTelemetryData(data: any): Promise<void> {
-  stats.messagesReceived++;
-  stats.lastMessageTime = new Date().toISOString();
+async function processTelemetryData(telemetryData: any): Promise<void> {
+  const startTime = Date.now();
   
   try {
-    // Process and save to TimescaleDB
-    await processIncomingData(timescaleRepo, data, logger);
-    
-    // Track sensor types and IDs
-    if (data.sensorType) {
-      stats.sensorTypes[data.sensorType] = (stats.sensorTypes[data.sensorType] || 0) + 1;
-    }
-    stats.sensorIds.add(data.sensorId);
-    
-    // Display based on sensor type
     logger.info({
-      sensorType: data.sensorType,
-      sensorId: data.sensorId,
-      tokenGroup: data.tokenGroup,
-      timestamp: data.timestamp
+      sensorType: telemetryData.sensorType,
+      sensorId: telemetryData.sensorId,
+      tokenGroup: telemetryData.tokenGroup
     }, '📡 New Telemetry Data');
-    
-    // Process based on sensor type
-    switch(data.sensorType) {
-      case 'water-level':
-        logger.info({
-          waterLevel: `${data.data.level} cm`,
-          voltage: `${data.data.voltage / 100}V`,
-          rssi: data.data.RSSI,
-          location: data.location
-        }, '💧 Water Level Data');
-        break;
-        
-      case 'moisture':
-        logger.info({
-          moistureSurface: `${data.data.humid_hi}%`,
-          moistureDeep: `${data.data.humid_low}%`,
-          tempSurface: `${data.data.temp_hi}°C`,
-          tempDeep: `${data.data.temp_low}°C`,
-          flood: data.data.flood,
-          location: data.location
-        }, '🌱 Moisture Data');
-        break;
-        
-      default:
-        logger.info({ data: data.data }, 'Unknown Sensor Data');
+
+    if (telemetryData.sensorType === 'water-level') {
+      logger.info({
+        waterLevel: `${telemetryData.data.level} cm`,
+        voltage: `${(telemetryData.data.voltage / 100).toFixed(2)}V`,
+        rssi: telemetryData.data.RSSI,
+        location: {
+          lat: telemetryData.data.latitude,
+          lng: telemetryData.data.longitude
+        }
+      }, '💧 Water Level Data');
     }
-    
-    // Store recent data
-    recentData.unshift(data);
+
+    // Process the data using the imported function
+    await processIncomingData(timescaleRepo, telemetryData, logger);
+
+    // Format sensor ID for display if it's a water level sensor
+    let displaySensorId = telemetryData.sensorId;
+    if (telemetryData.sensorType === 'water-level' && telemetryData.data.macAddress) {
+      try {
+        displaySensorId = extractWaterLevelSensorId(telemetryData.data);
+      } catch (error) {
+        logger.debug({ error }, 'Could not format sensor ID for display');
+      }
+    }
+
+    // Update statistics
+    stats.messagesProcessed++;
+    stats.lastMessageTime = new Date().toISOString();
+    stats.sensorTypes[telemetryData.sensorType] = (stats.sensorTypes[telemetryData.sensorType] || 0) + 1;
+    stats.sensorIds.add(displaySensorId);
+
+    // Store recent data with formatted sensor ID
+    recentData.unshift({
+      ...telemetryData,
+      sensorId: displaySensorId,
+      processedAt: new Date().toISOString(),
+      processingTime: Date.now() - startTime
+    });
     if (recentData.length > MAX_RECENT_DATA) {
       recentData.pop();
     }
-    
-    // Emit to connected websocket clients
-    io.emit('sensorData', data);
-    
-    // Save to file for backup
-    const date = new Date().toISOString().split('T')[0];
-    const filename = `telemetry_${data.sensorType}_${date}.jsonl`;
-    const filepath = path.join(__dirname, '../../../data', filename);
-    
-    // Ensure data directory exists
-    const dataDir = path.dirname(filepath);
-    if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true });
-    }
-    
-    fs.appendFileSync(filepath, JSON.stringify(data) + '\n');
-    
-    stats.messagesProcessed++;
+
+    // Emit to WebSocket with formatted sensor ID
+    io.emit('newData', {
+      ...telemetryData,
+      sensorId: displaySensorId
+    });
+
+    logger.info({
+      sensorType: telemetryData.sensorType,
+      sensorId: displaySensorId
+    }, 'Successfully processed sensor data');
+
   } catch (error) {
-    logger.error({ error, data }, 'Failed to process telemetry data');
+    logger.error({ error, telemetryData }, 'Failed to process telemetry data');
     stats.messagesFailed++;
-    throw error; // Re-throw to prevent message deletion
+    stats.errors.push({
+      timestamp: new Date().toISOString(),
+      error: error instanceof Error ? error.message : String(error)
+    });
+    if (stats.errors.length > 100) {
+      stats.errors.shift(); // Keep only last 100 errors
+    }
+    throw error;
   }
 }
 
-// Poll SQS for messages
+// Poll SQS with robust error handling
 async function pollSQS(): Promise<void> {
-  const queueUrl = process.env.SQS_QUEUE_URL;
+  const queueUrl = config.SQS_QUEUE_URL;
   
   if (!queueUrl) {
     logger.error('SQS_QUEUE_URL not configured');
@@ -160,10 +209,13 @@ async function pollSQS(): Promise<void> {
       QueueUrl: queueUrl,
       MaxNumberOfMessages: 10,
       WaitTimeSeconds: 20, // Long polling
-      VisibilityTimeout: 30
+      VisibilityTimeout: 300 // 5 minutes to process
     });
     
     const response = await sqsClient.send(command);
+    
+    // Reset error counter on successful poll
+    pollErrors = 0;
     
     if (response.Messages && response.Messages.length > 0) {
       logger.info(`Received ${response.Messages.length} messages from SQS`);
@@ -175,62 +227,120 @@ async function pollSQS(): Promise<void> {
           if (message.Body) {
             const telemetryData = JSON.parse(message.Body);
             
-            // Process the telemetry data - this will throw if DB write fails
-            await processTelemetryData(telemetryData);
+            // Update statistics
+            stats.messagesReceived++;
             
-            // Mark as successful only if no exceptions were thrown
+            // Process the telemetry data
+            await processTelemetryData(telemetryData);
             messageProcessedSuccessfully = true;
-            logger.debug({ 
-              messageId: message.MessageId,
-              sensorId: telemetryData.sensorId 
-            }, 'Message processed successfully');
+            
+            // Delete message from queue after successful processing
+            if (message.ReceiptHandle) {
+              const deleteCommand = new DeleteMessageCommand({
+                QueueUrl: queueUrl,
+                ReceiptHandle: message.ReceiptHandle
+              });
+              
+              await sqsClient.send(deleteCommand);
+              logger.debug({ messageId: message.MessageId }, 'Deleted message from SQS');
+            }
           }
         } catch (error) {
-          logger.error({ 
-            error, 
-            message: message.Body,
-            messageId: message.MessageId 
-          }, 'Error processing message - will retry');
-          stats.messagesFailed++;
-        }
-        
-        // Only delete message if it was processed successfully
-        if (messageProcessedSuccessfully && message.ReceiptHandle) {
-          try {
-            await sqsClient.send(new DeleteMessageCommand({
-              QueueUrl: queueUrl,
-              ReceiptHandle: message.ReceiptHandle
-            }));
-            logger.debug({ 
-              messageId: message.MessageId 
-            }, 'Message deleted from SQS');
-          } catch (deleteError) {
-            logger.error({ 
-              error: deleteError,
-              messageId: message.MessageId 
-            }, 'Failed to delete message from SQS');
+          logger.error({ error, messageId: message.MessageId }, 'Failed to process message');
+          
+          // If processing failed but we still want to remove from queue to prevent infinite retries
+          if (!messageProcessedSuccessfully && message.ReceiptHandle) {
+            try {
+              const deleteCommand = new DeleteMessageCommand({
+                QueueUrl: queueUrl,
+                ReceiptHandle: message.ReceiptHandle
+              });
+              
+              await sqsClient.send(deleteCommand);
+              logger.warn({ 
+                messageId: message.MessageId 
+              }, 'Deleted failed message from SQS to prevent infinite retries');
+            } catch (deleteError) {
+              logger.error({ 
+                error: deleteError, 
+                messageId: message.MessageId 
+              }, 'Failed to delete message from SQS');
+            }
           }
         }
       }
     }
-  } catch (error) {
-    logger.error({ error }, 'Error polling SQS');
+  } catch (error: any) {
+    pollErrors++;
+    logger.error({ 
+      error: error.message || error,
+      pollErrors,
+      maxErrors: MAX_POLL_ERRORS 
+    }, 'Error polling SQS');
+    
+    // If too many consecutive errors, pause polling
+    if (pollErrors >= MAX_POLL_ERRORS) {
+      logger.error('Too many consecutive poll errors, pausing for 60 seconds');
+      await new Promise(resolve => setTimeout(resolve, 60000));
+      pollErrors = 0; // Reset counter after pause
+    }
   }
 }
 
-// Continuous polling
+// Continuous polling with error recovery
 async function startPolling(): Promise<void> {
   logger.info('🚀 Starting SQS consumer...');
   
-  while (true) {
-    await pollSQS();
-    // Small delay between polls
-    await new Promise(resolve => setTimeout(resolve, 100));
+  while (isPolling) {
+    try {
+      await pollSQS();
+      // Small delay between polls
+      await new Promise(resolve => setTimeout(resolve, 100));
+    } catch (error) {
+      logger.error({ error }, 'Unexpected error in polling loop');
+      // Wait before retrying
+      await new Promise(resolve => setTimeout(resolve, config.RETRY_DELAY));
+    }
+  }
+  
+  logger.info('Polling stopped');
+}
+
+// Health check
+async function performHealthCheck(): Promise<void> {
+  try {
+    // Check database connection
+    await timescaleRepo.query('SELECT 1');
+    
+    // Check SQS access (lightweight check)
+    const testCommand = new ReceiveMessageCommand({
+      QueueUrl: config.SQS_QUEUE_URL,
+      MaxNumberOfMessages: 1,
+      WaitTimeSeconds: 0,
+      VisibilityTimeout: 1
+    });
+    await sqsClient.send(testCommand);
+    
+    stats.isHealthy = true;
+    stats.lastHealthCheck = new Date().toISOString();
+  } catch (error) {
+    stats.isHealthy = false;
+    stats.lastHealthCheck = new Date().toISOString();
+    logger.error({ error }, 'Health check failed');
   }
 }
 
 // Dashboard routes
 app.use(express.static(path.join(__dirname, '../../../public')));
+
+app.get('/health', async (_req, res) => {
+  await performHealthCheck();
+  res.status(stats.isHealthy ? 200 : 503).json({
+    status: stats.isHealthy ? 'healthy' : 'unhealthy',
+    uptime: Date.now() - new Date(stats.startTime).getTime(),
+    lastHealthCheck: stats.lastHealthCheck
+  });
+});
 
 app.get('/api/stats', (_req, res) => {
   res.json({
@@ -245,301 +355,132 @@ app.get('/api/recent', (req, res) => {
   res.json(recentData.slice(0, limit));
 });
 
-app.get('/api/sensors', (_req, res) => {
-  const sensors = Array.from(stats.sensorIds).map(id => {
-    const latestData = recentData.find(d => d.sensorId === id);
-    return {
-      id,
-      type: latestData?.sensorType || 'unknown',
-      lastSeen: latestData?.timestamp || null,
-      location: latestData?.location || null
-    };
-  });
-  res.json(sensors);
-});
-
-// Main dashboard page
-app.get('/', (_req, res) => {
-  const html = `
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Munbon IoT Sensor Dashboard</title>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { 
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #f5f5f5;
-            padding: 20px;
-        }
-        .container { max-width: 1400px; margin: 0 auto; }
-        h1 { color: #333; margin-bottom: 20px; }
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
-        }
-        .stat-card {
-            background: white;
-            border-radius: 8px;
-            padding: 20px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .stat-card h3 { 
-            color: #666; 
-            font-size: 14px; 
-            font-weight: normal;
-            margin-bottom: 8px;
-        }
-        .stat-card .value { 
-            font-size: 32px; 
-            font-weight: bold;
-            color: #333;
-        }
-        .sensor-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-            margin-bottom: 30px;
-        }
-        .sensor-card {
-            background: white;
-            border-radius: 8px;
-            padding: 20px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .sensor-card h2 {
-            font-size: 20px;
-            margin-bottom: 15px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .water-level { border-left: 4px solid #2196F3; }
-        .moisture { border-left: 4px solid #4CAF50; }
-        .sensor-list {
-            max-height: 400px;
-            overflow-y: auto;
-        }
-        .sensor-item {
-            padding: 12px;
-            border-bottom: 1px solid #eee;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .sensor-item:last-child { border-bottom: none; }
-        .sensor-id { font-weight: 500; }
-        .sensor-value { 
-            font-size: 18px; 
-            font-weight: bold;
-            color: #333;
-        }
-        .sensor-meta {
-            font-size: 12px;
-            color: #666;
-            margin-top: 4px;
-        }
-        .live-indicator {
-            display: inline-block;
-            width: 8px;
-            height: 8px;
-            background: #4CAF50;
-            border-radius: 50%;
-            margin-right: 8px;
-            animation: pulse 2s infinite;
-        }
-        @keyframes pulse {
-            0% { opacity: 1; }
-            50% { opacity: 0.5; }
-            100% { opacity: 1; }
-        }
-        .no-data { 
-            color: #999; 
-            text-align: center; 
-            padding: 40px;
-        }
-    </style>
-    <script src="/socket.io/socket.io.js"></script>
-</head>
-<body>
-    <div class="container">
-        <h1>🏭 Munbon IoT Sensor Dashboard</h1>
-        
-        <div class="stats-grid">
-            <div class="stat-card">
-                <h3>Total Messages</h3>
-                <div class="value" id="totalMessages">0</div>
-            </div>
-            <div class="stat-card">
-                <h3>Active Sensors</h3>
-                <div class="value" id="activeSensors">0</div>
-            </div>
-            <div class="stat-card">
-                <h3>Water Level Sensors</h3>
-                <div class="value" id="waterLevelCount">0</div>
-            </div>
-            <div class="stat-card">
-                <h3>Moisture Sensors</h3>
-                <div class="value" id="moistureCount">0</div>
-            </div>
-        </div>
-        
-        <div class="sensor-grid">
-            <div class="sensor-card water-level">
-                <h2><span class="live-indicator"></span>💧 Water Level Sensors</h2>
-                <div id="waterLevelList" class="sensor-list">
-                    <div class="no-data">Waiting for sensor data...</div>
-                </div>
-            </div>
-            
-            <div class="sensor-card moisture">
-                <h2><span class="live-indicator"></span>🌱 Moisture Sensors</h2>
-                <div id="moistureList" class="sensor-list">
-                    <div class="no-data">Waiting for sensor data...</div>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <script>
-        const socket = io();
-        const waterLevelData = new Map();
-        const moistureData = new Map();
-        
-        async function updateStats() {
-            const response = await fetch('/api/stats');
-            const stats = await response.json();
-            
-            document.getElementById('totalMessages').textContent = stats.messagesReceived;
-            document.getElementById('activeSensors').textContent = stats.sensorCount;
-            document.getElementById('waterLevelCount').textContent = stats.sensorTypes['water-level'] || 0;
-            document.getElementById('moistureCount').textContent = stats.sensorTypes['moisture'] || 0;
-        }
-        
-        function formatTime(timestamp) {
-            return new Date(timestamp).toLocaleTimeString();
-        }
-        
-        function updateSensorList(containerId, dataMap, sensorType) {
-            const container = document.getElementById(containerId);
-            if (dataMap.size === 0) {
-                container.innerHTML = '<div class="no-data">Waiting for sensor data...</div>';
-                return;
-            }
-            
-            const items = Array.from(dataMap.values())
-                .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-                .slice(0, 10);
-            
-            container.innerHTML = items.map(data => {
-                let valueHtml = '';
-                if (sensorType === 'water-level') {
-                    valueHtml = \`<div class="sensor-value">\${data.data.level} cm</div>\`;
-                } else if (sensorType === 'moisture') {
-                    valueHtml = \`<div class="sensor-value">\${data.data.humid_hi}% / \${data.data.humid_low}%</div>\`;
-                }
-                
-                return \`
-                    <div class="sensor-item">
-                        <div>
-                            <div class="sensor-id">\${data.sensorId}</div>
-                            <div class="sensor-meta">
-                                \${formatTime(data.timestamp)}
-                                \${data.location ? \` • \${data.location.lat.toFixed(4)}, \${data.location.lng.toFixed(4)}\` : ''}
-                            </div>
-                        </div>
-                        \${valueHtml}
-                    </div>
-                \`;
-            }).join('');
-        }
-        
-        socket.on('sensorData', (data) => {
-            if (data.sensorType === 'water-level') {
-                waterLevelData.set(data.sensorId, data);
-                updateSensorList('waterLevelList', waterLevelData, 'water-level');
-            } else if (data.sensorType === 'moisture') {
-                moistureData.set(data.sensorId, data);
-                updateSensorList('moistureList', moistureData, 'moisture');
-            }
-            updateStats();
-        });
-        
-        // Initial load
-        updateStats();
-        setInterval(updateStats, 5000);
-        
-        // Load recent data
-        fetch('/api/recent?limit=50')
-            .then(res => res.json())
-            .then(recent => {
-                recent.forEach(data => {
-                    if (data.sensorType === 'water-level') {
-                        waterLevelData.set(data.sensorId, data);
-                    } else if (data.sensorType === 'moisture') {
-                        moistureData.set(data.sensorId, data);
-                    }
-                });
-                updateSensorList('waterLevelList', waterLevelData, 'water-level');
-                updateSensorList('moistureList', moistureData, 'moisture');
-            });
-    </script>
-</body>
-</html>
-  `;
-  res.send(html);
-});
-
-// Start server and polling
-const PORT = process.env.CONSUMER_PORT || 3002;
-
-async function start() {
-  try {
-    // Initialize TimescaleDB connection
-    timescaleRepo = new TimescaleRepository({
-      host: process.env.TIMESCALE_HOST || 'localhost',
-      port: parseInt(process.env.TIMESCALE_PORT || '5433'),
-      database: process.env.TIMESCALE_DB || 'munbon_timescale',
-      user: process.env.TIMESCALE_USER || 'postgres',
-      password: process.env.TIMESCALE_PASSWORD || ''
-    });
-
-    await timescaleRepo.initialize();
-    logger.info('✅ Connected to TimescaleDB');
-
-    // Start HTTP server
-    server.listen(PORT, () => {
-      logger.info(`📊 Dashboard running at http://localhost:${PORT}`);
-      logger.info('🔄 Starting SQS polling...');
+// Main startup with retry logic
+async function start(): Promise<void> {
+  let retries = 0;
+  
+  while (retries < config.MAX_RETRIES) {
+    try {
+      // Initialize AWS SQS client
+      initializeSQSClient();
       
-      // Start polling in background
-      startPolling().catch(error => {
-        logger.error({ error }, 'Fatal error in polling');
-        process.exit(1);
+      // Get dual-write configuration
+      const dualWriteConfig = getDualWriteConfig();
+      
+      // Validate EC2 config if dual-write is enabled
+      if (dualWriteConfig.enableDualWrite) {
+        const validation = validateEc2Config();
+        if (!validation.valid) {
+          logger.error({ errors: validation.errors }, 'Invalid EC2 configuration for dual-write');
+          throw new Error('EC2 configuration validation failed');
+        }
+        logger.info('✅ EC2 configuration validated for dual-write');
+      }
+      
+      // Initialize repository based on dual-write configuration
+      if (dualWriteConfig.enableDualWrite) {
+        logger.info('🔄 Initializing dual-write repository...');
+        timescaleRepo = new DualWriteRepository({
+          local: dualWriteConfig.localDatabase,
+          ec2: dualWriteConfig.ec2Database,
+          enableDualWrite: dualWriteConfig.enableDualWrite,
+          ec2WriteTimeout: dualWriteConfig.ec2WriteTimeout,
+          retryAttempts: dualWriteConfig.retryAttempts,
+          retryDelay: dualWriteConfig.retryDelay
+        }, logger);
+      } else {
+        logger.info('📝 Initializing single-write repository (local only)...');
+        timescaleRepo = new TimescaleRepository({
+          host: config.TIMESCALE_HOST,
+          port: config.TIMESCALE_PORT,
+          database: config.TIMESCALE_DB,
+          user: config.TIMESCALE_USER,
+          password: config.TIMESCALE_PASSWORD
+        });
+      }
+
+      await timescaleRepo.initialize();
+      logger.info('✅ Repository initialized successfully');
+
+      // Start health check interval
+      setInterval(performHealthCheck, config.HEALTH_CHECK_INTERVAL);
+
+      // Start HTTP server
+      server.listen(config.PORT, () => {
+        logger.info(`📊 Dashboard running at http://localhost:${config.PORT}`);
+        logger.info('🔄 Starting SQS polling...');
+        
+        // Start polling in background with error recovery
+        startPolling().catch(error => {
+          logger.error({ error }, 'Fatal error in polling - will retry');
+          // Don't exit, let the polling loop handle retries
+        });
       });
-    });
-  } catch (error) {
-    logger.error({ error }, 'Failed to start consumer');
-    process.exit(1);
+
+      // If we get here, startup was successful
+      stats.isHealthy = true;
+      break;
+      
+    } catch (error) {
+      retries++;
+      logger.error({ 
+        error, 
+        retries, 
+        maxRetries: config.MAX_RETRIES 
+      }, 'Failed to start consumer, retrying...');
+      
+      if (retries >= config.MAX_RETRIES) {
+        logger.error('Max retries exceeded, exiting');
+        process.exit(1);
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, config.RETRY_DELAY));
+    }
   }
 }
 
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   logger.info('SIGTERM received, shutting down gracefully...');
+  isPolling = false;
   
-  if (timescaleRepo) {
-    await timescaleRepo.close();
-  }
+  // Give some time for current operations to complete
+  setTimeout(() => {
+    server.close(() => {
+      logger.info('Server closed');
+      process.exit(0);
+    });
+  }, 5000);
+});
+
+process.on('SIGINT', async () => {
+  logger.info('SIGINT received, shutting down gracefully...');
+  isPolling = false;
   
-  server.close(() => {
-    logger.info('Server closed');
-    process.exit(0);
+  setTimeout(() => {
+    server.close(() => {
+      logger.info('Server closed');
+      process.exit(0);
+    });
+  }, 5000);
+});
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+  logger.error({ error }, 'Uncaught exception');
+  stats.errors.push({
+    timestamp: new Date().toISOString(),
+    error: error.message
   });
 });
 
+process.on('unhandledRejection', (reason, promise) => {
+  logger.error({ reason, promise }, 'Unhandled rejection');
+  stats.errors.push({
+    timestamp: new Date().toISOString(),
+    error: String(reason)
+  });
+});
+
+// Start the consumer
 start();

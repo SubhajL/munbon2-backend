@@ -1,0 +1,491 @@
+{
+  "timestamp": "1755131929.0019815",
+  "network_summary": {
+    "total_nodes": 60,
+    "total_channels": 0,
+    "total_gates": 59,
+    "automated_gates": 20,
+    "total_zones": 6,
+    "elevation_range": {
+      "min": 214.5,
+      "max": 221.0,
+      "source": 221.0
+    }
+  },
+  "zone_validation": {
+    "zone_1": {
+      "zone_id": "zone_1",
+      "zone_name": "Irrigation Zone 1",
+      "feasible": true,
+      "source_elevation": 221.0,
+      "zone_max_elevation": 218.0,
+      "zone_min_elevation": 216.8,
+      "available_head": 3.0,
+      "required_head": 1.3817898379836655,
+      "head_loss": 1.0817898379836655,
+      "safety_margin": 1.6182101620163345,
+      "path": [
+        "source",
+        "intermediate_1",
+        "zone_1"
+      ],
+      "critical": false
+    },
+    "zone_2": {
+      "zone_id": "zone_2",
+      "zone_name": "Irrigation Zone 2",
+      "feasible": true,
+      "source_elevation": 221.0,
+      "zone_max_elevation": 217.0,
+      "zone_min_elevation": 216.0,
+      "available_head": 4.0,
+      "required_head": 2.46260353158501,
+      "head_loss": 2.16260353158501,
+      "safety_margin": 1.5373964684149901,
+      "path": [
+        "source",
+        "intermediate_2",
+        "zone_2"
+      ],
+      "critical": false
+    },
+    "zone_3": {
+      "zone_id": "zone_3",
+      "zone_name": "Irrigation Zone 3",
+      "feasible": true,
+      "source_elevation": 221.0,
+      "zone_max_elevation": 215.0,
+      "zone_min_elevation": 214.0,
+      "available_head": 6.0,
+      "required_head": 3.5417557789269822,
+      "head_loss": 3.2417557789269824,
+      "safety_margin": 2.4582442210730178,
+      "path": [
+        "source",
+        "intermediate_3",
+        "zone_3"
+      ],
+      "critical": false
+    },
+    "zone_4": {
+      "zone_id": "zone_4",
+      "zone_name": "Irrigation Zone 4",
+      "feasible": true,
+      "source_elevation": 221.0,
+      "zone_max_elevation": 214.5,
+      "zone_min_elevation": 213.5,
+      "available_head": 6.5,
+      "required_head": 4.6216106000621044,
+      "head_loss": 4.321610600062105,
+      "safety_margin": 1.8783893999378956,
+      "path": [
+        "source",
+        "intermediate_4",
+        "zone_4"
+      ],
+      "critical": false
+    },
+    "zone_5": {
+      "zone_id": "zone_5",
+      "zone_name": "Irrigation Zone 5",
+      "feasible": false,
+      "source_elevation": 221.0,
+      "zone_max_elevation": 216.5,
+      "zone_min_elevation": 215.5,
+      "available_head": 4.5,
+      "required_head": 5.701650595812737,
+      "head_loss": 5.401650595812737,
+      "safety_margin": -1.2016505958127368,
+      "path": [
+        "source",
+        "intermediate_5",
+        "zone_5"
+      ],
+      "critical": true
+    },
+    "zone_6": {
+      "zone_id": "zone_6",
+      "zone_name": "Irrigation Zone 6",
+      "feasible": false,
+      "source_elevation": 221.0,
+      "zone_max_elevation": 216.0,
+      "zone_min_elevation": 215.0,
+      "available_head": 5.0,
+      "required_head": 6.781837537344076,
+      "head_loss": 6.481837537344076,
+      "safety_margin": -1.7818375373440762,
+      "path": [
+        "source",
+        "intermediate_6",
+        "zone_6"
+      ],
+      "critical": true
+    }
+  },
+  "gate_issues": [
+    {
+      "gate_id": "M(0,0)",
+      "issue": "Insufficient operational depth",
+      "required_level": 218.3,
+      "gate_elevation": 218.0
+    },
+    {
+      "gate_id": "M(0,1)",
+      "issue": "Insufficient operational depth",
+      "required_level": 218.20000000000002,
+      "gate_elevation": 217.9
+    },
+    {
+      "gate_id": "M(0,2)",
+      "issue": "Insufficient operational depth",
+      "required_level": 218.20000000000002,
+      "gate_elevation": 217.9
+    },
+    {
+      "gate_id": "M(0,3)",
+      "issue": "Insufficient operational depth",
+      "required_level": 218.10000000000002,
+      "gate_elevation": 217.8
+    },
+    {
+      "gate_id": "M(0,4)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M(0,5)",
+      "issue": "Insufficient operational depth",
+      "required_level": 217.3,
+      "gate_elevation": 217.0
+    },
+    {
+      "gate_id": "M(0,6)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M(0,7)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M(0,8)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M(0,9)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M(0,10)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M(0,11)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M(0,12)",
+      "issue": "Insufficient operational depth",
+      "required_level": 215.3,
+      "gate_elevation": 215.0
+    },
+    {
+      "gate_id": "M(0,13)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M(0,14)",
+      "issue": "Insufficient operational depth",
+      "required_level": 214.8,
+      "gate_elevation": 214.5
+    },
+    {
+      "gate_id": "M(0,0; 1,0)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M (0,1; 1,0)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M (0,1; 1,1)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M (0,1; 1,2)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M (0,1; 1,3)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M (0,1; 1,4)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M(0,1; 1,0; 1,0)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M(0,1; 1,1; 1,0)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M(0,1; 1,1; 1,1)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M(0,1; 1,1; 1,2)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M(0,1; 1,1; 1,3)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M(0,1; 1,1; 1,4)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M(0,1; 1,1; 1,2; 1,0)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M (0,3; 1,0)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M (0,3; 1,1)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M (0,3; 1,2)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M (0,3; 1,3)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M (0,3; 1,1; 1,0)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M (0,3; 1,1; 1,1)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M (0,3; 1,1; 2,0)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M (0,3; 1,1; 2,1)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M (0,12; 1,0)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M (0,12; 1,1)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M (0,12; 1,2)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M (0,12; 1,3)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M (0,12; 1,4)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M (0,12; 1,5)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M (0,12; 1,0; 1,0)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M (0,12; 1,0; 1,1)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M (0,12; 1,1; 1,0)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M (0,12; 1,1; 1,1)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M (0,12; 1,1; 1,2)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M (0,12; 1,1; 1,0; 1,0)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M (0,12; 1,1; 1,0; 1,1)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M (0,12; 1,1; 1,0; 1,2)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M (0,12; 1,2; 1,0)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M (0,12; 1,2; 1,1)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M (0,12; 1,2; 1,2)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M (0,12; 1,2; 1,0; 1,0)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M (0,12; 1,2; 1,0; 1,1)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M (0,12; 1,3; 1,0)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M (0,12; 1,3; 1,1)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M (0,12; 1,4; 1,0)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    },
+    {
+      "gate_id": "M (0,12; 1,4; 1,1)",
+      "issue": "Insufficient operational depth",
+      "required_level": 216.3,
+      "gate_elevation": 216.0
+    }
+  ],
+  "velocity_issues": [],
+  "overall_feasibility": false,
+  "summary": {
+    "feasible_zones": 4,
+    "infeasible_zones": 2,
+    "critical_zones": 2,
+    "gate_issues_count": 59,
+    "velocity_issues_count": 0,
+    "recommendation": "System needs modification"
+  }
+}
