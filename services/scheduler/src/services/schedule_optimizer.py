@@ -1,619 +1,591 @@
-"""
-Schedule Optimization Engine
-Optimizes weekly irrigation schedules to minimize field team travel
-while satisfying water demands and constraints
-"""
-
-import numpy as np
-from typing import Dict, List, Tuple, Optional, Set
+from typing import Dict, List, Any, Optional
 from datetime import datetime, date, timedelta
-from dataclasses import dataclass
-import structlog
-from geopy.distance import geodesic
+from uuid import UUID
 import asyncio
 
-from ..db.connections import DatabaseManager
-from ..schemas.schedule import ScheduleOperation, WeeklySchedule
-from ..schemas.demands import SectionDemand
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, and_
 
-logger = structlog.get_logger()
+from ..core.logger import get_logger
+from ..core.redis import RedisClient
+from ..core.config import settings
+from ..models.schedule import (
+    WeeklySchedule, ScheduledOperation, FieldInstruction,
+    OptimizationConstraint, FieldTeam
+)
+from ..algorithms.mixed_integer_optimizer import MixedIntegerOptimizer
+from ..algorithms.travel_optimizer import TravelOptimizer
+from .demand_aggregator import DemandAggregator
+from .field_instruction_generator import FieldInstructionGenerator
+from .weekly_adjustment_accumulator import WeeklyAdjustmentAccumulator
+from .clients import ROSClient, GISClient, FlowMonitoringClient, WeatherClient
 
-
-@dataclass
-class OptimizationResult:
-    """Result of schedule optimization"""
-    schedule: List[ScheduleOperation]
-    total_travel_km: float
-    demand_satisfaction: float
-    computation_time_ms: int
-    iterations: int
-    warnings: List[str]
+logger = get_logger(__name__)
 
 
 class ScheduleOptimizer:
-    """
-    Optimizes irrigation schedules using a multi-objective approach:
-    1. Minimize field team travel distance
-    2. Maximize demand satisfaction
-    3. Balance workload across days/teams
-    """
+    """Main service for schedule optimization"""
     
-    def __init__(self, db_manager: DatabaseManager):
-        self.db_manager = db_manager
-        
-        # Optimization parameters
-        self.max_iterations = 1000
-        self.convergence_threshold = 0.001
-        self.tabu_list_size = 50
-        
-        # Field work constraints
-        self.work_start_hour = 7
-        self.work_end_hour = 17
-        self.travel_speed_kmh = 40
-        self.gate_operation_time_minutes = 30
-        self.max_gates_per_day = 20
-        
-        # Teams and their base locations
-        self.teams = {
-            "Team_A": {"lat": 14.8200, "lon": 103.1500},
-            "Team_B": {"lat": 14.8300, "lon": 103.1600}
-        }
-        
-        # Gate locations cache
-        self.gate_locations = {}
-        self._load_gate_locations()
-    
-    def _load_gate_locations(self):
-        """Load gate GPS locations from database"""
-        # In real implementation, load from database
-        # For now, use sample locations
-        self.gate_locations = {
-            "Source->M(0,0)": {"lat": 14.8234, "lon": 103.1567},
-            "M(0,0)->M(0,2)": {"lat": 14.8245, "lon": 103.1578},
-            "M(0,2)->Zone_2": {"lat": 14.8256, "lon": 103.1589},
-            "M(0,0)->M(0,5)": {"lat": 14.8267, "lon": 103.1600},
-            "M(0,5)->Zone_5": {"lat": 14.8278, "lon": 103.1611},
-            # Add more gates as needed
-        }
-    
-    async def optimize_schedule(
+    def __init__(
         self,
-        demands: List[SectionDemand],
-        week_start: date,
-        constraints: Optional[Dict] = None
-    ) -> OptimizationResult:
-        """
-        Main optimization function using Tabu Search algorithm
-        """
-        start_time = datetime.utcnow()
-        
-        try:
-            # Step 1: Group demands by delivery paths
-            delivery_paths = self._group_demands_by_path(demands)
-            
-            # Step 2: Determine gates that need manual operation
-            manual_gates = await self._identify_manual_gates(delivery_paths)
-            
-            # Step 3: Create initial schedule using nearest neighbor
-            initial_schedule = self._create_initial_schedule(
-                manual_gates, week_start
-            )
-            
-            # Step 4: Optimize using Tabu Search
-            optimized_schedule = await self._tabu_search_optimization(
-                initial_schedule, demands, constraints
-            )
-            
-            # Step 5: Validate and finalize schedule
-            final_schedule = self._validate_and_finalize(
-                optimized_schedule, demands
-            )
-            
-            # Calculate metrics
-            total_travel = self._calculate_total_travel(final_schedule)
-            satisfaction = self._calculate_demand_satisfaction(
-                final_schedule, demands
-            )
-            
-            computation_time = int(
-                (datetime.utcnow() - start_time).total_seconds() * 1000
-            )
-            
-            return OptimizationResult(
-                schedule=final_schedule,
-                total_travel_km=total_travel,
-                demand_satisfaction=satisfaction,
-                computation_time_ms=computation_time,
-                iterations=self.max_iterations,
-                warnings=self._generate_warnings(final_schedule, demands)
-            )
-            
-        except Exception as e:
-            logger.error(f"Schedule optimization failed: {e}")
-            raise
+        db: AsyncSession,
+        redis: RedisClient,
+        ros_client: ROSClient,
+        gis_client: GISClient,
+        flow_client: FlowMonitoringClient,
+        weather_client: Optional[WeatherClient] = None
+    ):
+        self.db = db
+        self.redis = redis
+        self.demand_aggregator = DemandAggregator(ros_client, gis_client, flow_client, redis)
+        self.milp_optimizer = MixedIntegerOptimizer({"timeout_seconds": settings.optimization_timeout_seconds})
+        self.travel_optimizer = TravelOptimizer()
+        self.instruction_generator = FieldInstructionGenerator()
+        self.ros_client = ros_client
+        self.gis_client = gis_client
+        self.flow_client = flow_client
+        self.weather_client = weather_client or WeatherClient()
+        self.adjustment_accumulator = WeeklyAdjustmentAccumulator(
+            db, redis, ros_client, self.weather_client
+        )
     
-    def _group_demands_by_path(
-        self, 
-        demands: List[SectionDemand]
-    ) -> Dict[str, List[SectionDemand]]:
-        """Group demands by their delivery paths"""
-        paths = {}
-        
-        for demand in demands:
-            # Determine delivery path based on zone
-            zone = demand.zone
-            if zone <= 3:
-                path = "main_canal_upper"
-            elif zone <= 6:
-                path = "main_canal_lower"
-            else:
-                path = "lateral_canals"
-            
-            if path not in paths:
-                paths[path] = []
-            paths[path].append(demand)
-        
-        return paths
-    
-    async def _identify_manual_gates(
-        self, 
-        delivery_paths: Dict[str, List[SectionDemand]]
-    ) -> List[Dict]:
-        """Identify gates requiring manual operation"""
-        manual_gates = []
-        
-        # Query flow monitoring service for gate states
-        # For now, simulate with known manual gates
-        manual_gate_ids = [
-            "M(0,0)->M(0,2)",
-            "M(0,5)->Zone_5",
-            "M(2,0)->M(2,2)",
-            "M(2,2)->Zone_8"
-        ]
-        
-        for gate_id in manual_gate_ids:
-            if gate_id in self.gate_locations:
-                manual_gates.append({
-                    "gate_id": gate_id,
-                    "location": self.gate_locations[gate_id],
-                    "current_opening": 0.5,  # Simulated
-                    "target_opening": 0.8    # Based on demands
-                })
-        
-        return manual_gates
-    
-    def _create_initial_schedule(
+    async def generate_weekly_schedule(
         self,
-        manual_gates: List[Dict],
-        week_start: date
-    ) -> List[ScheduleOperation]:
-        """Create initial schedule using nearest neighbor heuristic"""
-        schedule = []
+        week_number: int,
+        year: int,
+        constraints: Optional[Dict[str, Any]] = None
+    ) -> WeeklySchedule:
+        """Generate optimized schedule for a week"""
         
-        # Divide gates between teams
-        gates_per_team = len(manual_gates) // len(self.teams)
+        logger.info(f"Generating schedule for week {week_number}, {year}")
         
-        # Schedule operations on Tuesday and Thursday
-        operation_days = [
-            (week_start + timedelta(days=1), "Tuesday"),
-            (week_start + timedelta(days=3), "Thursday")
-        ]
+        # Step 1: Aggregate demands
+        demands = await self.demand_aggregator.aggregate_weekly_demands(week_number, year)
         
-        for day_idx, (operation_date, day_name) in enumerate(operation_days):
-            # Assign gates to teams for this day
-            day_gates = manual_gates[
-                day_idx * len(manual_gates) // 2:
-                (day_idx + 1) * len(manual_gates) // 2
-            ]
-            
-            for team_idx, (team_name, team_base) in enumerate(self.teams.items()):
-                # Get team's gates using nearest neighbor
-                team_gates = self._nearest_neighbor_route(
-                    day_gates[
-                        team_idx * len(day_gates) // len(self.teams):
-                        (team_idx + 1) * len(day_gates) // len(self.teams)
-                    ],
-                    team_base
-                )
-                
-                # Create operations
-                scheduled_time = datetime.combine(
-                    operation_date,
-                    datetime.min.time().replace(hour=self.work_start_hour)
-                )
-                
-                for gate in team_gates:
-                    operation = ScheduleOperation(
-                        operation_id=f"OP-{week_start.isocalendar()[1]}-{len(schedule)+1:03d}",
-                        gate_id=gate["gate_id"],
-                        action="adjust",
-                        target_opening_m=gate["target_opening"],
-                        scheduled_time=scheduled_time,
-                        team_assigned=team_name,
-                        day=day_name,
-                        estimated_duration_minutes=self.gate_operation_time_minutes,
-                        priority=1,
-                        location=gate["location"]
-                    )
-                    schedule.append(operation)
-                    
-                    # Update scheduled time for next operation
-                    travel_time = self._estimate_travel_time(
-                        gate["location"],
-                        team_gates[team_gates.index(gate) + 1]["location"]
-                        if team_gates.index(gate) < len(team_gates) - 1
-                        else team_base
-                    )
-                    scheduled_time += timedelta(
-                        minutes=self.gate_operation_time_minutes + travel_time
-                    )
+        # Step 1.5: Apply weather-based adjustments from previous week
+        weather_adjustments = await self.adjustment_accumulator.get_weekly_adjustments_for_scheduling(
+            week_number, year
+        )
+        demands = await self._apply_weather_adjustments(demands, weather_adjustments)
         
-        return schedule
-    
-    def _nearest_neighbor_route(
-        self,
-        gates: List[Dict],
-        start_location: Dict[str, float]
-    ) -> List[Dict]:
-        """Order gates using nearest neighbor algorithm"""
-        if not gates:
-            return []
+        # Step 2: Get network topology
+        network = await self._get_network_data()
         
-        ordered = []
-        remaining = gates.copy()
-        current_location = start_location
+        # Step 3: Get available teams
+        teams = await self._get_available_teams(week_number, year)
         
-        while remaining:
-            # Find nearest gate
-            nearest = min(
-                remaining,
-                key=lambda g: geodesic(
-                    (current_location["lat"], current_location["lon"]),
-                    (g["location"]["lat"], g["location"]["lon"])
-                ).km
-            )
-            
-            ordered.append(nearest)
-            remaining.remove(nearest)
-            current_location = nearest["location"]
+        # Step 4: Get optimization constraints
+        db_constraints = await self._get_optimization_constraints()
         
-        return ordered
-    
-    async def _tabu_search_optimization(
-        self,
-        initial_schedule: List[ScheduleOperation],
-        demands: List[SectionDemand],
-        constraints: Optional[Dict]
-    ) -> List[ScheduleOperation]:
-        """
-        Optimize schedule using Tabu Search metaheuristic
-        """
-        current_solution = initial_schedule.copy()
-        best_solution = current_solution.copy()
-        best_cost = self._calculate_cost(current_solution, demands)
+        # Step 5: Prepare time horizon
+        time_horizon = self._prepare_time_horizon(week_number, year, constraints)
         
-        tabu_list = []
-        iteration = 0
-        
-        while iteration < self.max_iterations:
-            # Generate neighborhood solutions
-            neighbors = self._generate_neighbors(current_solution)
-            
-            # Find best non-tabu neighbor
-            best_neighbor = None
-            best_neighbor_cost = float('inf')
-            
-            for neighbor in neighbors:
-                if not self._is_tabu(neighbor, tabu_list):
-                    cost = self._calculate_cost(neighbor, demands)
-                    if cost < best_neighbor_cost:
-                        best_neighbor = neighbor
-                        best_neighbor_cost = cost
-            
-            # Update current solution
-            if best_neighbor:
-                current_solution = best_neighbor
-                tabu_list.append(self._get_move_signature(best_neighbor))
-                
-                # Maintain tabu list size
-                if len(tabu_list) > self.tabu_list_size:
-                    tabu_list.pop(0)
-                
-                # Update best solution if improved
-                if best_neighbor_cost < best_cost:
-                    best_solution = best_neighbor.copy()
-                    best_cost = best_neighbor_cost
-            
-            iteration += 1
-            
-            # Check convergence
-            if iteration % 100 == 0:
-                logger.debug(f"Iteration {iteration}, best cost: {best_cost}")
-        
-        return best_solution
-    
-    def _generate_neighbors(
-        self, 
-        schedule: List[ScheduleOperation]
-    ) -> List[List[ScheduleOperation]]:
-        """Generate neighborhood solutions using various operators"""
-        neighbors = []
-        
-        # Operator 1: Swap operations between teams
-        for i in range(len(schedule) - 1):
-            for j in range(i + 1, len(schedule)):
-                if (schedule[i].team_assigned != schedule[j].team_assigned and
-                    schedule[i].day == schedule[j].day):
-                    neighbor = schedule.copy()
-                    neighbor[i].team_assigned, neighbor[j].team_assigned = \
-                        neighbor[j].team_assigned, neighbor[i].team_assigned
-                    neighbors.append(neighbor)
-        
-        # Operator 2: Move operation to different day
-        for i, op in enumerate(schedule):
-            if op.day == "Tuesday":
-                neighbor = schedule.copy()
-                neighbor[i].day = "Thursday"
-                neighbor[i].scheduled_time = neighbor[i].scheduled_time + timedelta(days=2)
-                neighbors.append(neighbor)
-            elif op.day == "Thursday":
-                neighbor = schedule.copy()
-                neighbor[i].day = "Tuesday"
-                neighbor[i].scheduled_time = neighbor[i].scheduled_time - timedelta(days=2)
-                neighbors.append(neighbor)
-        
-        # Operator 3: Reorder operations within team/day
-        teams_days = {}
-        for i, op in enumerate(schedule):
-            key = (op.team_assigned, op.day)
-            if key not in teams_days:
-                teams_days[key] = []
-            teams_days[key].append(i)
-        
-        for indices in teams_days.values():
-            if len(indices) > 2:
-                # Try 2-opt improvement
-                for i in range(len(indices) - 1):
-                    for j in range(i + 2, len(indices)):
-                        neighbor = schedule.copy()
-                        # Reverse sequence
-                        reversed_ops = [neighbor[k] for k in indices[i:j+1]][::-1]
-                        for k, idx in enumerate(indices[i:j+1]):
-                            neighbor[idx] = reversed_ops[k]
-                        neighbors.append(neighbor)
-        
-        return neighbors[:50]  # Limit neighborhood size
-    
-    def _calculate_cost(
-        self,
-        schedule: List[ScheduleOperation],
-        demands: List[SectionDemand]
-    ) -> float:
-        """Calculate multi-objective cost function"""
-        # Component 1: Travel distance
-        travel_cost = self._calculate_total_travel(schedule)
-        
-        # Component 2: Demand satisfaction penalty
-        satisfaction = self._calculate_demand_satisfaction(schedule, demands)
-        demand_penalty = (1 - satisfaction) * 100
-        
-        # Component 3: Workload balance
-        balance_penalty = self._calculate_balance_penalty(schedule)
-        
-        # Weighted sum
-        total_cost = (
-            0.5 * travel_cost +
-            0.3 * demand_penalty +
-            0.2 * balance_penalty
+        # Step 6: Run optimization
+        optimization_result = await self._run_optimization(
+            demands, network, teams, db_constraints, time_horizon
         )
         
-        return total_cost
-    
-    def _calculate_total_travel(
-        self, 
-        schedule: List[ScheduleOperation]
-    ) -> float:
-        """Calculate total travel distance for all teams"""
-        total_km = 0.0
+        # Step 7: Create schedule record
+        schedule = await self._create_schedule_record(
+            week_number, year, demands, optimization_result
+        )
         
-        # Group by team and day
-        team_day_ops = {}
-        for op in schedule:
-            key = (op.team_assigned, op.day)
-            if key not in team_day_ops:
-                team_day_ops[key] = []
-            team_day_ops[key].append(op)
+        # Step 8: Create operation records
+        operations = await self._create_operation_records(
+            schedule, optimization_result, network
+        )
         
-        # Calculate travel for each team/day
-        for (team, day), ops in team_day_ops.items():
-            if not ops:
-                continue
-            
-            # Sort by scheduled time
-            ops.sort(key=lambda x: x.scheduled_time)
-            
-            # Start from base
-            team_base = self.teams[team]
-            current_loc = team_base
-            
-            # Travel to each gate
-            for op in ops:
-                gate_loc = op.location
-                distance = geodesic(
-                    (current_loc["lat"], current_loc["lon"]),
-                    (gate_loc["lat"], gate_loc["lon"])
-                ).km
-                total_km += distance
-                current_loc = gate_loc
-            
-            # Return to base
-            distance = geodesic(
-                (current_loc["lat"], current_loc["lon"]),
-                (team_base["lat"], team_base["lon"])
-            ).km
-            total_km += distance
+        # Step 9: Generate field instructions
+        instructions = await self._generate_field_instructions(
+            schedule, operations, teams, optimization_result
+        )
         
-        return total_km
-    
-    def _calculate_demand_satisfaction(
-        self,
-        schedule: List[ScheduleOperation],
-        demands: List[SectionDemand]
-    ) -> float:
-        """Calculate percentage of demands satisfied"""
-        if not demands:
-            return 1.0
+        # Step 10: Save to database
+        await self._save_schedule(schedule, operations, instructions)
         
-        # Simplified: assume each operation contributes to demand
-        # In reality, would check hydraulic feasibility
-        scheduled_gates = set(op.gate_id for op in schedule)
-        required_gates = set()
-        
-        for demand in demands:
-            # Map demand to required gates (simplified)
-            if demand.zone <= 3:
-                required_gates.add("M(0,0)->M(0,2)")
-                required_gates.add("M(0,2)->Zone_2")
-            elif demand.zone <= 6:
-                required_gates.add("M(0,0)->M(0,5)")
-                required_gates.add("M(0,5)->Zone_5")
-        
-        if not required_gates:
-            return 1.0
-        
-        covered = len(scheduled_gates.intersection(required_gates))
-        return covered / len(required_gates)
-    
-    def _calculate_balance_penalty(
-        self, 
-        schedule: List[ScheduleOperation]
-    ) -> float:
-        """Calculate workload balance penalty"""
-        # Count operations per team per day
-        workload = {}
-        for op in schedule:
-            key = (op.team_assigned, op.day)
-            workload[key] = workload.get(key, 0) + 1
-        
-        if not workload:
-            return 0.0
-        
-        # Calculate standard deviation
-        counts = list(workload.values())
-        mean = sum(counts) / len(counts)
-        variance = sum((x - mean) ** 2 for x in counts) / len(counts)
-        std_dev = variance ** 0.5
-        
-        # Normalize to 0-100 scale
-        return min(std_dev * 10, 100)
-    
-    def _is_tabu(
-        self,
-        solution: List[ScheduleOperation],
-        tabu_list: List[str]
-    ) -> bool:
-        """Check if solution is in tabu list"""
-        signature = self._get_move_signature(solution)
-        return signature in tabu_list
-    
-    def _get_move_signature(
-        self, 
-        solution: List[ScheduleOperation]
-    ) -> str:
-        """Generate signature for solution"""
-        # Simple signature based on team assignments
-        assignments = sorted([
-            f"{op.gate_id}:{op.team_assigned}:{op.day}"
-            for op in solution
-        ])
-        return "|".join(assignments)
-    
-    def _estimate_travel_time(
-        self,
-        from_location: Dict[str, float],
-        to_location: Dict[str, float]
-    ) -> int:
-        """Estimate travel time in minutes"""
-        distance_km = geodesic(
-            (from_location["lat"], from_location["lon"]),
-            (to_location["lat"], to_location["lon"])
-        ).km
-        
-        travel_minutes = int((distance_km / self.travel_speed_kmh) * 60)
-        return max(travel_minutes, 5)  # Minimum 5 minutes
-    
-    def _validate_and_finalize(
-        self,
-        schedule: List[ScheduleOperation],
-        demands: List[SectionDemand]
-    ) -> List[ScheduleOperation]:
-        """Validate and finalize the optimized schedule"""
-        # Sort by team and time
-        schedule.sort(key=lambda x: (x.team_assigned, x.scheduled_time))
-        
-        # Adjust times to ensure feasibility
-        for team in self.teams:
-            team_ops = [op for op in schedule if op.team_assigned == team]
-            
-            for i in range(1, len(team_ops)):
-                prev_op = team_ops[i-1]
-                curr_op = team_ops[i]
-                
-                # Calculate minimum time needed
-                travel_time = self._estimate_travel_time(
-                    prev_op.location,
-                    curr_op.location
-                )
-                min_time = prev_op.scheduled_time + timedelta(
-                    minutes=prev_op.estimated_duration_minutes + travel_time
-                )
-                
-                # Adjust if needed
-                if curr_op.scheduled_time < min_time:
-                    curr_op.scheduled_time = min_time
+        logger.info(f"Schedule generated successfully: {schedule.schedule_code}")
         
         return schedule
     
-    def _generate_warnings(
+    async def _get_network_data(self) -> Dict[str, Any]:
+        """Get network topology and gate information"""
+        
+        # Get from Flow Monitoring Service
+        gate_positions = await self.flow_client.get_gate_positions()
+        
+        # Get canal network from GIS
+        canal_network = await self.gis_client.get_canal_network_topology()
+        
+        # Combine data
+        network = {
+            "gates": {},
+            "canals": canal_network.get("canals", {}),
+            "connections": canal_network.get("connections", []),
+        }
+        
+        # Enrich gate data
+        for gate_id, position in gate_positions.items():
+            gate_info = canal_network.get("gates", {}).get(gate_id, {})
+            network["gates"][gate_id] = {
+                **gate_info,
+                "current_position": position,
+                "id": gate_id,
+            }
+        
+        return network
+    
+    async def _get_available_teams(self, week_number: int, year: int) -> List[Dict]:
+        """Get available field teams for the week"""
+        
+        # Query database for active teams
+        result = await self.db.execute(
+            select(FieldTeam).where(FieldTeam.is_active == True)
+        )
+        teams = result.scalars().all()
+        
+        # Convert to dict format
+        team_list = []
+        for team in teams:
+            team_dict = {
+                "team_code": team.team_code,
+                "team_name": team.team_name,
+                "max_operations_per_day": team.max_operations_per_day,
+                "available_days": team.available_days,
+                "base_location_lat": team.base_location_lat,
+                "base_location_lng": team.base_location_lng,
+                "supervisor_name": team.supervisor_name,
+                "supervisor_phone": team.supervisor_phone,
+            }
+            team_list.append(team_dict)
+        
+        return team_list
+    
+    async def _get_optimization_constraints(self) -> List[OptimizationConstraint]:
+        """Get active optimization constraints from database"""
+        
+        result = await self.db.execute(
+            select(OptimizationConstraint).where(
+                OptimizationConstraint.is_active == True
+            )
+        )
+        
+        return result.scalars().all()
+    
+    def _prepare_time_horizon(
         self,
-        schedule: List[ScheduleOperation],
-        demands: List[SectionDemand]
-    ) -> List[str]:
-        """Generate warnings about the schedule"""
-        warnings = []
+        week_number: int,
+        year: int,
+        user_constraints: Optional[Dict] = None
+    ) -> Dict[str, Any]:
+        """Prepare time horizon for optimization"""
         
-        # Check for long work days
-        for team in self.teams:
-            for day in ["Tuesday", "Thursday"]:
-                day_ops = [
-                    op for op in schedule 
-                    if op.team_assigned == team and op.day == day
-                ]
-                if day_ops:
-                    start = min(op.scheduled_time for op in day_ops)
-                    end = max(
-                        op.scheduled_time + timedelta(minutes=op.estimated_duration_minutes)
-                        for op in day_ops
-                    )
-                    work_hours = (end - start).total_seconds() / 3600
-                    
-                    if work_hours > 10:
-                        warnings.append(
-                            f"{team} has {work_hours:.1f} hour workday on {day}"
-                        )
+        # Calculate week dates
+        jan1 = date(year, 1, 1)
+        week_start = jan1 + timedelta(days=(week_number - 1) * 7 - jan1.weekday())
+        week_end = week_start + timedelta(days=6)
         
-        # Check demand coverage
-        satisfaction = self._calculate_demand_satisfaction(schedule, demands)
-        if satisfaction < 0.9:
-            warnings.append(
-                f"Only {satisfaction*100:.0f}% of demands are covered"
+        # Default operation days (Tuesday, Thursday)
+        operation_days = [1, 3]  # 0=Monday, 6=Sunday
+        
+        # Override with user constraints if provided
+        if user_constraints:
+            if "operation_days" in user_constraints:
+                operation_days = user_constraints["operation_days"]
+        
+        return {
+            "start_date": week_start,
+            "end_date": week_end,
+            "operation_days": operation_days,
+            "slot_minutes": 30,  # 30-minute time slots
+            "work_start": "07:00",
+            "work_end": "17:00",
+        }
+    
+    async def _run_optimization(
+        self,
+        demands: Dict,
+        network: Dict,
+        teams: List,
+        constraints: List,
+        time_horizon: Dict
+    ) -> Dict[str, Any]:
+        """Run the optimization algorithm"""
+        
+        # Run in thread pool to avoid blocking
+        loop = asyncio.get_event_loop()
+        
+        result = await loop.run_in_executor(
+            None,
+            self.milp_optimizer.optimize,
+            demands,
+            network,
+            teams,
+            constraints,
+            time_horizon
+        )
+        
+        return result
+    
+    async def _create_schedule_record(
+        self,
+        week_number: int,
+        year: int,
+        demands: Dict,
+        optimization_result: Dict
+    ) -> WeeklySchedule:
+        """Create schedule database record"""
+        
+        # Calculate week dates
+        jan1 = date(year, 1, 1)
+        week_start = jan1 + timedelta(days=(week_number - 1) * 7 - jan1.weekday())
+        week_end = week_start + timedelta(days=6)
+        
+        # Extract metrics
+        operations = optimization_result.get("operations", [])
+        metrics = optimization_result.get("metrics", {})
+        
+        # Calculate efficiency
+        total_demand = demands.get("totalDemandM3", 0)
+        total_allocated = sum(op.get("expected_flow", 0) * 3600 for op in operations)  # Convert to m³
+        efficiency = (total_allocated / total_demand * 100) if total_demand > 0 else 0
+        
+        # Create schedule
+        schedule = WeeklySchedule(
+            schedule_code=f"SCH-{year}-W{week_number:02d}",
+            week_number=week_number,
+            year=year,
+            start_date=week_start,
+            end_date=week_end,
+            status="draft",
+            version=1,
+            total_water_demand_m3=total_demand,
+            total_water_allocated_m3=total_allocated,
+            efficiency_percent=efficiency,
+            total_operations=len(operations),
+            field_days=[week_start + timedelta(days=d) for d in [1, 3]],  # Tue, Thu
+            total_travel_km=metrics.get("total_distance_km", 0),
+            estimated_labor_hours=metrics.get("total_duration_minutes", 0) / 60,
+            optimization_time_seconds=metrics.get("optimization_time", 0),
+            optimization_iterations=metrics.get("iterations", 0),
+            objective_value=metrics.get("objective_value", 0),
+            constraints_summary={
+                "demand_constraints": len(demands.get("byZone", {})),
+                "team_constraints": len(optimization_result.get("team_routes", {})),
+                "applied_constraints": optimization_result.get("status", "unknown"),
+            },
+            weather_forecast={
+                "source": "forecast_placeholder",
+                "rain_probability": 0.1,
+                "temperature_avg": 28,
+            },
+        )
+        
+        return schedule
+    
+    async def _create_operation_records(
+        self,
+        schedule: WeeklySchedule,
+        optimization_result: Dict,
+        network: Dict
+    ) -> List[ScheduledOperation]:
+        """Create operation records from optimization result"""
+        
+        operations = []
+        
+        for op_data in optimization_result.get("operations", []):
+            gate_id = op_data["gate_id"]
+            gate_info = network["gates"].get(gate_id, {})
+            
+            operation = ScheduledOperation(
+                schedule_id=schedule.id,
+                gate_id=gate_id,
+                gate_name=gate_info.get("name", gate_id),
+                canal_name=gate_info.get("canal", ""),
+                zone_id=str(gate_info.get("zone", "")),
+                operation_date=op_data["time_slot"].date(),
+                planned_start_time=op_data["time_slot"].time(),
+                planned_end_time=(op_data["time_slot"] + timedelta(minutes=15)).time(),
+                duration_minutes=15,
+                current_opening_percent=gate_info.get("current_position", 0),
+                target_opening_percent=op_data["target_opening"],
+                operation_type=self._determine_operation_type(
+                    gate_info.get("current_position", 0),
+                    op_data["target_opening"]
+                ),
+                expected_flow_before=gate_info.get("current_flow", 0),
+                expected_flow_after=op_data["expected_flow"],
+                downstream_impact=self._calculate_downstream_impact(gate_id, network),
+                team_id=op_data["team_id"],
+                team_name=op_data.get("team_name", op_data["team_id"]),
+                operation_sequence=op_data.get("sequence", 1),
+                latitude=gate_info.get("latitude", 0),
+                longitude=gate_info.get("longitude", 0),
+                location_description=gate_info.get("description", ""),
+                status="scheduled",
             )
+            
+            operations.append(operation)
         
-        # Check travel distance
-        total_travel = self._calculate_total_travel(schedule)
-        if total_travel > 200:
-            warnings.append(
-                f"Total travel distance is {total_travel:.0f} km"
+        return operations
+    
+    def _determine_operation_type(self, current: float, target: float) -> str:
+        """Determine operation type based on positions"""
+        
+        if target > current:
+            return "open"
+        elif target < current:
+            return "close"
+        else:
+            return "maintain"
+    
+    def _calculate_downstream_impact(self, gate_id: str, network: Dict) -> List[str]:
+        """Calculate which areas are affected downstream"""
+        
+        # Simplified - in reality would trace network graph
+        downstream_map = {
+            "M(0,0)": ["All zones"],
+            "M(0,2)": ["Zone 1", "Zone 2"],
+            "M(0,3)": ["Zone 3", "Zone 4"],
+            "M(0,4)": ["Zone 5", "Zone 6"],
+        }
+        
+        return downstream_map.get(gate_id, ["Unknown"])
+    
+    async def _generate_field_instructions(
+        self,
+        schedule: WeeklySchedule,
+        operations: List[ScheduledOperation],
+        teams: List[Dict],
+        optimization_result: Dict
+    ) -> List[FieldInstruction]:
+        """Generate field instructions for each team"""
+        
+        instructions = []
+        team_routes = optimization_result.get("team_routes", {})
+        
+        for team in teams:
+            team_id = team["team_code"]
+            
+            # Get operations for this team
+            team_operations = [op for op in operations if op.team_id == team_id]
+            
+            if team_operations:
+                # Get route info
+                route_info = team_routes.get(team_id, {})
+                
+                # Generate instruction
+                instruction = await self.instruction_generator.generate_team_instructions(
+                    schedule.id,
+                    team_id,
+                    team_operations,
+                    route_info,
+                    team
+                )
+                
+                instructions.append(instruction)
+        
+        return instructions
+    
+    async def _save_schedule(
+        self,
+        schedule: WeeklySchedule,
+        operations: List[ScheduledOperation],
+        instructions: List[FieldInstruction]
+    ):
+        """Save schedule and related records to database"""
+        
+        # Add to session
+        self.db.add(schedule)
+        
+        for operation in operations:
+            self.db.add(operation)
+        
+        for instruction in instructions:
+            self.db.add(instruction)
+        
+        # Commit transaction
+        await self.db.commit()
+        
+        # Refresh to get IDs
+        await self.db.refresh(schedule)
+        
+        # Cache current schedule
+        await self.redis.set_json(
+            f"current_schedule:{schedule.year}:week_{schedule.week_number}",
+            {
+                "id": str(schedule.id),
+                "code": schedule.schedule_code,
+                "status": schedule.status,
+                "total_operations": schedule.total_operations,
+            },
+            expire=86400  # 24 hours
+        )
+    
+    async def approve_schedule(self, schedule_id: UUID, approver: str) -> WeeklySchedule:
+        """Approve a schedule for execution"""
+        
+        # Get schedule
+        result = await self.db.execute(
+            select(WeeklySchedule).where(WeeklySchedule.id == schedule_id)
+        )
+        schedule = result.scalar_one_or_none()
+        
+        if not schedule:
+            raise ValueError(f"Schedule {schedule_id} not found")
+        
+        if schedule.status != "draft":
+            raise ValueError(f"Schedule is not in draft status: {schedule.status}")
+        
+        # Update status
+        schedule.status = "approved"
+        schedule.updated_by = approver
+        
+        await self.db.commit()
+        await self.db.refresh(schedule)
+        
+        # Notify teams
+        await self._notify_teams_of_approval(schedule)
+        
+        return schedule
+    
+    async def _notify_teams_of_approval(self, schedule: WeeklySchedule):
+        """Notify field teams that schedule is approved"""
+        
+        # Get team assignments
+        result = await self.db.execute(
+            select(FieldInstruction).where(
+                FieldInstruction.schedule_id == schedule.id
             )
+        )
+        instructions = result.scalars().all()
         
-        return warnings
+        # Send notifications (simplified)
+        for instruction in instructions:
+            notification = {
+                "type": "schedule_approved",
+                "schedule_id": str(schedule.id),
+                "team_id": instruction.team_id,
+                "operation_date": instruction.operation_date.isoformat(),
+                "total_operations": instruction.total_operations,
+            }
+            
+            # Publish to Redis for real-time notification
+            await self.redis.publish(
+                f"team_notifications:{instruction.team_id}",
+                notification
+            )
+    
+    async def get_schedule_by_week(
+        self,
+        week_number: int,
+        year: int
+    ) -> Optional[WeeklySchedule]:
+        """Get schedule for a specific week"""
+        
+        result = await self.db.execute(
+            select(WeeklySchedule).where(
+                and_(
+                    WeeklySchedule.week_number == week_number,
+                    WeeklySchedule.year == year,
+                    WeeklySchedule.status.in_(["draft", "approved", "active"])
+                )
+            ).order_by(WeeklySchedule.version.desc())
+        )
+        
+        return result.scalar_one_or_none()
+    
+    async def _apply_weather_adjustments(
+        self,
+        demands: Dict[str, Any],
+        weather_adjustments: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Apply weather-based adjustments from previous week to water demands.
+        
+        This implements the accumulation of weather impacts on next week's schedule:
+        - Rainfall > 10mm → Reduce irrigation by 30%
+        - Rainfall > 25mm → Cancel operations for affected days
+        - Temperature drop > 5°C → Reduce ET by 20%
+        - High wind → Increase application time by 15%
+        """
+        logger.info(f"Applying weather adjustments from week {weather_adjustments.get('based_on_week')}")
+        
+        adjusted_demands = demands.copy()
+        zone_adjustments = weather_adjustments.get("zone_adjustments", {})
+        
+        # Track total adjustments for reporting
+        total_original_demand = 0
+        total_adjusted_demand = 0
+        
+        # Apply adjustments to each zone
+        for zone in adjusted_demands.get("zones", []):
+            zone_id = zone["zone_id"]
+            original_demand = zone["total_demand_m3"]
+            total_original_demand += original_demand
+            
+            if zone_id in zone_adjustments:
+                adj = zone_adjustments[zone_id]
+                
+                # Apply demand modifier (multiplicative)
+                adjusted_demand = original_demand * adj["demand_modifier"]
+                zone["total_demand_m3"] = adjusted_demand
+                zone["weather_adjusted"] = True
+                zone["adjustment_factor"] = adj["demand_modifier"]
+                zone["adjustment_reasons"] = adj["adjustment_reasons"]
+                
+                # Apply to individual plots
+                for plot in zone.get("plots", []):
+                    plot["demand_m3"] *= adj["demand_modifier"]
+                    plot["weather_adjusted"] = True
+                
+                # Mark blackout dates
+                if adj["blackout_dates"]:
+                    zone["blackout_dates"] = adj["blackout_dates"]
+                    zone["skip_irrigation_days"] = len(adj["blackout_dates"])
+                
+                # Note application time increases
+                if adj["application_time_modifier"] > 1.0:
+                    zone["application_time_modifier"] = adj["application_time_modifier"]
+                    zone["extended_operation_time"] = True
+                
+                # ET adjustments
+                if adj["et_modifier"] != 1.0:
+                    zone["et_modifier"] = adj["et_modifier"]
+                    zone["et_adjusted"] = True
+                
+                total_adjusted_demand += adjusted_demand
+                
+                logger.info(
+                    f"Zone {zone_id}: Demand adjusted from {original_demand:.0f} to "
+                    f"{adjusted_demand:.0f} m³ ({(adj['demand_modifier']-1)*100:+.1f}%)"
+                )
+            else:
+                total_adjusted_demand += original_demand
+        
+        # Update summary
+        adjusted_demands["weather_adjustments_applied"] = True
+        adjusted_demands["total_demand_reduction_m3"] = total_original_demand - total_adjusted_demand
+        adjusted_demands["total_demand_reduction_percent"] = (
+            (total_original_demand - total_adjusted_demand) / total_original_demand * 100
+            if total_original_demand > 0 else 0
+        )
+        
+        # Store adjustment report for zone managers
+        report = await self.adjustment_accumulator.generate_adjustment_report(
+            weather_adjustments["week_number"],
+            weather_adjustments["year"]
+        )
+        
+        # Cache the report
+        await self.redis.set_json(
+            f"weather_adjustment_report:{weather_adjustments['week_number']}:{weather_adjustments['year']}",
+            report,
+            ex=30 * 24 * 3600  # Keep for 30 days
+        )
+        
+        logger.info(
+            f"Weather adjustments applied: {total_original_demand:.0f} → "
+            f"{total_adjusted_demand:.0f} m³ ({adjusted_demands['total_demand_reduction_percent']:.1f}% reduction)"
+        )
+        
+        return adjusted_demands

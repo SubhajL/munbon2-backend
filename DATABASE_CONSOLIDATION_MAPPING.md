@@ -36,7 +36,7 @@ All schemas from local sensor_data will remain in EC2 sensor_data:
 DATABASE_URL=postgresql://postgres:postgres@localhost:5434/munbon_dev?schema=auth
 
 # To:
-DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/munbon_dev?schema=auth
+DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev?schema=auth
 ```
 
 ### 2. **GIS Service** (`/services/gis`)
@@ -45,7 +45,7 @@ DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/munbon_dev?sc
 DATABASE_URL=postgresql://postgres:postgres@localhost:5434/munbon_dev?schema=gis
 
 # To:
-DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/munbon_dev?schema=gis
+DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev?schema=gis
 ```
 
 ### 3. **ROS Service** (`/services/ros`)
@@ -56,7 +56,7 @@ DB_PORT=5434
 DB_NAME=munbon_ros
 
 # To:
-DB_HOST=43.209.12.182
+DB_HOST=43.209.22.250
 DB_PORT=5432
 DB_NAME=munbon_dev
 DB_SCHEMA=ros  # New: specify schema
@@ -70,7 +70,7 @@ TIMESCALE_PORT=5433
 TIMESCALE_DB=munbon_timescale
 
 # To:
-TIMESCALE_HOST=43.209.12.182
+TIMESCALE_HOST=43.209.22.250
 TIMESCALE_PORT=5432
 TIMESCALE_DB=sensor_data
 ```
@@ -83,7 +83,7 @@ TIMESCALE_PORT=5433
 TIMESCALE_DATABASE=sensor_data
 
 # To:
-TIMESCALE_HOST=43.209.12.182
+TIMESCALE_HOST=43.209.22.250
 TIMESCALE_PORT=5432
 TIMESCALE_DATABASE=sensor_data
 ```
@@ -94,7 +94,7 @@ TIMESCALE_DATABASE=sensor_data
 DATABASE_URL=postgresql://postgres:postgres@localhost:5433/sensor_data
 
 # To:
-DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/sensor_data
+DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/sensor_data
 ```
 
 ### 7. **Water Level Monitoring Service** (`/services/water-level-monitoring`)
@@ -103,7 +103,7 @@ DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/sensor_data
 TIMESCALE_URL=postgresql://postgres:postgres@localhost:5433/sensor_data
 
 # To:
-TIMESCALE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/sensor_data
+TIMESCALE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/sensor_data
 ```
 
 ### 8. **AWD Control Service** (`/services/awd-control`)
@@ -117,11 +117,11 @@ TIMESCALE_PORT=5433
 TIMESCALE_DB=munbon_timeseries
 
 # To:
-POSTGRES_HOST=43.209.12.182
+POSTGRES_HOST=43.209.22.250
 POSTGRES_PORT=5432
 POSTGRES_DB=munbon_dev
 POSTGRES_SCHEMA=awd  # New: use schema in munbon_dev
-TIMESCALE_HOST=43.209.12.182
+TIMESCALE_HOST=43.209.22.250
 TIMESCALE_PORT=5432
 TIMESCALE_DB=sensor_data
 ```
@@ -134,7 +134,7 @@ POSTGRES_PORT=5432
 POSTGRES_DB=munbon_gis
 
 # To:
-POSTGRES_HOST=43.209.12.182
+POSTGRES_HOST=43.209.22.250
 POSTGRES_PORT=5432
 POSTGRES_DB=munbon_dev
 POSTGRES_SCHEMA=gis  # Use existing gis schema
@@ -147,8 +147,8 @@ DATABASE_URL=postgresql://postgres:postgres@localhost:5432/munbon
 TIMESCALE_URL=postgresql://postgres:postgres@localhost:5433/sensor_data
 
 # To:
-DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/munbon_dev
-TIMESCALE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/sensor_data
+DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev
+TIMESCALE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/sensor_data
 ```
 
 ## Schema Creation for New Services
@@ -171,13 +171,13 @@ GRANT CREATE ON SCHEMA awd TO postgres;
 ```yaml
 x-common-variables: &common-variables
   # PostgreSQL Connection (single instance on EC2)
-  POSTGRES_HOST: 43.209.12.182
+  POSTGRES_HOST: 43.209.22.250
   POSTGRES_PORT: 5432
   POSTGRES_USER: postgres
   POSTGRES_PASSWORD: P@ssw0rd123!
   
   # TimescaleDB is same as PostgreSQL
-  TIMESCALE_HOST: 43.209.12.182
+  TIMESCALE_HOST: 43.209.22.250
   TIMESCALE_PORT: 5432
   TIMESCALE_USER: postgres
   TIMESCALE_PASSWORD: P@ssw0rd123!
@@ -187,12 +187,12 @@ x-common-variables: &common-variables
 
 1. **Verify EC2 databases exist**:
    ```bash
-   psql -h 43.209.12.182 -U postgres -c "\l"
+   psql -h 43.209.22.250 -U postgres -c "\l"
    ```
 
 2. **Create missing schemas**:
    ```bash
-   psql -h 43.209.12.182 -U postgres -d munbon_dev -c "CREATE SCHEMA IF NOT EXISTS awd;"
+   psql -h 43.209.22.250 -U postgres -d munbon_dev -c "CREATE SCHEMA IF NOT EXISTS awd;"
    ```
 
 3. **Update service configurations**:

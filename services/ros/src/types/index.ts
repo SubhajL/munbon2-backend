@@ -13,7 +13,7 @@ export interface WeeklyKc {
 }
 
 export type CropType = 'rice' | 'corn' | 'sugarcane';
-export type AreaType = 'project' | 'zone' | 'section' | 'FTO';
+export type AreaType = 'project' | 'zone' | 'section' | 'FTO' | 'plot';
 
 // Water demand calculation input
 export interface WaterDemandInput {
@@ -70,6 +70,10 @@ export interface SeasonalWaterDemandResult {
   totalEffectiveRainfall?: number;
   totalNetWaterDemandMm?: number;
   totalNetWaterDemandM3?: number;
+  
+  // Land preparation water (if included)
+  landPreparationMm?: number;
+  landPreparationM3?: number;
   
   weeklyDetails?: WaterDemandResult[];
 }

@@ -15,7 +15,7 @@ update_function_env() {
     
     aws lambda update-function-configuration \
         --function-name "$function_name" \
-        --environment 'Variables={DB_HOST="43.209.12.182",DB_PORT="5432",DB_NAME="sensor_data",DB_USER="postgres",DB_PASSWORD="P@ssw0rd123!",EXTERNAL_API_KEYS="rid-ms-prod-1234567890abcdef,rid-ms-dev-abcdef1234567890,tmd-weather-123abc456def789,test-key-123",STAGE="'$STAGE'"}' \
+        --environment 'Variables={DB_HOST="43.209.22.250",DB_PORT="5432",DB_NAME="sensor_data",DB_USER="postgres",DB_PASSWORD="P@ssw0rd123!",EXTERNAL_API_KEYS="rid-ms-prod-1234567890abcdef,rid-ms-dev-abcdef1234567890,tmd-weather-123abc456def789,test-key-123",STAGE="'$STAGE'"}' \
         --region ap-southeast-1 \
         > /dev/null 2>&1
     
@@ -75,7 +75,7 @@ echo ""
 echo "=== Update Complete ==="
 echo ""
 echo "Lambda functions are now configured to connect to EC2 PostgreSQL database:"
-echo "- Host: 43.209.12.182"
+echo "- Host: 43.209.22.250"
 echo "- Port: 5432"
 echo "- Database: sensor_data"
 echo ""

@@ -1,6 +1,6 @@
 # Database Migration Summary
 
-## Successfully Migrated from Local to AWS EC2 (43.209.12.182:5432)
+## Successfully Migrated from Local to AWS EC2 (43.209.22.250:5432)
 
 ### sensor_data Database (Port 5433 → EC2)
 ✅ **Public Schema:**
@@ -36,7 +36,7 @@
 3. Batch inserts for performance (1000 rows at a time)
 
 ## Connection Details for DBeaver
-- **Host**: 43.209.12.182
+- **Host**: 43.209.22.250
 - **Port**: 5432
 - **Username**: postgres
 - **Password**: P@ssw0rd123!

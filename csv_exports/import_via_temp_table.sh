@@ -3,7 +3,7 @@
 # Import data via temporary table approach for TimescaleDB
 # This avoids the hypertable insert blocker
 
-EC2_HOST="43.209.12.182"
+EC2_HOST="43.209.22.250"
 EC2_PORT="5432"
 EC2_USER="postgres"
 EC2_PASSWORD="P@ssw0rd123!"

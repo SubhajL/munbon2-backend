@@ -102,14 +102,26 @@ export class ShapeFileProcessor {
       for (const result of results) {
         if (result.parcels) {
           for (const parcel of result.parcels) {
+            // Convert dates to strings for ridAttributes
+            const ridAttributes = parcel.properties?.ridAttributes;
+            const formattedRidAttributes = ridAttributes ? {
+              ...ridAttributes,
+              dataDateProcess: ridAttributes.dataDateProcess instanceof Date 
+                ? ridAttributes.dataDateProcess.toISOString() 
+                : ridAttributes.dataDateProcess,
+              startInt: ridAttributes.startInt instanceof Date 
+                ? ridAttributes.startInt.toISOString() 
+                : ridAttributes.startInt,
+            } : undefined;
+            
             parcels.push({
               parcelId: parcel.plotCode || `P${Date.now()}-${parcels.length}`,
-              geometry: parcel.geometry,
+              geometry: parcel.boundary || parcel.properties?.geometry, // Use boundary field
               area: parcel.areaHectares ? parcel.areaHectares * 10000 : 0, // Convert hectares to m²
               zoneId: String(parcel.zoneId || '1'),
               attributes: parcel.properties || {},
-              ridAttributes: parcel.properties?.ridAttributes,
-              cropType: parcel.cropType,
+              ridAttributes: formattedRidAttributes,
+              cropType: parcel.currentCropType || parcel.properties?.cropType,
               ownerName: parcel.properties?.ownerName,
               ownerId: parcel.properties?.ownerId,
               subZone: parcel.properties?.subZone,
@@ -156,6 +168,15 @@ export class ShapeFileProcessor {
       
       // Calculate area in square meters
       const area = turf.area(transformedGeometry);
+      const areaHectares = area / 10000;
+      const areaRai = areaHectares * 6.25;
+      
+      logger.debug('Calculated area for shapefile parcel', {
+        index,
+        areaM2: area,
+        areaHectares,
+        areaRai
+      });
       
       // Extract properties (handle both English and Thai field names)
       const props = feature.properties || {};

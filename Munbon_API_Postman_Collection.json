@@ -1,0 +1,529 @@
+{
+  "info": {
+    "_postman_id": "munbon-irrigation-api",
+    "name": "Munbon Irrigation Control API",
+    "description": "Complete API collection for Munbon Irrigation Control System including SCADA, Water Demand, and Gate Control endpoints",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "debug-token",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "awd_base_url",
+      "value": "http://localhost:3010",
+      "type": "string"
+    },
+    {
+      "key": "ros_base_url",
+      "value": "http://localhost:3047",
+      "type": "string"
+    },
+    {
+      "key": "auth_token",
+      "value": "debug-token",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "SCADA System",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{awd_base_url}}/api/scada/health",
+              "host": ["{{awd_base_url}}"],
+              "path": ["api", "scada", "health"]
+            },
+            "description": "Check SCADA system connectivity and get overview of gates and sensors"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Single Gate Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{awd_base_url}}/api/scada/gates/MG-01/status",
+              "host": ["{{awd_base_url}}"],
+              "path": ["api", "scada", "gates", "MG-01", "status"]
+            },
+            "description": "Get detailed status of a specific gate"
+          },
+          "response": []
+        },
+        {
+          "name": "Get All Gates Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{awd_base_url}}/api/scada/gates/status",
+              "host": ["{{awd_base_url}}"],
+              "path": ["api", "scada", "gates", "status"]
+            },
+            "description": "Get status overview of all gates in the system"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Water Demand",
+      "item": [
+        {
+          "name": "Calculate Weekly Demand - Section",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sectionId\": \"section-1A\",\n  \"week\": 36,\n  \"year\": 2025,\n  \"cropStage\": \"vegetative\"\n}"
+            },
+            "url": {
+              "raw": "{{ros_base_url}}/api/water-demand/section/weekly",
+              "host": ["{{ros_base_url}}"],
+              "path": ["api", "water-demand", "section", "weekly"]
+            },
+            "description": "Calculate weekly water demand for a specific section"
+          },
+          "response": []
+        },
+        {
+          "name": "Calculate Weekly Demand - Zone",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"zoneId\": \"zone-1\",\n  \"week\": 36,\n  \"year\": 2025\n}"
+            },
+            "url": {
+              "raw": "{{ros_base_url}}/api/water-demand/zone/weekly",
+              "host": ["{{ros_base_url}}"],
+              "path": ["api", "water-demand", "zone", "weekly"]
+            },
+            "description": "Calculate weekly water demand for an entire zone"
+          },
+          "response": []
+        },
+        {
+          "name": "Calculate Seasonal Demand",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"zoneId\": \"zone-1\",\n  \"cropType\": \"rice\",\n  \"plantingDate\": \"2025-06-15\",\n  \"harvestDate\": \"2025-10-15\"\n}"
+            },
+            "url": {
+              "raw": "{{ros_base_url}}/api/water-demand/seasonal",
+              "host": ["{{ros_base_url}}"],
+              "path": ["api", "water-demand", "seasonal"]
+            },
+            "description": "Calculate total water demand for entire crop season"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Current Demand - All Zones",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{ros_base_url}}/api/water-demand/current?level=zone",
+              "host": ["{{ros_base_url}}"],
+              "path": ["api", "water-demand", "current"],
+              "query": [
+                {
+                  "key": "level",
+                  "value": "zone"
+                }
+              ]
+            },
+            "description": "Get current water demand for all zones"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Current Demand - Specific Section",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{ros_base_url}}/api/water-demand/current?level=section&id=section-1A",
+              "host": ["{{ros_base_url}}"],
+              "path": ["api", "water-demand", "current"],
+              "query": [
+                {
+                  "key": "level",
+                  "value": "section"
+                },
+                {
+                  "key": "id",
+                  "value": "section-1A"
+                }
+              ]
+            },
+            "description": "Get current water demand for a specific section"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Gate Control",
+      "item": [
+        {
+          "name": "Control Single Gate",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"command\": \"set_position\",\n  \"position\": 75,\n  \"mode\": \"manual\",\n  \"reason\": \"Test irrigation\",\n  \"duration\": 3600\n}"
+            },
+            "url": {
+              "raw": "{{awd_base_url}}/api/scada/gates/MG-01/control",
+              "host": ["{{awd_base_url}}"],
+              "path": ["api", "scada", "gates", "MG-01", "control"]
+            },
+            "description": "Control a single gate - open, close, or set position"
+          },
+          "response": []
+        },
+        {
+          "name": "Batch Gate Control",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"gates\": [\n    {\n      \"gateId\": \"MG-01\",\n      \"position\": 100,\n      \"priority\": 1\n    },\n    {\n      \"gateId\": \"MG-02\",\n      \"position\": 75,\n      \"priority\": 2\n    },\n    {\n      \"gateId\": \"SG-01\",\n      \"position\": 50,\n      \"priority\": 3\n    }\n  ],\n  \"mode\": \"sequential\",\n  \"reason\": \"Zone 1 irrigation schedule\"\n}"
+            },
+            "url": {
+              "raw": "{{awd_base_url}}/api/scada/gates/batch-control",
+              "host": ["{{awd_base_url}}"],
+              "path": ["api", "scada", "gates", "batch-control"]
+            },
+            "description": "Control multiple gates simultaneously or sequentially"
+          },
+          "response": []
+        },
+        {
+          "name": "Emergency Stop",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Flood warning\",\n  \"zones\": [\"zone-1\", \"zone-2\"],\n  \"notifyOperators\": true\n}"
+            },
+            "url": {
+              "raw": "{{awd_base_url}}/api/scada/gates/emergency-stop",
+              "host": ["{{awd_base_url}}"],
+              "path": ["api", "scada", "gates", "emergency-stop"]
+            },
+            "description": "Emergency stop - immediately close all gates"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Irrigation Scheduling",
+      "item": [
+        {
+          "name": "Execute Irrigation Schedule",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"scheduleId\": \"daily-zone-1\",\n  \"date\": \"2025-01-15\",\n  \"waterDemand\": 12500,\n  \"duration\": 14400,\n  \"sections\": [\"section-1A\", \"section-1B\"],\n  \"autoAdjust\": true\n}"
+            },
+            "url": {
+              "raw": "{{awd_base_url}}/api/irrigation/execute-schedule",
+              "host": ["{{awd_base_url}}"],
+              "path": ["api", "irrigation", "execute-schedule"]
+            },
+            "description": "Execute an irrigation schedule with automatic gate control"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Irrigation Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{awd_base_url}}/api/irrigation/status/exec-2025-01-15-001",
+              "host": ["{{awd_base_url}}"],
+              "path": ["api", "irrigation", "status", "exec-2025-01-15-001"]
+            },
+            "description": "Get status of ongoing irrigation execution"
+          },
+          "response": []
+        },
+        {
+          "name": "Stop Irrigation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Manual stop by operator\"\n}"
+            },
+            "url": {
+              "raw": "{{awd_base_url}}/api/irrigation/stop/exec-2025-01-15-001",
+              "host": ["{{awd_base_url}}"],
+              "path": ["api", "irrigation", "stop", "exec-2025-01-15-001"]
+            },
+            "description": "Stop ongoing irrigation execution"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Complete Workflows",
+      "item": [
+        {
+          "name": "Complete Irrigation Flow",
+          "description": "This folder contains a complete irrigation workflow from health check to execution",
+          "item": [
+            {
+              "name": "Step 1: Check SCADA Health",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{awd_base_url}}/api/scada/health",
+                  "host": ["{{awd_base_url}}"],
+                  "path": ["api", "scada", "health"]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Step 2: Calculate Water Demand",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"zoneId\": \"zone-1\",\n  \"week\": 36,\n  \"year\": 2025\n}"
+                },
+                "url": {
+                  "raw": "{{ros_base_url}}/api/water-demand/zone/weekly",
+                  "host": ["{{ros_base_url}}"],
+                  "path": ["api", "water-demand", "zone", "weekly"]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Step 3: Open Gates",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"gates\": [\n    {\"gateId\": \"MG-01\", \"position\": 100, \"priority\": 1},\n    {\"gateId\": \"MG-02\", \"position\": 75, \"priority\": 2}\n  ],\n  \"mode\": \"sequential\",\n  \"reason\": \"Irrigation based on calculated demand\"\n}"
+                },
+                "url": {
+                  "raw": "{{awd_base_url}}/api/scada/gates/batch-control",
+                  "host": ["{{awd_base_url}}"],
+                  "path": ["api", "scada", "gates", "batch-control"]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Step 4: Execute Schedule",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"scheduleId\": \"zone-1-irrigation\",\n  \"date\": \"2025-01-15\",\n  \"waterDemand\": 85000,\n  \"duration\": 14400,\n  \"sections\": [\"section-1A\", \"section-1B\", \"section-1C\"],\n  \"autoAdjust\": true\n}"
+                },
+                "url": {
+                  "raw": "{{awd_base_url}}/api/irrigation/execute-schedule",
+                  "host": ["{{awd_base_url}}"],
+                  "path": ["api", "irrigation", "execute-schedule"]
+                }
+              },
+              "response": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Health Checks",
+      "item": [
+        {
+          "name": "AWD Service Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{awd_base_url}}/health",
+              "host": ["{{awd_base_url}}"],
+              "path": ["health"]
+            },
+            "description": "Check if AWD Control service is running"
+          },
+          "response": []
+        },
+        {
+          "name": "ROS Service Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{ros_base_url}}/health",
+              "host": ["{{ros_base_url}}"],
+              "path": ["health"]
+            },
+            "description": "Check if ROS service is running"
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Add authentication header to all requests",
+          "pm.request.headers.add({",
+          "    key: 'Authorization',",
+          "    value: 'Bearer ' + pm.variables.get('auth_token')",
+          "});",
+          "",
+          "// Log request for debugging",
+          "console.log('Request URL:', pm.request.url.toString());",
+          "console.log('Request Method:', pm.request.method);"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Common tests for all requests",
+          "",
+          "// Check if response is successful",
+          "pm.test('Status code is 2xx', function () {",
+          "    pm.expect(pm.response.code).to.be.oneOf([200, 201, 204]);",
+          "});",
+          "",
+          "// Check response time",
+          "pm.test('Response time is less than 1000ms', function () {",
+          "    pm.expect(pm.response.responseTime).to.be.below(1000);",
+          "});",
+          "",
+          "// Check if response has JSON body (if not 204)",
+          "if (pm.response.code !== 204) {",
+          "    pm.test('Response has JSON body', function () {",
+          "        pm.response.to.have.jsonBody();",
+          "    });",
+          "}",
+          "",
+          "// Store values for chaining requests",
+          "if (pm.response.json()) {",
+          "    const responseData = pm.response.json();",
+          "    ",
+          "    // Store execution ID if present",
+          "    if (responseData.executionId) {",
+          "        pm.collectionVariables.set('executionId', responseData.executionId);",
+          "    }",
+          "    ",
+          "    // Store batch ID if present",
+          "    if (responseData.batchId) {",
+          "        pm.collectionVariables.set('batchId', responseData.batchId);",
+          "    }",
+          "    ",
+          "    // Store water demand if present",
+          "    if (responseData.waterDemand && responseData.waterDemand.total) {",
+          "        pm.collectionVariables.set('calculatedDemand', responseData.waterDemand.total);",
+          "    }",
+          "}"
+        ]
+      }
+    }
+  ]
+}

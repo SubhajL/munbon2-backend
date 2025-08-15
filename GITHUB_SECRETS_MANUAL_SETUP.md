@@ -7,7 +7,7 @@ https://github.com/SubhajL/munbon2-backend/settings/secrets/actions
 ## Step 2: Add EC2_HOST Secret
 1. Click "New repository secret"
 2. Name: `EC2_HOST`
-3. Value: `43.209.12.182`
+3. Value: `43.209.22.250`
 4. Click "Add secret"
 
 ## Step 3: Add EC2_USER Secret

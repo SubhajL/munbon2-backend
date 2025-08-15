@@ -33,6 +33,27 @@ export class SensorDataService {
   async processSensorData(data: any): Promise<void> {
     try {
       const sensorType = this.detectSensorType(data);
+      
+      // Special handling for moisture sensors with sensor array
+      if (sensorType === SensorType.MOISTURE && data.gateway_id && data.sensor && Array.isArray(data.sensor)) {
+        // Process the gateway data once (for the array format)
+        const gatewayId = data.gateway_id;
+        const location = this.extractLocation(data, sensorType);
+        
+        // Don't create a gateway-level reading for array data
+        // Just process moisture data (this handles the sensor array properly)
+        await this.processMoistureData(data, gatewayId, location);
+        
+        this.logger.info({
+          gatewayId,
+          sensorCount: data.sensor.length,
+          sensorType
+        }, 'Processed moisture sensor array');
+        
+        return; // Exit early for array processing
+      }
+      
+      // Standard processing for non-array sensors
       const sensorId = this.extractSensorId(data, sensorType);
       const location = this.extractLocation(data, sensorType);
       
@@ -47,10 +68,8 @@ export class SensorDataService {
         qualityScore: this.calculateQualityScore(data, sensorType)
       };
 
-      // Save to database
-      await this.repository.saveSensorReading(reading);
-
-      // Update sensor registry
+      // IMPORTANT: Update sensor registry FIRST to ensure sensor exists
+      // This will create the sensor if it doesn't exist (ON CONFLICT)
       await this.repository.updateSensorRegistry({
         sensorId,
         sensorType,
@@ -58,6 +77,9 @@ export class SensorDataService {
         currentLocation: location,
         metadata: reading.metadata
       });
+
+      // Now save the reading (foreign key constraint will be satisfied)
+      await this.repository.saveSensorReading(reading);
 
       // Publish to MQTT topics
       this.publishToMqtt(reading);
@@ -94,6 +116,10 @@ export class SensorDataService {
     if (data.gateway_id && data.sensor) {
       return SensorType.MOISTURE;
     }
+    // Support alternative moisture format
+    if (data.sensor_id && data.humid_hi !== undefined && data.humid_low !== undefined) {
+      return SensorType.MOISTURE;
+    }
     return SensorType.UNKNOWN;
   }
 
@@ -102,7 +128,18 @@ export class SensorDataService {
       case SensorType.WATER_LEVEL:
         return data.deviceID;
       case SensorType.MOISTURE:
-        return `${data.gateway_id}-${data.sensor_id}`;
+        // Handle different moisture data formats
+        if (data.gateway_id && data.sensor_id) {
+          // Direct format with both IDs
+          return `${data.gateway_id}-${data.sensor_id}`;
+        } else if (data.gateway_id && data.sensor && Array.isArray(data.sensor)) {
+          // Array format - this shouldn't normally be called due to special handling
+          return `${data.gateway_id}-array`;
+        } else if (data.sensor_id) {
+          // Fallback to just sensor_id if no gateway
+          return data.sensor_id;
+        }
+        return 'unknown-moisture';
       default:
         return 'unknown';
     }
@@ -138,8 +175,13 @@ export class SensorDataService {
         return {
           manufacturer: 'M2M',
           gatewayId: data.gateway_id,
-          gatewayBattery: parseInt(data.gw_batt) / 100,
-          msgType: data.msg_type
+          gatewayBattery: data.gw_batt ? parseInt(data.gw_batt) / 100 : undefined,
+          msgType: data.msg_type,
+          gatewayAmbient: {
+            temperature: data.temperature ? parseFloat(data.temperature) : undefined,
+            humidity: data.humidity ? parseFloat(data.humidity) : undefined,
+            heatIndex: data.heat_index ? parseFloat(data.heat_index) : undefined
+          }
         };
       default:
         return {};
@@ -208,13 +250,57 @@ export class SensorDataService {
     _sensorId: string, 
     location?: SensorLocation
   ): Promise<void> {
-    if (data.sensor && Array.isArray(data.sensor)) {
+    // Handle new M2M moisture sensor format
+    if (data.gateway_id && data.sensor && Array.isArray(data.sensor)) {
+      // Update gateway metadata
+      const gatewayId = `GW-${data.gateway_id.padStart(5, '0')}`;
+      await this.repository.updateSensorRegistry({
+        sensorId: gatewayId,
+        sensorType: SensorType.GATEWAY,
+        lastSeen: new Date(),
+        currentLocation: location,
+        metadata: {
+          msgType: data.msg_type,
+          temperature: parseFloat(data.temperature),
+          humidity: parseFloat(data.humidity),
+          heatIndex: parseFloat(data.heat_index),
+          battery: parseInt(data.gw_batt) / 100
+        }
+      });
+
       // Process each sensor in the array
       for (const sensor of data.sensor) {
-        const moistureSensorId = `${data.gateway_id}-${sensor.sensor_id}`;
+        const moistureSensorId = `MS-${data.gateway_id.padStart(5, '0')}-${sensor.sensor_id.padStart(5, '0')}`;
+        
+        // Parse date/time - handle both formats
+        let timestamp: Date;
+        if (sensor.date && sensor.time) {
+          // Sensor has its own timestamp
+          timestamp = this.parseThailandDateTime(sensor.date, sensor.time);
+        } else if (data.date && data.time) {
+          // Use gateway timestamp
+          timestamp = this.parseThailandDateTime(data.date, data.time);
+        } else {
+          timestamp = new Date();
+        }
+
+        // First ensure the moisture sensor is registered
+        await this.repository.updateSensorRegistry({
+          sensorId: moistureSensorId,
+          sensorType: SensorType.MOISTURE,
+          lastSeen: timestamp,
+          currentLocation: location,
+          metadata: {
+            gatewayId: gatewayId,
+            sensorNumber: sensor.sensor_id,
+            manufacturer: 'M2M',
+            floodCapable: true
+          }
+        });
+
         const reading: MoistureReading = {
           sensorId: moistureSensorId,
-          timestamp: new Date(`${data.date} ${data.time}`),
+          timestamp,
           location,
           moistureSurfacePct: parseFloat(sensor.humid_hi),
           moistureDeepPct: parseFloat(sensor.humid_low),
@@ -317,5 +403,17 @@ export class SensorDataService {
     radiusKm: number
   ): Promise<any[]> {
     return this.repository.getSensorsByLocation(lat, lng, radiusKm);
+  }
+
+  private parseThailandDateTime(date: string, time: string): Date {
+    // date format: "2025/05/05", time format: "10:30:00" (UTC)
+    const [year, month, day] = date.split('/').map(Number);
+    const [hour, minute, second] = time.split(':').map(Number);
+    
+    // Create UTC date
+    const utcDate = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+    
+    // Note: The sensor sends UTC time, so no timezone adjustment needed
+    return utcDate;
   }
 }

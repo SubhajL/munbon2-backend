@@ -6,10 +6,12 @@ import { logger } from './utils/logger';
 import { errorHandler } from './middleware/errorHandler';
 import { healthRouter } from './routes/health.routes';
 import { awdRouter } from './routes/awd.routes';
+import scadaHealthRouter from './routes/scada-health.routes';
 import { connectDatabases } from './config/database';
 import { initializeKafka } from './config/kafka';
 import { initializeRedis } from './config/redis';
 import { startMetricsCollection } from './utils/metrics';
+import { scadaGateControlService } from './services/scada-gate-control.service';
 
 // Load environment variables
 dotenv.config();
@@ -37,6 +39,14 @@ app.use((req, _, next) => {
 // Routes
 app.use('/health', healthRouter);
 app.use('/api/v1/awd', awdRouter);
+app.use('/api/v1/awd', scadaHealthRouter);
+
+// Import and use new routes
+import scadaRouter from './routes/scada.routes';
+import { irrigationRouter } from './routes/irrigation.routes';
+
+app.use('/api/scada', scadaRouter);
+app.use('/api/irrigation', irrigationRouter);
 
 // Error handling
 app.use(errorHandler);
@@ -73,9 +83,14 @@ const startServer = async () => {
       startMetricsCollection();
     }
 
+    // Start SCADA gate monitoring
+    scadaGateControlService.startMonitoring();
+    logger.info('SCADA gate control monitoring initialized');
+
     server = app.listen(PORT, () => {
       logger.info(`AWD Control Service running on port ${PORT}`);
       logger.info(`Environment: ${process.env.NODE_ENV}`);
+      logger.info('Water level-based irrigation control ready (NO PUMPS)');
     });
   } catch (error) {
     logger.error(error, 'Failed to start server');

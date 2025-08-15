@@ -117,7 +117,7 @@ module.exports = {
       name: 'external-tunnel-monitor',
       script: 'bash',
       args: '-c "while true; do if [ -f ./logs/tunnel-external-out.log ]; then URL=$(grep -o \'https://[a-zA-Z0-9\\-]*\\.trycloudflare\\.com\' ./logs/tunnel-external-out.log | tail -1); if [ -n \\"$URL\\" ]; then echo \\"External API Tunnel URL: $URL\\"; echo \\"$URL\\" > ./services/sensor-data/tunnel-external-url.txt; fi; fi; sleep 60; done"',
-      interpreter: '/bin/bash',
+      interpreter: 'bash',
       autorestart: true,
       watch: false,
       env: {
@@ -127,6 +127,34 @@ module.exports = {
       out_file: './logs/external-tunnel-monitor-out.log'
     },
     
+    // Sensor Location Mapping Service
+    {
+      name: 'sensor-location-mapping',
+      script: 'npm',
+      args: 'run dev',
+      cwd: './services/sensor-location-mapping',
+      instances: 1,
+      autorestart: true,
+      watch: false,
+      max_memory_restart: '500M',
+      env: {
+        PORT: 3018,
+        NODE_ENV: 'development',
+        // TimescaleDB on EC2
+        TIMESCALE_HOST: '43.209.22.250',
+        TIMESCALE_PORT: 5432,
+        TIMESCALE_DB: 'sensor_data',
+        TIMESCALE_USER: 'postgres',
+        TIMESCALE_PASSWORD: 'postgres123',
+        // PostGIS on EC2
+        POSTGIS_HOST: '43.209.22.250',
+        POSTGIS_PORT: 5432,
+        POSTGIS_DB: 'gis_db',
+        POSTGIS_USER: 'postgres',
+        POSTGIS_PASSWORD: 'postgres123'
+      }
+    },
+
     // =================
     // Background Workers
     // =================
@@ -134,8 +162,7 @@ module.exports = {
     // Sensor Data Consumer - Processes sensor data from SQS
     {
       name: 'sensor-consumer',
-      script: 'npm',
-      args: 'run consumer',
+      script: './run-consumer.sh',
       cwd: './services/sensor-data',
       instances: 1,
       autorestart: true,
@@ -144,6 +171,8 @@ module.exports = {
       env: {
         NODE_ENV: 'development',
         AWS_REGION: 'ap-southeast-1',
+        AWS_ACCESS_KEY_ID: process.env.AWS_ACCESS_KEY_ID,
+        AWS_SECRET_ACCESS_KEY: process.env.AWS_SECRET_ACCESS_KEY,
         // TimescaleDB connection
         TIMESCALE_HOST: 'localhost',
         TIMESCALE_PORT: 5433,
@@ -151,7 +180,7 @@ module.exports = {
         TIMESCALE_USER: 'postgres',
         TIMESCALE_PASSWORD: 'postgres',
         // SQS Queue URL (if needed)
-        SQS_QUEUE_URL: process.env.SQS_QUEUE_URL || '',
+        SQS_QUEUE_URL: 'https://sqs.ap-southeast-1.amazonaws.com/108728974441/munbon-sensor-ingestion-dev-queue',
         // Consumer port
         CONSUMER_PORT: 3004
       },
@@ -237,6 +266,30 @@ module.exports = {
     //   },
     //   error_file: './logs/auth-service-error.log',
     //   out_file: './logs/auth-service-out.log'
-    // }
+    // },
+    
+    // SCADA Integration Service
+    {
+      name: 'scada-integration',
+      script: 'npm',
+      args: 'run dev',
+      cwd: './services/scada-integration',
+      instances: 1,
+      autorestart: true,
+      watch: false,
+      max_memory_restart: '500M',
+      env: {
+        PORT: 3015,
+        NODE_ENV: 'development',
+        // SCADA database connection
+        SCADA_DB_HOST: 'moonup.hopto.org',
+        SCADA_DB_PORT: 5432,
+        SCADA_DB_NAME: 'db_scada',
+        SCADA_DB_USER: 'postgres',
+        SCADA_DB_PASSWORD: 'P@ssw0rd123!'
+      },
+      error_file: './logs/scada-integration-error.log',
+      out_file: './logs/scada-integration-out.log'
+    }
   ]
 };

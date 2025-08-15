@@ -8,7 +8,7 @@ echo "=================================="
 export USE_MOCK_SERVER=false
 export ROS_SERVICE_URL=http://localhost:3047
 export GIS_SERVICE_URL=http://localhost:3007
-export POSTGRES_URL=postgresql://postgres:postgres@localhost:5434/munbon_dev
+export POSTGRES_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev
 export REDIS_URL=redis://localhost:6379/2
 export LOG_LEVEL=INFO
 

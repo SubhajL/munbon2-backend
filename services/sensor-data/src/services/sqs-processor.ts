@@ -1,6 +1,10 @@
 import { Logger } from 'pino';
 import { TimescaleRepository } from '../repository/timescale.repository';
+import { DualWriteRepository } from '../repository/dual-write.repository';
 import { SensorType } from '../models/sensor.model';
+import { extractWaterLevelSensorId } from '../utils/sensor-id-formatter';
+// import { parseTimestamp } from './sqs-processor-helpers';
+import { processMoistureDataEnhanced } from './sqs-processor-moisture-fix';
 
 // Calculate data quality score
 function calculateQualityScore(data: any, sensorType: string): number {
@@ -26,17 +30,32 @@ function calculateQualityScore(data: any, sensorType: string): number {
 
 // Process water level sensor data
 async function processWaterLevelData(
-  repo: TimescaleRepository,
+  repo: TimescaleRepository | DualWriteRepository,
   telemetryData: any,
   logger: Logger
 ): Promise<void> {
-  const { sensorId, data, location, metadata, timestamp } = telemetryData;
+  const { data, location, metadata, timestamp } = telemetryData;
+  
+  // Format sensor ID as AWD-XXXX from MAC address
+  let formattedSensorId: string;
+  try {
+    formattedSensorId = extractWaterLevelSensorId(data);
+    logger.debug({ 
+      originalId: telemetryData.sensorId, 
+      formattedId: formattedSensorId,
+      macAddress: data.macAddress 
+    }, 'Formatted water level sensor ID');
+  } catch (error) {
+    logger.error({ error, data }, 'Failed to format sensor ID, using original');
+    formattedSensorId = telemetryData.sensorId;
+  }
+  
   const qualityScore = calculateQualityScore(data, 'water-level');
   
   // First, ensure sensor is registered
   try {
     await repo.updateSensorRegistry({
-      sensorId,
+      sensorId: formattedSensorId,
       sensorType: SensorType.WATER_LEVEL,
       manufacturer: 'RID-R',
       currentLocation: location,
@@ -44,16 +63,16 @@ async function processWaterLevelData(
       metadata: metadata || {}
     });
     
-    logger.debug({ sensorId }, 'Sensor registered/updated');
+    logger.debug({ sensorId: formattedSensorId }, 'Sensor registered/updated');
   } catch (error) {
-    logger.error({ error, sensorId }, 'Failed to register sensor');
+    logger.error({ error, sensorId: formattedSensorId }, 'Failed to register sensor');
     throw error;
   }
   
   // Save generic sensor reading
   try {
     await repo.saveSensorReading({
-      sensorId,
+      sensorId: formattedSensorId,
       sensorType: SensorType.WATER_LEVEL,
       timestamp: new Date(timestamp),
       location,
@@ -62,26 +81,49 @@ async function processWaterLevelData(
       qualityScore
     });
   } catch (error) {
-    logger.error({ error, sensorId }, 'Failed to save sensor reading');
+    logger.error({ error, sensorId: formattedSensorId }, 'Failed to save sensor reading');
     throw error;
   }
   
   // Save specific water level reading
   try {
-    logger.info({ sensorId, level: data.level }, 'Attempting to save water level reading');
+    logger.info({ sensorId: formattedSensorId, level: data.level }, 'Attempting to save water level reading');
     
     // Handle timestamp - check if it's in seconds or milliseconds
     let readingTimestamp: Date;
     if (data.timestamp) {
-      // If timestamp is less than 10 billion, it's likely in seconds
-      const ts = data.timestamp < 10000000000 ? data.timestamp * 1000 : data.timestamp;
-      readingTimestamp = new Date(ts);
+      try {
+        // Convert to number if it's a string
+        const timestampNum = typeof data.timestamp === 'string' ? parseInt(data.timestamp, 10) : data.timestamp;
+        
+        // Validate the timestamp is reasonable (between year 2000 and 2100)
+        const minTimestamp = 946684800000; // Jan 1, 2000
+        const maxTimestamp = 4102444800000; // Jan 1, 2100
+        
+        if (isNaN(timestampNum) || timestampNum < minTimestamp || timestampNum > maxTimestamp) {
+          logger.warn({ 
+            originalTimestamp: data.timestamp, 
+            parsed: timestampNum 
+          }, 'Invalid timestamp detected, using telemetry timestamp');
+          readingTimestamp = new Date(timestamp);
+        } else {
+          // If timestamp is less than 10 billion, it's likely in seconds
+          const ts = timestampNum < 10000000000 ? timestampNum * 1000 : timestampNum;
+          readingTimestamp = new Date(ts);
+        }
+      } catch (err) {
+        logger.warn({ 
+          error: err, 
+          timestamp: data.timestamp 
+        }, 'Failed to parse data timestamp, using telemetry timestamp');
+        readingTimestamp = new Date(timestamp);
+      }
     } else {
       readingTimestamp = new Date(timestamp);
     }
     
     await repo.saveWaterLevelReading({
-      sensorId,
+      sensorId: formattedSensorId,
       timestamp: readingTimestamp,
       location,
       levelCm: data.level,
@@ -91,12 +133,12 @@ async function processWaterLevelData(
     });
     
     logger.info({
-      sensorId,
+      sensorId: formattedSensorId,
       level: data.level,
       qualityScore
     }, 'Successfully saved water level reading to water_level_readings table');
   } catch (error) {
-    logger.error({ error, sensorId }, 'Failed to save water level reading');
+    logger.error({ error, sensorId: formattedSensorId }, 'Failed to save water level reading');
     throw error;
   }
   
@@ -104,131 +146,122 @@ async function processWaterLevelData(
   if (location) {
     try {
       await repo.addLocationHistory({
-        sensorId,
+        sensorId: formattedSensorId,
         timestamp: new Date(timestamp),
         location,
         reason: 'Regular update'
       });
     } catch (error) {
-      logger.warn({ error, sensorId }, 'Failed to add location history');
+      logger.warn({ error, sensorId: formattedSensorId }, 'Failed to add location history');
       // Don't throw - this is not critical
     }
   }
 }
 
-// Process moisture sensor data
+// Process moisture sensor data - DEPRECATED: Use processMoistureDataEnhanced instead
+/*
 async function processMoistureData(
   repo: TimescaleRepository,
   telemetryData: any,
   logger: Logger
 ): Promise<void> {
-  const { sensorId, data, location, metadata, timestamp } = telemetryData;
-  const qualityScore = calculateQualityScore(data, 'moisture');
+  const { data, location, metadata, timestamp } = telemetryData;
   
-  // First, ensure sensor is registered
+  // Gateway data - use gateway ID if no sensor data is available
+  const gatewayId = data.gw_id || telemetryData.sensorId;
+  
+  // First, process gateway data (always available)
+  const gatewayLocation = {
+    lat: parseFloat(data.latitude) || location?.lat || 0,
+    lng: parseFloat(data.longitude) || location?.lng || 0
+  };
+  
+  // Register gateway as a sensor
   try {
     await repo.updateSensorRegistry({
-      sensorId,
+      sensorId: gatewayId,
       sensorType: SensorType.MOISTURE,
       manufacturer: 'M2M',
-      currentLocation: location,
+      model: 'Gateway',
+      currentLocation: gatewayLocation,
       lastSeen: new Date(),
-      metadata: metadata || {}
+      metadata: {
+        ...metadata,
+        isGateway: true,
+        msgType: data.msg_type
+      }
     });
-    
-    logger.debug({ sensorId }, 'Sensor registered/updated');
+    logger.debug({ gatewayId }, 'Gateway registered/updated');
   } catch (error) {
-    logger.error({ error, sensorId }, 'Failed to register sensor');
+    logger.error({ error, gatewayId }, 'Failed to register gateway');
     throw error;
   }
   
-  // Save generic sensor reading - store both top and bottom values
+  // Save gateway environmental data
   try {
+    const gatewayTimestamp = parseTimestamp(data.date, data.time, timestamp, logger);
+    
     await repo.saveSensorReading({
-      sensorId,
+      sensorId: gatewayId,
       sensorType: SensorType.MOISTURE,
-      timestamp: new Date(timestamp),
-      location,
+      timestamp: gatewayTimestamp,
+      location: gatewayLocation,
       data: {
-        humid_hi: parseFloat(data.humid_hi),
-        humid_low: parseFloat(data.humid_low),
-        temp_hi: parseFloat(data.temp_hi),
-        temp_low: parseFloat(data.temp_low),
-        ...data
+        temperature: parseFloat(data.temperature),
+        humidity: parseFloat(data.humidity),
+        headIndex: parseFloat(data.head_index),
+        battery: parseFloat(data.batt),
+        msgType: data.msg_type,
+        sensorCount: data.sensor?.length || 0
       },
-      metadata: { ...metadata },
-      qualityScore
-    });
-  } catch (error) {
-    logger.error({ error, sensorId }, 'Failed to save sensor reading');
-    throw error;
-  }
-  
-  // Parse date and time from moisture data if available
-  let sensorTime: Date;
-  try {
-    if (data.date && data.time) {
-      // Convert date format from YYYY/MM/DD to YYYY-MM-DD for better parsing
-      const dateStr = data.date.replace(/\//g, '-');
-      sensorTime = new Date(`${dateStr}T${data.time}`);
-      logger.debug({ dateStr, time: data.time, parsed: sensorTime }, 'Parsed moisture timestamp');
-    } else {
-      sensorTime = new Date(timestamp);
-      logger.debug({ timestamp, parsed: sensorTime }, 'Using telemetry timestamp');
-    }
-  } catch (err) {
-    logger.warn({ err, date: data.date, time: data.time }, 'Failed to parse moisture timestamp, using telemetry timestamp');
-    sensorTime = new Date(timestamp);
-  }
-  
-  // Save specific moisture reading
-  try {
-    logger.info({ sensorId, surface: data.humid_hi, deep: data.humid_low }, 'Attempting to save moisture reading');
-    await repo.saveMoistureReading({
-      sensorId,
-      timestamp: sensorTime,
-      location,
-      moistureSurfacePct: parseFloat(data.humid_hi),
-      moistureDeepPct: parseFloat(data.humid_low),
-      tempSurfaceC: parseFloat(data.temp_hi),
-      tempDeepC: parseFloat(data.temp_low),
-      ambientHumidityPct: parseFloat(data.amb_humid),
-      ambientTempC: parseFloat(data.amb_temp),
-      floodStatus: data.flood === 'yes',
-      voltage: data.sensor_batt ? parseInt(data.sensor_batt) / 100 : undefined,
-      qualityScore
+      metadata: { 
+        ...metadata,
+        isGateway: true 
+      },
+      qualityScore: 0.9 // Gateway data is usually reliable
     });
     
-    logger.info({
-      sensorId,
-      surface: data.humid_hi,
-      deep: data.humid_low,
-      qualityScore
-    }, 'Successfully saved moisture reading to moisture_readings table');
+    logger.debug({ gatewayId }, 'Gateway reading saved');
   } catch (error) {
-    logger.error({ error, sensorId }, 'Failed to save moisture reading');
-    throw error;
+    logger.error({ error, gatewayId }, 'Failed to save gateway reading');
+    // Continue processing sensors even if gateway save fails
   }
   
-  // Add location history if location is provided
-  if (location) {
-    try {
-      await repo.addLocationHistory({
-        sensorId,
-        timestamp: sensorTime,
-        location,
-        reason: 'Regular update'
-      });
-    } catch (error) {
-      logger.warn({ error, sensorId }, 'Failed to add location history');
-      // Don't throw - this is not critical
+  // Now process sensor array if available
+  if (data.sensor && Array.isArray(data.sensor)) {
+    for (const sensorData of data.sensor) {
+      // Skip empty sensor data (case 2)
+      if (!sensorData.sensor_id || sensorData.sensor_id === '') {
+        logger.debug({ gatewayId }, 'Skipping empty sensor data');
+        continue;
+      }
+      
+      try {
+        await processSingleMoistureSensor(
+          repo, 
+          gatewayId, 
+          sensorData, 
+          gatewayLocation, 
+          metadata, 
+          timestamp, 
+          logger
+        );
+      } catch (error) {
+        logger.error({ 
+          error, 
+          sensorId: sensorData.sensor_id,
+          gatewayId 
+        }, 'Failed to process individual sensor');
+        // Continue with other sensors
+      }
     }
   }
 }
+*/
 
 // Main processing function - NO TRANSACTION to avoid foreign key issues
 export async function processIncomingData(
-  repo: TimescaleRepository,
+  repo: TimescaleRepository | DualWriteRepository,
   telemetryData: any,
   logger: Logger
 ): Promise<void> {
@@ -244,7 +277,7 @@ export async function processIncomingData(
         break;
         
       case 'moisture':
-        await processMoistureData(repo, telemetryData, logger);
+        await processMoistureDataEnhanced(repo, telemetryData, logger);
         break;
         
       default:

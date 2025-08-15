@@ -59,6 +59,18 @@ export class Parcel {
   @Column({ name: 'area_hectares', type: 'float' })
   areaHectares: number;
 
+  @Column({ 
+    name: 'area_rai', 
+    type: 'numeric',
+    precision: 10,
+    scale: 2,
+    generatedType: 'STORED',
+    asExpression: 'area_hectares * 6.25',
+    insert: false,
+    update: false
+  })
+  areaRai: number;
+
   @Column({
     type: 'geometry',
     spatialFeatureType: 'Geometry',
@@ -101,6 +113,13 @@ export class Parcel {
     waterLevel?: number;
     cropHeight?: number;
     lastUpdated?: Date;
+    // Additional properties that may come from shapefiles
+    geometry?: any;
+    cropType?: string;
+    ownerName?: string;
+    ownerId?: string;
+    subZone?: string;
+    landUseType?: string;
   };
 
   @ManyToOne(() => Zone, (zone) => zone.parcels)

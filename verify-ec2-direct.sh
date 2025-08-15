@@ -4,7 +4,7 @@
 export PGPASSWORD='P@ssw0rd123!'
 
 echo "=== Direct query from local machine to EC2 PostgreSQL ==="
-echo "Host: 43.209.12.182"
+echo "Host: 43.209.22.250"
 echo "Port: 5432"
 echo "Database: sensor_data"
 echo ""
@@ -17,7 +17,7 @@ import psycopg2
 
 try:
     conn = psycopg2.connect(
-        host='43.209.12.182',
+        host='43.209.22.250',
         port=5432,
         user='postgres',
         password='P@ssw0rd123!',
@@ -40,7 +40,7 @@ except Exception as e:
     print(f"Error: {e}")
 EOF
 else
-    psql -h 43.209.12.182 -p 5432 -U postgres -d sensor_data << 'SQL'
+    psql -h 43.209.22.250 -p 5432 -U postgres -d sensor_data << 'SQL'
 SELECT 'public.' || tablename as table_name, 
        (xpath('/row/count/text()', 
               query_to_xml(format('SELECT COUNT(*) FROM %I.%I', 'public', tablename), 

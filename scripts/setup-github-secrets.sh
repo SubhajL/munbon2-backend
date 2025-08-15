@@ -9,7 +9,7 @@ echo ""
 
 # Configuration
 REPO="SubhajL/munbon2-backend"
-EC2_HOST="43.209.12.182"
+EC2_HOST="43.209.22.250"
 EC2_USER="ubuntu"  # Default user for Ubuntu EC2 instances
 
 echo "Repository: $REPO"

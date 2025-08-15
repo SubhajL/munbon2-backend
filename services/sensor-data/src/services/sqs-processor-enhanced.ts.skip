@@ -1,0 +1,239 @@
+import { SQSClient, ReceiveMessageCommand, DeleteMessageCommand, Message } from '@aws-sdk/client-sqs';
+import { Logger } from 'pino';
+import { TimescaleRepository } from '../repository/timescale.repository';
+import { SensorType } from '../models/sensor.model';
+import { parseTimestamp } from './sqs-processor-helpers';
+
+export class SQSProcessorEnhanced {
+  private sqsClient: SQSClient;
+  private repository: TimescaleRepository;
+  private logger: Logger;
+
+  constructor(repository: TimescaleRepository, logger: Logger) {
+    this.repository = repository;
+    this.logger = logger;
+    this.sqsClient = new SQSClient({
+      region: process.env.AWS_REGION || 'ap-southeast-1'
+    });
+  }
+
+  // Enhanced moisture data processor for new format
+  async processMoistureData(telemetryData: any): Promise<void> {
+    const { gatewayId, sensorId, data, location, timestamp, metadata } = telemetryData;
+    
+    this.logger.info({
+      gatewayId,
+      sensorId,
+      hasSensorData: !!data.sensor,
+      hasGatewayData: !!data.gateway
+    }, 'Processing enhanced moisture data');
+
+    try {
+      // If we have gateway data, register/update gateway
+      if (data.gateway) {
+        const gw = data.gateway;
+        await this.repository.updateSensorRegistry({
+          sensorId: gatewayId,
+          sensorType: SensorType.MOISTURE,
+          manufacturer: 'M2M',
+          model: 'Gateway',
+          currentLocation: {
+            lat: gw.gps_lat || location?.lat || 0,
+            lng: gw.gps_lng || location?.lng || 0
+          },
+          lastSeen: new Date(),
+          metadata: {
+            ...metadata,
+            isGateway: true,
+            batteryVoltage: gw.gw_batt
+          }
+        });
+      }
+
+      // Process sensor-specific data
+      if (data.sensor && sensorId !== 'gateway-only') {
+        const sensor = data.sensor;
+        const sensorTimestamp = parseTimestamp(
+          sensor.sensor_date,
+          sensor.sensor_utc,
+          timestamp,
+          this.logger
+        );
+
+        // Register sensor
+        const fullSensorId = `${gatewayId}-${sensor.sensor_id}`;
+        await this.repository.updateSensorRegistry({
+          sensorId: fullSensorId,
+          sensorType: SensorType.MOISTURE,
+          manufacturer: 'M2M',
+          model: 'Moisture Sensor',
+          currentLocation: location || { lat: 0, lng: 0 },
+          lastSeen: sensorTimestamp,
+          metadata: {
+            ...metadata,
+            gatewayId,
+            batteryLevel: sensor.sensor_batt,
+            msgType: sensor.msg_type || 'Interval'
+          }
+        });
+
+        // Save moisture reading
+        await this.repository.saveMoistureReading({
+          sensorId: fullSensorId,
+          timestamp: sensorTimestamp,
+          // Moisture levels (0-100 scale assumed)
+          moistureHigh: sensor.humid_hi || 0,
+          moistureLow: sensor.humid_low || 0,
+          // Temperatures
+          tempHigh: sensor.temp_hi || null,
+          tempLow: sensor.temp_low || null,
+          // Ambient conditions
+          ambientHumidity: sensor.amb_humid || null,
+          ambientTemp: sensor.amb_temp || null,
+          // Additional fields
+          isFlooded: sensor.flood === 'yes',
+          batteryLevel: sensor.sensor_batt || null,
+          location: location || { lat: 0, lng: 0 },
+          metadata: {
+            gatewayId,
+            gatewayBattery: data.gateway?.gw_batt,
+            gatewayTemp: data.gateway?.gw_temp,
+            gatewayHumid: data.gateway?.gw_humid,
+            sensorMsgType: sensor.msg_type,
+            sourceIp: metadata?.sourceIp
+          },
+          qualityScore: this.calculateQualityScore(sensor)
+        });
+
+        this.logger.info({
+          fullSensorId,
+          moistureHigh: sensor.humid_hi,
+          moistureLow: sensor.humid_low,
+          timestamp: sensorTimestamp.toISOString()
+        }, 'Moisture reading saved');
+      }
+
+    } catch (error) {
+      this.logger.error({ error, gatewayId, sensorId }, 'Failed to process moisture data');
+      throw error;
+    }
+  }
+
+  // Calculate data quality score
+  private calculateQualityScore(sensor: any): number {
+    let score = 1.0;
+    
+    // Reduce score for missing critical fields
+    if (!sensor.humid_hi || !sensor.humid_low) score -= 0.3;
+    if (!sensor.temp_hi || !sensor.temp_low) score -= 0.2;
+    if (!sensor.sensor_batt) score -= 0.1;
+    
+    // Check for invalid values
+    const battery = parseInt(sensor.sensor_batt) || 0;
+    if (battery < 100 || battery > 500) score -= 0.2; // Unusual battery values
+    
+    const moistureHigh = parseInt(sensor.humid_hi) || 0;
+    const moistureLow = parseInt(sensor.humid_low) || 0;
+    if (moistureHigh < moistureLow) score -= 0.3; // Logic error
+    
+    return Math.max(0.1, Math.min(1.0, score));
+  }
+
+  // Main message processor
+  async processMessage(message: Message): Promise<void> {
+    if (!message.Body) {
+      this.logger.warn('Received message with no body');
+      return;
+    }
+
+    try {
+      const telemetryData = JSON.parse(message.Body);
+      
+      this.logger.debug({
+        sensorType: telemetryData.sensorType,
+        gatewayId: telemetryData.gatewayId,
+        sensorId: telemetryData.sensorId,
+        hasData: !!telemetryData.data
+      }, 'Processing SQS message');
+
+      // Route based on sensor type
+      switch (telemetryData.sensorType) {
+        case 'moisture':
+          await this.processMoistureData(telemetryData);
+          break;
+          
+        case 'water-level':
+          // TODO: Implement water level processor
+          this.logger.warn('Water level processing not implemented');
+          break;
+          
+        default:
+          this.logger.warn(`Unknown sensor type: ${telemetryData.sensorType}`);
+      }
+
+      // Delete message after successful processing
+      await this.deleteMessage(message);
+      
+    } catch (error) {
+      this.logger.error({ error, messageId: message.MessageId }, 'Failed to process message');
+      throw error;
+    }
+  }
+
+  // Delete processed message
+  private async deleteMessage(message: Message): Promise<void> {
+    if (!message.ReceiptHandle) return;
+
+    const command = new DeleteMessageCommand({
+      QueueUrl: process.env.SQS_QUEUE_URL,
+      ReceiptHandle: message.ReceiptHandle
+    });
+
+    await this.sqsClient.send(command);
+  }
+
+  // Poll for messages
+  async pollMessages(): Promise<void> {
+    const command = new ReceiveMessageCommand({
+      QueueUrl: process.env.SQS_QUEUE_URL,
+      MaxNumberOfMessages: 10,
+      WaitTimeSeconds: 20,
+      VisibilityTimeout: 60
+    });
+
+    try {
+      const response = await this.sqsClient.send(command);
+      
+      if (response.Messages && response.Messages.length > 0) {
+        this.logger.info(`Received ${response.Messages.length} messages from SQS`);
+        
+        // Process messages in parallel
+        await Promise.allSettled(
+          response.Messages.map(msg => this.processMessage(msg))
+        );
+      }
+    } catch (error) {
+      this.logger.error({ error }, 'Failed to poll SQS messages');
+      throw error;
+    }
+  }
+
+  // Start continuous polling
+  startPolling(intervalMs: number = 5000): void {
+    this.logger.info('Starting SQS polling...');
+    
+    const poll = async () => {
+      try {
+        await this.pollMessages();
+      } catch (error) {
+        this.logger.error({ error }, 'Polling error');
+      }
+      
+      // Schedule next poll
+      setTimeout(poll, intervalMs);
+    };
+    
+    // Start polling
+    poll();
+  }
+}

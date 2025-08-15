@@ -9,6 +9,8 @@ import { logger } from '@utils/logger';
 import { rainfallService } from './rainfall.service';
 import { effectiveRainfallService } from './effective-rainfall.service';
 import { waterLevelService } from './water-level.service';
+import { landPreparationService } from './land-preparation.service';
+import { weeklyEToService } from './weekly-eto.service';
 import dayjs from 'dayjs';
 import weekOfYear from 'dayjs/plugin/weekOfYear';
 
@@ -23,15 +25,9 @@ export class WaterDemandService {
    */
   async calculateWaterDemand(input: WaterDemandInput): Promise<WaterDemandResult> {
     try {
-      // Get monthly ETo for the calendar week
+      // Get weekly ETo value (monthly divided by 4)
       const monthlyETo = await this.getMonthlyETo(input.calendarWeek, input.calendarYear);
-      
-      // Calculate weekly ETo
-      const weeklyETo = this.calculateWeeklyETo(
-        monthlyETo,
-        input.calendarWeek,
-        input.calendarYear
-      );
+      const weeklyETo = monthlyETo / 4;
 
       // Get Kc value for crop type and week
       const kcValue = await this.getKcValue(input.cropType, input.cropWeek);
@@ -107,7 +103,8 @@ export class WaterDemandService {
     areaRai: number,
     cropType: CropType,
     plantingDate: Date,
-    includeRainfall: boolean = false
+    includeRainfall: boolean = false,
+    includeLandPreparation: boolean = true
   ): Promise<SeasonalWaterDemandResult> {
     try {
       const totalCropWeeks = await this.getTotalCropWeeks(cropType);
@@ -119,6 +116,27 @@ export class WaterDemandService {
       let totalEffectiveRainfall = 0;
       let totalNetWaterDemandMm = 0;
       let totalNetWaterDemandM3 = 0;
+      let landPreparationMm = 0;
+      let landPreparationM3 = 0;
+
+      // Calculate land preparation water if requested
+      if (includeLandPreparation) {
+        const landPrepResult = await landPreparationService.calculateLandPreparationDemand(
+          cropType,
+          areaRai,
+          areaId,
+          areaType,
+          plantingDate
+        );
+        
+        weeklyResults.push(landPrepResult);
+        landPreparationMm = landPrepResult.cropWaterDemandMm;
+        landPreparationM3 = landPrepResult.cropWaterDemandM3;
+        totalWaterDemandMm += landPreparationMm;
+        totalWaterDemandM3 += landPreparationM3;
+        totalNetWaterDemandMm += landPrepResult.netWaterDemandMm || 0;
+        totalNetWaterDemandM3 += landPrepResult.netWaterDemandM3 || 0;
+      }
 
       // Calculate for each crop week
       for (let cropWeek = 1; cropWeek <= totalCropWeeks; cropWeek++) {
@@ -168,6 +186,8 @@ export class WaterDemandService {
         totalEffectiveRainfall: includeRainfall ? totalEffectiveRainfall : undefined,
         totalNetWaterDemandMm: includeRainfall ? totalNetWaterDemandMm : undefined,
         totalNetWaterDemandM3: includeRainfall ? totalNetWaterDemandM3 : undefined,
+        landPreparationMm: includeLandPreparation ? landPreparationMm : undefined,
+        landPreparationM3: includeLandPreparation ? landPreparationM3 : undefined,
         weeklyDetails: weeklyResults,
       };
     } catch (error) {

@@ -1,0 +1,296 @@
+import express from 'express';
+import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
+import * as dotenv from 'dotenv';
+import pino from 'pino';
+
+dotenv.config();
+
+const app = express();
+
+// CRITICAL: Add text/plain parser BEFORE json parser
+app.use(express.text({ type: 'text/plain', limit: '10mb' }));
+app.use(express.json({ limit: '10mb' }));
+
+const logger = pino({
+  transport: {
+    target: 'pino-pretty',
+    options: { colorize: true }
+  }
+});
+
+// SQS client
+const sqsClient = new SQSClient({
+  region: process.env.AWS_REGION || 'ap-southeast-1'
+});
+
+const SQS_QUEUE_URL = process.env.SQS_QUEUE_URL || 'https://sqs.ap-southeast-1.amazonaws.com/108728974441/munbon-sensor-ingestion-dev-queue';
+
+// Track statistics
+const stats = {
+  totalRequests: 0,
+  validPayloads: 0,
+  emptyPayloads: 0,
+  parseErrors: 0,
+  sqsErrors: 0,
+  byGateway: new Map<string, number>()
+};
+
+// Enhanced moisture data endpoint
+app.post('/api/sensor-data/moisture/:token', async (req, res) => {
+  stats.totalRequests++;
+  
+  try {
+    const { token } = req.params;
+    const contentType = req.headers['content-type'] || '';
+    const sourceIp = req.ip || req.connection.remoteAddress || 'unknown';
+    let parsedData: any;
+    
+    // Parse the request body based on content type
+    if (contentType.includes('text/plain')) {
+      // Handle text/plain - parse as JSON
+      try {
+        if (typeof req.body === 'string' && req.body.trim()) {
+          parsedData = JSON.parse(req.body);
+          logger.info({ 
+            contentType, 
+            bodyLength: req.body.length,
+            firstChars: req.body.substring(0, 100)
+          }, 'Parsing text/plain as JSON');
+        } else {
+          parsedData = {};
+        }
+      } catch (parseError) {
+        stats.parseErrors++;
+        logger.error({ 
+          parseError, 
+          body: req.body,
+          bodyType: typeof req.body,
+          contentType
+        }, 'Failed to parse text/plain as JSON');
+        
+        // Return success anyway to not break sensors
+        return res.status(200).json({ 
+          status: 'success', 
+          message: 'Data received (parse error, not processed)',
+          error: 'Invalid JSON format'
+        });
+      }
+    } else {
+      // For application/json or other types
+      parsedData = req.body || {};
+    }
+    
+    // Log received data structure
+    logger.info({ 
+      token,
+      contentType,
+      sourceIp,
+      hasGwId: !!parsedData.gw_id,
+      hasSensorArray: Array.isArray(parsedData.sensor),
+      sensorCount: parsedData.sensor?.length || 0,
+      gatewayId: parsedData.gw_id,
+      dataKeys: Object.keys(parsedData)
+    }, 'Received moisture data');
+    
+    // Check if we have valid data
+    if (!parsedData || typeof parsedData !== 'object' || Object.keys(parsedData).length === 0) {
+      stats.emptyPayloads++;
+      logger.info({ 
+        token, 
+        sourceIp,
+        message: 'Empty payload received'
+      });
+      
+      return res.status(200).json({ 
+        status: 'success', 
+        message: 'Data received (empty payload acknowledged)' 
+      });
+    }
+    
+    // Extract gateway information
+    const gatewayId = parsedData.gw_id || parsedData.gateway_id;
+    const gatewayData = {
+      gw_id: gatewayId,
+      gateway_date: parsedData.gateway_date,
+      gateway_utc: parsedData.gateway_utc,
+      gps_lat: parseFloat(parsedData.gps_lat) || null,
+      gps_lng: parseFloat(parsedData.gps_lng) || null,
+      gw_temp: parseFloat(parsedData.gw_temp) || null,
+      gw_humid: parseFloat(parsedData.gw_himid) || null, // Note: typo in source data
+      gw_batt: parseFloat(parsedData.gw_batt) || null
+    };
+    
+    // Process sensor array
+    const sensors = parsedData.sensor || [];
+    const messages = [];
+    
+    if (Array.isArray(sensors) && sensors.length > 0) {
+      // Process each sensor reading
+      for (const sensor of sensors) {
+        const message = {
+          timestamp: new Date().toISOString(),
+          token: token,
+          tokenGroup: 'moisture-munbon',
+          sensorType: 'moisture',
+          gatewayId: gatewayId,
+          sensorId: sensor.sensor_id,
+          location: {
+            lat: gatewayData.gps_lat,
+            lng: gatewayData.gps_lng
+          },
+          data: {
+            // Gateway data
+            gateway: gatewayData,
+            // Sensor specific data
+            sensor: {
+              sensor_id: sensor.sensor_id,
+              sensor_date: sensor.sensor_date,
+              sensor_utc: sensor.sensor_utc,
+              humid_hi: parseInt(sensor.humid_hi) || null,
+              humid_low: parseInt(sensor.humid_low) || null,
+              temp_hi: parseFloat(sensor.temp_hi) || null,
+              temp_low: parseFloat(sensor.temp_low) || null,
+              amb_humid: parseFloat(sensor.amb_humid) || null,
+              amb_temp: parseFloat(sensor.amb_temp) || null,
+              flood: sensor.flood === 'yes',
+              sensor_batt: parseInt(sensor.sensor_batt) || null,
+              msg_type: sensor.sensor_msg_type || 'Interval'
+            }
+          },
+          sourceIp: sourceIp,
+          metadata: {
+            contentType: contentType,
+            originalPayloadSize: JSON.stringify(parsedData).length
+          }
+        };
+        messages.push(message);
+      }
+    } else if (gatewayId) {
+      // No sensor array but has gateway ID - send gateway-only message
+      const message = {
+        timestamp: new Date().toISOString(),
+        token: token,
+        tokenGroup: 'moisture-munbon',
+        sensorType: 'moisture',
+        gatewayId: gatewayId,
+        sensorId: 'gateway-only',
+        location: {
+          lat: gatewayData.gps_lat,
+          lng: gatewayData.gps_lng
+        },
+        data: {
+          gateway: gatewayData,
+          sensor: null
+        },
+        sourceIp: sourceIp,
+        metadata: {
+          contentType: contentType,
+          note: 'Gateway data only, no sensor readings'
+        }
+      };
+      messages.push(message);
+    }
+    
+    // Send all messages to SQS
+    if (messages.length > 0) {
+      stats.validPayloads++;
+      
+      // Update gateway stats
+      if (gatewayId) {
+        stats.byGateway.set(gatewayId, (stats.byGateway.get(gatewayId) || 0) + 1);
+      }
+      
+      for (const message of messages) {
+        try {
+          const command = new SendMessageCommand({
+            QueueUrl: SQS_QUEUE_URL,
+            MessageBody: JSON.stringify(message)
+          });
+          
+          await sqsClient.send(command);
+          
+          logger.info({ 
+            token,
+            gatewayId: message.gatewayId,
+            sensorId: message.sensorId,
+            hasLocation: !!(message.location.lat && message.location.lng)
+          }, 'Sent to SQS successfully');
+          
+        } catch (sqsError) {
+          stats.sqsErrors++;
+          logger.error({ sqsError, message }, 'Failed to send to SQS');
+        }
+      }
+      
+      res.status(200).json({ 
+        status: 'success', 
+        message: `Data received and processed (${messages.length} readings)` 
+      });
+    } else {
+      stats.emptyPayloads++;
+      logger.warn({ 
+        token,
+        sourceIp,
+        parsedDataKeys: Object.keys(parsedData)
+      }, 'No valid sensor data found in payload');
+      
+      res.status(200).json({ 
+        status: 'success', 
+        message: 'Data received (no sensor data found)' 
+      });
+    }
+    
+  } catch (error) {
+    logger.error({ error }, 'Failed to process moisture data');
+    res.status(500).json({ status: 'error', message: 'Internal server error' });
+  }
+});
+
+// Health check
+app.get('/health', (_req, res) => {
+  res.status(200).json({
+    status: 'OK',
+    uptime: process.uptime(),
+    stats: {
+      totalRequests: stats.totalRequests,
+      validPayloads: stats.validPayloads,
+      emptyPayloads: stats.emptyPayloads,
+      parseErrors: stats.parseErrors,
+      sqsErrors: stats.sqsErrors,
+      gateways: stats.byGateway.size
+    }
+  });
+});
+
+// Statistics endpoint
+app.get('/api/stats', (_req, res) => {
+  const gatewayStats = Array.from(stats.byGateway.entries())
+    .map(([id, count]) => ({ gatewayId: id, requestCount: count }))
+    .sort((a, b) => b.requestCount - a.requestCount);
+  
+  res.json({
+    summary: {
+      totalRequests: stats.totalRequests,
+      validPayloads: stats.validPayloads,
+      emptyPayloads: stats.emptyPayloads,
+      parseErrors: stats.parseErrors,
+      sqsErrors: stats.sqsErrors,
+      successRate: stats.totalRequests > 0 
+        ? ((stats.validPayloads / stats.totalRequests) * 100).toFixed(2) + '%'
+        : '0%'
+    },
+    gateways: gatewayStats,
+    timestamp: new Date().toISOString()
+  });
+});
+
+const PORT = parseInt(process.env.HTTP_PORT || '8080');
+
+app.listen(PORT, '0.0.0.0', () => {
+  logger.info(`🚀 Enhanced Moisture HTTP server listening on port ${PORT}`);
+  logger.info(`📡 Endpoint: POST /api/sensor-data/moisture/munbon-m2m-moisture`);
+  logger.info(`✅ Accepts: text/plain (JSON string) and application/json`);
+  logger.info(`📊 Stats: GET /api/stats`);
+  logger.info(`🏥 Health: GET /health`);
+  logger.info(`🗄️ SQS Queue: ${SQS_QUEUE_URL}`);
+});

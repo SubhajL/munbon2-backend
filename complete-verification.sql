@@ -1,5 +1,5 @@
 -- Complete verification of migrated data on EC2
--- Host: 43.209.12.182, Port: 5432, User: postgres, Password: P@ssw0rd123!
+-- Host: 43.209.22.250, Port: 5432, User: postgres, Password: P@ssw0rd123!
 
 -- ==================================
 -- PART 1: munbon_dev database

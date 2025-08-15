@@ -1,356 +1,227 @@
-"""
-Demand Aggregation Service
-Collects and aggregates water demands from multiple sources
-"""
-
+from typing import Dict, List, Any, Optional, Tuple
+from datetime import datetime, date, timedelta
+from collections import defaultdict
 import asyncio
-from typing import Dict, List, Optional, Set
-from datetime import datetime, timedelta
-import structlog
-import httpx
 
-from ..db.connections import DatabaseManager
-from ..schemas.demands import SectionDemand, AggregatedDemands, DemandStatus
+from .clients import ROSClient, GISClient, FlowMonitoringClient
+from ..core.logger import get_logger
+from ..core.redis import get_redis, RedisClient
+from ..core.config import settings
 
-logger = structlog.get_logger()
+logger = get_logger(__name__)
 
 
 class DemandAggregator:
-    """
-    Aggregates irrigation water demands from:
-    1. ROS/GIS Integration service
-    2. Historical patterns
-    3. Weather adjustments
-    4. Manual overrides
-    """
+    """Aggregate water demands from multiple sources"""
     
-    def __init__(self, db_manager: DatabaseManager):
-        self.db_manager = db_manager
-        self.ros_gis_url = "http://localhost:3041"  # Will be configured
-        
-        # Aggregation parameters
-        self.default_priority = 5
-        self.weather_adjustment_factor = 1.0
-        self.historical_weight = 0.3
-        
+    def __init__(
+        self,
+        ros_client: ROSClient,
+        gis_client: GISClient,
+        flow_client: FlowMonitoringClient,
+        redis_client: RedisClient
+    ):
+        self.ros_client = ros_client
+        self.gis_client = gis_client
+        self.flow_client = flow_client
+        self.redis_client = redis_client
+        self.cache_prefix = "demand_aggregation"
+    
     async def aggregate_weekly_demands(
         self,
-        week: str,
-        sources: Optional[List[str]] = None
-    ) -> AggregatedDemands:
-        """Aggregate demands from all sources for a week"""
-        try:
-            # Collect from different sources
-            ros_demands = await self._fetch_ros_gis_demands(week)
-            historical_demands = await self._fetch_historical_demands(week)
-            manual_demands = await self._fetch_manual_demands(week)
-            
-            # Merge and deduplicate
-            all_demands = self._merge_demands(
-                ros_demands,
-                historical_demands,
-                manual_demands
-            )
-            
-            # Apply weather adjustments
-            adjusted_demands = await self._apply_weather_adjustments(
-                all_demands,
-                week
-            )
-            
-            # Group by zones and crops
-            aggregated = self._aggregate_by_categories(adjusted_demands)
-            
-            # Store aggregated result
-            await self._store_aggregated_demands(week, aggregated)
-            
-            return aggregated
-            
-        except Exception as e:
-            logger.error(f"Failed to aggregate demands: {e}")
-            raise
+        week_number: int,
+        year: int,
+        use_cache: bool = True
+    ) -> Dict[str, Any]:
+        """Aggregate water demands for a specific week"""
+        cache_key = f"{self.cache_prefix}:{year}:week_{week_number}"
+        
+        # Check cache
+        if use_cache and settings.enable_cache:
+            cached_data = await self.redis_client.get_json(cache_key)
+            if cached_data:
+                logger.info(f"Using cached demand data for week {week_number}, {year}")
+                return cached_data
+        
+        logger.info(f"Aggregating demands for week {week_number}, {year}")
+        
+        # Get current week demand from ROS
+        current_week_data = await self.ros_client.get_current_week_demand(week_number, year)
+        
+        # Get network topology from GIS
+        network_topology = await self.gis_client.get_canal_network_topology()
+        
+        # Aggregate by delivery paths
+        aggregated_data = await self._aggregate_by_delivery_paths(
+            current_week_data,
+            network_topology
+        )
+        
+        # Apply weather adjustments
+        weather_adjusted = await self._apply_weather_adjustments(aggregated_data)
+        
+        # Group by time windows
+        time_grouped = self._group_by_time_windows(weather_adjusted)
+        
+        result = {
+            "week": week_number,
+            "year": year,
+            "totalDemandM3": sum(d["totalDemandM3"] for d in time_grouped.values()),
+            "totalNetDemandM3": sum(d["totalNetDemandM3"] for d in time_grouped.values()),
+            "byZone": self._aggregate_by_zone(current_week_data),
+            "byDeliveryPath": aggregated_data,
+            "byTimeWindow": time_grouped,
+            "plotCount": current_week_data.get("summary", {}).get("totalPlots", 0),
+            "aggregatedAt": datetime.utcnow().isoformat(),
+        }
+        
+        # Cache the result
+        if settings.enable_cache:
+            await self.redis_client.set_json(cache_key, result, settings.cache_ttl_seconds)
+        
+        return result
     
-    async def _fetch_ros_gis_demands(
-        self, 
-        week: str
-    ) -> List[SectionDemand]:
-        """Fetch demands from ROS/GIS Integration service"""
-        try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    f"{self.ros_gis_url}/api/v1/demands/week/{week}",
-                    timeout=30.0
-                )
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    return [
-                        SectionDemand(**demand) 
-                        for demand in data.get("sections", [])
-                    ]
-                elif response.status_code == 404:
-                    logger.info(f"No ROS/GIS demands for week {week}")
-                    return []
-                else:
-                    logger.error(f"ROS/GIS service error: {response.status_code}")
-                    return []
-                    
-        except Exception as e:
-            logger.error(f"Failed to fetch ROS/GIS demands: {e}")
-            return []
-    
-    async def _fetch_historical_demands(
-        self, 
-        week: str
-    ) -> List[SectionDemand]:
-        """Fetch historical demand patterns"""
-        try:
-            # Extract week number
-            _, week_num = week.split('-')
-            week_num = int(week_num)
-            
-            # Query historical data for same week in previous years
-            query = """
-                SELECT section_id, zone, AVG(demand_m3) as avg_demand,
-                       crop_type, COUNT(*) as years_count
-                FROM historical_demands
-                WHERE week_number = $1
-                GROUP BY section_id, zone, crop_type
-                HAVING years_count >= 2
-            """
-            
-            # Execute query (simplified for example)
-            # In real implementation, properly execute with db connection
-            historical_data = []
-            
-            # Convert to SectionDemand objects
-            demands = []
-            for row in historical_data:
-                demand = SectionDemand(
-                    section_id=row['section_id'],
-                    zone=row['zone'],
-                    demand_m3=row['avg_demand'] * 0.9,  # Conservative estimate
-                    priority=self.default_priority - 1,  # Lower priority
-                    crop_type=row['crop_type'],
-                    delivery_window={
-                        "start": datetime.utcnow(),
-                        "end": datetime.utcnow() + timedelta(days=7)
-                    }
-                )
-                demands.append(demand)
-            
-            return demands
-            
-        except Exception as e:
-            logger.error(f"Failed to fetch historical demands: {e}")
-            return []
-    
-    async def _fetch_manual_demands(
-        self, 
-        week: str
-    ) -> List[SectionDemand]:
-        """Fetch manually entered demands"""
-        try:
-            # Query manual overrides from database
-            # In real implementation, query from postgres
-            return []
-            
-        except Exception as e:
-            logger.error(f"Failed to fetch manual demands: {e}")
-            return []
-    
-    def _merge_demands(
+    async def _aggregate_by_delivery_paths(
         self,
-        *demand_lists: List[SectionDemand]
-    ) -> List[SectionDemand]:
-        """Merge demands from multiple sources, handling duplicates"""
-        merged = {}
+        demand_data: Dict[str, Any],
+        network_topology: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Aggregate demands by delivery paths through the network"""
+        path_demands = defaultdict(lambda: {
+            "totalDemandM3": 0,
+            "totalNetDemandM3": 0,
+            "plots": [],
+            "gates": [],
+        })
         
-        for demands in demand_lists:
-            for demand in demands:
-                key = (demand.section_id, demand.crop_type)
-                
-                if key in merged:
-                    # Merge logic: take maximum demand, highest priority
-                    existing = merged[key]
-                    existing.demand_m3 = max(existing.demand_m3, demand.demand_m3)
-                    existing.priority = max(existing.priority, demand.priority)
-                    
-                    # Merge delivery windows
-                    if demand.delivery_window:
-                        if not existing.delivery_window:
-                            existing.delivery_window = demand.delivery_window
-                        else:
-                            # Take earliest start, latest end
-                            existing.delivery_window["start"] = min(
-                                existing.delivery_window.get("start", demand.delivery_window["start"]),
-                                demand.delivery_window["start"]
-                            )
-                            existing.delivery_window["end"] = max(
-                                existing.delivery_window.get("end", demand.delivery_window["end"]),
-                                demand.delivery_window["end"]
-                            )
-                else:
-                    merged[key] = demand
+        # Process each plot demand
+        plot_demands = demand_data.get("data", [])
         
-        return list(merged.values())
+        for plot in plot_demands:
+            zone_id = plot.get("parentZoneId")
+            
+            # Find delivery path for this zone
+            delivery_path = self._find_delivery_path(zone_id, network_topology)
+            
+            if delivery_path:
+                path_key = "->".join(delivery_path)
+                path_demands[path_key]["totalDemandM3"] += plot.get("cropWaterDemandM3", 0)
+                path_demands[path_key]["totalNetDemandM3"] += plot.get("netWaterDemandM3", 0)
+                path_demands[path_key]["plots"].append(plot.get("plotId"))
+                path_demands[path_key]["gates"] = delivery_path
+        
+        return dict(path_demands)
+    
+    def _find_delivery_path(
+        self,
+        zone_id: str,
+        network_topology: Dict[str, Any]
+    ) -> List[str]:
+        """Find the delivery path from reservoir to zone"""
+        # This is a simplified version - actual implementation would
+        # traverse the network graph to find the path
+        zone_to_gates = {
+            "Z1": ["M(0,0)", "M(0,2)", "M(1,0)"],
+            "Z2": ["M(0,0)", "M(0,2)", "M(2,0)"],
+            "Z3": ["M(0,0)", "M(0,3)", "M(3,0)"],
+            "Z4": ["M(0,0)", "M(0,3)", "M(4,0)"],
+            "Z5": ["M(0,0)", "M(0,4)", "M(5,0)"],
+            "Z6": ["M(0,0)", "M(0,4)", "M(6,0)"],
+        }
+        
+        return zone_to_gates.get(zone_id, [])
     
     async def _apply_weather_adjustments(
         self,
-        demands: List[SectionDemand],
-        week: str
-    ) -> List[SectionDemand]:
-        """Apply weather-based adjustments to demands"""
-        try:
-            # Get weather forecast
-            weather_data = await self._get_weather_forecast(week)
-            
-            # Calculate adjustment factors
-            rainfall_expected = weather_data.get("rainfall_mm", 0)
-            temperature_avg = weather_data.get("temperature_avg", 30)
-            
-            # Adjust based on expected rainfall
-            if rainfall_expected > 50:
-                self.weather_adjustment_factor = 0.7
-            elif rainfall_expected > 20:
-                self.weather_adjustment_factor = 0.85
-            elif rainfall_expected < 5:
-                self.weather_adjustment_factor = 1.2
-            else:
-                self.weather_adjustment_factor = 1.0
-            
-            # Adjust based on temperature
-            if temperature_avg > 35:
-                self.weather_adjustment_factor *= 1.1
-            elif temperature_avg < 25:
-                self.weather_adjustment_factor *= 0.9
-            
-            # Apply adjustments
-            for demand in demands:
-                demand.demand_m3 *= self.weather_adjustment_factor
-                
-                # Increase priority for drought conditions
-                if self.weather_adjustment_factor > 1.1:
-                    demand.priority = min(10, demand.priority + 1)
-            
-            return demands
-            
-        except Exception as e:
-            logger.error(f"Failed to apply weather adjustments: {e}")
-            return demands
-    
-    async def _get_weather_forecast(self, week: str) -> Dict:
-        """Get weather forecast for the week"""
-        # In real implementation, call weather API
-        # For now, return mock data
-        return {
-            "rainfall_mm": 15,
-            "temperature_avg": 32,
-            "humidity_avg": 65,
-            "wind_speed_avg": 10
-        }
-    
-    def _aggregate_by_categories(
-        self,
-        demands: List[SectionDemand]
-    ) -> AggregatedDemands:
-        """Aggregate demands by zones and crop types"""
-        total_demand = sum(d.demand_m3 for d in demands)
-        zones_covered = list(set(d.zone for d in demands))
-        
-        # Group by zone
-        demands_by_zone = {}
-        for demand in demands:
-            if demand.zone not in demands_by_zone:
-                demands_by_zone[demand.zone] = 0
-            demands_by_zone[demand.zone] += demand.demand_m3
-        
-        # Group by crop
-        demands_by_crop = {}
-        for demand in demands:
-            if demand.crop_type not in demands_by_crop:
-                demands_by_crop[demand.crop_type] = 0
-            demands_by_crop[demand.crop_type] += demand.demand_m3
-        
-        # Priority distribution
-        priority_distribution = {}
-        for demand in demands:
-            if demand.priority not in priority_distribution:
-                priority_distribution[demand.priority] = 0
-            priority_distribution[demand.priority] += 1
-        
-        # Extract week for the aggregated object
-        week = demands[0].delivery_window["start"].strftime("%Y-%W") if demands else "unknown"
-        
-        return AggregatedDemands(
-            week=week,
-            total_demand_m3=total_demand,
-            sections_count=len(demands),
-            zones_covered=sorted(zones_covered),
-            demands_by_zone=demands_by_zone,
-            demands_by_crop=demands_by_crop,
-            priority_distribution=priority_distribution,
-            created_at=datetime.utcnow(),
-            last_updated=datetime.utcnow(),
-            processing_status=DemandStatus.VALIDATED
-        )
-    
-    async def _store_aggregated_demands(
-        self,
-        week: str,
-        aggregated: AggregatedDemands
-    ):
-        """Store aggregated demands in database"""
-        try:
-            # Store in PostgreSQL
-            # In real implementation, use proper database operations
-            logger.info(
-                f"Stored aggregated demands for week {week}",
-                total_demand=aggregated.total_demand_m3,
-                sections=aggregated.sections_count
-            )
-        except Exception as e:
-            logger.error(f"Failed to store aggregated demands: {e}")
-            raise
-    
-    async def validate_demand_feasibility(
-        self,
-        demands: List[SectionDemand]
+        aggregated_data: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Validate if demands can be satisfied"""
-        total_demand = sum(d.demand_m3 for d in demands)
+        """Apply weather-based adjustments to demands"""
+        # In a real implementation, this would fetch weather forecasts
+        # and adjust demands based on expected rainfall, temperature, etc.
         
-        # Check system capacity
-        system_capacity = 30.0 * 7 * 24 * 3600  # m³/week (30 m³/s)
+        adjusted_data = aggregated_data.copy()
         
-        feasibility = {
-            "is_feasible": total_demand <= system_capacity * 0.8,
-            "total_demand_m3": total_demand,
-            "system_capacity_m3": system_capacity,
-            "utilization_percentage": (total_demand / system_capacity) * 100,
-            "bottlenecks": []
+        # Simplified adjustment: reduce demand by 10% if rain is expected
+        weather_factor = 0.9  # Assume some rain
+        
+        for path, data in adjusted_data.items():
+            data["weatherAdjustedDemandM3"] = data["totalNetDemandM3"] * weather_factor
+            data["weatherFactor"] = weather_factor
+        
+        return adjusted_data
+    
+    def _group_by_time_windows(
+        self,
+        demand_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Group demands by operational time windows"""
+        # Define time windows for different crop types
+        time_windows = {
+            "morning": {"start": "06:00", "end": "12:00", "crops": ["rice"]},
+            "afternoon": {"start": "12:00", "end": "18:00", "crops": ["corn"]},
+            "evening": {"start": "18:00", "end": "22:00", "crops": ["sugarcane"]},
         }
         
-        # Check zone-level constraints
-        zone_capacities = {
-            1: 50000, 2: 60000, 3: 55000, 4: 45000, 5: 50000,
-            6: 40000, 7: 35000, 8: 30000, 9: 25000, 10: 20000
-        }
+        grouped = defaultdict(lambda: {
+            "totalDemandM3": 0,
+            "totalNetDemandM3": 0,
+            "paths": [],
+        })
         
-        demands_by_zone = {}
-        for demand in demands:
-            if demand.zone not in demands_by_zone:
-                demands_by_zone[demand.zone] = 0
-            demands_by_zone[demand.zone] += demand.demand_m3
+        # For simplicity, distribute demands across time windows
+        for path, data in demand_data.items():
+            # Assign to morning window by default
+            window = "morning"
+            grouped[window]["totalDemandM3"] += data.get("weatherAdjustedDemandM3", 0)
+            grouped[window]["totalNetDemandM3"] += data.get("totalNetDemandM3", 0)
+            grouped[window]["paths"].append(path)
         
-        for zone, demand in demands_by_zone.items():
-            capacity = zone_capacities.get(zone, 30000)
-            if demand > capacity:
-                feasibility["bottlenecks"].append({
-                    "zone": zone,
-                    "demand": demand,
-                    "capacity": capacity,
-                    "excess": demand - capacity
-                })
+        return dict(grouped)
+    
+    def _aggregate_by_zone(self, demand_data: Dict[str, Any]) -> Dict[str, float]:
+        """Aggregate demands by zone"""
+        zone_summary = demand_data.get("summary", {}).get("byZone", {})
+        return zone_summary
+    
+    async def get_section_demands(
+        self,
+        section_ids: List[str],
+        week_number: int,
+        year: int
+    ) -> Dict[str, float]:
+        """Get aggregated demands for specific sections"""
+        section_demands = {}
         
-        return feasibility
+        # Fetch demands for each section in parallel
+        tasks = []
+        for section_id in section_ids:
+            tasks.append(self._get_section_demand(section_id, week_number, year))
+        
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        for section_id, result in zip(section_ids, results):
+            if isinstance(result, Exception):
+                logger.error(f"Failed to get demand for section {section_id}: {str(result)}")
+                section_demands[section_id] = 0.0
+            else:
+                section_demands[section_id] = result
+        
+        return section_demands
+    
+    async def _get_section_demand(
+        self,
+        section_id: str,
+        week_number: int,
+        year: int
+    ) -> float:
+        """Get total demand for a section"""
+        # Get plots in section
+        plots = await self.ros_client.get_section_plots(section_id)
+        
+        # Sum up demands
+        total_demand = 0.0
+        for plot in plots:
+            # Simplified - in reality would calculate for specific week
+            total_demand += plot.get("averageWeeklyDemandM3", 0.0)
+        
+        return total_demand

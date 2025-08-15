@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  ros-gis-integration:
+    image: ros-gis-integration:latest
+    container_name: ros-gis-integration
+    restart: unless-stopped
+    ports:
+      - "3022:3022"
+    environment:
+      # Database Configuration
+      POSTGRES_URL: "postgresql://postgres:P@ssw0rd123!@timescaledb:5432/munbon_dev"
+      REDIS_URL: "redis://ros-redis:6379/2"
+      
+      # Service Configuration
+      ENVIRONMENT: "production"
+      LOG_LEVEL: "INFO"
+      USE_MOCK_SERVER: "false"
+      
+      # External Services
+      ROS_SERVICE_URL: "http://ros-service:3047"
+      GIS_SERVICE_URL: "http://host.docker.internal:3007"
+      FLOW_MONITORING_URL: "http://host.docker.internal:3011"
+      SCHEDULER_SERVICE_URL: "http://host.docker.internal:3021"
+      
+      # Service Settings
+      DEMAND_COMBINATION_STRATEGY: "aquacrop_priority"
+      CACHE_TTL_SECONDS: "300"
+    
+    networks:
+      - ros_munbon-network
+      - postgresql_docker_default
+    
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3022/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  ros_munbon-network:
+    external: true
+  postgresql_docker_default:
+    external: true

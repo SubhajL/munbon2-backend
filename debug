@@ -1,0 +1,4 @@
+#!/bin/bash
+# Ultra-simple debug server launcher
+cd "$(dirname "$0")"
+./scripts/debug-server.sh

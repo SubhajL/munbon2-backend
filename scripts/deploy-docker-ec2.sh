@@ -6,7 +6,7 @@
 set -e
 
 # Configuration
-EC2_IP="${EC2_IP:-43.209.12.182}"
+EC2_IP="${EC2_IP:-43.209.22.250}"
 SSH_KEY="${SSH_KEY:-/Users/subhajlimanond/dev/munbon2-backend/th-lab01.pem}"
 EC2_USER="${EC2_USER:-ubuntu}"
 REMOTE_DIR="/home/ubuntu/munbon2-backend"

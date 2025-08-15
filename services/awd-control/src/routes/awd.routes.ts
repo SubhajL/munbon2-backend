@@ -5,6 +5,8 @@ import { irrigationRouter } from './irrigation.routes';
 import { analyticsRouter } from './analytics.routes';
 import { schedulesRouter } from './schedules.routes';
 import { awdManagementRouter } from './awd-management.routes';
+import irrigationControlRouter from './irrigation-control.routes';
+import monitoringDashboardRouter from './monitoring-dashboard.routes';
 
 export const awdRouter = Router();
 
@@ -15,6 +17,10 @@ awdRouter.use('/irrigation', irrigationRouter);
 awdRouter.use('/analytics', analyticsRouter);
 awdRouter.use('/schedules', schedulesRouter);
 awdRouter.use('/management', awdManagementRouter);
+
+// New water level-based control routes
+awdRouter.use('/control', irrigationControlRouter);
+awdRouter.use('/monitoring', monitoringDashboardRouter);
 
 // AWD system-wide endpoints
 awdRouter.get('/status', async (_req, res) => {

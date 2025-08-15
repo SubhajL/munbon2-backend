@@ -4,6 +4,7 @@ import asyncio
 from datetime import datetime
 from core import get_logger
 from config import settings
+from clients import ROSClient, GISClient
 
 logger = get_logger(__name__)
 
@@ -17,10 +18,11 @@ class IntegrationClient:
         self.base_urls = {
             "flow_monitoring": settings.external_service_url,
             "scheduler": settings.scheduler_url if not settings.use_mock_server else settings.mock_server_url,
-            "ros": settings.ros_service_url if not settings.use_mock_server else settings.mock_server_url,
-            "gis": settings.gis_service_url if not settings.use_mock_server else settings.mock_server_url,
             "weather": settings.weather_api_url
         }
+        # Initialize service clients
+        self.ros_client = ROSClient()
+        self.gis_client = GISClient()
     
     async def get_gate_states(self) -> Dict[str, Dict]:
         """Get current gate states from Flow Monitoring Service"""
@@ -458,3 +460,106 @@ class IntegrationClient:
         except Exception as e:
             self.logger.error("Failed to send feedback", error=str(e))
             return False
+    
+    # ROS Service integration methods
+    async def get_water_demand_for_section(self, section_id: str, week: int) -> Optional[Dict]:
+        """Get water demand from ROS service for a section"""
+        try:
+            # Get section details from GIS
+            parcel = await self.gis_client.get_parcel_by_id(section_id)
+            if not parcel:
+                self.logger.error("Section not found in GIS", section_id=section_id)
+                return None
+            
+            # Get area info from ROS
+            area_info = await self.ros_client.get_area_info(section_id)
+            if not area_info:
+                # Use defaults
+                area_info = {
+                    "aosStation": "Khon Kaen",
+                    "province": "Khon Kaen"
+                }
+            
+            # Calculate water demand
+            demand_input = {
+                "areaId": section_id,
+                "cropType": parcel.get("landUseType", "rice"),
+                "areaType": "section",
+                "areaRai": parcel.get("areaRai", 0),
+                "cropWeek": week,
+                "calendarWeek": datetime.now().isocalendar()[1],
+                "calendarYear": datetime.now().year,
+                "growthStage": self._estimate_growth_stage(parcel.get("landUseType", "rice"), week)
+            }
+            
+            return await self.ros_client.calculate_water_demand(demand_input)
+            
+        except Exception as e:
+            self.logger.error("Failed to get water demand", section_id=section_id, error=str(e))
+            return None
+    
+    async def get_sections_with_demands(self, zone: int, week: str) -> List[Dict]:
+        """Get all sections in a zone with their water demands"""
+        try:
+            # Get parcels from GIS
+            parcels = await self.gis_client.get_zone_parcels(zone)
+            sections_with_demands = []
+            
+            # Get water demand for each parcel
+            week_num = int(week.split("-W")[1]) if "-W" in week else 1
+            
+            for parcel in parcels:
+                demand = await self.get_water_demand_for_section(
+                    parcel["id"], 
+                    week_num
+                )
+                
+                if demand:
+                    sections_with_demands.append({
+                        "section_id": parcel["id"],
+                        "zone": zone,
+                        "area_rai": parcel.get("areaRai", 0),
+                        "crop_type": parcel.get("landUseType", "rice"),
+                        "water_demand_m3": demand.get("cropWaterDemandM3", 0),
+                        "growth_stage": demand.get("growthStage", "vegetative"),
+                        "net_demand_m3": demand.get("netWaterDemandM3", demand.get("cropWaterDemandM3", 0))
+                    })
+            
+            return sections_with_demands
+            
+        except Exception as e:
+            self.logger.error("Failed to get sections with demands", zone=zone, error=str(e))
+            return []
+    
+    def _estimate_growth_stage(self, crop_type: str, week: int) -> str:
+        """Estimate growth stage based on crop type and week"""
+        stages = {
+            "rice": {
+                (1, 3): "seedling",
+                (4, 7): "vegetative",
+                (8, 11): "reproductive",
+                (12, 14): "flowering",
+                (15, 16): "maturity"
+            },
+            "corn": {
+                (1, 2): "seedling",
+                (3, 8): "vegetative",
+                (9, 12): "reproductive",
+                (13, 15): "flowering",
+                (16, 20): "maturity"
+            },
+            "sugarcane": {
+                (1, 4): "germination",
+                (5, 16): "vegetative",
+                (17, 36): "grand_growth",
+                (37, 44): "ripening",
+                (45, 52): "maturity"
+            }
+        }
+        
+        crop_stages = stages.get(crop_type, stages["rice"])
+        for (start, end), stage in crop_stages.items():
+            if start <= week <= end:
+                return stage
+        
+        return "vegetative"  # Default

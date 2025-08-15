@@ -1,0 +1,441 @@
+{
+  "info": {
+    "name": "Gravity Optimizer API",
+    "description": "API collection for testing the Gravity Flow Optimizer service for Munbon irrigation system",
+    "version": "1.0.0",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health & Status",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            }
+          }
+        },
+        {
+          "name": "Service Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/gravity-optimizer/status",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "gravity-optimizer", "status"]
+            }
+          }
+        },
+        {
+          "name": "Get Configured Zones",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/gravity-optimizer/zones",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "gravity-optimizer", "zones"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Optimization",
+      "item": [
+        {
+          "name": "Full Optimization - All Zones",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"zone_requests\": [\n    {\n      \"zone_id\": \"zone_1\",\n      \"required_volume\": 50000,\n      \"required_flow_rate\": 15.0,\n      \"priority\": 1\n    },\n    {\n      \"zone_id\": \"zone_2\",\n      \"required_volume\": 40000,\n      \"required_flow_rate\": 12.0,\n      \"priority\": 1\n    },\n    {\n      \"zone_id\": \"zone_3\",\n      \"required_volume\": 30000,\n      \"required_flow_rate\": 10.0,\n      \"priority\": 2\n    },\n    {\n      \"zone_id\": \"zone_4\",\n      \"required_volume\": 35000,\n      \"required_flow_rate\": 11.0,\n      \"priority\": 2\n    },\n    {\n      \"zone_id\": \"zone_5\",\n      \"required_volume\": 25000,\n      \"required_flow_rate\": 8.0,\n      \"priority\": 3\n    },\n    {\n      \"zone_id\": \"zone_6\",\n      \"required_volume\": 20000,\n      \"required_flow_rate\": 6.0,\n      \"priority\": 3\n    }\n  ],\n  \"source_water_level\": 222.0,\n  \"objective\": \"BALANCED\",\n  \"include_contingency\": true,\n  \"include_energy_recovery\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/gravity-optimizer/optimize",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "gravity-optimizer", "optimize"]
+            }
+          }
+        },
+        {
+          "name": "Optimization - Minimize Travel Time",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"zone_requests\": [\n    {\n      \"zone_id\": \"zone_1\",\n      \"required_volume\": 20000,\n      \"required_flow_rate\": 10.0,\n      \"priority\": 1\n    },\n    {\n      \"zone_id\": \"zone_3\",\n      \"required_volume\": 15000,\n      \"required_flow_rate\": 8.0,\n      \"priority\": 1\n    }\n  ],\n  \"source_water_level\": 221.5,\n  \"objective\": \"MINIMIZE_TRAVEL_TIME\",\n  \"include_contingency\": false,\n  \"include_energy_recovery\": false\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/gravity-optimizer/optimize",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "gravity-optimizer", "optimize"]
+            }
+          }
+        },
+        {
+          "name": "Optimization - Over-allocation Test",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"zone_requests\": [\n    {\n      \"zone_id\": \"zone_1\",\n      \"required_volume\": 100000,\n      \"required_flow_rate\": 50.0,\n      \"priority\": 1\n    },\n    {\n      \"zone_id\": \"zone_2\",\n      \"required_volume\": 80000,\n      \"required_flow_rate\": 40.0,\n      \"priority\": 1\n    },\n    {\n      \"zone_id\": \"zone_3\",\n      \"required_volume\": 60000,\n      \"required_flow_rate\": 30.0,\n      \"priority\": 2\n    }\n  ],\n  \"source_water_level\": 221.0,\n  \"objective\": \"MAXIMIZE_EFFICIENCY\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/gravity-optimizer/optimize",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "gravity-optimizer", "optimize"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Feasibility Checking",
+      "item": [
+        {
+          "name": "Check All Zones Feasibility",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"zone_requests\": [\n    {\n      \"zone_id\": \"zone_1\",\n      \"required_flow_rate\": 15.0,\n      \"priority\": 1\n    },\n    {\n      \"zone_id\": \"zone_2\",\n      \"required_flow_rate\": 12.0,\n      \"priority\": 1\n    },\n    {\n      \"zone_id\": \"zone_3\",\n      \"required_flow_rate\": 10.0,\n      \"priority\": 2\n    }\n  ],\n  \"source_water_level\": 221.5\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/gravity-optimizer/feasibility/check",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "gravity-optimizer", "feasibility", "check"]
+            }
+          }
+        },
+        {
+          "name": "Check Zone 1 Feasibility",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/gravity-optimizer/feasibility/zone_1?required_flow=15&source_water_level=222",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "gravity-optimizer", "feasibility", "zone_1"],
+              "query": [
+                {
+                  "key": "required_flow",
+                  "value": "15"
+                },
+                {
+                  "key": "source_water_level",
+                  "value": "222"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Check Zone 6 Feasibility (Farthest)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/gravity-optimizer/feasibility/zone_6?required_flow=8",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "gravity-optimizer", "feasibility", "zone_6"],
+              "query": [
+                {
+                  "key": "required_flow",
+                  "value": "8"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Depth Calculations",
+      "item": [
+        {
+          "name": "Calculate Main Channel Depths",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"channel_id\": \"main_channel\",\n  \"flow_rate\": 50.0\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/gravity-optimizer/depth/calculate",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "gravity-optimizer", "depth", "calculate"]
+            }
+          }
+        },
+        {
+          "name": "Calculate Lateral Channel Depths",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"channel_id\": \"lateral_1\",\n  \"flow_rate\": 15.0\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/gravity-optimizer/depth/calculate",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "gravity-optimizer", "depth", "calculate"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Flow Distribution",
+      "item": [
+        {
+          "name": "Optimize Flow Split",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"total_inflow\": 100.0,\n  \"zone_requests\": [\n    {\n      \"zone_id\": \"zone_1\",\n      \"required_flow_rate\": 20.0,\n      \"priority\": 1\n    },\n    {\n      \"zone_id\": \"zone_2\",\n      \"required_flow_rate\": 18.0,\n      \"priority\": 1\n    },\n    {\n      \"zone_id\": \"zone_3\",\n      \"required_flow_rate\": 15.0,\n      \"priority\": 2\n    }\n  ],\n  \"objective\": \"BALANCED\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/gravity-optimizer/flow-split/optimize",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "gravity-optimizer", "flow-split", "optimize"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Energy Recovery",
+      "item": [
+        {
+          "name": "Get Energy Recovery Potential",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/gravity-optimizer/energy-recovery/potential?min_power_kw=50",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "gravity-optimizer", "energy-recovery", "potential"],
+              "query": [
+                {
+                  "key": "min_power_kw",
+                  "value": "50"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get High Power Sites Only",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/gravity-optimizer/energy-recovery/potential?min_power_kw=500",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "gravity-optimizer", "energy-recovery", "potential"],
+              "query": [
+                {
+                  "key": "min_power_kw",
+                  "value": "500"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Contingency Planning",
+      "item": [
+        {
+          "name": "Get All Contingency Plans",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/gravity-optimizer/contingency/plans",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "gravity-optimizer", "contingency", "plans"]
+            }
+          }
+        },
+        {
+          "name": "Get Main Channel Blockage Plan",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/gravity-optimizer/contingency/plans?scenario=main_channel_blockage",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "gravity-optimizer", "contingency", "plans"],
+              "query": [
+                {
+                  "key": "scenario",
+                  "value": "main_channel_blockage"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Low Water Level Plan",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/gravity-optimizer/contingency/plans?scenario=low_water_level",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "gravity-optimizer", "contingency", "plans"],
+              "query": [
+                {
+                  "key": "scenario",
+                  "value": "low_water_level"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Error Cases",
+      "item": [
+        {
+          "name": "Invalid Zone ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/gravity-optimizer/feasibility/zone_99?required_flow=10",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "gravity-optimizer", "feasibility", "zone_99"],
+              "query": [
+                {
+                  "key": "required_flow",
+                  "value": "10"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Missing Required Parameters",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"zone_requests\": []\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/gravity-optimizer/optimize",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "gravity-optimizer", "optimize"]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [""]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Common tests for all requests",
+          "pm.test(\"Response time is less than 1000ms\", function () {",
+          "    pm.expect(pm.response.responseTime).to.be.below(1000);",
+          "});",
+          "",
+          "// Specific tests based on request name",
+          "if (pm.info.requestName === \"Health Check\") {",
+          "    pm.test(\"Status is healthy\", function () {",
+          "        var jsonData = pm.response.json();",
+          "        pm.expect(jsonData.status).to.eql(\"healthy\");",
+          "    });",
+          "}",
+          "",
+          "if (pm.info.requestName.includes(\"Optimization\")) {",
+          "    pm.test(\"Has optimization result structure\", function () {",
+          "        var jsonData = pm.response.json();",
+          "        pm.expect(jsonData).to.have.property(\"request_id\");",
+          "        pm.expect(jsonData).to.have.property(\"overall_efficiency\");",
+          "        pm.expect(jsonData).to.have.property(\"feasibility_results\");",
+          "    });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3020",
+      "type": "string"
+    }
+  ]
+}

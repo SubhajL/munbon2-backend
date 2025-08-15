@@ -1,0 +1,76 @@
+service: munbon-sensor-ingestion-http
+
+provider:
+  name: aws
+  runtime: nodejs18.x
+  region: ap-southeast-1
+  stage: ${opt:stage, 'dev'}
+  endpointType: REGIONAL
+  # Use HTTP API instead of REST API for lower cost and HTTP support
+  httpApi:
+    cors: true
+    # Disable default HTTPS requirement
+    disableDefaultEndpoint: false
+  
+  environment:
+    SQS_QUEUE_URL: ${cf:munbon-sensor-ingestion-${self:provider.stage}.SensorDataQueueUrl}
+    VALID_TOKENS: >
+      munbon-ridr-water-level:water-level-munbon,
+      munbon-m2m-moisture:moisture-munbon,
+      munbon-test-devices:test-devices
+    STAGE: ${self:provider.stage}
+
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - sqs:SendMessage
+            - sqs:GetQueueAttributes
+          Resource:
+            - ${cf:munbon-sensor-ingestion-${self:provider.stage}.SensorDataQueueArn}
+        - Effect: Allow
+          Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+          Resource: "*"
+
+functions:
+  telemetry:
+    handler: handler.telemetry
+    events:
+      - httpApi:
+          path: /api/v1/{token}/telemetry
+          method: post
+  
+  moistureLegacy:
+    handler: handler.telemetry
+    events:
+      - httpApi:
+          path: /moisture/{token}
+          method: post
+          
+  waterLevelLegacy:
+    handler: handler.telemetry
+    events:
+      - httpApi:
+          path: /water-level/{token}
+          method: post
+
+  attributes:
+    handler: handler.attributes
+    events:
+      - httpApi:
+          path: /api/v1/{token}/attributes
+          method: get
+
+plugins:
+  - serverless-plugin-typescript
+  - serverless-offline
+
+custom:
+  serverless-offline:
+    httpPort: 3001
+    # Allow HTTP in offline mode
+    httpsProtocol: false

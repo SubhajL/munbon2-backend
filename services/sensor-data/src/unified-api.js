@@ -118,7 +118,6 @@ app.get('/api/v1/sensors/water-level/latest', async (req, res) => {
         LIMIT 1
       ) wl ON true
       WHERE sr.sensor_type = 'water_level' AND sr.is_active = true
-        AND sr.sensor_id IN ('AWD-B75A', 'AWD-B6B5', 'AWD-B8A4', 'AWD-B33B', 'AWD-B7E6', 'AWD-B9BE')
     `;
     
     const result = await timescaleDB.query(query);
@@ -181,7 +180,6 @@ app.get('/api/v1/sensors/water-level/timeseries', async (req, res) => {
       INNER JOIN water_level_readings wl ON sr.sensor_id = wl.sensor_id
       WHERE sr.sensor_type = 'water_level' 
         AND sr.is_active = true
-        AND sr.sensor_id IN ('AWD-B75A', 'AWD-B6B5', 'AWD-B8A4', 'AWD-B33B', 'AWD-B7E6', 'AWD-B9BE')
         AND wl.time >= $1 
         AND wl.time <= $2
       ORDER BY sr.sensor_id, wl.time
@@ -227,23 +225,23 @@ app.get('/api/v1/sensors/moisture/latest', async (req, res) => {
   try {
     const query = `
       SELECT 
-        s.sensor_id,
-        s.name as sensor_name,
-        s.location,
-        s.zone,
-        sr.time as timestamp,
-        sr.data->>'moisture_percentage' as moisture_percentage,
-        sr.data->>'temperature_celsius' as temperature_celsius,
-        sr.quality
-      FROM sensors s
-      LEFT JOIN LATERAL (
-        SELECT time, data, quality
-        FROM sensor_readings
-        WHERE sensor_id = s.sensor_id
-        ORDER BY time DESC
-        LIMIT 1
-      ) sr ON true
-      WHERE s.type = 'moisture' AND s.is_active = true
+        mr.sensor_id,
+        mr.sensor_id as sensor_name,
+        COALESCE(sr.location_lat, mr.location_lat) as location_lat,
+        COALESCE(sr.location_lng, mr.location_lng) as location_lng,
+        COALESCE(sr.metadata->>'zone', 'Zone1') as zone,
+        mr.time as timestamp,
+        mr.moisture_surface_pct as moisture_percentage,
+        mr.temp_surface_c as temperature_celsius,
+        COALESCE(mr.quality_score, 100) as quality
+      FROM (
+        SELECT DISTINCT ON (sensor_id) 
+          sensor_id, time, location_lat, location_lng,
+          moisture_surface_pct, temp_surface_c, quality_score
+        FROM moisture_readings
+        ORDER BY sensor_id, time DESC
+      ) mr
+      LEFT JOIN sensor_registry sr ON mr.sensor_id = sr.sensor_id
     `;
     
     const result = await timescaleDB.query(query);
@@ -256,14 +254,17 @@ app.get('/api/v1/sensors/moisture/latest', async (req, res) => {
       sensors: result.rows.map(row => ({
         sensor_id: row.sensor_id,
         sensor_name: row.sensor_name,
-        location: row.location,
+        location: {
+          latitude: row.location_lat,
+          longitude: row.location_lng
+        },
         zone: row.zone,
         latest_reading: row.timestamp ? {
           timestamp: row.timestamp,
           timestamp_buddhist: convertToBuddhistDate(row.timestamp),
           moisture_percentage: parseFloat(row.moisture_percentage) || 0,
           temperature_celsius: parseFloat(row.temperature_celsius) || 0,
-          quality: row.quality || 100
+          quality: parseFloat(row.quality) || 100
         } : null
       }))
     };
@@ -290,21 +291,20 @@ app.get('/api/v1/sensors/moisture/timeseries', async (req, res) => {
     
     const query = `
       SELECT 
-        s.sensor_id,
-        s.name,
-        s.location,
-        s.zone,
-        sr.time as timestamp,
-        sr.data->>'moisture_percentage' as moisture_percentage,
-        sr.data->>'temperature_celsius' as temperature_celsius,
-        sr.quality
-      FROM sensors s
-      INNER JOIN sensor_readings sr ON s.sensor_id = sr.sensor_id
-      WHERE s.type = 'moisture' 
-        AND s.is_active = true
-        AND sr.time >= $1 
-        AND sr.time <= $2
-      ORDER BY s.sensor_id, sr.time
+        mr.sensor_id,
+        COALESCE(sr.metadata->>'name', mr.sensor_id) as name,
+        mr.location_lat,
+        mr.location_lng,
+        COALESCE(sr.metadata->>'zone', 'Zone1') as zone,
+        mr.time as timestamp,
+        mr.moisture_surface_pct as moisture_percentage,
+        mr.temp_surface_c as temperature_celsius,
+        COALESCE(mr.quality_score, 100) as quality
+      FROM moisture_readings mr
+      LEFT JOIN sensor_registry sr ON mr.sensor_id = sr.sensor_id
+      WHERE mr.time >= $1 
+        AND mr.time <= $2
+      ORDER BY mr.sensor_id, mr.time
     `;
     
     const result = await timescaleDB.query(query, [startTime, endTime]);
@@ -428,7 +428,6 @@ app.get('/api/v1/sensors/water-level/statistics', async (req, res) => {
         AND wl.time >= $1 AND wl.time <= $2
       WHERE sr.sensor_type = 'water_level' 
         AND sr.is_active = true
-        AND sr.sensor_id IN ('AWD-B75A', 'AWD-B6B5', 'AWD-B8A4', 'AWD-B33B', 'AWD-B7E6', 'AWD-B9BE')
       GROUP BY sr.sensor_id, sr.location_lat, sr.location_lng, sr.metadata->>'zone'
     `;
     

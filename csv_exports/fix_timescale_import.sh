@@ -3,7 +3,7 @@
 # Fix TimescaleDB import for sensor_readings table
 # This script handles the hypertable import issue
 
-EC2_HOST="43.209.12.182"
+EC2_HOST="43.209.22.250"
 EC2_PORT="5432"
 EC2_USER="postgres"
 EC2_PASSWORD="P@ssw0rd123!"

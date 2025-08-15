@@ -1,6 +1,6 @@
 # EC2 Docker Deployment Commands
 
-Run these commands on your EC2 instance (43.209.12.182) to deploy the services:
+Run these commands on your EC2 instance (43.209.22.250) to deploy the services:
 
 ## 1. Clone/Update Repository
 ```bash

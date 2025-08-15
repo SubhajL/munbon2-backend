@@ -4,7 +4,8 @@ import * as AWS from 'aws-sdk';
 const sqs = new AWS.SQS();
 
 interface WaterLevelData {
-  deviceID: string;
+  deviceID?: string;
+  deviceId?: string;
   macAddress: string;
   latitude: number;
   longitude: number;
@@ -69,8 +70,8 @@ function getValidTokens(): Record<string, string> {
 }
 
 function detectSensorType(data: any): 'water-level' | 'moisture' | 'unknown' {
-  // Water level sensor detection
-  if (data.deviceID && data.level !== undefined && data.macAddress) {
+  // Water level sensor detection - handle both deviceId and deviceID
+  if ((data.deviceId || data.deviceID) && data.level !== undefined && data.macAddress) {
     return 'water-level';
   }
   
@@ -104,7 +105,7 @@ function extractLocationAndMetadata(data: any, sensorType: string): {
         rssi: waterData.RSSI,
         macAddress: waterData.macAddress
       };
-      sensorId = waterData.deviceID;
+      sensorId = waterData.deviceId || waterData.deviceID || 'unknown';
       break;
 
     case 'moisture':

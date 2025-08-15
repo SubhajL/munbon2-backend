@@ -4,7 +4,7 @@ import sys
 
 # Connection parameters
 conn_params = {
-    'host': '43.209.12.182',
+    'host': '43.209.22.250',
     'port': 5432,
     'user': 'postgres',
     'password': 'P@ssw0rd123!',

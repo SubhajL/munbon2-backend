@@ -9,12 +9,12 @@ x-common-variables: &common-variables
   JWT_SECRET: ${JWT_SECRET}
   REDIS_URL: redis://redis:6379
   # Single PostgreSQL instance for all services
-  POSTGRES_HOST: 43.209.12.182
+  POSTGRES_HOST: 43.209.22.250
   POSTGRES_PORT: 5432
   POSTGRES_USER: postgres
   POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-P@ssw0rd123!}
   # TimescaleDB is in the same PostgreSQL instance
-  TIMESCALE_HOST: 43.209.12.182
+  TIMESCALE_HOST: 43.209.22.250
   TIMESCALE_PORT: 5432
   TIMESCALE_USER: postgres
   TIMESCALE_PASSWORD: ${POSTGRES_PASSWORD:-P@ssw0rd123!}
@@ -258,6 +258,31 @@ services:
     ports:
       - "3014:3014"
     restart: unless-stopped
+    <<: *resource-limits
+
+  scada-integration:
+    build:
+      context: ./services/scada-integration
+      dockerfile: Dockerfile
+    container_name: munbon-scada-integration
+    environment:
+      <<: *common-variables
+      PORT: 3015
+      SCADA_DB_HOST: ${SCADA_DB_HOST:-moonup.hopto.org}
+      SCADA_DB_PORT: 5432
+      SCADA_DB_NAME: db_scada
+      SCADA_DB_USER: ${SCADA_DB_USER:-postgres}
+      SCADA_DB_PASSWORD: ${SCADA_DB_PASSWORD:-P@ssw0rd123!}
+    ports:
+      - "3015:3015"
+    depends_on:
+      - redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3015/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     <<: *resource-limits
 
   # Optional: Nginx reverse proxy

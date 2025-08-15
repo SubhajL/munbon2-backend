@@ -120,29 +120,32 @@ export class EnhancedApiAuth {
   }
 
   middleware() {
-    return async (req: Request, res: Response, next: NextFunction) => {
+    return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
       const apiKey = req.headers['x-api-key'] as string;
 
       if (!apiKey) {
-        return res.status(401).json({ 
+        res.status(401).json({ 
           error: 'API key required',
           message: 'Include X-API-Key header with your request'
         });
+        return;
       }
 
       const keyConfig = this.apiKeys.get(apiKey);
 
       if (!keyConfig) {
         this.logger.warn({ apiKey: apiKey.substring(0, 10) + '...' }, 'Invalid API key attempt');
-        return res.status(401).json({ error: 'Invalid API key' });
+        res.status(401).json({ error: 'Invalid API key' });
+        return;
       }
 
       // Check expiration
       if (keyConfig.expiresAt && new Date() > keyConfig.expiresAt) {
-        return res.status(401).json({ 
+        res.status(401).json({ 
           error: 'API key expired',
           message: 'Please contact support for renewal'
         });
+        return;
       }
 
       // Check data type access
@@ -159,10 +162,11 @@ export class EnhancedApiAuth {
 
       if (requestedDataType && keyConfig.allowedDataTypes && 
           !keyConfig.allowedDataTypes.includes(requestedDataType as any)) {
-        return res.status(403).json({ 
+        res.status(403).json({ 
           error: 'Access denied',
           message: `Your API key does not have access to ${requestedDataType} data`
         });
+        return;
       }
 
       // Add key info to request for logging

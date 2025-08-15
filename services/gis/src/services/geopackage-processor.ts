@@ -187,6 +187,16 @@ export class GeoPackageProcessor {
         } as Partial<Zone>;
       } else {
         // Process as parcel
+        const areaHectares = this.calculateAreaHectares(transformedGeometry);
+        const areaRai = this.calculateAreaRai(areaHectares);
+        
+        // Log area calculation for verification
+        logger.debug('Calculated area for parcel', {
+          plotCode: properties.PARCEL_ID || properties.parcel_id || `P-${tableName}-${feature.id}`,
+          areaHectares,
+          areaRai
+        });
+        
         return {
           id: uuidv4(),
           plotCode: properties.PARCEL_ID || properties.parcel_id || 
@@ -194,7 +204,7 @@ export class GeoPackageProcessor {
                    `P-${tableName}-${feature.id}`,
           farmerId: properties.FARMER_ID || properties.farmer_id || 
                    properties.OWNER_ID || properties.owner_id || 'unknown',
-          areaHectares: this.calculateAreaHectares(transformedGeometry),
+          areaHectares,
           currentCropType: properties.CROP_TYPE || properties.crop_type || 
                          properties.CROP || 'rice',
           soilType: properties.SOIL_TYPE || properties.soil_type,
@@ -268,6 +278,11 @@ export class GeoPackageProcessor {
       logger.error('Error calculating area', { error });
       return 0;
     }
+  }
+
+  private calculateAreaRai(areaHectares: number): number {
+    // Convert hectares to rai (1 hectare = 6.25 rai)
+    return areaHectares * 6.25;
   }
 
   private isZoneFeature(tableName: string, feature: any): boolean {

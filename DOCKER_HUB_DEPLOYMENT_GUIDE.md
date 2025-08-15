@@ -164,7 +164,7 @@ On EC2, you only need:
 
 ```bash
 # SSH to EC2
-ssh -i th-lab01.pem ubuntu@43.209.12.182
+ssh -i th-lab01.pem ubuntu@43.209.22.250
 
 # Create deployment directory
 mkdir -p ~/munbon-deployment
@@ -259,7 +259,7 @@ jobs:
 ## GitHub Secrets Needed:
 - `DOCKER_HUB_USERNAME`: Your Docker Hub username
 - `DOCKER_HUB_TOKEN`: Docker Hub access token (not password)
-- `EC2_HOST`: 43.209.12.182
+- `EC2_HOST`: 43.209.22.250
 - `EC2_USER`: ubuntu
 - `EC2_SSH_KEY`: Your PEM file content
 

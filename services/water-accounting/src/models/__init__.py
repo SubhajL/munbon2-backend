@@ -5,6 +5,7 @@ from .delivery import WaterDelivery, DeliveryStatus
 from .efficiency import EfficiencyRecord, EfficiencyReport
 from .deficit import DeficitRecord, DeficitCarryForward
 from .loss import TransitLoss, LossType
+from .reconciliation import ReconciliationLog, ReconciliationDetail, ReconciliationStatus
 
 __all__ = [
     "Section",
@@ -16,5 +17,8 @@ __all__ = [
     "DeficitRecord",
     "DeficitCarryForward",
     "TransitLoss",
-    "LossType"
+    "LossType",
+    "ReconciliationLog",
+    "ReconciliationDetail",
+    "ReconciliationStatus"
 ]

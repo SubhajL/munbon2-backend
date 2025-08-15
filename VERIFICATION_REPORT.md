@@ -13,7 +13,7 @@
    - API endpoint: `https://5e3l647kpd.execute-api.ap-southeast-1.amazonaws.com/prod/api/v1`
 
 ### Current Configuration Status:
-- ✅ AWS Lambda functions updated to use EC2 database (43.209.12.182:5432)
+- ✅ AWS Lambda functions updated to use EC2 database (43.209.22.250:5432)
 - ✅ SQS Consumer configured in docker-compose.ec2-consolidated.yml
 - ✅ AWS credentials added to .env.ec2
 - ✅ Both ingestion and exposure using same PostgreSQL instance on EC2
@@ -39,7 +39,7 @@
 ```
 
 ### Database Configuration:
-- Single PostgreSQL instance: 43.209.12.182:5432
+- Single PostgreSQL instance: 43.209.22.250:5432
 - Multiple schemas: auth, gis, ros, awd
 - Separate database: sensor_data (with TimescaleDB extension)
 
@@ -57,7 +57,7 @@
    - SCADA credentials if using
 
 2. **GitHub Secrets Required** (for automated deployment):
-   - EC2_HOST: 43.209.12.182
+   - EC2_HOST: 43.209.22.250
    - EC2_USER: ubuntu (or your EC2 username)
    - EC2_SSH_KEY: Your private SSH key
 
@@ -126,7 +126,7 @@ docker-compose -f docker-compose.ec2-consolidated.yml logs -f
 ```
 
 ### Monitor Consumer Dashboard:
-- http://43.209.12.182:3002 - Real-time sensor data dashboard
+- http://43.209.22.250:3002 - Real-time sensor data dashboard
 
 ## Summary
 

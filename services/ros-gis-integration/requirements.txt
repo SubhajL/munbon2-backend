@@ -9,11 +9,17 @@ asyncpg==0.29.0
 psycopg2-binary==2.9.9
 redis==5.0.1
 motor==3.3.2
+SQLAlchemy==2.0.23
+alembic==1.13.0
 
 # Spatial operations
 geopandas==0.14.1
 shapely==2.0.2
 pyproj==3.6.1
+geoalchemy2==0.14.2
+
+# Graph algorithms
+networkx==3.2.1
 
 # Data processing
 pandas==2.1.3

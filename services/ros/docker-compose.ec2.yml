@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  ros-service:
+    build: .
+    container_name: ros-service
+    ports:
+      - "3047:3047"
+    environment:
+      NODE_ENV: production
+      PORT: 3047
+      DB_HOST: host.docker.internal
+      DB_PORT: 5432
+      DB_NAME: munbon_dev
+      DB_SCHEMA: ros
+      DB_USER: postgres
+      DB_PASSWORD: ${DB_PASSWORD:-P@ssw0rd123!}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      - redis
+    restart: unless-stopped
+    networks:
+      - munbon-network
+    volumes:
+      - ./logs:/app/logs
+      - ./uploads:/app/uploads
+      - ./temp:/app/temp
+
+  redis:
+    image: redis:7-alpine
+    container_name: ros-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    networks:
+      - munbon-network
+    volumes:
+      - redis-data:/data
+
+networks:
+  munbon-network:
+    driver: bridge
+
+volumes:
+  redis-data:
