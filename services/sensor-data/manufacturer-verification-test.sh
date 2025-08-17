@@ -3,7 +3,7 @@
 # Manufacturer Verification Test Script
 # This script provides undeniable proof of data transmission
 
-ENDPOINT="http://43.209.22.250:8080/api/sensor-data/moisture/munbon-m2m-moisture"
+ENDPOINT="http://${EC2_HOST:-43.208.201.191}:8080/api/sensor-data/moisture/munbon-m2m-moisture"
 TIMESTAMP=$(date -u '+%Y/%m/%d')
 UTC_TIME=$(date -u '+%H:%M:%S')
 UNIQUE_ID=$(date +%s)
@@ -18,10 +18,10 @@ echo ""
 echo "1. TESTING BASIC CONNECTIVITY:"
 echo "=============================="
 echo "Ping test:"
-ping -c 3 43.209.22.250
+ping -c 3 ${EC2_HOST:-43.208.201.191}
 echo ""
 echo "Port 8080 connectivity:"
-nc -zv 43.209.22.250 8080
+nc -zv ${EC2_HOST:-43.208.201.191} 8080
 echo ""
 
 # 2. Send test data with unique identifier
@@ -93,7 +93,7 @@ echo "4. CREATING CONTINUOUS TEST SCRIPT:"
 echo "==================================="
 cat > /tmp/continuous-moisture-test.sh << 'SCRIPT'
 #!/bin/bash
-ENDPOINT="http://43.209.22.250:8080/api/sensor-data/moisture/munbon-m2m-moisture"
+ENDPOINT="http://${EC2_HOST:-43.208.201.191}:8080/api/sensor-data/moisture/munbon-m2m-moisture"
 INTERVAL=300  # 5 minutes
 
 echo "Starting continuous moisture data transmission test"
@@ -147,13 +147,13 @@ echo ""
 echo "5. NETWORK PATH ANALYSIS:"
 echo "========================"
 echo "Traceroute to endpoint:"
-traceroute -n -p 8080 43.209.22.250 2>/dev/null || echo "Traceroute not available"
+traceroute -n -p 8080 ${EC2_HOST:-43.208.201.191} 2>/dev/null || echo "Traceroute not available"
 echo ""
 
 # 6. Certificate test (if HTTPS)
 echo "6. TLS/SSL TEST (if applicable):"
 echo "================================"
-timeout 5 openssl s_client -connect 43.209.22.250:8080 </dev/null 2>/dev/null || echo "No TLS on port 8080 (expected for HTTP)"
+timeout 5 openssl s_client -connect ${EC2_HOST:-43.208.201.191}:8080 </dev/null 2>/dev/null || echo "No TLS on port 8080 (expected for HTTP)"
 
 echo ""
 echo "=== TEST COMPLETE ==="

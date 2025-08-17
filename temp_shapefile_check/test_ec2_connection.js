@@ -4,7 +4,7 @@ async function testEC2Connection() {
     const configs = [
         { 
             name: 'Config from .env.local',
-            host: '43.209.22.250',
+            host: process.env.EC2_HOST || '43.208.201.191',
             port: 5432,
             database: 'sensor_data',
             user: 'postgres',
@@ -12,7 +12,7 @@ async function testEC2Connection() {
         },
         {
             name: 'Alternative password',
-            host: '43.209.22.250',
+            host: process.env.EC2_HOST || '43.208.201.191',
             port: 5432,
             database: 'sensor_data',
             user: 'postgres',

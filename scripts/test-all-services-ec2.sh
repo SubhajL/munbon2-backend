@@ -13,11 +13,11 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # EC2 Database Configuration
-export POSTGRES_HOST="43.209.22.250"
+export POSTGRES_HOST="${EC2_HOST:-43.208.201.191}"
 export POSTGRES_PORT="5432"
 export POSTGRES_USER="postgres"
 export POSTGRES_PASSWORD="P@ssw0rd123!"
-export TIMESCALE_HOST="43.209.22.250"
+export TIMESCALE_HOST="${EC2_HOST:-43.208.201.191}"
 export TIMESCALE_PORT="5432"  # Same as PostgreSQL
 export REDIS_HOST="localhost"
 export REDIS_PORT="6379"

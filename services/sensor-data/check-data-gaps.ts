@@ -10,7 +10,7 @@ async function checkDataGaps() {
   });
 
   const ec2Client = new Client({
-    host: '43.209.22.250',
+    host: process.env.EC2_HOST || '43.208.201.191',
     port: 5432,
     database: 'sensor_data',
     user: 'postgres',

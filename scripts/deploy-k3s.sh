@@ -28,7 +28,7 @@ export KUBECONFIG="${KUBECONFIG:-$PROJECT_ROOT/k3s-kubeconfig.yaml}"
 if [ ! -f "$KUBECONFIG" ]; then
     echo -e "${RED}Kubeconfig not found at $KUBECONFIG${NC}"
     echo "Please download it from the EC2 instance:"
-    echo "scp ubuntu@43.209.22.250:/home/ubuntu/k3s-kubeconfig.yaml $PROJECT_ROOT/"
+    echo "scp ubuntu@${EC2_HOST:-43.208.201.191}:/home/ubuntu/k3s-kubeconfig.yaml $PROJECT_ROOT/"
     exit 1
 fi
 

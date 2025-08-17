@@ -3,7 +3,7 @@
 # Expert-level debugging strategy for missing moisture data
 
 SSH_KEY="$HOME/dev/th-lab01.pem"
-EC2_HOST="43.209.22.250"
+EC2_HOST="${EC2_HOST:-43.208.201.191}"
 
 echo "=== EXPERT-LEVEL DEBUGGING STRATEGY ==="
 echo "Date: $(date)"
@@ -53,7 +53,7 @@ echo "6. DNS RESOLUTION TEST:"
 echo "======================="
 ssh -i $SSH_KEY ubuntu@$EC2_HOST "nslookup $EC2_HOST || echo 'DNS lookup failed'"
 echo "Reverse DNS:"
-ssh -i $SSH_KEY ubuntu@$EC2_HOST "nslookup 43.209.22.250 || echo 'Reverse DNS lookup failed'"
+ssh -i $SSH_KEY ubuntu@$EC2_HOST "nslookup ${EC2_HOST:-43.208.201.191} || echo 'Reverse DNS lookup failed'"
 
 # 7. APPLICATION METRICS
 echo ""

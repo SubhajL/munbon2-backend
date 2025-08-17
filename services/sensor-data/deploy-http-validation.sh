@@ -1,7 +1,7 @@
 #!/bin/bash
 
 SSH_KEY="$HOME/dev/th-lab01.pem"
-EC2_HOST="43.209.22.250"
+EC2_HOST="${EC2_HOST:-43.208.201.191}"
 LOCAL_FILE="patches/simple-http-server-validated.ts"
 REMOTE_FILE="/home/ubuntu/app/moisture-http-server/src/simple-http-server.ts"
 

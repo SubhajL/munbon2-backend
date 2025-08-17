@@ -11,7 +11,7 @@ on:
 env:
   SERVICE_NAME: flow-monitoring
   DOCKER_IMAGE: subhaj888/munbon-flow-monitoring
-  EC2_HOST: 43.209.22.250
+  EC2_HOST: 43.208.201.191
   EC2_USER: ubuntu
 
 jobs:

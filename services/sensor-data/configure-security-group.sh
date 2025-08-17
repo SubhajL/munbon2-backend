@@ -9,10 +9,10 @@ echo "🔐 Configuring EC2 Security Group for HTTP Server"
 INSTANCE_ID=$(aws ec2 describe-instances \
     --filters "Name=instance-state-name,Values=running" \
     --query "Reservations[*].Instances[*].[InstanceId,PublicDnsName,SecurityGroups[0].GroupId]" \
-    --output text | grep "ec2-43.209.22.250" | awk '{print $1}')
+    --output text | grep "ec2-${EC2_HOST:-43.208.201.191}" | awk '{print $1}')
 
 if [ -z "$INSTANCE_ID" ]; then
-    echo "❌ Could not find instance with hostname ec2-43.209.22.250.ap-southeast-7.compute.amazonaws.com"
+    echo "❌ Could not find instance with hostname ec2-${EC2_HOST:-43.208.201.191}.ap-southeast-7.compute.amazonaws.com"
     echo "Please provide your instance ID:"
     read INSTANCE_ID
 fi
@@ -80,9 +80,9 @@ echo "✅ Security group configuration complete!"
 echo ""
 echo "🚀 Next steps:"
 echo "1. Copy deployment script to EC2:"
-echo "   scp deploy-http-server.sh ec2-user@ec2-43.209.22.250.ap-southeast-7.compute.amazonaws.com:~/"
+echo "   scp deploy-http-server.sh ec2-user@ec2-${EC2_HOST:-43.208.201.191}.ap-southeast-7.compute.amazonaws.com:~/"
 echo ""
 echo "2. SSH to EC2 and run deployment:"
-echo "   ssh ec2-user@ec2-43.209.22.250.ap-southeast-7.compute.amazonaws.com"
+echo "   ssh ec2-user@ec2-${EC2_HOST:-43.208.201.191}.ap-southeast-7.compute.amazonaws.com"
 echo "   chmod +x deploy-http-server.sh"
 echo "   ./deploy-http-server.sh"

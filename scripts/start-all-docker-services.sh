@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Start all backend services using Docker Compose
-# Connects to EC2 PostgreSQL database at 43.209.22.250:5432
+# Connects to EC2 PostgreSQL database at ${EC2_HOST:-43.208.201.191}:5432
 
 set -e
 
@@ -57,7 +57,7 @@ docker container prune -f 2>/dev/null || true
 
 # Test EC2 database connectivity
 echo -e "\n${BLUE}Testing EC2 database connectivity...${NC}"
-if PGPASSWORD=P@ssw0rd123! psql -h 43.209.22.250 -p 5432 -U postgres -d postgres -c "SELECT version();" > /dev/null 2>&1; then
+if PGPASSWORD=P@ssw0rd123! psql -h ${EC2_HOST:-43.208.201.191} -p 5432 -U postgres -d postgres -c "SELECT version();" > /dev/null 2>&1; then
     echo -e "${GREEN}✓ EC2 database connection successful${NC}"
 else
     echo -e "${RED}✗ Cannot connect to EC2 database. Please check your connection.${NC}"

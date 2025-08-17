@@ -31,10 +31,10 @@ TEST_DATA_2='{
 
 echo "Test 1: Sending gw_id='3', sensor_id='13'"
 curl -s -X POST -H "Content-Type: application/json" -d "$TEST_DATA_1" \
-  http://43.209.22.250:8080/api/sensor-data/moisture/munbon-m2m-moisture
+  http://${EC2_HOST:-43.208.201.191}:8080/api/sensor-data/moisture/munbon-m2m-moisture
 
 echo -e "\n\nTest 2: Sending gw_id='03', sensor_id='D'"
 curl -s -X POST -H "Content-Type: application/json" -d "$TEST_DATA_2" \
-  http://43.209.22.250:8080/api/sensor-data/moisture/munbon-m2m-moisture
+  http://${EC2_HOST:-43.208.201.191}:8080/api/sensor-data/moisture/munbon-m2m-moisture
 
 echo -e "\n\nExpected sensor IDs: 3-13, 03-D"

@@ -4,7 +4,7 @@
 
 echo "=== Manual EC2 Deployment Script ==="
 echo ""
-echo "This script should be run on your EC2 instance (43.209.22.250)"
+echo "This script should be run on your EC2 instance (${EC2_HOST:-43.208.201.191})"
 echo ""
 
 # Colors
@@ -122,8 +122,8 @@ echo ""
 echo -e "${GREEN}=== Deployment Complete ===${NC}"
 echo ""
 echo "Services should be available at:"
-echo "- Sensor Data API: http://43.209.22.250:3001"
-echo "- Consumer Dashboard: http://43.209.22.250:3002"
+echo "- Sensor Data API: http://${EC2_HOST:-43.208.201.191}:3001"
+echo "- Consumer Dashboard: http://${EC2_HOST:-43.208.201.191}:3002"
 echo ""
 echo "To view logs:"
 echo "docker-compose -f docker-compose.ec2-consolidated.yml logs -f"

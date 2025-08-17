@@ -5,7 +5,7 @@ echo "================================="
 
 # 1. Check EC2 HTTP endpoint
 echo -e "\n1️⃣ EC2 HTTP Endpoint:"
-if curl -s -o /dev/null -w "%{http_code}" http://43.209.22.250:8080/health | grep -q "200"; then
+if curl -s -o /dev/null -w "%{http_code}" http://${EC2_HOST:-43.208.201.191}:8080/health | grep -q "200"; then
     echo "✅ Moisture HTTP service is running on EC2 (port 8080)"
 else
     echo "❌ Moisture HTTP service is NOT accessible"
@@ -50,7 +50,7 @@ FROM moisture_readings;"
 
 # 5. Check EC2 Moisture Service Logs
 echo -e "\n5️⃣ Recent EC2 Moisture Service Activity:"
-ssh -i $HOME/dev/th-lab01.pem ubuntu@43.209.22.250 "pm2 logs moisture-http --lines 5 --nostream | grep -E '(INFO|ERROR|success)' | tail -5" 2>/dev/null
+ssh -i $HOME/dev/th-lab01.pem ubuntu@${EC2_HOST:-43.208.201.191} "pm2 logs moisture-http --lines 5 --nostream | grep -E '(INFO|ERROR|success)' | tail -5" 2>/dev/null
 
 echo -e "\n📊 Summary:"
 echo "- EC2 HTTP → SQS: ✅ Working (based on EC2 logs)"

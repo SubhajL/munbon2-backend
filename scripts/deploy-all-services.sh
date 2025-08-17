@@ -14,7 +14,7 @@ NC='\033[0m'
 
 echo -e "${BLUE}===================================================${NC}"
 echo -e "${BLUE}    Munbon Backend Services Deployment${NC}"
-echo -e "${BLUE}    EC2 Database: 43.209.22.250:5432${NC}"
+echo -e "${BLUE}    EC2 Database: ${EC2_HOST:-43.208.201.191}:5432${NC}"
 echo -e "${BLUE}===================================================${NC}"
 
 # Function to check prerequisites
@@ -38,7 +38,7 @@ check_prerequisites() {
     
     # Check EC2 connectivity
     echo -e "${BLUE}Testing EC2 database connectivity...${NC}"
-    if PGPASSWORD=P@ssw0rd123! psql -h 43.209.22.250 -p 5432 -U postgres -d postgres -c "SELECT version();" > /dev/null 2>&1; then
+    if PGPASSWORD=P@ssw0rd123! psql -h ${EC2_HOST:-43.208.201.191} -p 5432 -U postgres -d postgres -c "SELECT version();" > /dev/null 2>&1; then
         echo -e "${GREEN}✓ EC2 database is accessible${NC}"
     else
         echo -e "${RED}✗ Cannot connect to EC2 database${NC}"

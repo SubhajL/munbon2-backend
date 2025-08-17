@@ -48,7 +48,7 @@ ORDER BY n.nspname;"
 
 echo -e "\n${GREEN}=== Local database verification complete ===${NC}"
 echo -e "\n${YELLOW}To check EC2 databases, use DBeaver with:${NC}"
-echo "Host: 43.209.22.250"
+echo "Host: ${EC2_HOST:-43.208.201.191}"
 echo "Port: 5432" 
 echo "Username: postgres"
 echo "Password: P@ssw0rd123!"

@@ -39,7 +39,7 @@ function sendMoistureData() {
   const data = JSON.stringify(moistureData);
   
   const options = {
-    hostname: '43.209.22.250',
+    hostname: process.env.EC2_HOST || '43.208.201.191',
     port: 8080,
     path: '/api/sensor-data/moisture/munbon-m2m-moisture',
     method: 'POST',

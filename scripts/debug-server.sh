@@ -40,7 +40,7 @@ check_prerequisites() {
     
     # Check EC2 connectivity
     echo -e "${YELLOW}Testing EC2 database...${NC}"
-    if PGPASSWORD=P@ssw0rd123! psql -h 43.209.22.250 -p 5432 -U postgres -d postgres -c "SELECT 1" > /dev/null 2>&1; then
+    if PGPASSWORD=P@ssw0rd123! psql -h ${EC2_HOST:-43.208.201.191} -p 5432 -U postgres -d postgres -c "SELECT 1" > /dev/null 2>&1; then
         echo -e "${GREEN}✅ EC2 database accessible${NC}"
     else
         echo -e "${RED}❌ Cannot connect to EC2 database${NC}"

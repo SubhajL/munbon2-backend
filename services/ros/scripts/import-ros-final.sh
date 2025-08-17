@@ -48,7 +48,7 @@ EOF
 # Step 2: Import to EC2
 echo -e "\nStep 2: Importing to EC2..."
 
-EC2_HOST="43.209.22.250"
+EC2_HOST="${EC2_HOST:-43.208.201.191}"
 EC2_PORT="5432"
 EC2_USER="postgres"
 EC2_PASSWORD="P@ssw0rd123!"
@@ -105,4 +105,4 @@ EOF
 rm -f /tmp/ros_export.sql /tmp/gis_export.sql
 
 echo -e "\n✅ Import complete!"
-echo "EC2 Connection: postgresql://postgres:PASSWORD@43.209.22.250:5432/munbon_dev"
+echo "EC2 Connection: postgresql://postgres:PASSWORD@${EC2_HOST:-43.208.201.191}:5432/munbon_dev"

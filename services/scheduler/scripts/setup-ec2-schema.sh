@@ -4,7 +4,7 @@
 echo "Setting up scheduler schema on EC2 PostgreSQL..."
 
 # EC2 PostgreSQL credentials
-EC2_HOST="43.209.22.250"
+EC2_HOST="${EC2_HOST:-43.208.201.191}"
 EC2_PORT="5432"
 EC2_USER="postgres"
 EC2_PASSWORD='P@ssw0rd123!'

@@ -13,7 +13,7 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 # EC2 Configuration
-export POSTGRES_HOST="43.209.22.250"
+export POSTGRES_HOST="${EC2_HOST:-43.208.201.191}"
 export POSTGRES_PORT="5432"
 export POSTGRES_PASSWORD="P@ssw0rd123!"
 

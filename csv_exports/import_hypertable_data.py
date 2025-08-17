@@ -6,7 +6,7 @@ from datetime import datetime
 
 # EC2 Database connection
 EC2_CONFIG = {
-    'host': '43.209.22.250',
+    'host': os.environ.get('EC2_HOST', '43.208.201.191'),
     'port': 5432,
     'user': 'postgres',
     'password': 'P@ssw0rd123!',

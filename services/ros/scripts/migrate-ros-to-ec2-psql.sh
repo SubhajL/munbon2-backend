@@ -19,7 +19,7 @@ LOCAL_USER="postgres"
 
 # EC2 target
 export PGPASSWORD_EC2="P@ssw0rd123!"
-EC2_HOST="43.209.22.250"
+EC2_HOST="${EC2_HOST:-43.208.201.191}"
 EC2_PORT="5432"
 EC2_DB="munbon_dev"
 EC2_USER="postgres"

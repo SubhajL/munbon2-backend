@@ -7,7 +7,7 @@ echo ""
 
 # Configuration
 REPO="SubhajL/munbon2-backend"
-EC2_HOST="43.209.22.250"
+EC2_HOST="${EC2_HOST:-43.208.201.191}"
 EC2_USER="ubuntu"
 PEM_FILE="/Users/subhajlimanond/dev/munbon2-backend/th-lab01.pem"
 

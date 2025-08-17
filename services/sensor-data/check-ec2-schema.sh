@@ -4,7 +4,7 @@ echo "=== Checking EC2 Table Schema ==="
 echo ""
 
 # EC2 PostgreSQL connection details
-EC2_HOST="43.209.22.250"
+EC2_HOST="${EC2_HOST:-43.208.201.191}"
 EC2_PORT="5432"
 EC2_DB="sensor_data"
 EC2_USER="postgres"

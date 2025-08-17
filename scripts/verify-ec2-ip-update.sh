@@ -2,7 +2,7 @@
 
 # Verify EC2 IP update was successful
 OLD_IP="43.209.12.182"
-NEW_IP="43.209.22.250"
+NEW_IP="${EC2_HOST:-43.208.201.191}"
 
 echo "=== EC2 IP Update Verification ==="
 echo "Old IP: $OLD_IP"

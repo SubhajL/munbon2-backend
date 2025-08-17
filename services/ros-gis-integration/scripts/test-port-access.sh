@@ -8,7 +8,7 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-HOST="43.209.22.250"
+HOST="${EC2_HOST:-43.208.201.191}"
 PORT="3022"
 
 echo -e "${GREEN}Testing ROS/GIS Integration Service Access${NC}"

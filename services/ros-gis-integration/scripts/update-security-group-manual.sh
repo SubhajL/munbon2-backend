@@ -75,7 +75,7 @@ if [ -z "${FOUND_REGION}" ]; then
     echo ""
     echo "Alternative: Update security group manually"
     echo "1. Check your AWS region"
-    echo "2. Find instance with IP 43.209.22.250"
+    echo "2. Find instance with IP ${EC2_HOST:-43.208.201.191}"
     echo "3. Update its security group to allow TCP port ${PORT}"
     exit 1
 fi
@@ -112,8 +112,8 @@ if aws ec2 authorize-security-group-ingress \
     echo -e "${GREEN}✓ Successfully added port ${PORT} to security group!${NC}"
     echo ""
     echo "The ROS/GIS Integration Service is now accessible at:"
-    echo "  http://43.209.22.250:${PORT}/health"
-    echo "  http://43.209.22.250:${PORT}/graphql"
+    echo "  http://${EC2_HOST:-43.208.201.191}:${PORT}/health"
+    echo "  http://${EC2_HOST:-43.208.201.191}:${PORT}/graphql"
 else
     echo -e "${RED}Failed to add security group rule.${NC}"
     echo "This might be due to:"

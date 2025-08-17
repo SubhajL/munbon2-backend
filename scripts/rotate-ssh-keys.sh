@@ -21,11 +21,11 @@ if ! command -v aws &> /dev/null; then
     echo "   ssh-keygen -t ed25519 -f ./munbon-new-key -C 'munbon-deploy'"
     echo
     echo "2. On EC2 instance (using current compromised key):"
-    echo "   ssh -i th-lab01.pem ubuntu@43.209.22.250"
+    echo "   ssh -i th-lab01.pem ubuntu@${EC2_HOST:-43.208.201.191}"
     echo "   echo 'YOUR_NEW_PUBLIC_KEY' >> ~/.ssh/authorized_keys"
     echo
     echo "3. Test new key:"
-    echo "   ssh -i munbon-new-key ubuntu@43.209.22.250"
+    echo "   ssh -i munbon-new-key ubuntu@${EC2_HOST:-43.208.201.191}"
     echo
     echo "4. Remove old key from EC2:"
     echo "   # Edit ~/.ssh/authorized_keys and remove old key"
@@ -53,14 +53,14 @@ echo
 echo -e "${YELLOW}=== Manual Steps Required ===${NC}"
 echo
 echo "1. Add new public key to EC2:"
-echo "   ssh -i th-lab01.pem ubuntu@43.209.22.250"
+echo "   ssh -i th-lab01.pem ubuntu@${EC2_HOST:-43.208.201.191}"
 echo "   echo '$(cat "$KEY_NAME.pub")' >> ~/.ssh/authorized_keys"
 echo
 echo "2. Test new key:"
-echo "   ssh -i $KEY_NAME ubuntu@43.209.22.250 'echo Success!'"
+echo "   ssh -i $KEY_NAME ubuntu@${EC2_HOST:-43.208.201.191} 'echo Success!'"
 echo
 echo "3. Remove old key from EC2:"
-echo "   ssh -i $KEY_NAME ubuntu@43.209.22.250"
+echo "   ssh -i $KEY_NAME ubuntu@${EC2_HOST:-43.208.201.191}"
 echo "   # Edit ~/.ssh/authorized_keys and remove the old RSA key"
 echo
 echo "4. Update GitHub Secret EC2_SSH_KEY:"

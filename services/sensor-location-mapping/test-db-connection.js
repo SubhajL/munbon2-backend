@@ -2,7 +2,7 @@ const { Pool } = require('pg');
 
 async function testConnection() {
   const pool = new Pool({
-    host: '43.209.22.250',
+    host: process.env.EC2_HOST || '43.208.201.191',
     port: 5432,
     database: 'postgres',
     user: 'postgres',

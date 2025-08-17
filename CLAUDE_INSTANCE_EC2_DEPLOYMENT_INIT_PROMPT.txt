@@ -24,7 +24,7 @@ IMMEDIATE PRIORITIES:
 
 INFRASTRUCTURE DETAILS:
 - EC2 Instance: t3.large (2 vCPU, 8GB RAM)
-- IP Address: 43.209.22.250
+- IP Address: 43.208.201.191
 - Region: ap-southeast-1
 - OS: Ubuntu 22.04 LTS
 - Current tools: Docker, docker-compose

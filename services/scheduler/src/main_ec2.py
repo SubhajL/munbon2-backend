@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager
 import urllib.parse
 
 # Configuration
-POSTGRES_HOST = os.getenv("POSTGRES_HOST", "43.209.22.250")
+POSTGRES_HOST = os.getenv("POSTGRES_HOST", os.environ.get('EC2_HOST', '43.208.201.191'))
 POSTGRES_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
 POSTGRES_USER = os.getenv("POSTGRES_USER", "postgres")
 POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "P@ssw0rd123!")

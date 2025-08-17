@@ -3,7 +3,7 @@ import psycopg2
 
 print("Testing exact connection that user is using...")
 conn = psycopg2.connect(
-    host='43.209.22.250',
+    host=os.environ.get('EC2_HOST', '43.208.201.191'),
     port=5432,
     user='postgres',
     password='P@ssw0rd123!',

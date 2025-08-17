@@ -14,7 +14,7 @@ echo -e "${GREEN}Starting Flow Monitoring Service deployment to EC2...${NC}"
 # Configuration
 SERVICE_NAME="flow-monitoring"
 DOCKER_IMAGE="subhaj888/munbon-flow-monitoring"
-EC2_HOST="43.209.22.250"
+EC2_HOST="${EC2_HOST:-43.208.201.191}"
 EC2_USER="ubuntu"
 
 # Check if we're in the right directory

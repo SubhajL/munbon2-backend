@@ -12,11 +12,11 @@ NC='\033[0m'
 
 # Credentials
 LOCAL_CONN="postgresql://postgres:postgres@localhost:5434/munbon_dev"
-EC2_CONN="postgresql://postgres:P%40ssw0rd123%21@43.209.22.250:5432/munbon_dev"
+EC2_CONN="postgresql://postgres:P%40ssw0rd123%21@${EC2_HOST:-43.208.201.191}:5432/munbon_dev"
 
 echo -e "${BLUE}=== MIGRATE ROS SCHEMA TO EC2 ===${NC}"
 echo -e "${YELLOW}Source: localhost:5434/munbon_dev${NC}"
-echo -e "${YELLOW}Target: 43.209.22.250:5432/munbon_dev${NC}"
+echo -e "${YELLOW}Target: ${EC2_HOST:-43.208.201.191}:5432/munbon_dev${NC}"
 echo ""
 
 # Step 1: Create schema on EC2

@@ -3,12 +3,12 @@
 # Export environment variables to use only EC2 database
 export NODE_ENV=production
 export ENABLE_DUAL_WRITE=false
-export TIMESCALE_HOST=43.209.22.250
+export TIMESCALE_HOST=${EC2_HOST:-43.208.201.191}
 export TIMESCALE_PORT=5432
 export TIMESCALE_DB=sensor_data
 export TIMESCALE_USER=postgres
 export TIMESCALE_PASSWORD=P@ssw0rd123!
-export EC2_DB_HOST=43.209.22.250
+export EC2_DB_HOST=${EC2_HOST:-43.208.201.191}
 export EC2_DB_PORT=5432
 export EC2_DB_NAME=sensor_data
 export EC2_DB_USER=postgres

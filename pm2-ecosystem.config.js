@@ -141,13 +141,13 @@ module.exports = {
         PORT: 3018,
         NODE_ENV: 'development',
         // TimescaleDB on EC2
-        TIMESCALE_HOST: '43.209.22.250',
+        TIMESCALE_HOST: process.env.EC2_HOST || '43.208.201.191',
         TIMESCALE_PORT: 5432,
         TIMESCALE_DB: 'sensor_data',
         TIMESCALE_USER: 'postgres',
         TIMESCALE_PASSWORD: 'postgres123',
         // PostGIS on EC2
-        POSTGIS_HOST: '43.209.22.250',
+        POSTGIS_HOST: process.env.EC2_HOST || '43.208.201.191',
         POSTGIS_PORT: 5432,
         POSTGIS_DB: 'gis_db',
         POSTGIS_USER: 'postgres',

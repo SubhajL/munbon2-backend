@@ -9,7 +9,7 @@ echo "🚀 Complete Moisture HTTP Server Deployment"
 echo "==========================================="
 
 # Configuration
-EC2_HOST="ec2-43.209.22.250.ap-southeast-7.compute.amazonaws.com"
+EC2_HOST="ec2-${EC2_HOST:-43.208.201.191}.ap-southeast-7.compute.amazonaws.com"
 EC2_USER="ec2-user"
 HTTP_PORT=8080
 

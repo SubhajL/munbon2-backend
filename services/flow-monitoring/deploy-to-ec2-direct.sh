@@ -14,7 +14,7 @@ echo -e "${GREEN}Starting Flow Monitoring Service direct deployment to EC2...${N
 
 # Configuration
 SERVICE_NAME="flow-monitoring"
-EC2_HOST="43.209.22.250"
+EC2_HOST="${EC2_HOST:-43.208.201.191}"
 EC2_USER="ubuntu"
 EC2_PATH="/home/ubuntu/munbon2-backend/services/flow-monitoring"
 

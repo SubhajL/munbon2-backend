@@ -33,7 +33,7 @@ fi
 echo ""
 echo "📊 Database Connections:"
 echo "  Local: localhost:5433 (munbon_timescale)"
-echo "  EC2:   43.209.22.250:5432 (sensor_data)"
+echo "  EC2:   ${EC2_HOST:-43.208.201.191}:5432 (sensor_data)"
 echo ""
 
 # Start the consumer

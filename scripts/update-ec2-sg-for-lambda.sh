@@ -6,7 +6,7 @@ echo "=== Updating EC2 Security Group for Lambda Access ==="
 echo ""
 
 # Variables
-EC2_IP="43.209.22.250"
+EC2_IP="${EC2_HOST:-43.208.201.191}"
 REGION="ap-southeast-1"
 
 # Find security group ID

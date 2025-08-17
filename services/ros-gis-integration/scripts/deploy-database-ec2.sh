@@ -12,7 +12,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # EC2 Database Configuration
-DB_HOST="43.209.22.250"
+DB_HOST="${EC2_HOST:-43.208.201.191}"
 DB_PORT="5432"
 DB_NAME="munbon_dev"
 DB_USER="postgres"
@@ -220,7 +220,7 @@ async def test_connection():
     try:
         # Connection parameters
         conn = await asyncpg.connect(
-            host='43.209.22.250',
+            host='${EC2_HOST:-43.208.201.191}',
             port=5432,
             user='postgres',
             password='P@ssw0rd123!',

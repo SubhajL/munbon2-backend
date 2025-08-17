@@ -13,7 +13,7 @@ NC='\033[0m' # No Color
 
 # Test database connection
 echo "1. Testing SCADA database connection..."
-PGPASSWORD=P@ssw0rd123! psql -h 43.209.22.250 -U postgres -d db_scada -c "SELECT COUNT(*) FROM tb_site WHERE stationcode IS NOT NULL;" 2>&1 | grep -q "20"
+PGPASSWORD=P@ssw0rd123! psql -h ${EC2_HOST:-43.208.201.191} -U postgres -d db_scada -c "SELECT COUNT(*) FROM tb_site WHERE stationcode IS NOT NULL;" 2>&1 | grep -q "20"
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✓ Connected to SCADA database${NC}"
 else
@@ -24,7 +24,7 @@ fi
 # Test table structure
 echo ""
 echo "2. Checking tb_gatelevel_command table..."
-PGPASSWORD=P@ssw0rd123! psql -h 43.209.22.250 -U postgres -d db_scada -c "\d tb_gatelevel_command" 2>&1 | grep -q "gate_level"
+PGPASSWORD=P@ssw0rd123! psql -h ${EC2_HOST:-43.208.201.191} -U postgres -d db_scada -c "\d tb_gatelevel_command" 2>&1 | grep -q "gate_level"
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✓ tb_gatelevel_command table exists${NC}"
 else
@@ -35,7 +35,7 @@ fi
 # Insert test command
 echo ""
 echo "3. Inserting test gate command..."
-COMMAND_ID=$(PGPASSWORD=P@ssw0rd123! psql -h 43.209.22.250 -U postgres -d db_scada -t -c "
+COMMAND_ID=$(PGPASSWORD=P@ssw0rd123! psql -h ${EC2_HOST:-43.208.201.191} -U postgres -d db_scada -t -c "
 INSERT INTO tb_gatelevel_command 
 (gate_name, gate_level, startdatetime, completestatus)
 VALUES ('TEST_WWA', 3, NOW(), 0)
@@ -52,7 +52,7 @@ fi
 echo ""
 echo "4. Checking command status..."
 sleep 2
-STATUS=$(PGPASSWORD=P@ssw0rd123! psql -h 43.209.22.250 -U postgres -d db_scada -t -c "
+STATUS=$(PGPASSWORD=P@ssw0rd123! psql -h ${EC2_HOST:-43.208.201.191} -U postgres -d db_scada -t -c "
 SELECT completestatus FROM tb_gatelevel_command WHERE id = $COMMAND_ID;" | tr -d ' ')
 
 echo -e "${YELLOW}Command status: $STATUS (0=pending, 1=complete)${NC}"
@@ -60,7 +60,7 @@ echo -e "${YELLOW}Command status: $STATUS (0=pending, 1=complete)${NC}"
 # List recent commands
 echo ""
 echo "5. Recent gate commands:"
-PGPASSWORD=P@ssw0rd123! psql -h 43.209.22.250 -U postgres -d db_scada -c "
+PGPASSWORD=P@ssw0rd123! psql -h ${EC2_HOST:-43.208.201.191} -U postgres -d db_scada -c "
 SELECT id, gate_name, gate_level, 
        startdatetime AT TIME ZONE 'Asia/Bangkok' as start_time,
        CASE completestatus 
@@ -74,7 +74,7 @@ LIMIT 5;"
 # Clean up test command
 echo ""
 echo "6. Cleaning up test command..."
-PGPASSWORD=P@ssw0rd123! psql -h 43.209.22.250 -U postgres -d db_scada -c "
+PGPASSWORD=P@ssw0rd123! psql -h ${EC2_HOST:-43.208.201.191} -U postgres -d db_scada -c "
 DELETE FROM tb_gatelevel_command WHERE id = $COMMAND_ID;" > /dev/null 2>&1
 echo -e "${GREEN}✓ Test command cleaned up${NC}"
 

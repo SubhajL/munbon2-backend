@@ -7,7 +7,7 @@ echo ""
 
 # Get initial counts
 LOCAL_COUNT_BEFORE=$(docker exec munbon-timescaledb psql -U postgres -d munbon_timescale -t -c "SELECT COUNT(*) FROM water_level_readings")
-EC2_COUNT_BEFORE=$(ssh -i ~/dev/th-lab01.pem ubuntu@43.209.22.250 "docker exec timescaledb psql -U postgres -d sensor_data -t -c 'SELECT COUNT(*) FROM water_level_readings'" 2>/dev/null)
+EC2_COUNT_BEFORE=$(ssh -i ~/dev/th-lab01.pem ubuntu@${EC2_HOST:-43.208.201.191} "docker exec timescaledb psql -U postgres -d sensor_data -t -c 'SELECT COUNT(*) FROM water_level_readings'" 2>/dev/null)
 
 echo "Initial counts:"
 echo "  Local DB: $LOCAL_COUNT_BEFORE records"
@@ -33,7 +33,7 @@ while true; do
         # Check if same data appears in EC2
         sleep 2  # Give dual-write time to complete
         
-        LATEST_EC2=$(ssh -i ~/dev/th-lab01.pem ubuntu@43.209.22.250 "docker exec timescaledb psql -U postgres -d sensor_data -t -c \"
+        LATEST_EC2=$(ssh -i ~/dev/th-lab01.pem ubuntu@${EC2_HOST:-43.208.201.191} "docker exec timescaledb psql -U postgres -d sensor_data -t -c \"
             SELECT time || ' | ' || sensor_id || ' | ' || level_cm || 'cm'
             FROM water_level_readings 
             WHERE time > NOW() - INTERVAL '1 minute'

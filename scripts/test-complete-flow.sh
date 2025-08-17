@@ -12,7 +12,7 @@ echo ""
 
 # Configuration
 API_GATEWAY_BASE="https://5e3l647kpd.execute-api.ap-southeast-1.amazonaws.com"
-EC2_HOST="43.209.22.250"
+EC2_HOST="${EC2_HOST:-43.208.201.191}"
 TUNNEL_URL="https://munbon-api.br-firewall-breath-planner.trycloudflare.com"
 
 # Test colors
