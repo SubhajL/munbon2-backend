@@ -68,11 +68,57 @@ out/
 .DS_Store
 Thumbs.db
 
-# Environment
+# Environment variables - CRITICAL SECURITY
 .env
+.env.*
+*.env
 .env.local
 .env.*.local
+!.env.example
+!.env.template
+
+# Private keys and certificates - NEVER COMMIT THESE
 *.pem
+*.key
+*.cert
+*.crt
+*.p12
+*.pfx
+private.key
+public.key
+id_rsa
+id_rsa.pub
+*.ppk
+
+# AWS credentials - CRITICAL SECURITY
+.aws/
+aws-exports.js
+credentials
+.aws-credentials
+
+# Database credentials and dumps
+*.sql
+*.dump
+*.bak
+*.backup
+connection.json
+database.json
+db-config.json
+
+# Secrets and credentials
+secrets/
+credentials/
+*.secret
+secrets.yml
+secrets.yaml
+credentials.json
+config.local.js
+config.local.json
+settings.local.json
+*.local
+
+# Temporary security file
+EXPOSED_CREDENTIALS_LIST.md
 
 # Docker
 .dockerignore

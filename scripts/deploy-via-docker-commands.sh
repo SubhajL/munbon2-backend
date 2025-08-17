@@ -61,8 +61,8 @@ docker run -d \
   -e TIMESCALE_USER=postgres \
   -e TIMESCALE_PASSWORD=P@ssw0rd123! \
   -e AWS_REGION=ap-southeast-1 \
-  -e AWS_ACCESS_KEY_ID=AKIARSUGAPRU5GWX5G6I \
-  -e AWS_SECRET_ACCESS_KEY=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 \
+  -e AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID \
+  -e AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY \
   -e SQS_QUEUE_URL=https://sqs.ap-southeast-1.amazonaws.com/108728974441/munbon-sensor-ingestion-dev-queue \
   -v /home/ubuntu/munbon2-backend/services/sensor-data:/app \
   -w /app \

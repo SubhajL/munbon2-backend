@@ -56,8 +56,8 @@ prepare_environment() {
         echo -e "${YELLOW}Creating .env file...${NC}"
         cat > .env << 'EOF'
 # AWS Configuration
-AWS_ACCESS_KEY_ID=AKIARSUGAPRU5GWX5G6I
-AWS_SECRET_ACCESS_KEY=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
+AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
+AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
 AWS_REGION=ap-southeast-1
 SQS_QUEUE_URL=https://sqs.ap-southeast-1.amazonaws.com/108728974441/munbon-sensor-ingestion-dev-queue
 
