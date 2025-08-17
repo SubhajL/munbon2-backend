@@ -4,7 +4,7 @@
 echo "Testing database connection to new EC2 instance..."
 
 # Connection parameters
-DB_HOST="43.209.22.250"
+DB_HOST="${EC2_HOST:-43.208.201.191}"
 DB_PORT="5432"
 DB_NAME="postgres"
 DB_USER="postgres"

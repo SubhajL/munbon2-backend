@@ -5,7 +5,7 @@ echo "Time: $(date -u)"
 echo ""
 
 # EC2 connection details
-EC2_HOST="43.209.22.250"
+EC2_HOST="${EC2_HOST:-43.208.201.191}"
 EC2_USER="ubuntu"
 SSH_KEY="$HOME/dev/th-lab01.pem"
 

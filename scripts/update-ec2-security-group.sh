@@ -23,7 +23,7 @@ INSTANCE_ID=$(aws ec2 describe-instances \
 if [ "$INSTANCE_ID" = "None" ] || [ -z "$INSTANCE_ID" ]; then
   echo -e "${YELLOW}Could not find instance by private IP, trying by public IP...${NC}"
   INSTANCE_ID=$(aws ec2 describe-instances \
-    --filters "Name=ip-address,Values=43.209.22.250" \
+    --filters "Name=ip-address,Values=${EC2_HOST:-43.208.201.191}" \
     --query "Reservations[0].Instances[0].InstanceId" \
     --output text 2>/dev/null)
 fi
@@ -95,6 +95,6 @@ aws ec2 describe-security-groups \
   --output table
 
 echo -e "\n${GREEN}You can now access services from:${NC}"
-echo "http://43.209.22.250:3005/health - Moisture Monitoring"
-echo "http://43.209.22.250:3008/health - Water Level Monitoring"
-echo "http://43.209.22.250:3014/health - Flow Monitoring"
+echo "http://${EC2_HOST:-43.208.201.191}:3005/health - Moisture Monitoring"
+echo "http://${EC2_HOST:-43.208.201.191}:3008/health - Water Level Monitoring"
+echo "http://${EC2_HOST:-43.208.201.191}:3014/health - Flow Monitoring"

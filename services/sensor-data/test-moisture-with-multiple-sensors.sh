@@ -3,7 +3,7 @@
 # Test moisture data with multiple sensors
 echo "Testing moisture data with multiple sensor readings..."
 
-curl -X POST http://43.209.22.250:8080/api/sensor-data/moisture/munbon-m2m-moisture \
+curl -X POST http://${EC2_HOST:-43.208.201.191}:8080/api/sensor-data/moisture/munbon-m2m-moisture \
   -H "Content-Type: application/json" \
   -d '{
   "gw_id": "0002",

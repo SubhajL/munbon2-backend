@@ -6,7 +6,7 @@
 echo "🧪 Testing enhanced moisture endpoint with new JSON format..."
 
 # Server endpoint
-ENDPOINT="http://43.209.22.250:8080/api/sensor-data/moisture/munbon-m2m-moisture"
+ENDPOINT="http://${EC2_HOST:-43.208.201.191}:8080/api/sensor-data/moisture/munbon-m2m-moisture"
 
 # Test data - exact format from user
 MOISTURE_DATA='{
@@ -89,7 +89,7 @@ if [ "$HTTP_CODE" = "200" ]; then
   # Check statistics
   echo ""
   echo "📈 Checking server statistics..."
-  curl -s http://43.209.22.250:8080/api/stats | jq .
+  curl -s http://${EC2_HOST:-43.208.201.191}:8080/api/stats | jq .
   
   # Check if data reached SQS
   echo ""
@@ -106,4 +106,4 @@ fi
 
 echo ""
 echo "💡 To check server logs:"
-echo "   ssh -i ~/dev/th-lab01.pem ubuntu@43.209.22.250 'pm2 logs moisture-http --lines 50'"
+echo "   ssh -i ~/dev/th-lab01.pem ubuntu@${EC2_HOST:-43.208.201.191} 'pm2 logs moisture-http --lines 50'"

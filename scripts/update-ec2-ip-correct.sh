@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# Script to update EC2 IP address from 43.209.22.250 to 43.209.22.250
+# Script to update EC2 IP address from ${EC2_HOST:-43.208.201.191} to ${EC2_HOST:-43.208.201.191}
 
-OLD_IP="43.209.22.250"
-NEW_IP="43.209.22.250"
+OLD_IP="${EC2_HOST:-43.208.201.191}"
+NEW_IP="${EC2_HOST:-43.208.201.191}"
 PROJECT_ROOT="/Users/subhajlimanond/dev/munbon2-backend"
 
 # Colors

@@ -31,7 +31,7 @@ echo "Sending test data for gateway 003 (not 0003)..."
 curl -X POST \
   -H "Content-Type: application/json" \
   -d "$TEST_DATA" \
-  http://43.209.22.250:8080/api/sensor-data/moisture/munbon-m2m-moisture
+  http://${EC2_HOST:-43.208.201.191}:8080/api/sensor-data/moisture/munbon-m2m-moisture
 
 echo ""
 echo ""

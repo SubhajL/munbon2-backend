@@ -22,4 +22,4 @@ echo "Starting HTTP server with PM2..."
 pm2 start dist/simple-http-server.js --name "moisture-http" --log-date-format "YYYY-MM-DD HH:mm:ss"
 
 echo "✅ HTTP server started on port 8080"
-echo "📡 Endpoint: http://ec2-43.209.22.250.ap-southeast-7.compute.amazonaws.com:8080/api/sensor-data/moisture/munbon-m2m-moisture"
+echo "📡 Endpoint: http://ec2-${EC2_HOST:-43.208.201.191}.ap-southeast-7.compute.amazonaws.com:8080/api/sensor-data/moisture/munbon-m2m-moisture"

@@ -6,7 +6,7 @@
 set -e
 
 OLD_IP="43.209.12.182"
-NEW_IP="43.209.22.250"
+NEW_IP="${EC2_HOST:-43.208.201.191}"
 PROJECT_ROOT="/Users/subhajlimanond/dev/munbon2-backend"
 
 # Colors

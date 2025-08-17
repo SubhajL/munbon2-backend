@@ -43,11 +43,11 @@ jobs:
           
       - name: Test SSH connection
         run: |
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/deploy_key ubuntu@43.209.22.250 "echo 'Connected successfully!'"
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/deploy_key ubuntu@43.208.201.191 "echo 'Connected successfully!'"
           
       - name: Deploy to EC2
         run: |
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/deploy_key ubuntu@43.209.22.250 << 'DEPLOY'
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/deploy_key ubuntu@43.208.201.191 << 'DEPLOY'
           set -e
           echo "=== Starting deployment ==="
           

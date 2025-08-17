@@ -88,7 +88,7 @@ kubectl patch storageclass local-path -p '{"metadata": {"annotations":{"storagec
 
 # Create kubeconfig for external access
 echo -e "${YELLOW}Configuring external access...${NC}"
-EXTERNAL_IP="43.209.22.250"
+EXTERNAL_IP="${EC2_HOST:-43.208.201.191}"
 cp /etc/rancher/k3s/k3s.yaml /root/k3s-kubeconfig.yaml
 sed -i "s/127.0.0.1/${EXTERNAL_IP}/g" /root/k3s-kubeconfig.yaml
 

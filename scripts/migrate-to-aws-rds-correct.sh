@@ -3,7 +3,7 @@
 # Migrate all databases to postgres_aws_munbon on AWS RDS
 set -e
 
-EC2_IP="43.209.22.250"
+EC2_IP="${EC2_HOST:-43.208.201.191}"
 SSH_KEY="/Users/subhajlimanond/dev/munbon2-backend/th-lab01.pem"
 EC2_USER="ubuntu"
 
@@ -27,7 +27,7 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 # AWS RDS credentials
-RDS_HOST="ec2-43.209.22.250.ap-southeast-7.compute.amazonaws.com"
+RDS_HOST="ec2-${EC2_HOST:-43.208.201.191}.ap-southeast-7.compute.amazonaws.com"
 RDS_PORT="5432"
 RDS_USER="postgres"
 RDS_PASSWORD="postgres123"

@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Update EC2 IP from old to new
-OLD_IP="43.209.22.250"  # Previous IP (already updated)
-NEW_IP="43.209.22.250"  # New IP
+OLD_IP="${EC2_HOST:-43.208.201.191}"  # Previous IP (already updated)
+NEW_IP="${EC2_HOST:-43.208.201.191}"  # New IP
 
 echo "Updating EC2 IP from $OLD_IP to $NEW_IP..."
 

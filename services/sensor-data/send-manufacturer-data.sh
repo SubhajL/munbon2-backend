@@ -17,7 +17,7 @@ echo ""
 curl -X POST \
   -H "Content-Type: application/json" \
   -d "$DATA" \
-  http://43.209.22.250:8080/api/sensor-data/moisture/munbon-m2m-moisture
+  http://${EC2_HOST:-43.208.201.191}:8080/api/sensor-data/moisture/munbon-m2m-moisture
 
 echo ""
 echo ""

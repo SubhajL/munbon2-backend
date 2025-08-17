@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Simple script to finish updating EC2 IP addresses
-OLD_IP="43.209.22.250"
-NEW_IP="43.209.22.250"
+OLD_IP="${EC2_HOST:-43.208.201.191}"
+NEW_IP="${EC2_HOST:-43.208.201.191}"
 
 echo "Finishing EC2 IP update from $OLD_IP to $NEW_IP..."
 

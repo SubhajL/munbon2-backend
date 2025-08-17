@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Deployment script with correct SSH details
-EC2_HOST="43.209.22.250"
+EC2_HOST="${EC2_HOST:-43.208.201.191}"
 EC2_USER="ubuntu"
 SSH_KEY="th-lab01.pem"
 

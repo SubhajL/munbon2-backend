@@ -3,8 +3,8 @@
 # Update all EC2 IP references from old to new
 set -e
 
-OLD_IP="43.209.22.250"
-NEW_IP="43.209.22.250"
+OLD_IP="${EC2_HOST:-43.208.201.191}"
+NEW_IP="${EC2_HOST:-43.208.201.191}"
 
 # Colors
 GREEN='\033[0;32m'

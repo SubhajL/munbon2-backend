@@ -1,7 +1,7 @@
 #!/bin/bash
 
 SSH_KEY="$HOME/dev/th-lab01.pem"
-EC2_HOST="43.209.22.250"
+EC2_HOST="${EC2_HOST:-43.208.201.191}"
 
 echo "=== COMPREHENSIVE SEARCH FOR GATEWAY 0003 / SENSOR 13 ==="
 echo "Time: $(date)"

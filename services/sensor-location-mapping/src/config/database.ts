@@ -5,7 +5,7 @@ dotenv.config();
 
 // TimescaleDB on EC2 for sensor data (consolidated to port 5432)
 export const timescalePool = new Pool({
-  host: process.env.TIMESCALE_HOST || '43.209.22.250',
+  host: process.env.TIMESCALE_HOST || process.env.EC2_HOST || '43.208.201.191',
   port: parseInt(process.env.TIMESCALE_PORT || '5432'),
   database: process.env.TIMESCALE_DB || 'postgres',
   user: process.env.TIMESCALE_USER || 'postgres',
@@ -17,7 +17,7 @@ export const timescalePool = new Pool({
 
 // PostGIS on EC2 for zone/section data (consolidated to port 5432)
 export const postgisPool = new Pool({
-  host: process.env.POSTGIS_HOST || '43.209.22.250',
+  host: process.env.POSTGIS_HOST || process.env.EC2_HOST || '43.208.201.191',
   port: parseInt(process.env.POSTGIS_PORT || '5432'),
   database: process.env.POSTGIS_DB || 'postgres',
   user: process.env.POSTGIS_USER || 'postgres',

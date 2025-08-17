@@ -16,7 +16,7 @@ async function monitorDualWrite() {
   });
 
   const ec2Client = new Client({
-    host: process.env.EC2_DB_HOST || '43.209.22.250',
+    host: process.env.EC2_DB_HOST || process.env.EC2_HOST || '43.208.201.191',
     port: parseInt(process.env.EC2_DB_PORT || '5432'),
     database: process.env.EC2_DB_NAME || 'sensor_data',
     user: process.env.EC2_DB_USER || 'postgres',

@@ -245,7 +245,7 @@ class MoistureEndpointMonitor {
 // Usage
 const monitor = new MoistureEndpointMonitor();
 const sshKeyPath = '/Users/subhajlimanond/dev/th-lab01.pem';
-const ec2Host = '43.209.22.250';
+const ec2Host = process.env.EC2_HOST || '43.208.201.191';
 
 // Run check
 monitor.checkRemoteLogs(sshKeyPath, ec2Host).then(() => {

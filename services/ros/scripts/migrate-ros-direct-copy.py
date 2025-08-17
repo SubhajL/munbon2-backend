@@ -15,7 +15,7 @@ LOCAL_CONFIG = {
 
 # EC2 database
 EC2_CONFIG = {
-    'host': '43.209.22.250',
+    'host': os.environ.get('EC2_HOST', '43.208.201.191'),
     'port': 5432,
     'database': 'munbon_dev',
     'user': 'postgres',

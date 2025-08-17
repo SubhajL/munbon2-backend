@@ -5,7 +5,7 @@
 
 echo "🧪 Testing moisture endpoint with missing fields..."
 
-ENDPOINT="http://43.209.22.250:8080/api/sensor-data/moisture/munbon-m2m-moisture"
+ENDPOINT="http://${EC2_HOST:-43.208.201.191}:8080/api/sensor-data/moisture/munbon-m2m-moisture"
 
 # Test 1: Minimal data with missing GPS and some sensor fields
 echo "📋 Test 1: Minimal valid data"

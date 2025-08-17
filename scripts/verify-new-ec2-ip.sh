@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Verify all services are using the new EC2 IP address
-NEW_IP="43.209.22.250"
+NEW_IP="${EC2_HOST:-43.208.201.191}"
 OLD_IP="43.209.12.182"
 
 echo "=== Verifying EC2 IP Update ==="

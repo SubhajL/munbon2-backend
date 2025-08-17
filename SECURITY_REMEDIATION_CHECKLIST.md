@@ -11,7 +11,7 @@
 - [ ] Update all services using AWS credentials
 
 ### 2. Database Passwords
-#### EC2 PostgreSQL (43.209.22.250)
+#### EC2 PostgreSQL (43.208.201.191)
 - [ ] SSH into EC2 instance
 - [ ] Change postgres password: `sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'new-secure-password';"`
 - [ ] Update all services connecting to this database
