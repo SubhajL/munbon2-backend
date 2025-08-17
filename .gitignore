@@ -199,3 +199,7 @@ GIS_moonbon/
 deployment-packages/
 .aws-sam/
 samconfig.toml
+# Ignore ALL .env files
+.env*
+!.env.example
+!.env.template
