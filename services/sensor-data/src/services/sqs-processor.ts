@@ -36,17 +36,17 @@ async function processWaterLevelData(
 ): Promise<void> {
   const { data, location, metadata, timestamp } = telemetryData;
   
-  // Format sensor ID as AWD-XXXX from MAC address
+  // Format sensor ID as AWD-XXXX from MAC address or numeric ID
   let formattedSensorId: string;
   try {
-    formattedSensorId = extractWaterLevelSensorId(data);
+    formattedSensorId = extractWaterLevelSensorId(telemetryData);
     logger.debug({ 
       originalId: telemetryData.sensorId, 
       formattedId: formattedSensorId,
       macAddress: data.macAddress 
     }, 'Formatted water level sensor ID');
   } catch (error) {
-    logger.error({ error, data }, 'Failed to format sensor ID, using original');
+    logger.error({ error, telemetryData }, 'Failed to format sensor ID, using original');
     formattedSensorId = telemetryData.sensorId;
   }
   
