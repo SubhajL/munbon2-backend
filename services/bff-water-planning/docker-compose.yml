@@ -1,0 +1,81 @@
+version: '3.8'
+
+services:
+  bff-water-planning:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bff-water-planning
+    environment:
+      # Service Configuration
+      SERVICE_NAME: bff-water-planning
+      PORT: 3002
+      HOST: 0.0.0.0
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      
+      # Database Configuration
+      POSTGRES_URL: ${POSTGRES_URL:-postgresql://postgres:postgres@postgres:5432/munbon_dev}
+      GIS_DATABASE_URL: ${GIS_DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/munbon_gis}
+      TIMESCALE_URL: ${TIMESCALE_URL:-postgresql://postgres:postgres@timescale:5432/munbon_timescale}
+      
+      # Redis Configuration
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      
+      # External Service URLs
+      ROS_SERVICE_URL: ${ROS_SERVICE_URL:-http://ros:3012}
+      GIS_SERVICE_URL: ${GIS_SERVICE_URL:-http://gis:3007}
+      AWD_CONTROL_URL: ${AWD_CONTROL_URL:-http://awd-control:3010}
+      
+      # Database Pool Configuration
+      DB_POOL_MIN_SIZE: ${DB_POOL_MIN_SIZE:-10}
+      DB_POOL_MAX_SIZE: ${DB_POOL_MAX_SIZE:-20}
+      DB_POOL_MAX_QUERIES: ${DB_POOL_MAX_QUERIES:-50000}
+      DB_POOL_MAX_INACTIVE_CONNECTION_LIFETIME: ${DB_POOL_MAX_INACTIVE_CONNECTION_LIFETIME:-300}
+      
+      # CORS Configuration
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:3001}
+      
+      # Mock Mode
+      USE_MOCK_SERVER: ${USE_MOCK_SERVER:-false}
+      
+    ports:
+      - "3002:3002"
+    depends_on:
+      - redis
+    networks:
+      - munbon-network
+    volumes:
+      - ./src:/app/src:ro
+      - ./migrations:/app/migrations:ro
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  redis:
+    image: redis:7-alpine
+    container_name: bff-water-planning-redis
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - munbon-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  munbon-network:
+    external: true
+    name: munbon-network
+
+volumes:
+  redis-data:

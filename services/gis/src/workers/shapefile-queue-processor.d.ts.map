@@ -1,0 +1,1 @@
+{"version":3,"file":"shapefile-queue-processor.d.ts","sourceRoot":"","sources":["../../src/workers/shapefile-queue-processor.ts"],"names":[],"mappings":"AAKA,qBAAa,uBAAuB;IAClC,OAAO,CAAC,GAAG,CAAU;IACrB,OAAO,CAAC,gBAAgB,CAAmB;IAC3C,OAAO,CAAC,SAAS,CAAkB;IACnC,OAAO,CAAC,QAAQ,CAAS;;IAWnB,KAAK;IA6BL,IAAI;YAKI,SAAS;YA6BT,cAAc;CAwC7B"}

@@ -1,0 +1,1 @@
+{"version":3,"file":"sqs-consumer.d.ts","sourceRoot":"","sources":["../../src/lambda/sqs-consumer.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,QAAQ,EAAE,OAAO,EAAE,MAAM,YAAY,CAAC;AAmC/C,eAAO,MAAM,OAAO,GAAU,OAAO,QAAQ,EAAE,SAAS,OAAO,kBAoJ9D,CAAC"}

@@ -1,0 +1,23 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.tileRoutes = void 0;
+const express_1 = require("express");
+const tile_controller_1 = require("../controllers/tile.controller");
+const auth_1 = require("../middleware/auth");
+const authorize_1 = require("../middleware/authorize");
+const validate_request_1 = require("../middleware/validate-request");
+const tile_validator_1 = require("../validators/tile.validator");
+const cache_1 = require("../middleware/cache");
+const router = (0, express_1.Router)();
+exports.tileRoutes = router;
+router.get('/:layer/:z/:x/:y.pbf', (0, cache_1.cacheMiddleware)({ ttl: 3600 }), (0, validate_request_1.validateRequest)(tile_validator_1.tileRequestSchema), tile_controller_1.tileController.getTile);
+router.get('/metadata/:layer', tile_controller_1.tileController.getTileMetadata);
+router.get('/layers', tile_controller_1.tileController.getAvailableLayers);
+router.get('/style/:style', tile_controller_1.tileController.getStyle);
+router.use(auth_1.authenticate);
+router.use((0, authorize_1.authorize)(['ADMIN', 'SYSTEM_ADMIN']));
+router.delete('/cache/:layer?', tile_controller_1.tileController.clearTileCache);
+router.post('/pregenerate', tile_controller_1.tileController.preGenerateTiles);
+router.get('/generation/status/:jobId', tile_controller_1.tileController.getGenerationStatus);
+router.put('/config/:layer', tile_controller_1.tileController.updateLayerConfig);
+//# sourceMappingURL=tile.routes.js.map

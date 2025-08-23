@@ -1,0 +1,298 @@
+_format_version: "3.0"
+
+services:
+  - name: water-planning-bff
+    url: http://water-planning-bff:8000
+    protocol: http
+    port: 8000
+    retries: 3
+    connect_timeout: 60000
+    write_timeout: 60000
+    read_timeout: 60000
+    tags:
+      - water-planning
+      - bff
+      - graphql
+
+routes:
+  - name: water-planning-graphql
+    service: water-planning-bff
+    paths:
+      - /api/v1/water-planning/graphql
+    methods:
+      - POST
+      - OPTIONS
+    strip_path: true
+    preserve_host: true
+    regex_priority: 0
+    tags:
+      - graphql
+      - water-planning
+
+  - name: water-planning-health
+    service: water-planning-bff
+    paths:
+      - /api/v1/water-planning/health
+    methods:
+      - GET
+    strip_path: true
+    tags:
+      - health-check
+
+  - name: water-planning-metrics
+    service: water-planning-bff
+    paths:
+      - /api/v1/water-planning/metrics
+    methods:
+      - GET
+    strip_path: true
+    tags:
+      - monitoring
+
+plugins:
+  # Global plugins
+  - name: correlation-id
+    config:
+      header_name: X-Correlation-ID
+      generator: uuid
+      echo_downstream: true
+
+  # Authentication
+  - name: jwt
+    service: water-planning-bff
+    config:
+      key_claim_name: iss
+      claims_to_verify:
+        - exp
+      maximum_expiration: 31536000  # 1 year
+      secret_is_base64: false
+      anonymous: null
+      run_on_preflight: false
+      header_names:
+        - Authorization
+      cookie_names: []
+      uri_param_names:
+        - jwt
+
+  # Rate limiting per consumer
+  - name: rate-limiting
+    service: water-planning-bff
+    config:
+      minute: 1000
+      hour: 10000
+      day: 100000
+      policy: local
+      fault_tolerant: true
+      hide_client_headers: false
+      redis_ssl: false
+      redis_ssl_verify: false
+
+  # Request size limiting
+  - name: request-size-limiting
+    service: water-planning-bff
+    config:
+      allowed_payload_size: 10  # MB
+      size_unit: megabytes
+      require_content_length: false
+
+  # CORS configuration
+  - name: cors
+    service: water-planning-bff
+    config:
+      origins:
+        - http://localhost:3000
+        - https://water-planning.munbon.com
+        - https://*.munbon.com
+      methods:
+        - GET
+        - POST
+        - OPTIONS
+      headers:
+        - Accept
+        - Accept-Version
+        - Content-Length
+        - Content-MD5
+        - Content-Type
+        - Date
+        - X-Auth-Token
+        - X-Correlation-ID
+        - Authorization
+      exposed_headers:
+        - X-Auth-Token
+        - X-Correlation-ID
+      credentials: true
+      max_age: 3600
+      preflight_continue: false
+
+  # Request transformation (add headers)
+  - name: request-transformer
+    service: water-planning-bff
+    config:
+      add:
+        headers:
+          - X-Service-Name:water-planning-bff
+          - X-API-Version:v1
+      remove:
+        headers:
+          - Cookie
+          - X-Real-IP
+
+  # Response transformation
+  - name: response-transformer
+    service: water-planning-bff
+    config:
+      add:
+        headers:
+          - X-Service-Name:water-planning-bff
+          - X-API-Version:v1
+        json:
+          api_version: "v1"
+      remove:
+        headers:
+          - Server
+          - X-Powered-By
+
+  # Logging
+  - name: file-log
+    service: water-planning-bff
+    config:
+      path: /var/log/kong/water-planning-bff.log
+      reopen: true
+      custom_fields_by_lua:
+        graphql_operation: |
+          local body = kong.request.get_raw_body()
+          if body then
+            local json = require("cjson").decode(body)
+            if json and json.operationName then
+              return json.operationName
+            end
+          end
+          return nil
+
+  # Monitoring - Prometheus
+  - name: prometheus
+    service: water-planning-bff
+    config:
+      status_code_metrics: true
+      latency_metrics: true
+      bandwidth_metrics: true
+      upstream_health_metrics: true
+
+  # GraphQL specific plugins
+  - name: graphql-rate-limiting-advanced
+    service: water-planning-bff
+    config:
+      cost_strategy: default
+      max_cost: 10000
+      score_factor: 1.0
+      
+  - name: graphql-depth-limit
+    service: water-planning-bff
+    config:
+      max_depth: 10
+
+  # Security headers
+  - name: response-transformer
+    route: water-planning-graphql
+    config:
+      add:
+        headers:
+          - X-Content-Type-Options:nosniff
+          - X-Frame-Options:DENY
+          - X-XSS-Protection:1; mode=block
+          - Content-Security-Policy:default-src 'self'
+
+consumers:
+  - username: water-planning-frontend
+    custom_id: water-planning-fe
+    tags:
+      - frontend
+      - water-planning
+    
+  - username: water-planning-mobile
+    custom_id: water-planning-mobile
+    tags:
+      - mobile
+      - water-planning
+
+  - username: water-planning-admin
+    custom_id: water-planning-admin
+    tags:
+      - admin
+      - water-planning
+
+acls:
+  - consumer: water-planning-frontend
+    group: water-planning-users
+    tags:
+      - frontend-access
+
+  - consumer: water-planning-mobile
+    group: water-planning-users
+    tags:
+      - mobile-access
+
+  - consumer: water-planning-admin
+    group: water-planning-admins
+    tags:
+      - admin-access
+
+upstreams:
+  - name: water-planning-bff-upstream
+    algorithm: round-robin
+    slots: 10000
+    healthchecks:
+      active:
+        healthy:
+          interval: 10
+          successes: 3
+          http_statuses:
+            - 200
+            - 201
+            - 202
+            - 203
+            - 204
+        unhealthy:
+          interval: 5
+          tcp_failures: 3
+          timeouts: 3
+          http_failures: 3
+          http_statuses:
+            - 500
+            - 501
+            - 502
+            - 503
+            - 504
+            - 505
+      passive:
+        healthy:
+          successes: 5
+          http_statuses:
+            - 200
+            - 201
+            - 202
+            - 203
+            - 204
+        unhealthy:
+          tcp_failures: 2
+          timeouts: 2
+          http_failures: 2
+          http_statuses:
+            - 500
+            - 503
+    tags:
+      - water-planning
+      - upstream
+
+targets:
+  - upstream: water-planning-bff-upstream
+    target: water-planning-bff-1:8000
+    weight: 100
+    tags:
+      - primary
+      
+  - upstream: water-planning-bff-upstream
+    target: water-planning-bff-2:8000
+    weight: 100
+    tags:
+      - secondary
