@@ -1,0 +1,1 @@
+{"version":3,"file":"api-error.d.ts","sourceRoot":"","sources":["../../src/utils/api-error.ts"],"names":[],"mappings":"AAAA,qBAAa,QAAS,SAAQ,KAAK;IAC1B,UAAU,EAAE,MAAM,CAAC;IACnB,IAAI,CAAC,EAAE,MAAM,CAAC;IACd,OAAO,CAAC,EAAE,GAAG,CAAC;gBAET,UAAU,EAAE,MAAM,EAAE,OAAO,EAAE,MAAM,EAAE,OAAO,CAAC,EAAE,GAAG,EAAE,IAAI,CAAC,EAAE,MAAM;CAQ9E"}

@@ -1,0 +1,1 @@
+{"version":3,"file":"shapefile-ingestion.d.ts","sourceRoot":"","sources":["../../src/lambda/shapefile-ingestion.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,OAAO,EAAE,OAAO,EAAE,QAAQ,EAAE,MAAM,YAAY,CAAC;AAwDxD,eAAO,MAAM,OAAO,GAAU,OAAO,OAAO,EAAE,SAAS,OAAO,EAAE,UAAU,QAAQ,kBA0IjF,CAAC"}

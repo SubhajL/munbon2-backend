@@ -1,0 +1,22 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.spatialRoutes = void 0;
+const express_1 = require("express");
+const spatial_controller_1 = require("../controllers/spatial.controller");
+const validate_request_1 = require("../middleware/validate-request");
+const spatial_validator_1 = require("../validators/spatial.validator");
+const router = (0, express_1.Router)();
+exports.spatialRoutes = router;
+router.post('/query/bounds', (0, validate_request_1.validateRequest)(spatial_validator_1.spatialQuerySchema), spatial_controller_1.spatialController.queryByBounds);
+router.post('/query/distance', (0, validate_request_1.validateRequest)(spatial_validator_1.spatialQuerySchema), spatial_controller_1.spatialController.queryByDistance);
+router.post('/query/intersect', (0, validate_request_1.validateRequest)(spatial_validator_1.spatialQuerySchema), spatial_controller_1.spatialController.queryByIntersection);
+router.post('/buffer', (0, validate_request_1.validateRequest)(spatial_validator_1.bufferSchema), spatial_controller_1.spatialController.buffer);
+router.post('/union', (0, validate_request_1.validateRequest)(spatial_validator_1.unionSchema), spatial_controller_1.spatialController.union);
+router.post('/intersection', (0, validate_request_1.validateRequest)(spatial_validator_1.intersectionSchema), spatial_controller_1.spatialController.intersection);
+router.post('/simplify', spatial_controller_1.spatialController.simplify);
+router.post('/transform', spatial_controller_1.spatialController.transform);
+router.post('/area', spatial_controller_1.spatialController.calculateArea);
+router.post('/length', spatial_controller_1.spatialController.calculateLength);
+router.post('/distance', spatial_controller_1.spatialController.calculateDistance);
+router.get('/elevation/:lng/:lat', spatial_controller_1.spatialController.getElevation);
+//# sourceMappingURL=spatial.routes.js.map

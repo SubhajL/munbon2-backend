@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  bff-water-planning:
+    image: ${DOCKER_REGISTRY}/bff-water-planning:${VERSION:-latest}
+    container_name: bff-water-planning-prod
+    environment:
+      # Service Configuration
+      SERVICE_NAME: bff-water-planning
+      PORT: 3002
+      HOST: 0.0.0.0
+      ENVIRONMENT: production
+      LOG_LEVEL: ${LOG_LEVEL:-WARNING}
+      
+      # Database Configuration
+      POSTGRES_URL: ${POSTGRES_URL}
+      GIS_DATABASE_URL: ${GIS_DATABASE_URL}
+      TIMESCALE_URL: ${TIMESCALE_URL}
+      
+      # Redis Configuration
+      REDIS_URL: ${REDIS_URL}
+      
+      # External Service URLs
+      ROS_SERVICE_URL: ${ROS_SERVICE_URL}
+      GIS_SERVICE_URL: ${GIS_SERVICE_URL}
+      AWD_CONTROL_URL: ${AWD_CONTROL_URL}
+      
+      # Database Pool Configuration
+      DB_POOL_MIN_SIZE: ${DB_POOL_MIN_SIZE:-20}
+      DB_POOL_MAX_SIZE: ${DB_POOL_MAX_SIZE:-50}
+      DB_POOL_MAX_QUERIES: ${DB_POOL_MAX_QUERIES:-100000}
+      DB_POOL_MAX_INACTIVE_CONNECTION_LIFETIME: ${DB_POOL_MAX_INACTIVE_CONNECTION_LIFETIME:-600}
+      
+      # CORS Configuration
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      
+    ports:
+      - "3002:3002"
+    networks:
+      - munbon-network
+    restart: always
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3002/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+
+networks:
+  munbon-network:
+    external: true

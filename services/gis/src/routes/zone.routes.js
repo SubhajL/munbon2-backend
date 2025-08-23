@@ -1,0 +1,26 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.zoneRoutes = void 0;
+const express_1 = require("express");
+const zone_controller_1 = require("../controllers/zone.controller");
+const auth_1 = require("../middleware/auth");
+const authorize_1 = require("../middleware/authorize");
+const validate_request_1 = require("../middleware/validate-request");
+const zone_validator_1 = require("../validators/zone.validator");
+const router = (0, express_1.Router)();
+exports.zoneRoutes = router;
+router.use(auth_1.authenticate);
+router.get('/', zone_controller_1.zoneController.getAllZones);
+router.get('/:id', (0, validate_request_1.validateRequest)(zone_validator_1.zoneIdSchema), zone_controller_1.zoneController.getZoneById);
+router.post('/query', (0, validate_request_1.validateRequest)(zone_validator_1.queryZoneSchema), zone_controller_1.zoneController.queryZones);
+router.get('/:id/statistics', (0, validate_request_1.validateRequest)(zone_validator_1.zoneIdSchema), zone_controller_1.zoneController.getZoneStatistics);
+router.get('/:id/parcels', (0, validate_request_1.validateRequest)(zone_validator_1.zoneIdSchema), zone_controller_1.zoneController.getParcelsInZone);
+router.get('/:id/water-distribution', (0, validate_request_1.validateRequest)(zone_validator_1.zoneIdSchema), zone_controller_1.zoneController.getWaterDistribution);
+router.use((0, authorize_1.authorize)(['ADMIN', 'SYSTEM_ADMIN']));
+router.post('/', (0, validate_request_1.validateRequest)(zone_validator_1.createZoneSchema), zone_controller_1.zoneController.createZone);
+router.put('/:id', (0, validate_request_1.validateRequest)(zone_validator_1.updateZoneSchema), zone_controller_1.zoneController.updateZone);
+router.put('/:id/geometry', (0, validate_request_1.validateRequest)(zone_validator_1.zoneIdSchema), zone_controller_1.zoneController.updateZoneGeometry);
+router.delete('/:id', (0, validate_request_1.validateRequest)(zone_validator_1.zoneIdSchema), zone_controller_1.zoneController.deleteZone);
+router.post('/bulk/import', zone_controller_1.zoneController.bulkImportZones);
+router.post('/bulk/update', zone_controller_1.zoneController.bulkUpdateZones);
+//# sourceMappingURL=zone.routes.js.map

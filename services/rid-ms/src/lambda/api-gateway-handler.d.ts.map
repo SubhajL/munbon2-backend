@@ -1,0 +1,1 @@
+{"version":3,"file":"api-gateway-handler.d.ts","sourceRoot":"","sources":["../../src/lambda/api-gateway-handler.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,oBAAoB,EAAE,qBAAqB,EAAE,MAAM,YAAY,CAAC;AA4BzE,eAAO,MAAM,OAAO,GAClB,OAAO,oBAAoB,KAC1B,OAAO,CAAC,qBAAqB,CA0L/B,CAAC;AAKF,eAAO,MAAM,cAAc,GACzB,OAAO,oBAAoB,KAC1B,OAAO,CAAC,qBAAqB,CAW/B,CAAC"}

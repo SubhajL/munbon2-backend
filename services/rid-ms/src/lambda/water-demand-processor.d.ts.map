@@ -1,0 +1,1 @@
+{"version":3,"file":"water-demand-processor.d.ts","sourceRoot":"","sources":["../../src/lambda/water-demand-processor.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,QAAQ,EAAE,OAAO,EAAE,QAAQ,EAAE,MAAM,YAAY,CAAC;AA+CzD,eAAO,MAAM,OAAO,GAAU,OAAO,QAAQ,EAAE,SAAS,OAAO,EAAE,UAAU,QAAQ,kBAkFlF,CAAC"}
