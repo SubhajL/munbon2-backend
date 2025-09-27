@@ -74,6 +74,7 @@ See [services/README.md](services/README.md) for detailed service documentation.
 - Write tests for all new features
 - Use conventional commits for version control
 - Create feature branches for new development
+- Review the [Repository Guidelines](../AGENTS.md) before contributing; it captures project structure, commands, and security requirements.
 
 ## TaskMaster Integration
 

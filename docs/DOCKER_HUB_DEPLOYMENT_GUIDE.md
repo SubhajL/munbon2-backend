@@ -173,8 +173,8 @@ cd ~/munbon-deployment
 # Create .env file
 cat > .env << 'EOF'
 JWT_SECRET=fZtyKjPf2vdCfqZrHYAioaVKSYzmwlMt
-AWS_ACCESS_KEY_ID=AKIARSUGAPRU5GWX5G6I
-AWS_SECRET_ACCESS_KEY=eKb90hW6hXeuvPbEx7A1FjWEp+7VSVJV5YSXMHbc
+AWS_ACCESS_KEY_ID=<REDACTED_AWS_ACCESS_KEY>
+AWS_SECRET_ACCESS_KEY=<REDACTED_AWS_SECRET_KEY>
 SQS_QUEUE_URL=https://sqs.ap-southeast-1.amazonaws.com/108728974441/munbon-sensor-ingestion-dev-queue
 EOF
 

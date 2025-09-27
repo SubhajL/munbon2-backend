@@ -31,8 +31,8 @@
 
    **Method 2 - Environment variables**:
    ```bash
-   export AWS_ACCESS_KEY_ID=AKIARSUGAPRU5GWX5G6I
-   export AWS_SECRET_ACCESS_KEY=eKb90hW6hXeuvPbEx7A1FjWEp+7VSVJV5YSXMHbc
+   export AWS_ACCESS_KEY_ID=<REDACTED_AWS_ACCESS_KEY>
+   export AWS_SECRET_ACCESS_KEY=<REDACTED_AWS_SECRET_KEY>
    export AWS_REGION=ap-southeast-1
    ```
 
