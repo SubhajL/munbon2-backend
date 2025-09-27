@@ -10,7 +10,13 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "lint": "eslint src --ext .js,.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "db:init": "node src/config/database.js",
+    "setup": "./scripts/quick-start.sh",
+    "test:integration": "node scripts/setup-databases.js && node scripts/test-ros-integration.js && node scripts/test-sensor-integration.js",
+    "test:db": "node scripts/setup-databases.js",
+    "test:ros": "node scripts/test-ros-integration.js",
+    "test:sensors": "node scripts/test-sensor-integration.js"
   },
   "keywords": [
     "smart-farm",

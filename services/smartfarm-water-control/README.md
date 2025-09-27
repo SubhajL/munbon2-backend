@@ -186,3 +186,44 @@ smartfarm-water-control/
 ## License
 
 ISC
+
+## Integration with Real Services
+
+### Quick Start
+
+```bash
+# Run the quick start script to verify all integrations
+npm run setup
+```
+
+### Testing Integrations
+
+```bash
+# Test all integrations
+npm run test:integration
+
+# Test database connections only
+npm run test:db
+
+# Test ROS service integration
+npm run test:ros
+
+# Test sensor data service integration
+npm run test:sensors
+```
+
+### Required Services
+
+1. **External API Service** (Port 3015)
+   - Provides authenticated sensor data access
+   - Required for real-time sensor readings
+
+2. **ROS Service** (Port 3001)
+   - Calculates daily water demands
+   - Required for planning functionality
+
+3. **Databases**
+   - TimescaleDB: Time-series sensor data
+   - MSSQL: Valve command storage
+
+See [docs/INTEGRATION_GUIDE.md](docs/INTEGRATION_GUIDE.md) for detailed setup instructions.
