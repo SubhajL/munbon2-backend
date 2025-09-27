@@ -203,3 +203,69 @@ samconfig.toml
 .env*
 !.env.example
 !.env.template
+
+# Claude and cursor directories
+.claude/
+.cursor/
+
+# Environment backups
+.env-backups/
+
+# GitHub workflows (if private)
+.github/
+
+# Roo framework
+.roo/
+
+# TaskMaster
+.taskmaster/
+
+# VSCode settings (already included above but adding for clarity)
+.vscode/
+
+# Claude conversations and logs
+claude-conversations/
+
+# CSV exports
+csv_exports/
+
+# Debug utilities
+debug-utils/
+
+# Documentation (if auto-generated)
+docs/
+
+# Application logs (already included above but adding for clarity)
+logs/
+
+# Kubernetes manifests (if private)
+k8s/
+
+# Mobile applications
+mobile-apps/
+
+# Scripts (if private)
+scripts/
+
+# Task management
+tasks/
+
+# Temporary shapefile check
+temp_shapefile_check/
+
+# Test hooks
+test-hooks/
+
+# Test environment
+test-env/
+
+# Tests (if you don't want to share test files)
+tests/
+
+# Python virtual environments
+venv/
+venv_aos_export/
+
+# Claude session logs
+docs/claude-sessions/
+!docs/claude-sessions/README.md

@@ -1,0 +1,107 @@
+{
+  "section_id": "01-06-02-42",
+  "water_requirements": {
+    "area_rai": 337,
+    "depth_cm": 5,
+    "volume_m3": 26960.0,
+    "flow_rate_m3s": 3.7444444444444445
+  },
+  "path_sections": [
+    {
+      "section_id": "01-00-00-00",
+      "name": "Main Canal Head",
+      "distance": 0
+    },
+    {
+      "section_id": "01-06-00-00",
+      "name": "Zone 6 Main",
+      "distance": 5000
+    },
+    {
+      "section_id": "01-06-02-00",
+      "name": "Subzone 2",
+      "distance": 8000
+    },
+    {
+      "section_id": "01-06-02-42",
+      "name": "Target Section",
+      "distance": 10000
+    }
+  ],
+  "path_gates": [
+    {
+      "gate_id": "MG-01",
+      "name": "Main Gate 1",
+      "gate_type": "MAIN",
+      "distance": 0
+    },
+    {
+      "gate_id": "ZG-06",
+      "name": "Zone 6 Gate",
+      "gate_type": "ZONE",
+      "distance": 5000
+    },
+    {
+      "gate_id": "SG-06-02",
+      "name": "Subzone 6-2 Gate",
+      "gate_type": "SUBZONE",
+      "distance": 8000
+    },
+    {
+      "gate_id": "OG-06-02-42",
+      "name": "Offtake Gate 42",
+      "gate_type": "OFFTAKE",
+      "distance": 10000
+    }
+  ],
+  "gate_operations": [
+    {
+      "gate_id": "MG-01",
+      "gate_name": "Main Gate 1",
+      "gate_type": "MAIN",
+      "distance_km": 0.0,
+      "open_time_minutes": 0,
+      "close_time_minutes": 120,
+      "opening_percentage": 52.0,
+      "operation_mode": "MANUAL"
+    },
+    {
+      "gate_id": "ZG-06",
+      "gate_name": "Zone 6 Gate",
+      "gate_type": "ZONE",
+      "distance_km": 0.5,
+      "open_time_minutes": 55.0,
+      "close_time_minutes": 175.0,
+      "opening_percentage": 52.0,
+      "operation_mode": "MANUAL"
+    },
+    {
+      "gate_id": "SG-06-02",
+      "gate_name": "Subzone 6-2 Gate",
+      "gate_type": "SUBZONE",
+      "distance_km": 1.0,
+      "open_time_minutes": 115.0,
+      "close_time_minutes": 235.0,
+      "opening_percentage": 52.0,
+      "operation_mode": "MANUAL"
+    },
+    {
+      "gate_id": "OG-06-02-42",
+      "gate_name": "Offtake Gate 42",
+      "gate_type": "OFFTAKE",
+      "distance_km": 1.5,
+      "open_time_minutes": 175.0,
+      "close_time_minutes": 295.0,
+      "opening_percentage": 52.0,
+      "operation_mode": "AUTO"
+    }
+  ],
+  "summary": {
+    "total_gates": 4,
+    "auto_gates": 1,
+    "manual_gates": 3,
+    "path_distance_km": 10.0,
+    "water_travel_minutes": 175.0,
+    "total_operation_minutes": 295.0
+  }
+}

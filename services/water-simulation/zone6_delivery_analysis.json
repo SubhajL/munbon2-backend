@@ -1,0 +1,236 @@
+{
+  "analysis_type": "Zone 6 Actual SCADA Configuration",
+  "section_id": "01-06-02-42",
+  "water_requirements": {
+    "area_rai": 337,
+    "depth_cm": 5,
+    "volume_m3": 26960.0,
+    "flow_rate_m3s": 2.4962962962962965
+  },
+  "path_sections": [
+    {
+      "section_id": "01-00-00-00",
+      "name": "Water Source (Outlet)",
+      "canal": "Outlet",
+      "distance": 0,
+      "type": "Source"
+    },
+    {
+      "section_id": "01-01-00-00",
+      "name": "Left Main Canal (LMC)",
+      "canal": "LMC",
+      "distance": 300,
+      "type": "Transit"
+    },
+    {
+      "section_id": "01-06-00-00",
+      "name": "Zone 6 - Right Main Canal (RMC)",
+      "canal": "RMC",
+      "distance": 1620,
+      "type": "Transit"
+    },
+    {
+      "section_id": "01-06-01-00",
+      "name": "Zone 6 - 4L-RMC Branch",
+      "canal": "4L-RMC",
+      "distance": 4220,
+      "type": "Transit"
+    },
+    {
+      "section_id": "01-06-02-42",
+      "name": "FTO 337 Rai (Target)",
+      "canal": "FTO337 Rai",
+      "distance": 6553,
+      "type": "Target",
+      "area_rai": 337
+    }
+  ],
+  "path_gates": [
+    {
+      "gate_id": "M(0,0)",
+      "name": "Outlet Gate",
+      "gate_type": "PC",
+      "canal": "Outlet",
+      "zone": 1,
+      "km": "0+000",
+      "distance": 0,
+      "q_max": 11.2
+    },
+    {
+      "gate_id": "M(0,1)",
+      "name": "LMC Start",
+      "gate_type": "PC",
+      "canal": "LMC",
+      "zone": 1,
+      "km": "0+300",
+      "distance": 300,
+      "q_max": null
+    },
+    {
+      "gate_id": "M(0,1; 1,0)",
+      "name": "RMC Start (Zone 6 Entry)",
+      "gate_type": "SC",
+      "canal": "RMC",
+      "zone": 6,
+      "km": "0+000",
+      "distance": 1620,
+      "q_max": 1.375
+    },
+    {
+      "gate_id": "M(0,1; 1,1)",
+      "name": "RMC Gate 2+600",
+      "gate_type": "SC",
+      "canal": "RMC",
+      "zone": 6,
+      "km": "2+600",
+      "distance": 4220,
+      "q_max": 1.375
+    },
+    {
+      "gate_id": "M(0,1; 1,1; 1,0)",
+      "name": "4L-RMC Start",
+      "gate_type": "TC",
+      "canal": "4L-RMC",
+      "zone": 6,
+      "km": "0+000",
+      "distance": 4220,
+      "q_max": 0.815
+    },
+    {
+      "gate_id": "M(0,1; 1,1; 1,2)",
+      "name": "4L-RMC Gate 1+850",
+      "gate_type": "TC",
+      "canal": "4L-RMC",
+      "zone": 6,
+      "km": "1+850",
+      "distance": 6070,
+      "q_max": 0.397
+    },
+    {
+      "gate_id": "M(0,1; 1,1; 1,2; 1,0)",
+      "name": "FTO337 Rai",
+      "gate_type": "FTO",
+      "canal": "FTO337 Rai",
+      "zone": 6,
+      "km": "2+333",
+      "distance": 6553,
+      "q_max": null,
+      "area_rai": 337,
+      "coordinates": "14.548503,102.168876"
+    }
+  ],
+  "gate_operations": [
+    {
+      "gate_id": "M(0,0)",
+      "gate_name": "Outlet Gate",
+      "gate_type": "PC",
+      "canal": "Outlet",
+      "zone": 1,
+      "distance_km": 0.0,
+      "water_arrival_minutes": 0.0,
+      "open_time_minutes": 0,
+      "close_time_minutes": 240,
+      "opening_percentage": 22.3,
+      "operation_mode": "MANUAL",
+      "q_max": 11.2
+    },
+    {
+      "gate_id": "M(0,1)",
+      "gate_name": "LMC Start",
+      "gate_type": "PC",
+      "canal": "LMC",
+      "zone": 1,
+      "distance_km": 0.3,
+      "water_arrival_minutes": 36.0,
+      "open_time_minutes": 26.0,
+      "close_time_minutes": 266.0,
+      "opening_percentage": 75.0,
+      "operation_mode": "MANUAL",
+      "q_max": null
+    },
+    {
+      "gate_id": "M(0,1; 1,0)",
+      "gate_name": "RMC Start (Zone 6 Entry)",
+      "gate_type": "SC",
+      "canal": "RMC",
+      "zone": 6,
+      "distance_km": 1.62,
+      "water_arrival_minutes": 194.4,
+      "open_time_minutes": 184.4,
+      "close_time_minutes": 424.4,
+      "opening_percentage": 100,
+      "operation_mode": "MANUAL",
+      "q_max": 1.375
+    },
+    {
+      "gate_id": "M(0,1; 1,1)",
+      "gate_name": "RMC Gate 2+600",
+      "gate_type": "SC",
+      "canal": "RMC",
+      "zone": 6,
+      "distance_km": 4.22,
+      "water_arrival_minutes": 506.4,
+      "open_time_minutes": 496.4,
+      "close_time_minutes": 736.4,
+      "opening_percentage": 100,
+      "operation_mode": "MANUAL",
+      "q_max": 1.375
+    },
+    {
+      "gate_id": "M(0,1; 1,1; 1,0)",
+      "gate_name": "4L-RMC Start",
+      "gate_type": "TC",
+      "canal": "4L-RMC",
+      "zone": 6,
+      "distance_km": 4.22,
+      "water_arrival_minutes": 506.4,
+      "open_time_minutes": 496.4,
+      "close_time_minutes": 736.4,
+      "opening_percentage": 100,
+      "operation_mode": "MANUAL",
+      "q_max": 0.815
+    },
+    {
+      "gate_id": "M(0,1; 1,1; 1,2)",
+      "gate_name": "4L-RMC Gate 1+850",
+      "gate_type": "TC",
+      "canal": "4L-RMC",
+      "zone": 6,
+      "distance_km": 6.07,
+      "water_arrival_minutes": 728.4,
+      "open_time_minutes": 718.4,
+      "close_time_minutes": 958.4,
+      "opening_percentage": 100,
+      "operation_mode": "MANUAL",
+      "q_max": 0.397
+    },
+    {
+      "gate_id": "M(0,1; 1,1; 1,2; 1,0)",
+      "gate_name": "FTO337 Rai",
+      "gate_type": "FTO",
+      "canal": "FTO337 Rai",
+      "zone": 6,
+      "distance_km": 6.553,
+      "water_arrival_minutes": 786.4,
+      "open_time_minutes": 776.4,
+      "close_time_minutes": 956.4,
+      "opening_percentage": 75.0,
+      "operation_mode": "AUTO",
+      "q_max": null
+    }
+  ],
+  "summary": {
+    "total_gates": 7,
+    "auto_gates": 1,
+    "manual_gates": 6,
+    "gate_types": {
+      "PC": 2,
+      "SC": 2,
+      "TC": 2,
+      "FTO": 1
+    },
+    "path_distance_km": 6.553,
+    "water_travel_minutes": 786.4,
+    "total_operation_minutes": 958.4
+  }
+}
