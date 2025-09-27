@@ -29,8 +29,8 @@ docker exec munbon-sensor-data-consumer env | grep AWS
 
 # Should see:
 # AWS_REGION=ap-southeast-1
-# AWS_ACCESS_KEY_ID=AKIARSUGAPRU5GWX5G6I
-# AWS_SECRET_ACCESS_KEY=eKb90hW6hXeuvPbEx7A1FjWEp+7VSVJV5YSXMHbc
+# AWS_ACCESS_KEY_ID=<REDACTED_AWS_ACCESS_KEY>
+# AWS_SECRET_ACCESS_KEY=<REDACTED_AWS_SECRET_KEY>
 ```
 
 ## Step 3: Check SQS Queue Status
@@ -116,8 +116,8 @@ nano .env
 
 # Add AWS credentials:
 AWS_REGION=ap-southeast-1
-AWS_ACCESS_KEY_ID=AKIARSUGAPRU5GWX5G6I
-AWS_SECRET_ACCESS_KEY=eKb90hW6hXeuvPbEx7A1FjWEp+7VSVJV5YSXMHbc
+AWS_ACCESS_KEY_ID=<REDACTED_AWS_ACCESS_KEY>
+AWS_SECRET_ACCESS_KEY=<REDACTED_AWS_SECRET_KEY>
 SQS_QUEUE_URL=https://sqs.ap-southeast-1.amazonaws.com/108728974441/munbon-sensor-ingestion-dev-queue
 ```
 

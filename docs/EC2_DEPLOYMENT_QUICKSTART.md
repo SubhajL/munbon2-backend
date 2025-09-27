@@ -97,8 +97,8 @@ services:
       TIMESCALE_USER: postgres
       TIMESCALE_PASSWORD: __ROTATED_DB_PASSWORD__
       AWS_REGION: ap-southeast-1
-      AWS_ACCESS_KEY_ID: AKIARSUGAPRU5GWX5G6I
-      AWS_SECRET_ACCESS_KEY: eKb90hW6hXeuvPbEx7A1FjWEp+7VSVJV5YSXMHbc
+      AWS_ACCESS_KEY_ID: <REDACTED_AWS_ACCESS_KEY>
+      AWS_SECRET_ACCESS_KEY: <REDACTED_AWS_SECRET_KEY>
       SQS_QUEUE_URL: https://sqs.ap-southeast-1.amazonaws.com/108728974441/munbon-sensor-ingestion-dev-queue
     ports:
       - "3002:3002"
