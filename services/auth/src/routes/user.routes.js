@@ -1,0 +1,26 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.userRoutes = void 0;
+const express_1 = require("express");
+const user_controller_1 = require("../controllers/user.controller");
+const authenticate_1 = require("../middleware/authenticate");
+const authorize_1 = require("../middleware/authorize");
+const validate_request_1 = require("../middleware/validate-request");
+const auth_validator_1 = require("../validators/auth.validator");
+const permission_entity_1 = require("../models/permission.entity");
+const router = (0, express_1.Router)();
+exports.userRoutes = router;
+router.use(authenticate_1.authenticate);
+router.get('/profile', user_controller_1.userController.getProfile);
+router.put('/profile', (0, validate_request_1.validateRequest)(auth_validator_1.updateProfileSchema), user_controller_1.userController.updateProfile);
+router.delete('/profile', user_controller_1.userController.deleteAccount);
+router.get('/', (0, authorize_1.authorize)(permission_entity_1.PERMISSIONS.USERS_READ), user_controller_1.userController.getUsers);
+router.get('/:id', (0, authorize_1.authorize)(permission_entity_1.PERMISSIONS.USERS_READ), user_controller_1.userController.getUser);
+router.put('/:id', (0, authorize_1.authorize)(permission_entity_1.PERMISSIONS.USERS_WRITE), user_controller_1.userController.updateUser);
+router.delete('/:id', (0, authorize_1.authorize)(permission_entity_1.PERMISSIONS.USERS_DELETE), user_controller_1.userController.deleteUser);
+router.post('/:id/lock', (0, authorize_1.authorize)(permission_entity_1.PERMISSIONS.USERS_WRITE), user_controller_1.userController.lockUser);
+router.post('/:id/unlock', (0, authorize_1.authorize)(permission_entity_1.PERMISSIONS.USERS_WRITE), user_controller_1.userController.unlockUser);
+router.get('/:id/audit-logs', (0, authorize_1.authorize)(permission_entity_1.PERMISSIONS.USERS_READ), user_controller_1.userController.getUserAuditLogs);
+router.post('/:id/roles', (0, authorize_1.authorize)(permission_entity_1.PERMISSIONS.USERS_MANAGE_ROLES), user_controller_1.userController.assignRole);
+router.delete('/:id/roles/:roleId', (0, authorize_1.authorize)(permission_entity_1.PERMISSIONS.USERS_MANAGE_ROLES), user_controller_1.userController.revokeRole);
+//# sourceMappingURL=user.routes.js.map

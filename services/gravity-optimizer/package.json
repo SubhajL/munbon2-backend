@@ -1,0 +1,25 @@
+{
+  "name": "geopackage-processor-worker",
+  "version": "1.0.0",
+  "description": "Worker to process RID-MS water requirements and water level geopackage files",
+  "main": "geopackage-processor-worker.js",
+  "scripts": {
+    "start": "node geopackage-processor-worker.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "geopackage",
+    "processor",
+    "water",
+    "irrigation"
+  ],
+  "author": "Munbon Team",
+  "license": "MIT",
+  "dependencies": {
+    "pg": "^8.11.3",
+    "csv-parser": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}

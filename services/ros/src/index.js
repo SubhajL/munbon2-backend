@@ -28,6 +28,8 @@ const rainfall_routes_1 = __importDefault(require("@routes/rainfall.routes"));
 const water_level_routes_1 = __importDefault(require("@routes/water-level.routes"));
 const plot_demand_routes_1 = __importDefault(require("@routes/plot-demand.routes"));
 const plot_planting_date_routes_1 = __importDefault(require("@routes/plot-planting-date.routes"));
+// Import weekly scheduler
+const { weeklyUpdateScheduler } = require('@services/weekly-update-scheduler.service');
 const app = (0, express_1.default)();
 // Basic middleware
 app.use((0, helmet_1.default)());
@@ -84,6 +86,10 @@ async function startServer() {
         app.listen(index_1.config.service.port, () => {
             logger_1.logger.info(`${index_1.config.service.name} listening on port ${index_1.config.service.port}`);
             logger_1.logger.info(`Environment: ${index_1.config.service.env}`);
+            
+            // Start weekly scheduler
+            weeklyUpdateScheduler.startScheduler();
+            logger_1.logger.info('Weekly water demand scheduler initialized');
         });
     }
     catch (error) {
@@ -94,10 +100,12 @@ async function startServer() {
 // Handle graceful shutdown
 process.on('SIGTERM', async () => {
     logger_1.logger.info('SIGTERM received, shutting down gracefully');
+    weeklyUpdateScheduler.stopScheduler();
     process.exit(0);
 });
 process.on('SIGINT', async () => {
     logger_1.logger.info('SIGINT received, shutting down gracefully');
+    weeklyUpdateScheduler.stopScheduler();
     process.exit(0);
 });
 // Start the server

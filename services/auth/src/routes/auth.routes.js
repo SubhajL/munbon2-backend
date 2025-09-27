@@ -1,0 +1,26 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.authRoutes = void 0;
+const express_1 = require("express");
+const auth_controller_1 = require("../controllers/auth.controller");
+const validate_request_1 = require("../middleware/validate-request");
+const authenticate_1 = require("../middleware/authenticate");
+const auth_validator_1 = require("../validators/auth.validator");
+const router = (0, express_1.Router)();
+exports.authRoutes = router;
+router.post('/register', (0, validate_request_1.validateRequest)(auth_validator_1.registerSchema), auth_controller_1.authController.register);
+router.post('/login', (0, validate_request_1.validateRequest)(auth_validator_1.loginSchema), auth_controller_1.authController.login);
+router.post('/refresh', (0, validate_request_1.validateRequest)(auth_validator_1.refreshTokenSchema), auth_controller_1.authController.refreshToken);
+router.post('/logout', auth_controller_1.authController.logout);
+router.post('/forgot-password', (0, validate_request_1.validateRequest)(auth_validator_1.forgotPasswordSchema), auth_controller_1.authController.forgotPassword);
+router.post('/reset-password', (0, validate_request_1.validateRequest)(auth_validator_1.resetPasswordSchema), auth_controller_1.authController.resetPassword);
+router.get('/verify-email/:token', auth_controller_1.authController.verifyEmail);
+router.use(authenticate_1.authenticate);
+router.get('/me', auth_controller_1.authController.getCurrentUser);
+router.post('/change-password', (0, validate_request_1.validateRequest)(auth_validator_1.changePasswordSchema), auth_controller_1.authController.changePassword);
+router.post('/enable-2fa', auth_controller_1.authController.enable2FA);
+router.post('/disable-2fa', auth_controller_1.authController.disable2FA);
+router.post('/verify-2fa', auth_controller_1.authController.verify2FA);
+router.get('/sessions', auth_controller_1.authController.getSessions);
+router.delete('/sessions/:sessionId', auth_controller_1.authController.revokeSession);
+//# sourceMappingURL=auth.routes.js.map

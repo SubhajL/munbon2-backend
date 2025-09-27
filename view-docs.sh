@@ -29,11 +29,15 @@ if [[ -f docs/TASKS.md ]]; then
 fi
 
 # 4. Session Activity
-SESSION_DIR="$HOME/.config/claude/project-docs/$(basename $(pwd))"
+SESSION_DIR="./docs/claude-sessions"
 if [[ -d "$SESSION_DIR" ]]; then
     echo "🕐 Recent Session Activity:"
     echo "--------------------------"
-    tail -5 "$SESSION_DIR/changes.log" 2>/dev/null || echo "No recent activity"
+    if [[ -f "$SESSION_DIR/activity.log" ]]; then
+        tail -5 "$SESSION_DIR/activity.log" 2>/dev/null || echo "No recent activity"
+    else
+        echo "No recent activity"
+    fi
     echo
 fi
 
@@ -43,6 +47,6 @@ echo "• Project Structure: ./docs/PROJECT_STRUCTURE.md"
 echo "• Port Config: ./docs/PORT_CONFIGURATION.md"
 echo "• Tasks/TODOs: ./docs/TASKS.md"
 echo "• Service Registry: ./docs/SERVICE_REGISTRY.json"
-echo "• Session Logs: $SESSION_DIR/"
+echo "• Session Logs: ./docs/claude-sessions/"
 echo
 echo "💡 Tip: These files update automatically as you work!"

@@ -1,0 +1,18 @@
+{
+  "apps": [{
+    "name": "claude-export-continuous",
+    "script": "./claude-export-continuous.js",
+    "cwd": "/Users/subhajlimanond/dev/munbon2-backend",
+    "instances": 1,
+    "autorestart": true,
+    "watch": false,
+    "max_memory_restart": "100M",
+    "error_file": "./claude-conversations/pm2-continuous-error.log",
+    "out_file": "./claude-conversations/pm2-continuous-out.log",
+    "log_file": "./claude-conversations/pm2-continuous-combined.log",
+    "time": true,
+    "env": {
+      "NODE_ENV": "production"
+    }
+  }]
+}

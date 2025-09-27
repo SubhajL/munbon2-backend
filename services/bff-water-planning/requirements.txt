@@ -30,6 +30,9 @@ pydantic-settings==2.1.0
 # DataLoader for GraphQL
 aiodataloader==0.4.0
 
+# Scheduling
+aiocron==1.8
+
 # HTTP clients
 httpx==0.25.2
 aiohttp==3.9.0

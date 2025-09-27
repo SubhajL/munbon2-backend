@@ -1,5 +1,126 @@
 {
   "env": {
     "ANTHROPIC_MODEL": "claude-opus-4-20250514"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/subhajlimanond/dev/munbon2-backend/.claude/hooks/project-conversation-logger.sh session_start"
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.config/claude/hooks/update-project-docs.sh session_start"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/subhajlimanond/dev/munbon2-backend/.claude/hooks/project-conversation-logger.sh prompt"
+          },
+          {
+            "type": "command",
+            "command": "/Users/subhajlimanond/dev/munbon2-backend/.claude/hooks/instance-markdown-logger.sh prompt"
+          },
+          {
+            "type": "command",
+            "command": "/Users/subhajlimanond/dev/munbon2-backend/.claude/hooks/debug-conversation-logger.sh prompt"
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.config/claude/hooks/update-project-docs.sh prompt"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/subhajlimanond/dev/munbon2-backend/.claude/hooks/project-conversation-logger.sh tool"
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/subhajlimanond/dev/munbon2-backend/.claude/hooks/test-env-hook.sh write"
+          },
+          {
+            "type": "command",
+            "command": "/Users/subhajlimanond/dev/munbon2-backend/.claude/hooks/debug-hook.sh write"
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.config/claude/hooks/update-project-docs.sh"
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.config/claude/hooks/update-project-structure.sh"
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.config/claude/hooks/update-api-config.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "TodoWrite",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.config/claude/hooks/sync-taskmaster.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [[ \"$CLAUDE_TOOL_INPUT_command\" == mkdir* ]] || [[ \"$CLAUDE_TOOL_INPUT_command\" == touch* ]]; then $HOME/.config/claude/hooks/update-project-structure.sh; fi"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/subhajlimanond/dev/munbon2-backend/.claude/hooks/project-conversation-logger.sh response"
+          },
+          {
+            "type": "command",
+            "command": "/Users/subhajlimanond/dev/munbon2-backend/.claude/hooks/instance-markdown-logger.sh response"
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.config/claude/hooks/update-project-docs.sh response"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [[ \"$CLAUDE_TOOL_INPUT_file_path\" == *.env ]] && [[ \"$CLAUDE_TOOL_INPUT_file_path\" != *.example ]]; then echo 'WARNING: Modifying .env file - ensure no passwords are committed'; fi"
+          }
+        ]
+      }
+    ]
   }
 }

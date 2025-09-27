@@ -1,0 +1,78 @@
+version: '3.8'
+
+services:
+  water-simulation:
+    build: .
+    container_name: water-simulation-service
+    environment:
+      - SIMULATION_POSTGRES_HOST=postgres
+      - SIMULATION_POSTGRES_PORT=5432
+      - SIMULATION_POSTGRES_USER=simulation
+      - SIMULATION_POSTGRES_PASSWORD=simulation123
+      - SIMULATION_POSTGRES_DB=water_simulation
+      - SIMULATION_REDIS_HOST=redis
+      - SIMULATION_REDIS_PORT=6379
+      - SIMULATION_ROS_SERVICE_URL=http://ros:8001
+      - SIMULATION_FLOW_SERVICE_URL=http://flow-monitoring:8002
+      - SIMULATION_GATE_SERVICE_URL=http://gate-control:8003
+      - SIMULATION_GIS_SERVICE_URL=http://gis:8004
+      - SIMULATION_LOG_LEVEL=INFO
+    ports:
+      - "8090:8090"
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - munbon-network
+    restart: unless-stopped
+    volumes:
+      - ./logs:/app/logs
+
+  postgres:
+    image: postgis/postgis:14-3.2
+    container_name: water-simulation-db
+    environment:
+      - POSTGRES_USER=simulation
+      - POSTGRES_PASSWORD=simulation123
+      - POSTGRES_DB=water_simulation
+    ports:
+      - "5435:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
+    networks:
+      - munbon-network
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: water-simulation-cache
+    ports:
+      - "6380:6379"
+    networks:
+      - munbon-network
+    restart: unless-stopped
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+
+  # Development tools
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: water-simulation-pgadmin
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=admin@munbon.com
+      - PGADMIN_DEFAULT_PASSWORD=admin123
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      - munbon-network
+    profiles:
+      - dev
+
+networks:
+  munbon-network:
+    external: true
+
+volumes:
+  postgres-data:

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.munbon.claude-export</string>
+    
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/subhajlimanond/dev/munbon2-backend/export-claude-conversations.sh</string>
+    </array>
+    
+    <key>StartInterval</key>
+    <integer>3600</integer> <!-- Run every hour (3600 seconds) -->
+    
+    <key>StandardOutPath</key>
+    <string>/Users/subhajlimanond/dev/munbon2-backend/claude-conversations/launchd-stdout.log</string>
+    
+    <key>StandardErrorPath</key>
+    <string>/Users/subhajlimanond/dev/munbon2-backend/claude-conversations/launchd-stderr.log</string>
+    
+    <key>RunAtLoad</key>
+    <true/>
+    
+    <key>WorkingDirectory</key>
+    <string>/Users/subhajlimanond/dev/munbon2-backend</string>
+</dict>
+</plist>
