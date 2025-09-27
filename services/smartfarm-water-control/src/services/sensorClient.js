@@ -70,12 +70,13 @@ class SensorClient {
   }
 
   getEndpointForType(sensorType) {
+    // Use external-api v1 endpoints
     const endpoints = {
-      "water-level": "/api/sensors/water-level",
-      moisture: "/api/sensors/moisture",
+      "water-level": "/api/v1/public/water-levels",
+      moisture: "/api/v1/public/moisture",
     };
 
-    return endpoints[sensorType] || "/api/sensors";
+    return endpoints[sensorType] || "/api/v1/public/sensors";
   }
 
   parseReading(data, sensorType) {

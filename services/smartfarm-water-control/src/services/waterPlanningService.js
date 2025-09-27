@@ -27,14 +27,19 @@ class WaterPlanningService {
     try {
       const rosInput = this.prepareROSInput(plotConfig, date);
 
+      // Use configured endpoint or default to new ROS API structure
+      const endpoint = process.env.ROS_CALCULATION_ENDPOINT || '/api/v1/ros/demand/calculate';
+      const fullUrl = endpoint.startsWith('http') ? endpoint : `${this.rosApiUrl}${endpoint}`;
+
       const response = await axios.post(
-        `${this.rosApiUrl}/calculate-water-demand`,
+        fullUrl,
         rosInput,
         {
           headers: {
             "X-API-Key": this.rosApiKey,
             "Content-Type": "application/json",
           },
+          timeout: 30000, // 30 second timeout for ROS calculations
         },
       );
 
