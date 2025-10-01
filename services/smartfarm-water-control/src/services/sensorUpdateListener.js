@@ -27,12 +27,14 @@ class SensorUpdateListener extends EventEmitter {
       // Clear stale debounce entries on reconnect
       this.clearDebounceMap();
 
-      await this.client.query("LISTEN smartfarm_readings");
+      await this.client.query("LISTEN sensor_evaluation_needed");
 
       this.client.on("notification", this.handleNotification.bind(this));
       this.client.on("error", this.handleError.bind(this));
 
-      logger.info("Sensor update listener started");
+      logger.info(
+        "Sensor update listener started (listening on sensor_evaluation_needed)",
+      );
     } catch (error) {
       logger.error({ error }, "Failed to start sensor update listener");
       this.isConnected = false;
@@ -42,7 +44,7 @@ class SensorUpdateListener extends EventEmitter {
   }
 
   handleNotification(msg) {
-    if (msg.channel !== "smartfarm_readings") {
+    if (msg.channel !== "sensor_evaluation_needed") {
       return;
     }
 
@@ -76,10 +78,11 @@ class SensorUpdateListener extends EventEmitter {
       const event = {
         sensorId: payload.sensor_id,
         sensorType: payload.sensor_type,
-        timestamp: payload.timestamp,
+        value: parseFloat(payload.value),
+        timestamp: new Date(payload.timestamp),
       };
 
-      logger.info(event, "Received sensor update notification");
+      logger.info(event, "Received sensor evaluation notification");
       this.emit("sensor_reading", event);
     } catch (error) {
       logger.error(
@@ -94,6 +97,7 @@ class SensorUpdateListener extends EventEmitter {
       payload &&
       typeof payload.sensor_id === "string" &&
       typeof payload.sensor_type === "string" &&
+      typeof payload.value !== "undefined" &&
       payload.sensor_id.length > 0 &&
       payload.sensor_type.length > 0
     );
@@ -167,7 +171,7 @@ class SensorUpdateListener extends EventEmitter {
 
     if (this.client && this.isConnected) {
       try {
-        await this.client.query("UNLISTEN smartfarm_readings");
+        await this.client.query("UNLISTEN sensor_evaluation_needed");
         this.client.removeAllListeners();
         this.client.release(); // Use release() instead of end() to return to pool
         logger.info("Sensor update listener stopped");

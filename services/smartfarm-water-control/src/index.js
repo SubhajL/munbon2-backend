@@ -13,6 +13,7 @@ const { WaterPlanningService } = require("./services/waterPlanningService");
 const { WaterBalanceService } = require("./services/waterBalanceService");
 const { SensorDataService } = require("./services/sensorDataService");
 const { SensorUpdateListener } = require("./services/sensorUpdateListener");
+const { RealtimeControlService } = require("./services/realtimeControlService");
 const { WaterController } = require("./controllers/waterController");
 const createRoutes = require("./routes");
 
@@ -53,6 +54,7 @@ class SmartFarmWaterControlApp {
 
       // Initialize services
       this.services = {
+        timescaleRepository,
         controlMode: controlModeService,
         moistureControl: new MoistureControlService(config.control.moisture),
         awdControl: new AWDControlService(config.control.awd),
@@ -103,13 +105,22 @@ class SmartFarmWaterControlApp {
 
   async setupSensorListener(timescalePool) {
     try {
+      const timescaleRepository = this.services.timescaleRepository;
+
+      // Initialize realtime control service
+      this.services.realtimeControl = new RealtimeControlService(
+        timescaleRepository,
+        this.services.valveCommand,
+        logger,
+      );
+
       this.listener = new SensorUpdateListener(timescalePool, {
         reconnectDelay: config.listener.reconnectDelay,
         debounceWindow: config.listener.debounceWindow,
       });
 
       this.listener.on("sensor_reading", async (event) => {
-        await this.handleSensorUpdate(event);
+        await this.services.realtimeControl.handleSensorReading(event);
       });
 
       this.listener.on("error", (error) => {
@@ -118,53 +129,12 @@ class SmartFarmWaterControlApp {
 
       await this.listener.start();
 
-      logger.info("Sensor update listener enabled and started");
+      logger.info(
+        "Real-time control system enabled: sensor notifications will trigger immediate valve actions",
+      );
     } catch (error) {
       logger.error({ error }, "Failed to setup sensor update listener");
       throw error;
-    }
-  }
-
-  async handleSensorUpdate(event) {
-    const { sensorId, sensorType } = event;
-
-    try {
-      const plotConfig = config.plots.find(
-        (plot) => plot.sensorId === sensorId,
-      );
-
-      if (!plotConfig) {
-        logger.debug({ sensorId }, "No plot configured for sensor");
-        return;
-      }
-
-      const { plotId } = plotConfig;
-
-      if (this.processingPlots.has(plotId)) {
-        logger.debug(
-          { plotId, sensorId },
-          "Plot already being processed, skipping",
-        );
-        return;
-      }
-
-      this.processingPlots.add(plotId);
-
-      try {
-        logger.info(
-          { plotId, sensorId, sensorType },
-          "Processing plot from sensor notification",
-        );
-
-        await this.controller.processPlot(plotConfig);
-      } finally {
-        this.processingPlots.delete(plotId);
-      }
-    } catch (error) {
-      logger.error(
-        { error, sensorId, sensorType },
-        "Failed to handle sensor update",
-      );
     }
   }
 
