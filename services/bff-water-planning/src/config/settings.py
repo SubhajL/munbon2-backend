@@ -13,8 +13,8 @@ class Settings(BaseSettings):
     
     # API Configuration
     api_prefix: str = "/api/v1"
-    cors_origins: str = Field(default="*", env="CORS_ORIGINS")
-    
+    cors_origins: str = Field(env="CORS_ORIGINS")
+
     # Database Connections
     postgres_url: str = Field(
         default="postgresql://postgres:postgres@localhost:5434/munbon_dev",
@@ -113,7 +113,15 @@ class Settings(BaseSettings):
     
     @property
     def cors_origins_list(self) -> List[str]:
-        return [origin.strip() for origin in self.cors_origins.split(",")]
+        origins = [origin.strip() for origin in self.cors_origins.split(",")]
+
+        if self.environment == "production" and "*" in origins:
+            raise ValueError(
+                "CORS wildcard (*) is not allowed in production. "
+                "Set CORS_ORIGINS to explicit domain list."
+            )
+
+        return origins
     
     @property
     def external_service_url(self) -> str:
