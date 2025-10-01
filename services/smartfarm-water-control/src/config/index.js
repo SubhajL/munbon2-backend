@@ -1,39 +1,44 @@
 require("dotenv").config();
+const path = require("path");
+const {
+  loadSmartFarmPlots,
+  mergePlotConfig,
+  validatePlotMappings,
+} = require("../utils/plotConfigLoader");
 
 function loadConfiguration() {
-  // Parse plot list
-  const plots = process.env.SMART_FARM_PLOTS?.split(",") || [];
+  // Load plot geometries and areas from GeoJSON
+  const geoJsonPath = path.join(
+    __dirname,
+    "../../data/smartfarm-plots.geojson",
+  );
+  const plotFeatures = loadSmartFarmPlots(geoJsonPath);
 
-  // Build plot configurations
-  const plotConfigs = plots.map((plotId) => {
-    const sensorInfo = process.env[`${plotId}_SENSORS`];
-    const valveName = process.env[`${plotId}_VALVE`];
+  // Build environment config map from PLOT_CONFIGS env variable
+  // Format: plotId1:sensorId1:valveName1,plotId2:sensorId2:valveName2
+  const plotConfigsEnv = process.env.PLOT_CONFIGS || "";
+  const envConfig = {};
 
-    if (!sensorInfo || !valveName) {
-      throw new Error(
-        `Missing sensor or valve configuration for plot: ${plotId}`,
-      );
-    }
+  if (plotConfigsEnv) {
+    plotConfigsEnv.split(",").forEach((configStr) => {
+      const [plotId, sensorId, valveName] = configStr
+        .split(":")
+        .map((s) => s.trim());
 
-    const [sensorType, sensorId] = sensorInfo.split(":");
+      if (plotId && sensorId && valveName) {
+        envConfig[plotId] = { sensorId, valveName };
+      }
+    });
+  }
 
-    return {
-      plotId,
-      areaRai: parseFloat(process.env.PLOT_AREA_RAI || "2.5"),
-      controlMode: sensorType,
-      sensorId,
-      valveName,
-      cropType: "rice", // Default crop type, can be extended
-    };
-  });
+  // Merge GeoJSON plots with environment configuration
+  const plotConfigs = mergePlotConfig(plotFeatures, envConfig);
+  validatePlotMappings(plotConfigs);
 
-  // Build valve mapping
+  // Build valve mapping from merged configs
   const valveMapping = new Map();
-  plots.forEach((plotId) => {
-    const valveName = process.env[`${plotId}_VALVE`];
-    if (valveName) {
-      valveMapping.set(plotId, valveName);
-    }
+  plotConfigs.forEach((plot) => {
+    valveMapping.set(plot.plotId, plot.valveName);
   });
 
   return {
@@ -103,6 +108,16 @@ function loadConfiguration() {
     sensorData: {
       serviceUrl: process.env.SENSOR_DATA_SERVICE_URL,
       apiKey: process.env.SENSOR_DATA_API_KEY,
+    },
+
+    listener: {
+      enabled: process.env.ENABLE_DB_LISTENER === "true",
+      reconnectDelay: parseInt(
+        process.env.LISTENER_RECONNECT_DELAY_MS || "5000",
+      ),
+      debounceWindow: parseInt(
+        process.env.LISTENER_DEBOUNCE_WINDOW_MS || "5000",
+      ),
     },
   };
 }

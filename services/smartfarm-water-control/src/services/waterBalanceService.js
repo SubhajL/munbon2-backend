@@ -2,7 +2,7 @@ const logger = require("../utils/logger");
 
 class WaterBalanceService {
   constructor(config) {
-    this.timescalePool = config.timescalePool;
+    this.timescaleRepository = config.timescaleRepository;
     this.flowRateLPM = config.flowRateLPM || 60; // Default 60 L/min
     this.ongoingCycles = new Map();
   }
@@ -28,21 +28,10 @@ class WaterBalanceService {
     );
 
     try {
-      const query = `
-        INSERT INTO water_balance_smartfarm
-        (plot_id, valve_name, start_time, end_time, volume_liters, control_mode, trigger_value)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-      `;
-
-      await this.timescalePool.query(query, [
-        cycle.plotId,
-        cycle.valveName,
-        cycle.startTime,
-        cycle.endTime,
+      await this.timescaleRepository.recordIrrigationCycle({
+        ...cycle,
         volumeLiters,
-        cycle.controlMode,
-        cycle.triggerValue || 0,
-      ]);
+      });
 
       logger.info(
         {
@@ -106,43 +95,26 @@ class WaterBalanceService {
       const endOfDay = new Date(date);
       endOfDay.setHours(23, 59, 59, 999);
 
-      const query = `
-        SELECT
-          COALESCE(SUM(volume_liters), 0) as total_usage_liters,
-          COALESCE(COUNT(*), 0) as number_of_cycles,
-          COALESCE(AVG(EXTRACT(EPOCH FROM (end_time - start_time)) / 60), 0) as average_duration_minutes
-        FROM water_balance_smartfarm
-        WHERE plot_id = $1
-          AND start_time >= $2
-          AND start_time <= $3
-      `;
-
-      const result = await this.timescalePool.query(query, [
+      const balance = await this.timescaleRepository.getDailyWaterBalance(
         plotId,
         startOfDay,
-        endOfDay,
-      ]);
-
-      const row = result.rows[0] || {
-        total_usage_liters: 0,
-        number_of_cycles: 0,
-        average_duration_minutes: 0,
-      };
+        endOfDay
+      );
 
       return {
         plotId,
         date,
-        totalUsageLiters: parseInt(row.total_usage_liters),
-        numberOfCycles: parseInt(row.number_of_cycles),
+        totalUsageLiters: parseInt(balance.total_usage_liters),
+        numberOfCycles: parseInt(balance.number_of_cycles),
         averageCycleDurationMinutes: parseFloat(
-          row.average_duration_minutes || 0,
+          balance.average_duration_minutes || 0
         ),
         efficiency: 0, // Will be calculated separately
       };
     } catch (error) {
       logger.error(
         { error, plotId, date },
-        "Failed to calculate daily balance",
+        "Failed to calculate daily balance"
       );
       throw error;
     }
@@ -156,33 +128,14 @@ class WaterBalanceService {
 
   async aggregateUsageMetrics(startDate, endDate) {
     try {
-      const query = `
-        SELECT
-          plot_id,
-          SUM(volume_liters) as total_volume,
-          COUNT(*) as total_cycles,
-          AVG(EXTRACT(EPOCH FROM (end_time - start_time)) / 60) as avg_cycle_duration
-        FROM water_balance_smartfarm
-        WHERE start_time >= $1 AND start_time <= $2
-        GROUP BY plot_id
-        ORDER BY plot_id
-      `;
-
-      const result = await this.timescalePool.query(query, [
+      return await this.timescaleRepository.getAggregatedUsageMetrics(
         startDate,
-        endDate,
-      ]);
-
-      return result.rows.map((row) => ({
-        plotId: row.plot_id,
-        totalVolumeLiters: parseInt(row.total_volume),
-        totalCycles: parseInt(row.total_cycles),
-        avgCycleDurationMinutes: parseFloat(row.avg_cycle_duration),
-      }));
+        endDate
+      );
     } catch (error) {
       logger.error(
         { error, startDate, endDate },
-        "Failed to aggregate usage metrics",
+        "Failed to aggregate usage metrics"
       );
       throw error;
     }
@@ -194,26 +147,16 @@ class WaterBalanceService {
       const balance = await this.calculateDailyBalance(plotId, date);
 
       // Get planned demand
-      const demandQuery = `
-        SELECT demand_m3
-        FROM ros_gis_smartfarm.daily_water_demands
-        WHERE plot_id = $1 AND date = $2
-      `;
-
-      const demandResult = await this.timescalePool.query(demandQuery, [
+      const plannedDemandM3 = await this.timescaleRepository.getPlannedDemand(
         plotId,
-        date,
-      ]);
+        date
+      );
 
-      if (demandResult.rows.length === 0) {
+      if (plannedDemandM3 === 0) {
         return 0;
       }
 
-      const plannedDemandLiters = demandResult.rows[0].demand_m3 * 1000;
-
-      if (plannedDemandLiters === 0) {
-        return 0;
-      }
+      const plannedDemandLiters = plannedDemandM3 * 1000;
 
       return (
         Math.round((balance.totalUsageLiters / plannedDemandLiters) * 100) / 100
