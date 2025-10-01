@@ -82,7 +82,7 @@ class DatabaseConfig {
       // Create tables for water planning
       await client.query(`
         CREATE TABLE IF NOT EXISTS ros_gis_smartfarm.daily_water_demands (
-          plot_id VARCHAR(20) NOT NULL,
+          plot_id VARCHAR(50) NOT NULL,
           date DATE NOT NULL,
           demand_m3 DECIMAL(10, 2) NOT NULL,
           crop_type VARCHAR(50),
@@ -96,7 +96,7 @@ class DatabaseConfig {
         );
 
         CREATE TABLE IF NOT EXISTS ros_gis_smartfarm.daily_progress (
-          plot_id VARCHAR(20) NOT NULL,
+          plot_id VARCHAR(50) NOT NULL,
           date DATE NOT NULL,
           planned_demand DECIMAL(10, 2) NOT NULL,
           actual_usage DECIMAL(10, 2) NOT NULL,
@@ -108,8 +108,16 @@ class DatabaseConfig {
 
       // Create tables for water control
       await client.query(`
+        CREATE TABLE IF NOT EXISTS water_control_smartfarm.control_modes (
+          plot_id VARCHAR(50) PRIMARY KEY,
+          control_mode TEXT NOT NULL CHECK (control_mode IN ('AWD', 'MOISTURE')),
+          updated_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_by VARCHAR(100),
+          notes TEXT
+        );
+
         CREATE TABLE IF NOT EXISTS water_control_smartfarm.valve_status (
-          plot_id VARCHAR(20) NOT NULL,
+          plot_id VARCHAR(50) NOT NULL,
           valve_name VARCHAR(50) NOT NULL,
           status VARCHAR(10) NOT NULL,
           timestamp TIMESTAMPTZ NOT NULL,
@@ -118,7 +126,7 @@ class DatabaseConfig {
 
         CREATE TABLE IF NOT EXISTS water_control_smartfarm.irrigation_cycles (
           id SERIAL PRIMARY KEY,
-          plot_id VARCHAR(20) NOT NULL,
+          plot_id VARCHAR(50) NOT NULL,
           valve_name VARCHAR(50) NOT NULL,
           start_time TIMESTAMPTZ NOT NULL,
           end_time TIMESTAMPTZ,
@@ -129,7 +137,7 @@ class DatabaseConfig {
         );
 
         CREATE TABLE IF NOT EXISTS water_control_smartfarm.water_balance (
-          plot_id VARCHAR(20) NOT NULL,
+          plot_id VARCHAR(50) NOT NULL,
           valve_name VARCHAR(50) NOT NULL,
           start_time TIMESTAMPTZ NOT NULL,
           end_time TIMESTAMPTZ NOT NULL,
@@ -175,12 +183,71 @@ class DatabaseConfig {
         ON water_control_smartfarm.irrigation_cycles(plot_id, start_time DESC);
       `);
 
+      // Create notification triggers
+      await this.createSmartFarmNotifyTriggers(client);
+
       logger.info("Database schemas and tables created successfully");
     } catch (error) {
       logger.error({ error }, "Failed to create schemas");
       throw error;
     } finally {
       client.release();
+    }
+  }
+
+  async createSmartFarmNotifyTriggers(client) {
+    try {
+      // Drop existing triggers and function for idempotency
+      await client.query(`
+        DROP TRIGGER IF EXISTS trigger_notify_moisture_reading
+        ON water_control_smartfarm.moisture_readings;
+
+        DROP TRIGGER IF EXISTS trigger_notify_water_level_reading
+        ON water_control_smartfarm.water_level_readings;
+
+        DROP FUNCTION IF EXISTS smartfarm_notify_reading();
+      `);
+
+      // Create the notify function
+      await client.query(`
+        CREATE OR REPLACE FUNCTION smartfarm_notify_reading()
+        RETURNS TRIGGER AS $$
+        DECLARE
+          payload JSON;
+        BEGIN
+          payload := json_build_object(
+            'sensor_id', NEW.sensor_id,
+            'sensor_type', TG_ARGV[0],
+            'timestamp', NEW.timestamp
+          );
+
+          PERFORM pg_notify('smartfarm_readings', payload::text);
+
+          RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql;
+      `);
+
+      // Create trigger on moisture_readings
+      await client.query(`
+        CREATE TRIGGER trigger_notify_moisture_reading
+        AFTER INSERT ON water_control_smartfarm.moisture_readings
+        FOR EACH ROW
+        EXECUTE FUNCTION smartfarm_notify_reading('moisture');
+      `);
+
+      // Create trigger on water_level_readings
+      await client.query(`
+        CREATE TRIGGER trigger_notify_water_level_reading
+        AFTER INSERT ON water_control_smartfarm.water_level_readings
+        FOR EACH ROW
+        EXECUTE FUNCTION smartfarm_notify_reading('water-level');
+      `);
+
+      logger.info("Smart farm notification triggers created successfully");
+    } catch (error) {
+      logger.error({ error }, "Failed to create notification triggers");
+      throw error;
     }
   }
 

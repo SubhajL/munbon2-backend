@@ -2,23 +2,27 @@ const logger = require("../utils/logger");
 
 class WaterController {
   constructor(services) {
+    this.controlMode = services.controlMode;
     this.moistureControl = services.moistureControl;
     this.awdControl = services.awdControl;
     this.valveCommand = services.valveCommand;
     this.waterPlanning = services.waterPlanning;
     this.waterBalance = services.waterBalance;
-    this.sensorClient = services.sensorClient;
+    this.sensorData = services.sensorData;
     this.config = services.config;
   }
 
   async processPlot(plotConfig) {
     try {
-      const { plotId, controlMode, sensorId } = plotConfig;
+      const { plotId, sensorId } = plotConfig;
+
+      // Get control mode from database
+      const controlMode = this.controlMode.getMode(plotId);
 
       logger.info({ plotId, controlMode }, "Processing plot");
 
       // Get current sensor reading
-      const sensorReading = await this.sensorClient.getSensorReading(sensorId);
+      const sensorReading = await this.sensorData.getSensorReading(sensorId);
 
       if (!sensorReading) {
         logger.warn({ plotId, sensorId }, "No sensor reading available");
@@ -214,7 +218,7 @@ class WaterController {
 
     const [valveStatus, sensorReading, todayBalance] = await Promise.all([
       this.valveCommand.getValveStatus(plotId),
-      this.sensorClient.getSensorReading(plotConfig.sensorId),
+      this.sensorData.getSensorReading(plotConfig.sensorId),
       this.waterBalance.calculateDailyBalance(plotId, new Date()),
     ]);
 

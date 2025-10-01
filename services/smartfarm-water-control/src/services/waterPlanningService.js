@@ -3,9 +3,10 @@ const logger = require("../utils/logger");
 
 class WaterPlanningService {
   constructor(config) {
-    this.timescalePool = config.timescalePool;
+    this.timescaleRepository = config.timescaleRepository;
     this.rosApiUrl = config.rosApiUrl;
     this.rosApiKey = config.rosApiKey;
+    this.rosEndpoint = config.rosEndpoint || '/api/v1/ros/demand/calculate';
     this.plotConfigs = config.plotConfigs;
     this.demandCache = new Map();
   }
@@ -27,9 +28,9 @@ class WaterPlanningService {
     try {
       const rosInput = this.prepareROSInput(plotConfig, date);
 
-      // Use configured endpoint or default to new ROS API structure
-      const endpoint = process.env.ROS_CALCULATION_ENDPOINT || '/api/v1/ros/demand/calculate';
-      const fullUrl = endpoint.startsWith('http') ? endpoint : `${this.rosApiUrl}${endpoint}`;
+      const fullUrl = this.rosEndpoint.startsWith('http')
+        ? this.rosEndpoint
+        : `${this.rosApiUrl}${this.rosEndpoint}`;
 
       const response = await axios.post(
         fullUrl,
@@ -39,7 +40,7 @@ class WaterPlanningService {
             "X-API-Key": this.rosApiKey,
             "Content-Type": "application/json",
           },
-          timeout: 30000, // 30 second timeout for ROS calculations
+          timeout: 30000,
         },
       );
 
@@ -78,31 +79,7 @@ class WaterPlanningService {
   async syncToTimescale(demands) {
     for (const demand of demands) {
       try {
-        const query = `
-          INSERT INTO ros_gis_smartfarm.daily_water_demands
-          (plot_id, date, demand_m3, crop_type, growth_stage, et0, kc, effective_rainfall)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-          ON CONFLICT (plot_id, date)
-          DO UPDATE SET
-            demand_m3 = $3,
-            crop_type = $4,
-            growth_stage = $5,
-            et0 = $6,
-            kc = $7,
-            effective_rainfall = $8,
-            updated_at = CURRENT_TIMESTAMP
-        `;
-
-        await this.timescalePool.query(query, [
-          demand.plotId,
-          demand.date,
-          demand.demandCubicMeters,
-          demand.cropType,
-          demand.growthStage,
-          demand.et0,
-          demand.kc,
-          demand.effectiveRainfall,
-        ]);
+        await this.timescaleRepository.saveWaterDemand(demand);
 
         logger.info(
           { plotId: demand.plotId, date: demand.date },
@@ -125,24 +102,13 @@ class WaterPlanningService {
           ? Math.round((actualUsage / plannedDemand) * 100) / 100
           : 0;
 
-      const query = `
-        INSERT INTO ros_gis_smartfarm.daily_progress
-        (plot_id, date, planned_demand, actual_usage, efficiency, last_updated)
-        VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
-        ON CONFLICT (plot_id, date)
-        DO UPDATE SET
-          actual_usage = $4,
-          efficiency = $5,
-          last_updated = CURRENT_TIMESTAMP
-      `;
-
-      await this.timescalePool.query(query, [
+      await this.timescaleRepository.saveDailyProgress(
         plotId,
         date,
         plannedDemand,
         actualUsage,
-        efficiency,
-      ]);
+        efficiency
+      );
 
       logger.info(
         {
@@ -161,20 +127,7 @@ class WaterPlanningService {
   }
 
   async getPlannedDemand(plotId, date) {
-    try {
-      const query = `
-        SELECT demand_m3
-        FROM ros_gis_smartfarm.daily_water_demands
-        WHERE plot_id = $1 AND date = $2
-      `;
-
-      const result = await this.timescalePool.query(query, [plotId, date]);
-
-      return result.rows.length > 0 ? result.rows[0].demand_m3 : 0;
-    } catch (error) {
-      logger.error({ error, plotId, date }, "Failed to get planned demand");
-      return 0;
-    }
+    return await this.timescaleRepository.getPlannedDemand(plotId, date);
   }
 
   async calculateAllPlotsDemand(date) {

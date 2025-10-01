@@ -4,7 +4,7 @@ const logger = require("../utils/logger");
 class ValveCommandService {
   constructor(config) {
     this.mssqlPool = config.mssqlPool;
-    this.timescalePool = config.timescalePool;
+    this.timescaleRepository = config.timescaleRepository;
     this.valveMapping = config.valveMapping;
     this.tableName = config.tableName;
     this.valveStates = new Map();
@@ -74,23 +74,12 @@ class ValveCommandService {
     });
 
     // Store in TimescaleDB
-    try {
-      const query = `
-        INSERT INTO water_control_smartfarm.valve_status
-        (plot_id, valve_name, status, timestamp)
-        VALUES ($1, $2, $3, $4)
-      `;
-
-      await this.timescalePool.query(query, [
-        plotId,
-        valveName,
-        status,
-        timestamp,
-      ]);
-    } catch (error) {
-      logger.error({ error, plotId, status }, "Failed to update valve status");
-      // Don't throw - this is non-critical
-    }
+    await this.timescaleRepository.updateValveStatus(
+      plotId,
+      valveName,
+      status,
+      timestamp
+    );
   }
 
   calculateWaterUsage(onTime, offTime, flowRateLPM) {
@@ -115,21 +104,12 @@ class ValveCommandService {
     );
 
     try {
-      const query = `
-        INSERT INTO water_control_smartfarm.irrigation_cycles
-        (plot_id, valve_name, start_time, end_time, volume_liters, control_mode, trigger_value)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-      `;
-
-      await this.timescalePool.query(query, [
-        cycle.plotId,
+      await this.timescaleRepository.recordIrrigationCycle({
+        ...cycle,
         valveName,
-        cycle.startTime,
-        cycle.endTime,
         volumeLiters,
-        cycle.controlMode || "UNKNOWN",
-        cycle.triggerValue || 0,
-      ]);
+        controlMode: cycle.controlMode || "UNKNOWN",
+      });
 
       logger.info(
         {

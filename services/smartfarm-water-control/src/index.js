@@ -4,12 +4,15 @@ const config = require("./config");
 const logger = require("./utils/logger");
 
 const { DatabaseConfig } = require("./config/database");
+const { TimescaleRepository } = require("./repository/timescaleRepository");
+const { ControlModeService } = require("./services/controlModeService");
 const { MoistureControlService } = require("./services/moistureControlService");
 const { AWDControlService } = require("./services/awdControlService");
 const { ValveCommandService } = require("./services/valveCommandService");
 const { WaterPlanningService } = require("./services/waterPlanningService");
 const { WaterBalanceService } = require("./services/waterBalanceService");
-const { SensorClient } = require("./services/sensorClient");
+const { SensorDataService } = require("./services/sensorDataService");
+const { SensorUpdateListener } = require("./services/sensorUpdateListener");
 const { WaterController } = require("./controllers/waterController");
 const createRoutes = require("./routes");
 
@@ -19,7 +22,9 @@ class SmartFarmWaterControlApp {
     this.db = new DatabaseConfig();
     this.services = {};
     this.controller = null;
+    this.listener = null;
     this.cronJobs = [];
+    this.processingPlots = new Set();
   }
 
   async initialize() {
@@ -36,27 +41,41 @@ class SmartFarmWaterControlApp {
       );
       const mssqlPool = await this.db.initializeMSSQL(config.mssql);
 
+      // Initialize repository
+      const timescaleRepository = new TimescaleRepository(
+        timescalePool,
+        config.timescale.schemas,
+      );
+
+      // Initialize control mode service and load modes
+      const controlModeService = new ControlModeService(timescaleRepository);
+      await controlModeService.loadModes();
+
       // Initialize services
       this.services = {
+        controlMode: controlModeService,
         moistureControl: new MoistureControlService(config.control.moisture),
         awdControl: new AWDControlService(config.control.awd),
         valveCommand: new ValveCommandService({
           mssqlPool,
-          timescalePool,
+          timescaleRepository,
           valveMapping: config.valveMapping,
           tableName: config.mssql.tableName,
         }),
         waterPlanning: new WaterPlanningService({
-          timescalePool,
+          timescaleRepository,
           rosApiUrl: config.ros.apiUrl,
           rosApiKey: config.ros.apiKey,
+          rosEndpoint: config.ros.endpoint,
           plotConfigs: config.plots,
         }),
         waterBalance: new WaterBalanceService({
-          timescalePool,
+          timescaleRepository,
           flowRateLPM: config.control.waterFlowRateLPM,
         }),
-        sensorClient: new SensorClient(config.sensorData),
+        sensorData: new SensorDataService({
+          timescaleRepository,
+        }),
         config,
       };
 
@@ -70,10 +89,82 @@ class SmartFarmWaterControlApp {
       // Setup cron jobs
       this.setupCronJobs();
 
+      // Setup sensor update listener if enabled
+      if (config.listener.enabled) {
+        await this.setupSensorListener(timescalePool);
+      }
+
       logger.info("Smart Farm Water Control Service initialized successfully");
     } catch (error) {
       logger.error({ error }, "Failed to initialize service");
       throw error;
+    }
+  }
+
+  async setupSensorListener(timescalePool) {
+    try {
+      this.listener = new SensorUpdateListener(timescalePool, {
+        reconnectDelay: config.listener.reconnectDelay,
+        debounceWindow: config.listener.debounceWindow,
+      });
+
+      this.listener.on("sensor_reading", async (event) => {
+        await this.handleSensorUpdate(event);
+      });
+
+      this.listener.on("error", (error) => {
+        logger.error({ error }, "Sensor update listener error");
+      });
+
+      await this.listener.start();
+
+      logger.info("Sensor update listener enabled and started");
+    } catch (error) {
+      logger.error({ error }, "Failed to setup sensor update listener");
+      throw error;
+    }
+  }
+
+  async handleSensorUpdate(event) {
+    const { sensorId, sensorType } = event;
+
+    try {
+      const plotConfig = config.plots.find(
+        (plot) => plot.sensorId === sensorId,
+      );
+
+      if (!plotConfig) {
+        logger.debug({ sensorId }, "No plot configured for sensor");
+        return;
+      }
+
+      const { plotId } = plotConfig;
+
+      if (this.processingPlots.has(plotId)) {
+        logger.debug(
+          { plotId, sensorId },
+          "Plot already being processed, skipping",
+        );
+        return;
+      }
+
+      this.processingPlots.add(plotId);
+
+      try {
+        logger.info(
+          { plotId, sensorId, sensorType },
+          "Processing plot from sensor notification",
+        );
+
+        await this.controller.processPlot(plotConfig);
+      } finally {
+        this.processingPlots.delete(plotId);
+      }
+    } catch (error) {
+      logger.error(
+        { error, sensorId, sensorType },
+        "Failed to handle sensor update",
+      );
     }
   }
 
@@ -112,6 +203,16 @@ class SmartFarmWaterControlApp {
     });
     this.cronJobs.push(progressJob);
 
+    // Refresh control modes cache - runs every hour
+    const controlModeRefreshJob = cron.schedule("0 * * * *", async () => {
+      try {
+        await this.services.controlMode.refreshIfStale();
+      } catch (error) {
+        logger.error({ error }, "Control mode cache refresh failed");
+      }
+    });
+    this.cronJobs.push(controlModeRefreshJob);
+
     logger.info("Cron jobs scheduled successfully");
   }
 
@@ -136,6 +237,11 @@ class SmartFarmWaterControlApp {
 
   async shutdown() {
     logger.info("Shutting down Smart Farm Water Control Service...");
+
+    // Stop sensor listener
+    if (this.listener) {
+      await this.listener.stop();
+    }
 
     // Stop cron jobs
     this.cronJobs.forEach((job) => job.stop());
