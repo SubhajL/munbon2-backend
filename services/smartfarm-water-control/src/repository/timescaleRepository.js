@@ -1,12 +1,12 @@
-const logger = require("../utils/logger");
+const logger = require('../utils/logger');
 
 class TimescaleRepository {
   constructor(
     pool,
     schemas = {
-      planning: "ros_gis_smartfarm",
-      control: "water_control_smartfarm",
-    },
+      planning: 'ros_gis_smartfarm',
+      control: 'water_control_smartfarm'
+    }
   ) {
     this.pool = pool;
     this.schemas = schemas;
@@ -17,12 +17,12 @@ class TimescaleRepository {
     let tableName;
     let valueColumn;
 
-    if (sensorType === "moisture") {
-      tableName = "moisture_readings";
-      valueColumn = "moisture_percent";
-    } else if (sensorType === "water-level") {
-      tableName = "water_level_readings";
-      valueColumn = "water_level_cm";
+    if (sensorType === 'moisture') {
+      tableName = 'moisture_readings';
+      valueColumn = 'moisture_percent';
+    } else if (sensorType === 'water-level') {
+      tableName = 'water_level_readings';
+      valueColumn = 'water_level_cm';
     } else {
       throw new Error(`Unknown sensor type: ${sensorType}`);
     }
@@ -54,15 +54,15 @@ class TimescaleRepository {
         timestamp: row.timestamp,
         location: {
           lat: row.lat,
-          lng: row.lng,
+          lng: row.lng
         },
         type: sensorType,
-        unit: sensorType === "moisture" ? "%" : "cm",
+        unit: sensorType === 'moisture' ? '%' : 'cm'
       };
     } catch (error) {
       logger.error(
         { error, sensorId, sensorType },
-        "Failed to get sensor reading",
+        'Failed to get sensor reading'
       );
       throw error;
     }
@@ -73,12 +73,12 @@ class TimescaleRepository {
     let tableName;
     let valueColumn;
 
-    if (sensorType === "moisture") {
-      tableName = "moisture_readings";
-      valueColumn = "moisture_percent";
-    } else if (sensorType === "water-level") {
-      tableName = "water_level_readings";
-      valueColumn = "water_level_cm";
+    if (sensorType === 'moisture') {
+      tableName = 'moisture_readings';
+      valueColumn = 'moisture_percent';
+    } else if (sensorType === 'water-level') {
+      tableName = 'water_level_readings';
+      valueColumn = 'water_level_cm';
     } else {
       throw new Error(`Unknown sensor type: ${sensorType}`);
     }
@@ -101,7 +101,7 @@ class TimescaleRepository {
       const result = await this.pool.query(query, [
         sensorId,
         startDate,
-        endDate,
+        endDate
       ]);
 
       return result.rows.map((row) => ({
@@ -110,15 +110,15 @@ class TimescaleRepository {
         timestamp: row.timestamp,
         location: {
           lat: row.lat,
-          lng: row.lng,
+          lng: row.lng
         },
         type: sensorType,
-        unit: sensorType === "moisture" ? "%" : "cm",
+        unit: sensorType === 'moisture' ? '%' : 'cm'
       }));
     } catch (error) {
       logger.error(
         { error, sensorId, sensorType },
-        "Failed to get sensor history",
+        'Failed to get sensor history'
       );
       throw error;
     }
@@ -132,7 +132,7 @@ class TimescaleRepository {
       return {
         sensorId,
         healthy: false,
-        reason: "No data available",
+        reason: 'No data available'
       };
     }
 
@@ -143,15 +143,15 @@ class TimescaleRepository {
       return {
         sensorId,
         healthy: false,
-        reason: "Stale data",
-        lastReading: reading.timestamp,
+        reason: 'Stale data',
+        lastReading: reading.timestamp
       };
     }
 
     return {
       sensorId,
       healthy: true,
-      lastReading: reading.timestamp,
+      lastReading: reading.timestamp
     };
   }
 
@@ -181,10 +181,10 @@ class TimescaleRepository {
         demand.growthStage,
         demand.et0,
         demand.kc,
-        demand.effectiveRainfall,
+        demand.effectiveRainfall
       ]);
     } catch (error) {
-      logger.error({ error, demand }, "Failed to save water demand");
+      logger.error({ error, demand }, 'Failed to save water demand');
       throw error;
     }
   }
@@ -201,7 +201,7 @@ class TimescaleRepository {
       const result = await this.pool.query(query, [plotId, date]);
       return result.rows.length > 0 ? result.rows[0].demand_m3 : 0;
     } catch (error) {
-      logger.error({ error, plotId, date }, "Failed to get planned demand");
+      logger.error({ error, plotId, date }, 'Failed to get planned demand');
       return 0;
     }
   }
@@ -212,7 +212,7 @@ class TimescaleRepository {
     date,
     plannedDemand,
     actualUsage,
-    efficiency,
+    efficiency
   ) {
     const query = `
       INSERT INTO ${this.schemas.planning}.daily_progress
@@ -231,10 +231,10 @@ class TimescaleRepository {
         date,
         plannedDemand,
         actualUsage,
-        efficiency,
+        efficiency
       ]);
     } catch (error) {
-      logger.error({ error, plotId }, "Failed to save daily progress");
+      logger.error({ error, plotId }, 'Failed to save daily progress');
       throw error;
     }
   }
@@ -255,10 +255,10 @@ class TimescaleRepository {
         cycle.endTime,
         cycle.volumeLiters,
         cycle.controlMode,
-        cycle.triggerValue || 0,
+        cycle.triggerValue || 0
       ]);
     } catch (error) {
-      logger.error({ error, cycle }, "Failed to record irrigation cycle");
+      logger.error({ error, cycle }, 'Failed to record irrigation cycle');
       throw error;
     }
   }
@@ -274,7 +274,7 @@ class TimescaleRepository {
     try {
       await this.pool.query(query, [plotId, valveName, status, timestamp]);
     } catch (error) {
-      logger.error({ error, plotId, status }, "Failed to update valve status");
+      logger.error({ error, plotId, status }, 'Failed to update valve status');
       // Non-critical, don't throw
     }
   }
@@ -298,11 +298,11 @@ class TimescaleRepository {
         result.rows[0] || {
           total_usage_liters: 0,
           number_of_cycles: 0,
-          average_duration_minutes: 0,
+          average_duration_minutes: 0
         }
       );
     } catch (error) {
-      logger.error({ error, plotId }, "Failed to get daily water balance");
+      logger.error({ error, plotId }, 'Failed to get daily water balance');
       throw error;
     }
   }
@@ -327,19 +327,19 @@ class TimescaleRepository {
         plotId: row.plot_id,
         totalVolumeLiters: parseInt(row.total_volume),
         totalCycles: parseInt(row.total_cycles),
-        avgCycleDurationMinutes: parseFloat(row.avg_cycle_duration),
+        avgCycleDurationMinutes: parseFloat(row.avg_cycle_duration)
       }));
     } catch (error) {
-      logger.error({ error }, "Failed to get aggregated usage metrics");
+      logger.error({ error }, 'Failed to get aggregated usage metrics');
       throw error;
     }
   }
 
-  // Get all control modes from database
+  // Get all control modes from database (reads from plot_configurations)
   async getControlModes() {
     const query = `
-      SELECT plot_id, control_mode
-      FROM ${this.schemas.control}.control_modes
+      SELECT plot_id, control_mode, crop_type
+      FROM ${this.schemas.control}.plot_configurations
       ORDER BY plot_id
     `;
 
@@ -348,18 +348,19 @@ class TimescaleRepository {
       return result.rows.map((row) => ({
         plotId: row.plot_id,
         controlMode: row.control_mode,
+        cropType: row.crop_type
       }));
     } catch (error) {
-      logger.error({ error }, "Failed to get control modes");
+      logger.error({ error }, 'Failed to get control modes');
       throw error;
     }
   }
 
-  // Get control mode for a specific plot
+  // Get control mode for a specific plot (reads from plot_configurations)
   async getControlMode(plotId) {
     const query = `
-      SELECT plot_id, control_mode
-      FROM ${this.schemas.control}.control_modes
+      SELECT plot_id, control_mode, crop_type
+      FROM ${this.schemas.control}.plot_configurations
       WHERE plot_id = $1
     `;
 
@@ -372,9 +373,362 @@ class TimescaleRepository {
       return {
         plotId: row.plot_id,
         controlMode: row.control_mode,
+        cropType: row.crop_type
       };
     } catch (error) {
-      logger.error({ error, plotId }, "Failed to get control mode");
+      logger.error({ error, plotId }, 'Failed to get control mode');
+      throw error;
+    }
+  }
+
+  // ============================================================================
+  // PLOT CONFIGURATION METHODS (crop type + control mode)
+  // ============================================================================
+
+  async getAllPlotConfigurations() {
+    const query = `
+      SELECT
+        plot_id,
+        crop_type,
+        control_mode,
+        created_at,
+        updated_at,
+        updated_by,
+        notes
+      FROM ${this.schemas.control}.plot_configurations
+      ORDER BY plot_id
+    `;
+
+    try {
+      const result = await this.pool.query(query, []);
+      return result.rows.map((row) => ({
+        plotId: row.plot_id,
+        cropType: row.crop_type,
+        controlMode: row.control_mode,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        updatedBy: row.updated_by,
+        notes: row.notes
+      }));
+    } catch (error) {
+      logger.error({ error }, 'Failed to get all plot configurations');
+      throw error;
+    }
+  }
+
+  async getPlotConfiguration(plotId) {
+    const query = `
+      SELECT
+        plot_id,
+        crop_type,
+        control_mode,
+        created_at,
+        updated_at,
+        updated_by,
+        notes
+      FROM ${this.schemas.control}.plot_configurations
+      WHERE plot_id = $1
+    `;
+
+    try {
+      const result = await this.pool.query(query, [plotId]);
+      if (result.rows.length === 0) {
+        return null;
+      }
+      const row = result.rows[0];
+      return {
+        plotId: row.plot_id,
+        cropType: row.crop_type,
+        controlMode: row.control_mode,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        updatedBy: row.updated_by,
+        notes: row.notes
+      };
+    } catch (error) {
+      logger.error({ error, plotId }, 'Failed to get plot configuration');
+      throw error;
+    }
+  }
+
+  async upsertPlotConfiguration({
+    plotId,
+    cropType,
+    controlMode,
+    updatedBy,
+    notes
+  }) {
+    const query = `
+      INSERT INTO ${this.schemas.control}.plot_configurations
+        (plot_id, crop_type, control_mode, updated_by, notes)
+      VALUES ($1, $2, $3, $4, $5)
+      ON CONFLICT (plot_id) DO UPDATE SET
+        crop_type = EXCLUDED.crop_type,
+        control_mode = EXCLUDED.control_mode,
+        updated_by = EXCLUDED.updated_by,
+        notes = EXCLUDED.notes,
+        updated_at = NOW()
+      RETURNING
+        plot_id, crop_type, control_mode,
+        created_at, updated_at, updated_by, notes
+    `;
+
+    try {
+      const result = await this.pool.query(query, [
+        plotId,
+        cropType,
+        controlMode,
+        updatedBy,
+        notes
+      ]);
+      const row = result.rows[0];
+      return {
+        plotId: row.plot_id,
+        cropType: row.crop_type,
+        controlMode: row.control_mode,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        updatedBy: row.updated_by,
+        notes: row.notes
+      };
+    } catch (error) {
+      logger.error(
+        { error, plotId, cropType, controlMode },
+        'Failed to upsert plot configuration'
+      );
+      throw error;
+    }
+  }
+
+  async batchUpsertPlotConfigurations(configurations) {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      const results = [];
+      for (const config of configurations) {
+        const query = `
+          INSERT INTO ${this.schemas.control}.plot_configurations
+            (plot_id, crop_type, control_mode, updated_by, notes)
+          VALUES ($1, $2, $3, $4, $5)
+          ON CONFLICT (plot_id) DO UPDATE SET
+            crop_type = EXCLUDED.crop_type,
+            control_mode = EXCLUDED.control_mode,
+            updated_by = EXCLUDED.updated_by,
+            notes = EXCLUDED.notes,
+            updated_at = NOW()
+          RETURNING
+            plot_id, crop_type, control_mode,
+            created_at, updated_at, updated_by, notes
+        `;
+
+        const result = await client.query(query, [
+          config.plotId,
+          config.cropType,
+          config.controlMode,
+          config.updatedBy,
+          config.notes || null
+        ]);
+
+        const row = result.rows[0];
+        results.push({
+          plotId: row.plot_id,
+          cropType: row.crop_type,
+          controlMode: row.control_mode,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+          updatedBy: row.updated_by,
+          notes: row.notes
+        });
+      }
+
+      await client.query('COMMIT');
+      return results;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      logger.error({ error }, 'Failed to batch upsert plot configurations');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  // Get control thresholds for a plot
+  async getControlThresholds(db, plotId) {
+    const query = `
+      SELECT
+        plot_id,
+        moisture_lower_threshold,
+        moisture_upper_threshold,
+        water_level_lower_threshold,
+        water_level_upper_threshold
+      FROM ${this.schemas.control}.control_thresholds
+      WHERE plot_id = $1
+    `;
+
+    try {
+      const result = await db.query(query, [plotId]);
+
+      if (result.rows.length === 0) {
+        return null;
+      }
+
+      const row = result.rows[0];
+      return {
+        plotId: row.plot_id,
+        moistureLowerThreshold: parseFloat(row.moisture_lower_threshold),
+        moistureUpperThreshold: parseFloat(row.moisture_upper_threshold),
+        waterLevelLowerThreshold: parseFloat(
+          row.water_level_lower_threshold
+        ),
+        waterLevelUpperThreshold: parseFloat(row.water_level_upper_threshold)
+      };
+    } catch (error) {
+      logger.error({ error, plotId }, 'Failed to get control thresholds');
+      throw error;
+    }
+  }
+
+  // Get sensor to plot mapping
+  async getSensorPlotMapping(db, sensorId) {
+    const query = `
+      SELECT
+        plot_id,
+        sensor_type
+      FROM ${this.schemas.control}.sensor_plot_mapping
+      WHERE sensor_id = $1
+    `;
+
+    try {
+      const result = await db.query(query, [sensorId]);
+
+      if (result.rows.length === 0) {
+        return null;
+      }
+
+      const row = result.rows[0];
+      return {
+        plotId: row.plot_id,
+        sensorType: row.sensor_type
+      };
+    } catch (error) {
+      logger.error({ error, sensorId }, 'Failed to get sensor plot mapping');
+      throw error;
+    }
+  }
+
+  // Get valve state for a plot
+  async getValveState(db, plotId) {
+    const query = `
+      SELECT
+        current_state,
+        last_changed_at,
+        last_change_reason
+      FROM ${this.schemas.control}.valve_states
+      WHERE plot_id = $1
+    `;
+
+    try {
+      const result = await db.query(query, [plotId]);
+
+      if (result.rows.length === 0) {
+        return {
+          currentState: 'OFF',
+          lastChangedAt: null,
+          lastChangeReason: null
+        };
+      }
+
+      const row = result.rows[0];
+      return {
+        currentState: row.current_state,
+        lastChangedAt: row.last_changed_at,
+        lastChangeReason: row.last_change_reason
+      };
+    } catch (error) {
+      logger.error({ error, plotId }, 'Failed to get valve state');
+      throw error;
+    }
+  }
+
+  // Update valve state for a plot (upsert)
+  async updateValveState(db, plotId, newState, reason) {
+    const query = `
+      INSERT INTO ${this.schemas.control}.valve_states
+        (plot_id, current_state, last_changed_at, last_change_reason)
+      VALUES
+        ($1, $2, NOW(), $3)
+      ON CONFLICT (plot_id)
+      DO UPDATE SET
+        current_state = EXCLUDED.current_state,
+        last_changed_at = EXCLUDED.last_changed_at,
+        last_change_reason = EXCLUDED.last_change_reason,
+        updated_at = NOW()
+    `;
+
+    try {
+      await db.query(query, [plotId, newState, reason]);
+      return true;
+    } catch (error) {
+      logger.error(
+        { error, plotId, newState, reason },
+        'Failed to update valve state'
+      );
+      throw error;
+    }
+  }
+
+  // Log a control decision to audit trail
+  async logControlDecision(db, decision) {
+    const query = `
+      INSERT INTO ${this.schemas.control}.control_decisions_log
+        (plot_id, sensor_id, sensor_type, action, reason,
+         sensor_value, lower_threshold, upper_threshold,
+         previous_state, new_state, valve_command_sent)
+      VALUES
+        ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      RETURNING id
+    `;
+
+    try {
+      const result = await db.query(query, [
+        decision.plotId,
+        decision.sensorId,
+        decision.sensorType,
+        decision.action,
+        decision.reason,
+        decision.sensorValue,
+        decision.lowerThreshold,
+        decision.upperThreshold,
+        decision.previousState || null,
+        decision.newState || null,
+        decision.valveCommandSent || false
+      ]);
+
+      return parseInt(result.rows[0].id, 10);
+    } catch (error) {
+      logger.error({ error, decision }, 'Failed to log control decision');
+      throw error;
+    }
+  }
+
+  // Update decision log with valve command result
+  async updateDecisionLogResult(db, logId, success, errorMessage = null) {
+    const query = `
+      UPDATE ${this.schemas.control}.control_decisions_log
+      SET
+        valve_command_succeeded = $2,
+        valve_command_error = $3
+      WHERE id = $1
+    `;
+
+    try {
+      await db.query(query, [logId, success, errorMessage]);
+    } catch (error) {
+      logger.error(
+        { error, logId, success, errorMessage },
+        'Failed to update decision log result'
+      );
       throw error;
     }
   }
