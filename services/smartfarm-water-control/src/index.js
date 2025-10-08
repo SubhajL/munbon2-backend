@@ -112,6 +112,9 @@ class SmartFarmWaterControlApp {
         timescaleRepository,
         this.services.valveCommand,
         logger,
+        {
+          moistureFreshnessWindowMs: config.listener.moistureFreshnessWindowMs,
+        },
       );
 
       this.listener = new SensorUpdateListener(timescalePool, {

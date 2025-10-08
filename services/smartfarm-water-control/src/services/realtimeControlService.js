@@ -1,8 +1,36 @@
 class RealtimeControlService {
-  constructor(repository, valveCommandService, logger) {
+  constructor(repository, valveCommandService, logger, options = {}) {
     this.repository = repository;
     this.valveCommandService = valveCommandService;
     this.logger = logger;
+
+    const configuredWindow = options.moistureFreshnessWindowMs ?? 300000;
+
+    if (Number.isNaN(configuredWindow) || configuredWindow < 0) {
+      this.logger.warn(
+        { configuredWindow },
+        'Invalid moistureFreshnessWindowMs, using default 300000ms'
+      );
+      this.moistureFreshnessWindowMs = 300000;
+    } else {
+      this.moistureFreshnessWindowMs = configuredWindow;
+    }
+  }
+
+  getReadingAge(timestamp) {
+    const timestampDate =
+      timestamp instanceof Date ? timestamp : new Date(timestamp);
+    const timestampMs = timestampDate.getTime();
+
+    if (Number.isNaN(timestampMs)) {
+      return NaN;
+    }
+
+    return Date.now() - timestampMs;
+  }
+
+  isReadingFresh(timestamp) {
+    return this.getReadingAge(timestamp) <= this.moistureFreshnessWindowMs;
   }
 
   evaluateControlDecision({ value, sensorType, thresholds, currentState }) {
@@ -87,6 +115,26 @@ class RealtimeControlService {
     const pool = this.repository.pool;
 
     try {
+      if (sensorType === 'moisture') {
+        const ageMs = this.getReadingAge(timestamp);
+
+        if (Number.isNaN(ageMs)) {
+          this.logger.warn(
+            { sensorId, timestamp },
+            'Invalid moisture timestamp: unable to determine age'
+          );
+          return;
+        }
+
+        if (!this.isReadingFresh(timestamp)) {
+          this.logger.warn(
+            { sensorId, ageMs },
+            'Stale moisture reading ignored: data too old for control decision'
+          );
+          return;
+        }
+      }
+
       const mapping = await this.repository.getSensorPlotMapping(
         pool,
         sensorId
@@ -198,7 +246,13 @@ class RealtimeControlService {
     }
   }
 
-  async executeValveCommandWithRetry(pool, plotId, decision, timestamp, _logId) {
+  async executeValveCommandWithRetry(
+    pool,
+    plotId,
+    decision,
+    timestamp,
+    _logId
+  ) {
     const level = decision.action === 'TURN_ON' ? 100 : 0;
 
     await this.valveCommandService.sendValveCommandWithRetry(

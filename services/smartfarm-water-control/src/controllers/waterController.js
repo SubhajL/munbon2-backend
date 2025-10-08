@@ -9,6 +9,7 @@ class WaterController {
     this.waterPlanning = services.waterPlanning;
     this.waterBalance = services.waterBalance;
     this.sensorData = services.sensorData;
+    this.repository = services.timescaleRepository;
     this.config = services.config;
   }
 
@@ -68,11 +69,25 @@ class WaterController {
     const { plotId } = plotConfig;
     const moisturePercent = sensorReading.value;
 
+    // Get thresholds from database
+    const thresholds = await this.repository.getControlThresholds(
+      this.repository.pool,
+      plotId,
+    );
+
+    if (!thresholds) {
+      logger.warn({ plotId }, "No thresholds configured for plot");
+      return {
+        action: "MAINTAIN",
+        reason: "No thresholds configured",
+      };
+    }
+
     const decision = this.moistureControl.evaluateMoistureStatus(
       plotId,
       moisturePercent,
-      this.config.control.moisture.thresholdLowPercent,
-      this.config.control.moisture.thresholdHighPercent,
+      thresholds.moistureLowerThreshold,
+      thresholds.moistureUpperThreshold,
     );
 
     // Track irrigation cycles
@@ -97,7 +112,31 @@ class WaterController {
     const { plotId } = plotConfig;
     const waterLevelCm = sensorReading.value;
 
-    const decision = this.awdControl.evaluateAWDStatus(plotId, waterLevelCm);
+    // Get thresholds from database
+    const thresholds = await this.repository.getControlThresholds(
+      this.repository.pool,
+      plotId,
+    );
+
+    if (!thresholds) {
+      logger.warn({ plotId }, "No thresholds configured for plot");
+      return {
+        action: "MAINTAIN",
+        reason: "No thresholds configured",
+      };
+    }
+
+    // Pass thresholds explicitly without mutating state
+    const thresholdOverrides = {
+      minWaterLevelCm: thresholds.waterLevelLowerThreshold,
+      maxWaterLevelCm: thresholds.waterLevelUpperThreshold,
+    };
+
+    const decision = this.awdControl.evaluateAWDStatus(
+      plotId,
+      waterLevelCm,
+      thresholdOverrides,
+    );
 
     // Track irrigation cycles
     if (decision.action === "ON" && currentValveStatus.status !== "ON") {
