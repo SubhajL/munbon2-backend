@@ -91,16 +91,18 @@ function loadConfiguration() {
 
       moisture: {
         thresholdLowPercent: parseFloat(
-          process.env.MOISTURE_THRESHOLD_LOW_PERCENT || "10",
+          process.env.MOISTURE_THRESHOLD_LOW_PERCENT || "50",
         ),
         thresholdHighPercent: parseFloat(
-          process.env.MOISTURE_THRESHOLD_HIGH_PERCENT || "15",
+          process.env.MOISTURE_THRESHOLD_HIGH_PERCENT || "69",
         ),
       },
 
       awd: {
-        minWaterLevelCm: parseFloat(process.env.AWD_MIN_WATER_LEVEL_CM || "5"),
-        maxWaterLevelCm: parseFloat(process.env.AWD_MAX_WATER_LEVEL_CM || "15"),
+        minWaterLevelCm: parseFloat(
+          process.env.AWD_MIN_WATER_LEVEL_CM || "-10",
+        ),
+        maxWaterLevelCm: parseFloat(process.env.AWD_MAX_WATER_LEVEL_CM || "10"),
         dryingPeriodDays: parseInt(process.env.AWD_DRYING_PERIOD_DAYS || "7"),
       },
     },
@@ -117,6 +119,9 @@ function loadConfiguration() {
       ),
       debounceWindow: parseInt(
         process.env.LISTENER_DEBOUNCE_WINDOW_MS || "5000",
+      ),
+      moistureFreshnessWindowMs: parseInt(
+        process.env.MOISTURE_FRESHNESS_WINDOW_MS || "300000",
       ),
     },
   };

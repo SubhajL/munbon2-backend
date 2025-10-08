@@ -6,8 +6,14 @@ class AWDControlService {
     this.lastIrrigationDates = new Map();
   }
 
-  evaluateAWDStatus(plotId, waterLevelCm) {
+  evaluateAWDStatus(plotId, waterLevelCm, thresholdOverrides = null) {
     const metadata = {};
+
+    // Use overrides if provided, otherwise fall back to config
+    const minWaterLevelCm =
+      thresholdOverrides?.minWaterLevelCm ?? this.config.minWaterLevelCm;
+    const maxWaterLevelCm =
+      thresholdOverrides?.maxWaterLevelCm ?? this.config.maxWaterLevelCm;
 
     // Validate water level reading
     if (waterLevelCm < 0) {
@@ -19,10 +25,10 @@ class AWDControlService {
     let action;
     let reason;
 
-    if (waterLevelCm < this.config.minWaterLevelCm) {
+    if (waterLevelCm < minWaterLevelCm) {
       action = "ON";
       reason = "Water level below minimum threshold";
-    } else if (waterLevelCm >= this.config.maxWaterLevelCm) {
+    } else if (waterLevelCm >= maxWaterLevelCm) {
       action = "OFF";
       reason = "Water level at or above maximum threshold";
     } else {
@@ -37,8 +43,8 @@ class AWDControlService {
       reason,
       currentValue: waterLevelCm,
       thresholds: {
-        min: this.config.minWaterLevelCm,
-        max: this.config.maxWaterLevelCm,
+        min: minWaterLevelCm,
+        max: maxWaterLevelCm,
       },
     };
 
@@ -51,7 +57,12 @@ class AWDControlService {
         plotId,
         action,
         waterLevelCm,
-        phase: this.getAWDPhase(waterLevelCm, action === "ON", plotId),
+        phase: this.getAWDPhase(
+          waterLevelCm,
+          action === "ON",
+          plotId,
+          thresholdOverrides,
+        ),
       },
       "AWD control decision made",
     );
@@ -59,14 +70,23 @@ class AWDControlService {
     return decision;
   }
 
-  calculateAWDTarget(_plotId, _currentLevelCm) {
+  calculateAWDTarget(_plotId, _currentLevelCm, thresholdOverrides = null) {
     // Always target maximum water level for AWD
-    return this.config.maxWaterLevelCm;
+    const maxWaterLevelCm =
+      thresholdOverrides?.maxWaterLevelCm ?? this.config.maxWaterLevelCm;
+    return maxWaterLevelCm;
   }
 
-  shouldStartDryingCycle(plotId, currentWaterLevelCm) {
+  shouldStartDryingCycle(
+    plotId,
+    currentWaterLevelCm,
+    thresholdOverrides = null,
+  ) {
+    const minWaterLevelCm =
+      thresholdOverrides?.minWaterLevelCm ?? this.config.minWaterLevelCm;
+
     // Don't dry if water is already low
-    if (currentWaterLevelCm <= this.config.minWaterLevelCm + 2) {
+    if (currentWaterLevelCm <= minWaterLevelCm + 2) {
       return false;
     }
 
@@ -104,16 +124,24 @@ class AWDControlService {
     return Math.round(volumeLiters / timeMinutes);
   }
 
-  getAWDPhase(waterLevelCm, isIrrigating, plotId = null) {
+  getAWDPhase(
+    waterLevelCm,
+    isIrrigating,
+    plotId = null,
+    thresholdOverrides = null,
+  ) {
     if (isIrrigating) {
       return "flooding";
     }
 
-    if (waterLevelCm >= this.config.minWaterLevelCm + 5) {
+    const minWaterLevelCm =
+      thresholdOverrides?.minWaterLevelCm ?? this.config.minWaterLevelCm;
+
+    if (waterLevelCm >= minWaterLevelCm + 5) {
       return "flooded";
     }
 
-    if (waterLevelCm <= this.config.minWaterLevelCm) {
+    if (waterLevelCm <= minWaterLevelCm) {
       return "dried";
     }
 
