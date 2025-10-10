@@ -14,6 +14,7 @@ const { WaterBalanceService } = require("./services/waterBalanceService");
 const { SensorDataService } = require("./services/sensorDataService");
 const { SensorUpdateListener } = require("./services/sensorUpdateListener");
 const { RealtimeControlService } = require("./services/realtimeControlService");
+const { ValveAuditService } = require("./services/valveAuditService");
 const { WaterController } = require("./controllers/waterController");
 const createRoutes = require("./routes");
 
@@ -81,6 +82,11 @@ class SmartFarmWaterControlApp {
         config,
       };
 
+      this.services.valveAudit = new ValveAuditService(
+        timescalePool,
+        config.timescale.schemas.control,
+      );
+
       // Initialize controller
       this.controller = new WaterController(this.services);
 
@@ -115,6 +121,7 @@ class SmartFarmWaterControlApp {
         {
           moistureFreshnessWindowMs: config.listener.moistureFreshnessWindowMs,
         },
+        this.services.valveAudit,
       );
 
       this.listener = new SensorUpdateListener(timescalePool, {
