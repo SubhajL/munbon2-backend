@@ -17,6 +17,7 @@ describe("RealtimeControlService", () => {
       updateValveState: jest.fn(),
       logControlDecision: jest.fn().mockResolvedValue(1),
       updateDecisionLogResult: jest.fn(),
+      getPlotConfiguration: jest.fn(),
     };
 
     mockValveService = {
@@ -527,7 +528,7 @@ describe("RealtimeControlService", () => {
 
       expect(mockValveService.sendValveCommandWithRetry).toHaveBeenCalledWith(
         "TEST-PLOT",
-        100,
+        1,
         expect.any(Date),
         expect.stringContaining("below"),
       );
@@ -695,6 +696,173 @@ describe("RealtimeControlService", () => {
       );
       expect(mockValveService.sendValveCommandWithRetry).not.toHaveBeenCalled();
       expect(mockRepository.logControlDecision).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("Audit logging integration", () => {
+    let mockValveAuditService;
+
+    beforeEach(() => {
+      mockValveAuditService = {
+        logValveChange: jest.fn().mockResolvedValue(42),
+        updateCommandResult: jest.fn().mockResolvedValue(undefined),
+      };
+    });
+
+    test("logs audit with fallback mode when plot config missing", async () => {
+      mockRepository.getSensorPlotMapping.mockResolvedValue({
+        plotId: "plot-no-config",
+        sensorType: "moisture",
+      });
+
+      mockRepository.getControlThresholds.mockResolvedValue({
+        moistureLowerThreshold: 40,
+        moistureUpperThreshold: 60,
+        waterLevelLowerThreshold: 5,
+        waterLevelUpperThreshold: 15,
+      });
+
+      mockRepository.getValveState.mockResolvedValue({
+        currentState: "OFF",
+        lastChangedAt: null,
+        lastChangeReason: null,
+      });
+
+      mockRepository.getPlotConfiguration.mockResolvedValue(null);
+
+      mockValveService.valveMapping = new Map([["plot-no-config", "SV_TEST"]]);
+      mockValveService.tableName = "tb_valve_command_v2_test";
+
+      const serviceWithAudit = new RealtimeControlService(
+        mockRepository,
+        mockValveService,
+        mockLogger,
+        {},
+        mockValveAuditService,
+      );
+
+      await serviceWithAudit.handleSensorReading({
+        sensorId: "MOIST-01",
+        value: 35,
+        timestamp: new Date(),
+        sensorType: "moisture",
+      });
+
+      expect(mockValveAuditService.logValveChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          plotId: "plot-no-config",
+          controlMode: "MOISTURE",
+          action: "TURN_ON",
+        }),
+      );
+
+      expect(mockValveAuditService.updateCommandResult).toHaveBeenCalledWith(
+        42,
+        true,
+      );
+    });
+
+    test("updates audit on command success", async () => {
+      mockRepository.getSensorPlotMapping.mockResolvedValue({
+        plotId: "plot-success",
+        sensorType: "moisture",
+      });
+
+      mockRepository.getControlThresholds.mockResolvedValue({
+        moistureLowerThreshold: 40,
+        moistureUpperThreshold: 60,
+        waterLevelLowerThreshold: 5,
+        waterLevelUpperThreshold: 15,
+      });
+
+      mockRepository.getValveState.mockResolvedValue({
+        currentState: "OFF",
+      });
+
+      mockRepository.getPlotConfiguration.mockResolvedValue({
+        plotId: "plot-success",
+        controlMode: "MOISTURE",
+        cropType: "rice",
+      });
+
+      mockValveService.valveMapping = new Map([["plot-success", "SV_SUCCESS"]]);
+      mockValveService.tableName = "tb_valve_command_v2_test";
+      mockValveService.sendValveCommandWithRetry.mockResolvedValue({
+        success: true,
+      });
+
+      const serviceWithAudit = new RealtimeControlService(
+        mockRepository,
+        mockValveService,
+        mockLogger,
+        {},
+        mockValveAuditService,
+      );
+
+      await serviceWithAudit.handleSensorReading({
+        sensorId: "MOIST-01",
+        value: 35,
+        timestamp: new Date(),
+        sensorType: "moisture",
+      });
+
+      expect(mockValveAuditService.logValveChange).toHaveBeenCalled();
+      expect(mockValveAuditService.updateCommandResult).toHaveBeenCalledWith(
+        42,
+        true,
+      );
+    });
+
+    test("updates audit on command failure", async () => {
+      mockRepository.getSensorPlotMapping.mockResolvedValue({
+        plotId: "plot-fail",
+        sensorType: "moisture",
+      });
+
+      mockRepository.getControlThresholds.mockResolvedValue({
+        moistureLowerThreshold: 40,
+        moistureUpperThreshold: 60,
+        waterLevelLowerThreshold: 5,
+        waterLevelUpperThreshold: 15,
+      });
+
+      mockRepository.getValveState.mockResolvedValue({
+        currentState: "OFF",
+      });
+
+      mockRepository.getPlotConfiguration.mockResolvedValue({
+        plotId: "plot-fail",
+        controlMode: "MOISTURE",
+        cropType: "rice",
+      });
+
+      mockValveService.valveMapping = new Map([["plot-fail", "SV_FAIL"]]);
+      mockValveService.tableName = "tb_valve_command_v2_test";
+      mockValveService.sendValveCommandWithRetry.mockRejectedValue(
+        new Error("MSSQL connection timeout"),
+      );
+
+      const serviceWithAudit = new RealtimeControlService(
+        mockRepository,
+        mockValveService,
+        mockLogger,
+        {},
+        mockValveAuditService,
+      );
+
+      await serviceWithAudit.handleSensorReading({
+        sensorId: "MOIST-01",
+        value: 35,
+        timestamp: new Date(),
+        sensorType: "moisture",
+      });
+
+      expect(mockValveAuditService.logValveChange).toHaveBeenCalled();
+      expect(mockValveAuditService.updateCommandResult).toHaveBeenCalledWith(
+        42,
+        false,
+        "MSSQL connection timeout",
+      );
     });
   });
 });

@@ -1,15 +1,22 @@
 class RealtimeControlService {
-  constructor(repository, valveCommandService, logger, options = {}) {
+  constructor(
+    repository,
+    valveCommandService,
+    logger,
+    options = {},
+    valveAuditService = null,
+  ) {
     this.repository = repository;
     this.valveCommandService = valveCommandService;
     this.logger = logger;
+    this.valveAuditService = valveAuditService;
 
     const configuredWindow = options.moistureFreshnessWindowMs ?? 300000;
 
     if (Number.isNaN(configuredWindow) || configuredWindow < 0) {
       this.logger.warn(
         { configuredWindow },
-        'Invalid moistureFreshnessWindowMs, using default 300000ms'
+        "Invalid moistureFreshnessWindowMs, using default 300000ms",
       );
       this.moistureFreshnessWindowMs = 300000;
     } else {
@@ -35,16 +42,16 @@ class RealtimeControlService {
 
   evaluateControlDecision({ value, sensorType, thresholds, currentState }) {
     if (!thresholds) {
-      throw new Error('Thresholds required');
+      throw new Error("Thresholds required");
     }
 
-    if (!['moisture', 'water_level'].includes(sensorType)) {
+    if (!["moisture", "water_level"].includes(sensorType)) {
       throw new Error(`Invalid sensor type: ${sensorType}`);
     }
 
     let lower, upper;
 
-    if (sensorType === 'moisture') {
+    if (sensorType === "moisture") {
       lower = thresholds.moistureLowerThreshold;
       upper = thresholds.moistureUpperThreshold;
     } else {
@@ -53,53 +60,53 @@ class RealtimeControlService {
     }
 
     if (lower >= upper) {
-      throw new Error('Invalid thresholds: lower must be less than upper');
+      throw new Error("Invalid thresholds: lower must be less than upper");
     }
 
-    if (sensorType === 'moisture' && (value < 0 || value > 100)) {
+    if (sensorType === "moisture" && (value < 0 || value > 100)) {
       return {
-        action: 'MAINTAIN',
-        newState: currentState || 'OFF',
+        action: "MAINTAIN",
+        newState: currentState || "OFF",
         reason: `Invalid sensor reading: ${value}%`,
         value,
-        thresholds: { lower, upper }
+        thresholds: { lower, upper },
       };
     }
 
-    if (sensorType === 'water_level' && value < 0) {
+    if (sensorType === "water_level" && value < 0) {
       return {
-        action: 'MAINTAIN',
-        newState: currentState || 'OFF',
+        action: "MAINTAIN",
+        newState: currentState || "OFF",
         reason: `Invalid sensor reading: ${value} cm`,
         value,
-        thresholds: { lower, upper }
+        thresholds: { lower, upper },
       };
     }
 
-    if (sensorType === 'water_level' && value > 100) {
+    if (sensorType === "water_level" && value > 100) {
       return {
-        action: 'TURN_OFF',
-        newState: 'OFF',
+        action: "TURN_OFF",
+        newState: "OFF",
         reason: `Water level overflow detected: ${value} cm`,
         value,
-        thresholds: { lower, upper }
+        thresholds: { lower, upper },
       };
     }
 
     let action, newState, reason;
 
     if (value <= lower) {
-      action = 'TURN_ON';
-      newState = 'ON';
-      reason = `${sensorType === 'moisture' ? 'Moisture' : 'Water level'} ${value}${sensorType === 'moisture' ? '%' : ' cm'} below lower threshold ${lower}${sensorType === 'moisture' ? '%' : ' cm'}`;
+      action = "TURN_ON";
+      newState = "ON";
+      reason = `${sensorType === "moisture" ? "Moisture" : "Water level"} ${value}${sensorType === "moisture" ? "%" : " cm"} below lower threshold ${lower}${sensorType === "moisture" ? "%" : " cm"}`;
     } else if (value >= upper) {
-      action = 'TURN_OFF';
-      newState = 'OFF';
-      reason = `${sensorType === 'moisture' ? 'Moisture' : 'Water level'} ${value}${sensorType === 'moisture' ? '%' : ' cm'} above upper threshold ${upper}${sensorType === 'moisture' ? '%' : ' cm'}`;
+      action = "TURN_OFF";
+      newState = "OFF";
+      reason = `${sensorType === "moisture" ? "Moisture" : "Water level"} ${value}${sensorType === "moisture" ? "%" : " cm"} above upper threshold ${upper}${sensorType === "moisture" ? "%" : " cm"}`;
     } else {
-      action = 'MAINTAIN';
-      newState = currentState || 'OFF';
-      reason = `${sensorType === 'moisture' ? 'Moisture' : 'Water level'} ${value}${sensorType === 'moisture' ? '%' : ' cm'} within acceptable range (${lower}-${upper})`;
+      action = "MAINTAIN";
+      newState = currentState || "OFF";
+      reason = `${sensorType === "moisture" ? "Moisture" : "Water level"} ${value}${sensorType === "moisture" ? "%" : " cm"} within acceptable range (${lower}-${upper})`;
     }
 
     return {
@@ -107,7 +114,7 @@ class RealtimeControlService {
       newState,
       reason,
       value,
-      thresholds: { lower, upper }
+      thresholds: { lower, upper },
     };
   }
 
@@ -115,13 +122,13 @@ class RealtimeControlService {
     const pool = this.repository.pool;
 
     try {
-      if (sensorType === 'moisture') {
+      if (sensorType === "moisture") {
         const ageMs = this.getReadingAge(timestamp);
 
         if (Number.isNaN(ageMs)) {
           this.logger.warn(
             { sensorId, timestamp },
-            'Invalid moisture timestamp: unable to determine age'
+            "Invalid moisture timestamp: unable to determine age",
           );
           return;
         }
@@ -129,7 +136,7 @@ class RealtimeControlService {
         if (!this.isReadingFresh(timestamp)) {
           this.logger.warn(
             { sensorId, ageMs },
-            'Stale moisture reading ignored: data too old for control decision'
+            "Stale moisture reading ignored: data too old for control decision",
           );
           return;
         }
@@ -137,37 +144,37 @@ class RealtimeControlService {
 
       const mapping = await this.repository.getSensorPlotMapping(
         pool,
-        sensorId
+        sensorId,
       );
 
       if (!mapping) {
-        this.logger.warn({ sensorId }, 'Sensor not mapped to any plot');
+        this.logger.warn({ sensorId }, "Sensor not mapped to any plot");
         return;
       }
 
       const thresholds = await this.repository.getControlThresholds(
         pool,
-        mapping.plotId
+        mapping.plotId,
       );
 
       if (!thresholds) {
         this.logger.warn(
           { plotId: mapping.plotId },
-          'Plot has no configured thresholds'
+          "Plot has no configured thresholds",
         );
         return;
       }
 
       const valveState = await this.repository.getValveState(
         pool,
-        mapping.plotId
+        mapping.plotId,
       );
 
       const decision = this.evaluateControlDecision({
         value,
         sensorType,
         thresholds,
-        currentState: valveState.currentState
+        currentState: valveState.currentState,
       });
 
       const logId = await this.repository.logControlDecision(pool, {
@@ -181,45 +188,99 @@ class RealtimeControlService {
         upperThreshold: decision.thresholds.upper,
         previousState: valveState.currentState,
         newState: decision.newState,
-        valveCommandSent: decision.action !== 'MAINTAIN'
+        valveCommandSent: decision.action !== "MAINTAIN",
       });
 
-      if (decision.action !== 'MAINTAIN') {
+      if (decision.action !== "MAINTAIN") {
+        let auditId = null;
+
         try {
+          // Log to audit table before executing command
+          if (this.valveAuditService) {
+            const valveName = this.valveCommandService.valveMapping.get(
+              mapping.plotId,
+            );
+            const config = await this.repository.getPlotConfiguration(
+              mapping.plotId,
+            );
+
+            const controlMode =
+              config?.controlMode ||
+              (sensorType === "moisture" ? "MOISTURE" : "AWD");
+
+            auditId = await this.valveAuditService.logValveChange({
+              plotId: mapping.plotId,
+              valveName: valveName || "UNKNOWN",
+              changedAt: new Date(),
+              previousState: valveState.currentState || "UNKNOWN",
+              newState: decision.newState,
+              moistureValue: sensorType === "moisture" ? value : null,
+              waterLevelValue: sensorType === "water_level" ? value : null,
+              sensorId,
+              sensorTimestamp: timestamp,
+              controlMode,
+              moistureLowerThreshold: thresholds.moistureLowerThreshold,
+              moistureUpperThreshold: thresholds.moistureUpperThreshold,
+              waterLevelLowerThreshold: thresholds.waterLevelLowerThreshold,
+              waterLevelUpperThreshold: thresholds.waterLevelUpperThreshold,
+              action: decision.action,
+              reason: decision.reason,
+              valveCommandSent: true,
+              mssqlTableUsed: this.valveCommandService.tableName,
+              triggeredBy: "AUTO",
+            });
+          }
+
           await this.executeValveCommandWithRetry(
             pool,
             mapping.plotId,
             decision,
             timestamp,
-            logId
+            logId,
           );
 
           await this.repository.updateDecisionLogResult(pool, logId, true);
+
+          // Update audit with success
+          if (this.valveAuditService && auditId) {
+            await this.valveAuditService.updateCommandResult(auditId, true);
+          }
 
           this.logger.info(
             {
               plotId: mapping.plotId,
               action: decision.action,
               value,
-              sensorType
+              sensorType,
+              auditId,
             },
-            'Control action executed successfully'
+            "Control action executed successfully",
           );
         } catch (error) {
           await this.repository.updateDecisionLogResult(
             pool,
             logId,
             false,
-            error.message
+            error.message,
           );
+
+          // Update audit with failure
+          if (this.valveAuditService && auditId) {
+            await this.valveAuditService.updateCommandResult(
+              auditId,
+              false,
+              error.message,
+            );
+          }
 
           this.logger.error(
             {
               error,
               plotId: mapping.plotId,
-              action: decision.action
+              action: decision.action,
+              auditId,
             },
-            'Failed to execute control action'
+            "Failed to execute control action",
           );
         }
       } else {
@@ -228,9 +289,9 @@ class RealtimeControlService {
             plotId: mapping.plotId,
             value,
             sensorType,
-            currentState: valveState.currentState
+            currentState: valveState.currentState,
           },
-          'No action required'
+          "No action required",
         );
       }
     } catch (error) {
@@ -239,9 +300,9 @@ class RealtimeControlService {
           error,
           sensorId,
           value,
-          timestamp
+          timestamp,
         },
-        'Failed to handle sensor reading'
+        "Failed to handle sensor reading",
       );
     }
   }
@@ -251,22 +312,22 @@ class RealtimeControlService {
     plotId,
     decision,
     timestamp,
-    _logId
+    _logId,
   ) {
-    const level = decision.action === 'TURN_ON' ? 100 : 0;
+    const level = decision.action === "TURN_ON" ? 1 : 0;
 
     await this.valveCommandService.sendValveCommandWithRetry(
       plotId,
       level,
       timestamp,
-      decision.reason
+      decision.reason,
     );
 
     await this.repository.updateValveState(
       pool,
       plotId,
       decision.newState,
-      decision.reason
+      decision.reason,
     );
   }
 }

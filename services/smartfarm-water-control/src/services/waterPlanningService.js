@@ -1,5 +1,5 @@
-const axios = require("axios");
-const logger = require("../utils/logger");
+const axios = require('axios');
+const logger = require('../utils/logger');
 
 class WaterPlanningService {
   constructor(config) {
@@ -12,11 +12,11 @@ class WaterPlanningService {
   }
 
   async calculateDailyDemand(plotId, date) {
-    const cacheKey = `${plotId}-${date.toISOString().split("T")[0]}`;
+    const cacheKey = `${plotId}-${date.toISOString().split('T')[0]}`;
 
     // Check cache first
     if (this.demandCache.has(cacheKey)) {
-      logger.info({ plotId, date }, "Returning cached water demand");
+      logger.info({ plotId, date }, 'Returning cached water demand');
       return this.demandCache.get(cacheKey);
     }
 
@@ -37,11 +37,11 @@ class WaterPlanningService {
         rosInput,
         {
           headers: {
-            "X-API-Key": this.rosApiKey,
-            "Content-Type": "application/json",
+            'X-API-Key': this.rosApiKey,
+            'Content-Type': 'application/json'
           },
-          timeout: 30000,
-        },
+          timeout: 30000
+        }
       );
 
       const rosOutput = response.data;
@@ -54,7 +54,7 @@ class WaterPlanningService {
         growthStage: this.determineGrowthStage(rosOutput.cropDetails),
         et0: rosOutput.cropDetails.et0,
         kc: rosOutput.cropDetails.weightedKc,
-        effectiveRainfall: rosOutput.effectiveRainfall.amount_m3,
+        effectiveRainfall: rosOutput.effectiveRainfall.amount_m3
       };
 
       // Cache the result
@@ -64,14 +64,14 @@ class WaterPlanningService {
         {
           plotId,
           date,
-          demandCubicMeters: demand.demandCubicMeters,
+          demandCubicMeters: demand.demandCubicMeters
         },
-        "Water demand calculated",
+        'Water demand calculated'
       );
 
       return demand;
     } catch (error) {
-      logger.error({ error, plotId, date }, "Failed to calculate water demand");
+      logger.error({ error, plotId, date }, 'Failed to calculate water demand');
       throw error;
     }
   }
@@ -83,10 +83,10 @@ class WaterPlanningService {
 
         logger.info(
           { plotId: demand.plotId, date: demand.date },
-          "Water demand synced to TimescaleDB",
+          'Water demand synced to TimescaleDB'
         );
       } catch (error) {
-        logger.error({ error, demand }, "Failed to sync water demand");
+        logger.error({ error, demand }, 'Failed to sync water demand');
         throw error;
       }
     }
@@ -116,12 +116,12 @@ class WaterPlanningService {
           date,
           plannedDemand,
           actualUsage,
-          efficiency,
+          efficiency
         },
-        "Daily progress updated",
+        'Daily progress updated'
       );
     } catch (error) {
-      logger.error({ error, plotId, date }, "Failed to update daily progress");
+      logger.error({ error, plotId, date }, 'Failed to update daily progress');
       throw error;
     }
   }
@@ -140,7 +140,7 @@ class WaterPlanningService {
       } catch (error) {
         logger.error(
           { error, plotId: plotConfig.plotId },
-          "Failed to calculate demand for plot",
+          'Failed to calculate demand for plot'
         );
       }
     }
@@ -151,16 +151,16 @@ class WaterPlanningService {
   prepareROSInput(plotConfig, date) {
     return {
       cropType: plotConfig.cropType,
-      calculationDate: date.toISOString().split("T")[0],
+      calculationDate: date.toISOString().split('T')[0],
       calculationPeriod: 1, // Daily calculation
       plantings: [
         {
           plantingDate: this.getPlantingDate(plotConfig, date),
           areaRai: plotConfig.areaRai,
-          growthDays: null, // Let ROS calculate based on planting date
-        },
+          growthDays: null // Let ROS calculate based on planting date
+        }
       ],
-      nonAgriculturalDemands: [],
+      nonAgriculturalDemands: []
     };
   }
 
@@ -182,10 +182,10 @@ class WaterPlanningService {
 
     // Fallback based on Kc value
     const kc = cropDetails.weightedKc;
-    if (kc < 0.6) return "initial";
-    if (kc < 1.0) return "development";
-    if (kc < 1.2) return "mid-season";
-    return "late-season";
+    if (kc < 0.6) return 'initial';
+    if (kc < 1.0) return 'development';
+    if (kc < 1.2) return 'mid-season';
+    return 'late-season';
   }
 }
 
