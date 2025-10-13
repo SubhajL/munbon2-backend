@@ -19,7 +19,7 @@ class TimescaleRepository {
 
     if (sensorType === 'moisture') {
       tableName = 'moisture_readings';
-      valueColumn = 'moisture_percent';
+      valueColumn = 'moisture_surface_pct';
     } else if (sensorType === 'water-level') {
       tableName = 'water_level_readings';
       valueColumn = 'water_level_cm';
@@ -75,7 +75,7 @@ class TimescaleRepository {
 
     if (sensorType === 'moisture') {
       tableName = 'moisture_readings';
-      valueColumn = 'moisture_percent';
+      valueColumn = 'moisture_surface_pct';
     } else if (sensorType === 'water-level') {
       tableName = 'water_level_readings';
       valueColumn = 'water_level_cm';
@@ -578,9 +578,7 @@ class TimescaleRepository {
         plotId: row.plot_id,
         moistureLowerThreshold: parseFloat(row.moisture_lower_threshold),
         moistureUpperThreshold: parseFloat(row.moisture_upper_threshold),
-        waterLevelLowerThreshold: parseFloat(
-          row.water_level_lower_threshold
-        ),
+        waterLevelLowerThreshold: parseFloat(row.water_level_lower_threshold),
         waterLevelUpperThreshold: parseFloat(row.water_level_upper_threshold)
       };
     } catch (error) {

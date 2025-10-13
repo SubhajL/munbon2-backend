@@ -1,4 +1,4 @@
-const logger = require("../utils/logger");
+const logger = require('../utils/logger');
 
 class WaterBalanceService {
   constructor(config) {
@@ -15,7 +15,7 @@ class WaterBalanceService {
         startTime: cycle.startTime,
         valveName: cycle.valveName,
         controlMode: cycle.controlMode,
-        triggerValue: cycle.triggerValue,
+        triggerValue: cycle.triggerValue
       });
       return;
     }
@@ -24,32 +24,32 @@ class WaterBalanceService {
     const volumeLiters = this.calculateVolumeFromDuration(
       cycle.startTime,
       cycle.endTime,
-      cycle.flowRate || this.flowRateLPM,
+      cycle.flowRate || this.flowRateLPM
     );
 
     try {
       await this.timescaleRepository.recordIrrigationCycle({
         ...cycle,
-        volumeLiters,
+        volumeLiters
       });
 
       logger.info(
         {
           plotId: cycle.plotId,
           volumeLiters,
-          duration: (cycle.endTime - cycle.startTime) / 1000 / 60,
+          duration: (cycle.endTime - cycle.startTime) / 1000 / 60
         },
-        "Irrigation cycle recorded",
+        'Irrigation cycle recorded'
       );
     } catch (error) {
-      logger.error({ error, cycle }, "Failed to record irrigation cycle");
+      logger.error({ error, cycle }, 'Failed to record irrigation cycle');
       throw error;
     }
   }
 
   startIrrigation(plotId, valveName, controlMode, triggerValue) {
     if (this.ongoingCycles.has(plotId)) {
-      logger.warn({ plotId }, "Irrigation already in progress");
+      logger.warn({ plotId }, 'Irrigation already in progress');
       return;
     }
 
@@ -58,24 +58,24 @@ class WaterBalanceService {
       startTime: new Date(),
       valveName,
       controlMode,
-      triggerValue,
+      triggerValue
     };
 
     this.ongoingCycles.set(plotId, cycle);
 
-    logger.info({ plotId, controlMode, triggerValue }, "Irrigation started");
+    logger.info({ plotId, controlMode, triggerValue }, 'Irrigation started');
   }
 
   async stopIrrigation(plotId, endTime = new Date()) {
     const ongoingCycle = this.ongoingCycles.get(plotId);
     if (!ongoingCycle) {
-      logger.warn({ plotId }, "No ongoing irrigation to stop");
+      logger.warn({ plotId }, 'No ongoing irrigation to stop');
       return;
     }
 
     const completedCycle = {
       ...ongoingCycle,
-      endTime,
+      endTime
     };
 
     await this.recordIrrigationCycle(completedCycle);
@@ -83,7 +83,7 @@ class WaterBalanceService {
 
     logger.info(
       { plotId, duration: (endTime - ongoingCycle.startTime) / 1000 / 60 },
-      "Irrigation stopped",
+      'Irrigation stopped'
     );
   }
 
@@ -109,12 +109,12 @@ class WaterBalanceService {
         averageCycleDurationMinutes: parseFloat(
           balance.average_duration_minutes || 0
         ),
-        efficiency: 0, // Will be calculated separately
+        efficiency: 0 // Will be calculated separately
       };
     } catch (error) {
       logger.error(
         { error, plotId, date },
-        "Failed to calculate daily balance"
+        'Failed to calculate daily balance'
       );
       throw error;
     }
@@ -135,7 +135,7 @@ class WaterBalanceService {
     } catch (error) {
       logger.error(
         { error, startDate, endDate },
-        "Failed to aggregate usage metrics"
+        'Failed to aggregate usage metrics'
       );
       throw error;
     }
@@ -162,7 +162,7 @@ class WaterBalanceService {
         Math.round((balance.totalUsageLiters / plannedDemandLiters) * 100) / 100
       );
     } catch (error) {
-      logger.error({ error, plotId, date }, "Failed to calculate efficiency");
+      logger.error({ error, plotId, date }, 'Failed to calculate efficiency');
       return 0;
     }
   }

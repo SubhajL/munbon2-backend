@@ -1,4 +1,4 @@
-const logger = require("../utils/logger");
+const logger = require('../utils/logger');
 
 /**
  * Controller for plot configuration management (crop type, control mode)
@@ -20,13 +20,13 @@ class PlotConfigController {
       res.json({
         success: true,
         count: configs.length,
-        data: configs,
+        data: configs
       });
     } catch (error) {
-      logger.error({ error }, "Failed to get plot configurations");
+      logger.error({ error }, 'Failed to get plot configurations');
       res.status(500).json({
         success: false,
-        error: "Failed to retrieve plot configurations",
+        error: 'Failed to retrieve plot configurations'
       });
     }
   }
@@ -44,22 +44,22 @@ class PlotConfigController {
       if (!config) {
         return res.status(404).json({
           success: false,
-          error: `Configuration not found for plot ${plotId}`,
+          error: `Configuration not found for plot ${plotId}`
         });
       }
 
       res.json({
         success: true,
-        data: config,
+        data: config
       });
     } catch (error) {
       logger.error(
         { error, plotId: req.params.plotId },
-        "Failed to get plot configuration",
+        'Failed to get plot configuration'
       );
       res.status(500).json({
         success: false,
-        error: "Failed to retrieve plot configuration",
+        error: 'Failed to retrieve plot configuration'
       });
     }
   }
@@ -75,17 +75,17 @@ class PlotConfigController {
       const { cropType, controlMode, updatedBy, notes } = req.body;
 
       // Validation
-      if (!cropType || !["rice", "corn"].includes(cropType)) {
+      if (!cropType || !['rice', 'corn'].includes(cropType)) {
         return res.status(400).json({
           success: false,
-          error: "Invalid cropType. Must be 'rice' or 'corn'",
+          error: 'Invalid cropType. Must be \'rice\' or \'corn\''
         });
       }
 
-      if (!controlMode || !["AWD", "MOISTURE"].includes(controlMode)) {
+      if (!controlMode || !['AWD', 'MOISTURE'].includes(controlMode)) {
         return res.status(400).json({
           success: false,
-          error: "Invalid controlMode. Must be 'AWD' or 'MOISTURE'",
+          error: 'Invalid controlMode. Must be \'AWD\' or \'MOISTURE\''
         });
       }
 
@@ -94,22 +94,22 @@ class PlotConfigController {
         cropType,
         controlMode,
         updatedBy,
-        notes,
+        notes
       });
 
       res.json({
         success: true,
-        message: "Plot configuration updated successfully",
-        data: config,
+        message: 'Plot configuration updated successfully',
+        data: config
       });
     } catch (error) {
       logger.error(
         { error, plotId: req.params.plotId },
-        "Failed to update plot configuration",
+        'Failed to update plot configuration'
       );
       res.status(500).json({
         success: false,
-        error: "Failed to update plot configuration",
+        error: 'Failed to update plot configuration'
       });
     }
   }
@@ -126,7 +126,7 @@ class PlotConfigController {
       if (!Array.isArray(configurations) || configurations.length === 0) {
         return res.status(400).json({
           success: false,
-          error: "configurations must be a non-empty array",
+          error: 'configurations must be a non-empty array'
         });
       }
 
@@ -136,21 +136,21 @@ class PlotConfigController {
           return res.status(400).json({
             success: false,
             error:
-              "Each configuration must have plotId, cropType, and controlMode",
+              'Each configuration must have plotId, cropType, and controlMode'
           });
         }
 
-        if (!["rice", "corn"].includes(config.cropType)) {
+        if (!['rice', 'corn'].includes(config.cropType)) {
           return res.status(400).json({
             success: false,
-            error: `Invalid cropType '${config.cropType}' for plot ${config.plotId}`,
+            error: `Invalid cropType '${config.cropType}' for plot ${config.plotId}`
           });
         }
 
-        if (!["AWD", "MOISTURE"].includes(config.controlMode)) {
+        if (!['AWD', 'MOISTURE'].includes(config.controlMode)) {
           return res.status(400).json({
             success: false,
-            error: `Invalid controlMode '${config.controlMode}' for plot ${config.plotId}`,
+            error: `Invalid controlMode '${config.controlMode}' for plot ${config.plotId}`
           });
         }
       }
@@ -161,13 +161,13 @@ class PlotConfigController {
       res.json({
         success: true,
         message: `Updated ${results.length} plot configurations`,
-        data: results,
+        data: results
       });
     } catch (error) {
-      logger.error({ error }, "Failed to batch update plot configurations");
+      logger.error({ error }, 'Failed to batch update plot configurations');
       res.status(500).json({
         success: false,
-        error: "Failed to batch update plot configurations",
+        error: 'Failed to batch update plot configurations'
       });
     }
   }
@@ -184,7 +184,7 @@ class PlotConfigController {
         total: configs.length,
         byCropType: {},
         byControlMode: {},
-        byCombination: {},
+        byCombination: {}
       };
 
       configs.forEach((config) => {
@@ -204,13 +204,13 @@ class PlotConfigController {
 
       res.json({
         success: true,
-        data: summary,
+        data: summary
       });
     } catch (error) {
-      logger.error({ error }, "Failed to get configuration summary");
+      logger.error({ error }, 'Failed to get configuration summary');
       res.status(500).json({
         success: false,
-        error: "Failed to retrieve configuration summary",
+        error: 'Failed to retrieve configuration summary'
       });
     }
   }

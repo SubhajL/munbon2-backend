@@ -16,7 +16,10 @@
     "test:integration": "node scripts/setup-databases.js && node scripts/test-ros-integration.js && node scripts/test-sensor-integration.js",
     "test:db": "node scripts/setup-databases.js",
     "test:ros": "node scripts/test-ros-integration.js",
-    "test:sensors": "node scripts/test-sensor-integration.js"
+    "test:sensors": "node scripts/test-sensor-integration.js",
+    "analysis": "node scripts/run-analysis-workflow.js",
+    "analysis:inspect": "node scripts/run-analysis-workflow.js 30 --inspect-test-table",
+    "analysis:weekly": "node scripts/run-analysis-workflow.js 7"
   },
   "keywords": [
     "smart-farm",

@@ -29,6 +29,82 @@ class SmartFarmWaterControlApp {
     this.processingPlots = new Set();
   }
 
+  async loadPlotConfigurationsFromDB(configRepository) {
+    try {
+      // Get plot configurations
+      const plots = await configRepository.getAllPlotConfigurations();
+
+      // Get sensor mappings
+      const mappings = await configRepository.pool.query(`
+        SELECT sensor_id, plot_id, sensor_type
+        FROM ${config.configDb.schema}.sensor_plot_mapping
+        WHERE plot_id NOT LIKE 'TEST-%'
+        ORDER BY plot_id, sensor_type
+      `);
+
+      // Build plot config map
+      const plotMap = new Map();
+      plots.forEach(plot => {
+        plotMap.set(plot.plotId, {
+          plotId: plot.plotId,
+          cropType: plot.cropType,
+          controlMode: plot.controlMode,
+          moistureSensorId: null,
+          waterLevelSensorId: null,
+          valveId: null
+        });
+      });
+
+      // Add sensor mappings
+      mappings.rows.forEach(row => {
+        const plot = plotMap.get(row.plot_id);
+        if (plot) {
+          if (row.sensor_type === 'moisture') plot.moistureSensorId = row.sensor_id;
+          if (row.sensor_type === 'water_level') plot.waterLevelSensorId = row.sensor_id;
+          if (row.sensor_type === 'valve') plot.valveId = row.sensor_id;
+        }
+      });
+
+      // Filter to plots with at least moisture sensor
+      // Valve IDs will be derived from plot configuration or naming convention
+      const configurePlots = Array.from(plotMap.values()).filter(
+        p => p.moistureSensorId
+      );
+
+      // Auto-generate valve IDs if not mapped (using plot number from valve_states or convention)
+      configurePlots.forEach(plot => {
+        if (!plot.valveId) {
+          // Derive valve name from plot position or use a default pattern
+          // For now, use plot_id substring as valve identifier
+          const plotShortId = plot.plotId.substring(0, 8);
+          plot.valveId = `SV_${plotShortId}`;
+        }
+      });
+
+      // Update config
+      config.plots = configurePlots;
+
+      // Build valve mapping
+      const valveMapping = new Map();
+      configurePlots.forEach(plot => {
+        valveMapping.set(plot.plotId, plot.valveId);
+      });
+      config.valveMapping = valveMapping;
+
+      logger.info(`Loaded ${configurePlots.length} plot configurations from database`);
+      configurePlots.forEach(plot => {
+        logger.info(`  - ${plot.plotId.substring(0,8)}... | ${plot.controlMode} | Valve: ${plot.valveId}`);
+      });
+
+      return configurePlots;
+    } catch (error) {
+      logger.error('Failed to load plot configurations from database');
+      logger.error(error.message);
+      logger.error(error.stack);
+      throw error;
+    }
+  }
+
   async initialize() {
     try {
       logger.info("Initializing Smart Farm Water Control Service...");
@@ -41,13 +117,48 @@ class SmartFarmWaterControlApp {
       const timescalePool = await this.db.initializeTimescaleDB(
         config.timescale,
       );
-      const mssqlPool = await this.db.initializeMSSQL(config.mssql);
 
-      // Initialize repository
+      // MSSQL connection - make it optional for now
+      let mssqlPool = null;
+      try {
+        mssqlPool = await this.db.initializeMSSQL(config.mssql);
+      } catch (error) {
+        logger.warn('MSSQL connection failed - valve commands will not work');
+        logger.warn(error.message);
+      }
+
+      // Initialize config database connection (munbon_dev) - read-only, no schema creation
+      const { Pool: PgPool } = require('pg');
+      const configPool = new PgPool({
+        host: config.configDb.host,
+        port: config.configDb.port,
+        database: config.configDb.database,
+        user: config.configDb.user,
+        password: config.configDb.password,
+        max: 5,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 2000
+      });
+
+      // Test connection
+      const testClient = await configPool.connect();
+      await testClient.query('SELECT NOW()');
+      testClient.release();
+      logger.info('Configuration database (munbon_dev) connected successfully');
+
+      // Initialize repositories
       const timescaleRepository = new TimescaleRepository(
         timescalePool,
         config.timescale.schemas,
       );
+
+      const configRepository = new TimescaleRepository(
+        configPool,
+        { control: config.configDb.schema }
+      );
+
+      // Load plot configurations from database
+      await this.loadPlotConfigurationsFromDB(configRepository);
 
       // Initialize control mode service and load modes
       const controlModeService = new ControlModeService(timescaleRepository);
@@ -104,7 +215,9 @@ class SmartFarmWaterControlApp {
 
       logger.info("Smart Farm Water Control Service initialized successfully");
     } catch (error) {
-      logger.error({ error }, "Failed to initialize service");
+      logger.error("Failed to initialize service");
+      logger.error(error.message);
+      logger.error(error.stack);
       throw error;
     }
   }

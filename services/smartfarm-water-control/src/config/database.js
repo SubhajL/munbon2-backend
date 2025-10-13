@@ -1,6 +1,6 @@
-const { Pool } = require("pg");
-const sql = require("mssql");
-const logger = require("../utils/logger");
+const { Pool } = require('pg');
+const sql = require('mssql');
+const logger = require('../utils/logger');
 
 class DatabaseConfig {
   constructor() {
@@ -18,22 +18,22 @@ class DatabaseConfig {
         password: config.password,
         max: 10,
         idleTimeoutMillis: 30000,
-        connectionTimeoutMillis: 2000,
+        connectionTimeoutMillis: 2000
       });
 
       // Test connection
       const client = await this.timescalePool.connect();
-      await client.query("SELECT NOW()");
+      await client.query('SELECT NOW()');
       client.release();
 
-      logger.info("TimescaleDB connected successfully");
+      logger.info('TimescaleDB connected successfully');
 
       // Create schemas if they don't exist
       await this.createSchemas();
 
       return this.timescalePool;
     } catch (error) {
-      logger.error({ error }, "Failed to connect to TimescaleDB");
+      logger.error({ error }, 'Failed to connect to TimescaleDB');
       throw error;
     }
   }
@@ -49,22 +49,22 @@ class DatabaseConfig {
         options: {
           encrypt: false,
           trustServerCertificate: true,
-          enableArithAbort: true,
+          enableArithAbort: true
         },
         pool: {
           max: 10,
           min: 0,
-          idleTimeoutMillis: 30000,
-        },
+          idleTimeoutMillis: 30000
+        }
       };
 
       this.mssqlPool = await sql.connect(mssqlConfig);
 
-      logger.info("MSSQL connected successfully");
+      logger.info('MSSQL connected successfully');
 
       return this.mssqlPool;
     } catch (error) {
-      logger.error({ error }, "Failed to connect to MSSQL");
+      logger.error({ error }, 'Failed to connect to MSSQL');
       throw error;
     }
   }
@@ -161,10 +161,10 @@ class DatabaseConfig {
           SELECT create_hypertable('water_control_smartfarm.irrigation_cycles', 'start_time',
             if_not_exists => TRUE, chunk_time_interval => INTERVAL '7 days');
         `);
-        logger.info("Hypertables created successfully");
+        logger.info('Hypertables created successfully');
       } catch (err) {
         logger.warn(
-          "TimescaleDB extension not available, using regular tables",
+          'TimescaleDB extension not available, using regular tables'
         );
       }
 
@@ -183,12 +183,13 @@ class DatabaseConfig {
         ON water_control_smartfarm.irrigation_cycles(plot_id, start_time DESC);
       `);
 
-      // Create notification triggers
-      await this.createSmartFarmNotifyTriggers(client);
+      // Skip trigger creation - triggers already exist in sensor_data database
+      // Triggers are on sensor_data.public.moisture_readings and sensor_data.public.water_level_readings
+      // They notify on channel 'sensor_evaluation_needed'
 
-      logger.info("Database schemas and tables created successfully");
+      logger.info('Database schemas and tables verified successfully');
     } catch (error) {
-      logger.error({ error }, "Failed to create schemas");
+      logger.error({ error }, 'Failed to create schemas');
       throw error;
     } finally {
       client.release();
@@ -228,25 +229,35 @@ class DatabaseConfig {
         $$ LANGUAGE plpgsql;
       `);
 
-      // Create trigger on moisture_readings
+      // Create trigger on moisture_readings (in public schema) - skip if exists
       await client.query(`
-        CREATE TRIGGER trigger_notify_moisture_reading
-        AFTER INSERT ON water_control_smartfarm.moisture_readings
-        FOR EACH ROW
-        EXECUTE FUNCTION smartfarm_notify_reading('moisture');
+        DO $$
+        BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trigger_notify_moisture_reading') THEN
+            CREATE TRIGGER trigger_notify_moisture_reading
+            AFTER INSERT ON public.moisture_readings
+            FOR EACH ROW
+            EXECUTE FUNCTION smartfarm_notify_reading('moisture');
+          END IF;
+        END$$;
       `);
 
-      // Create trigger on water_level_readings
+      // Create trigger on water_level_readings (in public schema) - skip if exists
       await client.query(`
-        CREATE TRIGGER trigger_notify_water_level_reading
-        AFTER INSERT ON water_control_smartfarm.water_level_readings
-        FOR EACH ROW
-        EXECUTE FUNCTION smartfarm_notify_reading('water-level');
+        DO $$
+        BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trigger_notify_water_level_reading') THEN
+            CREATE TRIGGER trigger_notify_water_level_reading
+            AFTER INSERT ON public.water_level_readings
+            FOR EACH ROW
+            EXECUTE FUNCTION smartfarm_notify_reading('water-level');
+          END IF;
+        END$$;
       `);
 
-      logger.info("Smart farm notification triggers created successfully");
+      logger.info('Smart farm notification triggers created successfully');
     } catch (error) {
-      logger.error({ error }, "Failed to create notification triggers");
+      logger.error({ error }, 'Failed to create notification triggers');
       throw error;
     }
   }

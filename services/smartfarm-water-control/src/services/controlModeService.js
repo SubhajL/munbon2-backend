@@ -1,4 +1,4 @@
-const logger = require("../utils/logger");
+const logger = require('../utils/logger');
 
 class ControlModeService {
   constructor(timescaleRepository, cacheTtlMs = 300000) {
@@ -16,16 +16,16 @@ class ControlModeService {
         this.cache.set(mode.plotId, mode.controlMode);
       });
       this.lastLoadTime = Date.now();
-      logger.info({ count: modes.length }, "Loaded control modes into cache");
+      logger.info({ count: modes.length }, 'Loaded control modes into cache');
     } catch (error) {
-      logger.error({ error }, "Failed to load control modes");
+      logger.error({ error }, 'Failed to load control modes');
       throw error;
     }
   }
 
   getMode(plotId) {
     if (this.lastLoadTime === null) {
-      throw new Error("Control modes not loaded. Call loadModes() first.");
+      throw new Error('Control modes not loaded. Call loadModes() first.');
     }
 
     if (!this.cache.has(plotId)) {
@@ -46,7 +46,7 @@ class ControlModeService {
 
   async refreshIfStale() {
     if (this.isCacheStale()) {
-      logger.info("Cache is stale, refreshing control modes");
+      logger.info('Cache is stale, refreshing control modes');
       await this.loadModes();
     }
   }
