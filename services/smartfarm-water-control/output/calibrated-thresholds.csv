@@ -1,0 +1,7 @@
+plot_id,status,moisture_lower,moisture_upper,data_points,method
+535d0d0b-afdb-49f2-85dd-74c13ee7b561,SUCCESS,80.6,87,89,percentile (p20, p80)
+5ea77d99-c3fa-43f5-9087-be15de92d615,SUCCESS,53,73,204,percentile (p20, p80)
+7072584e-e3cd-4bcc-9221-7a3a23386d2a,SUCCESS,15,29.6,218,percentile (p20, p80)
+fbd7920c-1a05-487c-a79e-a4003ab30be9,SUCCESS,90,96.2,80,percentile (p20, p80)
+TEST-PLOT-01,NO_DATA,N/A,N/A,0,N/A
+TEST-PLOT-02,NO_DATA,N/A,N/A,0,N/A

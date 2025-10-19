@@ -1,10 +1,46 @@
 require('dotenv').config();
 const path = require('path');
+const fs = require('fs');
 const {
   loadSmartFarmPlots,
   mergePlotConfig,
   validatePlotMappings
 } = require('../utils/plotConfigLoader');
+
+function tryLoadDeviceMapping() {
+  try {
+    const mappingPath = path.resolve(__dirname, '../../config/device-mapping.json');
+    if (!fs.existsSync(mappingPath)) return null;
+    const raw = fs.readFileSync(mappingPath, 'utf8');
+    const json = JSON.parse(raw);
+
+    // Build convenient lookup by plotId
+    const byPlotId = new Map();
+    if (json.plot_device_mapping) {
+      for (const [plotId, entry] of Object.entries(json.plot_device_mapping)) {
+        byPlotId.set(plotId, {
+          plotName: entry.plot_name,
+          controlMode: entry.control_mode,
+          solenoidValve: entry.devices?.solenoid_valve || null,
+          flowMeter: entry.devices?.flow_meter || null,
+          moistureSensor: entry.devices?.moisture_sensor || null,
+        });
+      }
+    }
+
+    return {
+      meta: {
+        version: json.version || null,
+        description: json.description || null,
+        last_updated: json.last_updated || null,
+      },
+      byPlotId,
+    };
+  } catch (e) {
+    // Fail-soft; continue without mapping
+    return null;
+  }
+}
 
 function loadConfiguration() {
   // Plot configurations will be loaded from database at runtime
@@ -12,12 +48,16 @@ function loadConfiguration() {
   // Plot configs are in munbon_dev.water_control_smartfarm.plot_configurations
   // Sensor mappings are in munbon_dev.water_control_smartfarm.sensor_plot_mapping
 
+  const deviceNames = process.env.USE_DEVICE_MAPPING_JSON === 'true' ? tryLoadDeviceMapping() : null;
+
   return {
     service: {
       port: parseInt(process.env.PORT || '3020'),
       environment: process.env.NODE_ENV || 'development',
       logLevel: process.env.LOG_LEVEL || 'info'
     },
+
+    deviceNames,
 
     // Plot configs will be populated at runtime from database
     plots: [],
@@ -55,11 +95,11 @@ function loadConfiguration() {
       tableName: process.env.MSSQL_TABLE_VALVE_COMMAND || 'tb_valve_command_v2'
     },
 
-    ros: {
-      apiUrl: process.env.ROS_API_URL,
-      apiKey: process.env.ROS_API_KEY,
-      endpoint:
-        process.env.ROS_CALCULATION_ENDPOINT || '/calculate-water-demand'
+    waterPlanning: {
+      serviceUrl: process.env.WATER_PLANNING_SERVICE_URL || 'http://localhost:4002',
+      apiKey: process.env.WATER_PLANNING_API_KEY,
+      endpoint: process.env.WATER_PLANNING_ENDPOINT || '/api/v1/water-demand/calculate',
+      timeout: parseInt(process.env.WATER_PLANNING_TIMEOUT_MS || '10000')
     },
 
     control: {
@@ -121,7 +161,7 @@ function validateConfiguration(config) {
     'mssql.host',
     'mssql.database',
     'mssql.user',
-    'ros.apiUrl'
+    'waterPlanning.serviceUrl'
   ];
 
   for (const path of required) {

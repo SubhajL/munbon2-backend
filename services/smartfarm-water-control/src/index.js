@@ -71,7 +71,17 @@ class SmartFarmWaterControlApp {
         p => p.moistureSensorId
       );
 
-      // Auto-generate valve IDs if not mapped (using plot number from valve_states or convention)
+      // Apply overrides from device-mapping.json if available
+      configurePlots.forEach(plot => {
+        const byPlot = config.deviceNames?.byPlotId;
+        const override = byPlot?.get(plot.plotId);
+
+        if (override?.solenoidValve) {
+          plot.valveId = override.solenoidValve;
+        }
+      });
+
+      // Auto-generate valve IDs if still not mapped
       configurePlots.forEach(plot => {
         if (!plot.valveId) {
           // Derive valve name from plot position or use a default pattern
@@ -79,6 +89,14 @@ class SmartFarmWaterControlApp {
           const plotShortId = plot.plotId.substring(0, 8);
           plot.valveId = `SV_${plotShortId}`;
         }
+      });
+
+      // Derive fields expected by controllers
+      configurePlots.forEach(plot => {
+        // Choose the active sensor id based on control mode
+        plot.sensorId =
+          plot.controlMode === 'MOISTURE' ? plot.moistureSensorId : plot.waterLevelSensorId;
+        plot.valveName = plot.valveId;
       });
 
       // Update config
@@ -178,9 +196,10 @@ class SmartFarmWaterControlApp {
         }),
         waterPlanning: new WaterPlanningService({
           timescaleRepository,
-          rosApiUrl: config.ros.apiUrl,
-          rosApiKey: config.ros.apiKey,
-          rosEndpoint: config.ros.endpoint,
+          waterPlanningUrl: config.waterPlanning.serviceUrl,
+          waterPlanningApiKey: config.waterPlanning.apiKey,
+          waterPlanningEndpoint: config.waterPlanning.endpoint,
+          timeout: config.waterPlanning.timeout,
           plotConfigs: config.plots,
         }),
         waterBalance: new WaterBalanceService({

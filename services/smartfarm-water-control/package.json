@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "nodemon",
     "start": "node src/index.js",
+    "restart": "bash scripts/kill-port.sh 3020 && node src/index.js",
+    "kill-port": "bash scripts/kill-port.sh",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
@@ -19,7 +21,20 @@
     "test:sensors": "node scripts/test-sensor-integration.js",
     "analysis": "node scripts/run-analysis-workflow.js",
     "analysis:inspect": "node scripts/run-analysis-workflow.js 30 --inspect-test-table",
-    "analysis:weekly": "node scripts/run-analysis-workflow.js 7"
+    "analysis:weekly": "node scripts/run-analysis-workflow.js 7",
+    "listen-worker": "node scripts/listen-worker.js",
+    "worker": "node scripts/listen-worker.js",
+    "import:smartfarm-shape": "node scripts/import-smartfarm-shape.js",
+    "db:create-tables": "node scripts/create-smartfarm-tables.js",
+    "db:create-views": "node scripts/create-smartfarm-views.js",
+    "verify:smartfarm-ingest": "node scripts/verify-smartfarm-ingest.js",
+    "db:reset-smartfarm": "node scripts/reset-smartfarm-config.js",
+    "map:sensors": "node scripts/map-sensors-to-plots.js",
+    "seed:classification": "node scripts/seed-smartfarm-classification.js",
+    "migrate:allow-garden": "node scripts/migrations/allow-garden-croptype.js",
+    "listener:waterlevel-locations": "node scripts/run-waterlevel-listener.js",
+    "import:moisture-zip": "node scripts/import-moisture-sensors-from-zip.js",
+    "workers:smartfarm": "node scripts/start-smartfarm-workers.js"
   },
   "keywords": [
     "smart-farm",
@@ -37,6 +52,8 @@
     "mssql": "^10.0.1",
     "node-cron": "^3.0.2",
     "pg": "^8.11.3",
+    "proj4": "^2.19.10",
+    "shapefile": "^0.6.6",
     "winston": "^3.11.0"
   },
   "devDependencies": {

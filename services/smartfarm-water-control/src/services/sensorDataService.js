@@ -61,11 +61,18 @@ class SensorDataService {
   }
 
   determineSensorType(sensorId) {
-    if (sensorId.includes('AWD') || sensorId.includes('WL')) {
+    const id = String(sensorId || '').toUpperCase();
+
+    // Water-level sensors
+    if (id.includes('AWD') || id.includes('WL') || id.startsWith('AWD-') || id.startsWith('WL-')) {
       return 'water-level';
-    } else if (sensorId.includes('MOIST') || sensorId.includes('MS')) {
+    }
+
+    // Moisture sensors (legacy and new H-Px aliases)
+    if (id.includes('MOIST') || id.includes('MS') || id.startsWith('H-P')) {
       return 'moisture';
     }
+
     throw new Error(`Unknown sensor type for ID: ${sensorId}`);
   }
 
