@@ -4,9 +4,10 @@ const logger = require('../utils/logger');
 class WaterPlanningService {
   constructor(config) {
     this.timescaleRepository = config.timescaleRepository;
-    this.rosApiUrl = config.rosApiUrl;
-    this.rosApiKey = config.rosApiKey;
-    this.rosEndpoint = config.rosEndpoint || '/api/v1/ros/demand/calculate';
+    this.waterPlanningUrl = config.waterPlanningUrl;
+    this.waterPlanningApiKey = config.waterPlanningApiKey;
+    this.waterPlanningEndpoint = config.waterPlanningEndpoint || '/api/v1/water-demand/calculate';
+    this.timeout = config.timeout || 10000;
     this.plotConfigs = config.plotConfigs;
     this.demandCache = new Map();
   }
@@ -26,35 +27,35 @@ class WaterPlanningService {
     }
 
     try {
-      const rosInput = this.prepareROSInput(plotConfig, date);
+      const demandInput = this.prepareDemandInput(plotConfig, date);
 
-      const fullUrl = this.rosEndpoint.startsWith('http')
-        ? this.rosEndpoint
-        : `${this.rosApiUrl}${this.rosEndpoint}`;
+      const fullUrl = this.waterPlanningEndpoint.startsWith('http')
+        ? this.waterPlanningEndpoint
+        : `${this.waterPlanningUrl}${this.waterPlanningEndpoint}`;
 
       const response = await axios.post(
         fullUrl,
-        rosInput,
+        demandInput,
         {
           headers: {
-            'X-API-Key': this.rosApiKey,
+            'X-API-Key': this.waterPlanningApiKey,
             'Content-Type': 'application/json'
           },
-          timeout: 30000
+          timeout: this.timeout
         }
       );
 
-      const rosOutput = response.data;
+      const demandOutput = response.data;
 
       const demand = {
         plotId,
         date,
-        demandCubicMeters: rosOutput.netIrrigation.amount_m3,
+        demandCubicMeters: demandOutput.combined_demand_m3 || demandOutput.awd_demand_m3 || 0,
         cropType: plotConfig.cropType,
-        growthStage: this.determineGrowthStage(rosOutput.cropDetails),
-        et0: rosOutput.cropDetails.et0,
-        kc: rosOutput.cropDetails.weightedKc,
-        effectiveRainfall: rosOutput.effectiveRainfall.amount_m3
+        growthStage: 'mid-season', // Simplified for now
+        et0: demandOutput.et0_mm || 4.5,
+        kc: demandOutput.avg_kc_factor || 1.1,
+        effectiveRainfall: demandOutput.effective_rainfall_m3 || 0
       };
 
       // Cache the result
@@ -148,19 +149,15 @@ class WaterPlanningService {
     return demands;
   }
 
-  prepareROSInput(plotConfig, date) {
+  prepareDemandInput(plotConfig, date) {
     return {
-      cropType: plotConfig.cropType,
-      calculationDate: date.toISOString().split('T')[0],
-      calculationPeriod: 1, // Daily calculation
-      plantings: [
-        {
-          plantingDate: this.getPlantingDate(plotConfig, date),
-          areaRai: plotConfig.areaRai,
-          growthDays: null // Let ROS calculate based on planting date
-        }
-      ],
-      nonAgriculturalDemands: []
+      plot_id: plotConfig.plotId,
+      date: date.toISOString().split('T')[0],
+      crop_type: plotConfig.cropType || 'rice',
+      area_rai: plotConfig.areaRai || 1.0,
+      control_mode: plotConfig.controlMode || 'MOISTURE',
+      planting_date: this.getPlantingDate(plotConfig, date).toISOString().split('T')[0],
+      calculation_method: 'combined' // Use combined ROS + RID-MS calculation
     };
   }
 
