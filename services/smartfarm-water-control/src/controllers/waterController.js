@@ -20,6 +20,10 @@ class WaterController {
 
       // Get control mode from database
       const controlMode = this.controlMode.getMode(plotId);
+      if (!controlMode || String(controlMode).trim() === '' || String(controlMode).toLowerCase() === 'none') {
+        logger.info({ plotId }, 'Skipping plot without control_mode');
+        return null;
+      }
 
       logger.info({ plotId, controlMode }, 'Processing plot');
 
@@ -278,6 +282,15 @@ class WaterController {
 
       // Sync to TimescaleDB
       await this.waterPlanning.syncToTimescale(demands);
+
+      // Seed daily_progress rows with 0 actual usage (updated later by progress job)
+      for (const d of demands) {
+        try {
+          await this.waterPlanning.updateDailyProgress(d.plotId, 0, today);
+        } catch (e) {
+          logger.warn({ error: e, plotId: d.plotId }, 'Failed to seed daily_progress');
+        }
+      }
 
       logger.info(
         { count: demands.length },

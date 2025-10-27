@@ -9,7 +9,10 @@ const {
 
 function tryLoadDeviceMapping() {
   try {
-    const mappingPath = path.resolve(__dirname, '../../config/device-mapping.json');
+    const mappingPath = path.resolve(
+      __dirname,
+      '../../config/device-mapping.json'
+    );
     if (!fs.existsSync(mappingPath)) return null;
     const raw = fs.readFileSync(mappingPath, 'utf8');
     const json = JSON.parse(raw);
@@ -23,7 +26,7 @@ function tryLoadDeviceMapping() {
           controlMode: entry.control_mode,
           solenoidValve: entry.devices?.solenoid_valve || null,
           flowMeter: entry.devices?.flow_meter || null,
-          moistureSensor: entry.devices?.moisture_sensor || null,
+          moistureSensor: entry.devices?.moisture_sensor || null
         });
       }
     }
@@ -32,14 +35,30 @@ function tryLoadDeviceMapping() {
       meta: {
         version: json.version || null,
         description: json.description || null,
-        last_updated: json.last_updated || null,
+        last_updated: json.last_updated || null
       },
-      byPlotId,
+      byPlotId
     };
   } catch (e) {
     // Fail-soft; continue without mapping
     return null;
   }
+}
+
+function parseBool(value, defaultVal) {
+  if (typeof value !== 'string') return !!defaultVal;
+  const v = value.trim().toLowerCase();
+  if (v === 'true') return true;
+  if (v === 'false') return false;
+  return !!defaultVal;
+}
+
+function loadCronEnablementFromEnv(env) {
+  return {
+    control: parseBool(env.ENABLE_CONTROL_CRON, false),
+    planning: parseBool(env.ENABLE_PLANNING_CRON, true),
+    progress: parseBool(env.ENABLE_PROGRESS_CRON, true)
+  };
 }
 
 function loadConfiguration() {
@@ -48,7 +67,10 @@ function loadConfiguration() {
   // Plot configs are in munbon_dev.water_control_smartfarm.plot_configurations
   // Sensor mappings are in munbon_dev.water_control_smartfarm.sensor_plot_mapping
 
-  const deviceNames = process.env.USE_DEVICE_MAPPING_JSON === 'true' ? tryLoadDeviceMapping() : null;
+  const deviceNames =
+    process.env.USE_DEVICE_MAPPING_JSON === 'true'
+      ? tryLoadDeviceMapping()
+      : null;
 
   return {
     service: {
@@ -66,10 +88,13 @@ function loadConfiguration() {
     // Configuration database connection (munbon_dev)
     configDb: {
       host: process.env.CONFIG_DB_HOST || process.env.TIMESCALE_HOST,
-      port: parseInt(process.env.CONFIG_DB_PORT || process.env.TIMESCALE_PORT || '5432'),
+      port: parseInt(
+        process.env.CONFIG_DB_PORT || process.env.TIMESCALE_PORT || '5432'
+      ),
       database: process.env.CONFIG_DB_NAME || 'munbon_dev',
       user: process.env.CONFIG_DB_USER || process.env.TIMESCALE_USER,
-      password: process.env.CONFIG_DB_PASSWORD || process.env.TIMESCALE_PASSWORD,
+      password:
+        process.env.CONFIG_DB_PASSWORD || process.env.TIMESCALE_PASSWORD,
       schema: process.env.CONFIG_DB_SCHEMA || 'water_control_smartfarm'
     },
 
@@ -96,9 +121,11 @@ function loadConfiguration() {
     },
 
     waterPlanning: {
-      serviceUrl: process.env.WATER_PLANNING_SERVICE_URL || 'http://localhost:4002',
+      mode: (process.env.WATER_PLANNING_MODE || 'internal').toLowerCase(),
+      serviceUrl: process.env.WATER_PLANNING_SERVICE_URL || '',
       apiKey: process.env.WATER_PLANNING_API_KEY,
-      endpoint: process.env.WATER_PLANNING_ENDPOINT || '/api/v1/water-demand/calculate',
+      endpoint:
+        process.env.WATER_PLANNING_ENDPOINT || '/api/v1/water-demand/calculate',
       timeout: parseInt(process.env.WATER_PLANNING_TIMEOUT_MS || '10000')
     },
 
@@ -143,9 +170,24 @@ function loadConfiguration() {
         process.env.LISTENER_DEBOUNCE_WINDOW_MS || '5000'
       ),
       moistureFreshnessWindowMs: parseInt(
-        process.env.MOISTURE_FRESHNESS_WINDOW_MS || '300000'
+        process.env.LISTENER_MOISTURE_FRESHNESS_WINDOW_MS || '300000'
       )
-    }
+    },
+
+    outbox: {
+      enabled: parseBool(process.env.ENABLE_OUTBOX_POLLER, true),
+      pollIntervalMs: parseInt(process.env.OUTBOX_POLL_INTERVAL_MS || '5000'),
+      batchSize: parseInt(process.env.OUTBOX_BATCH_SIZE || '100'),
+      cleanup: {
+        enabled: parseBool(process.env.OUTBOX_CLEANUP_ENABLED, true),
+        retentionDays: parseInt(process.env.OUTBOX_RETENTION_DAYS || '7'),
+        cleanupIntervalHours: parseInt(
+          process.env.OUTBOX_CLEANUP_INTERVAL_HOURS || '24'
+        )
+      }
+    },
+
+    cron: loadCronEnablementFromEnv(process.env)
   };
 }
 
@@ -160,9 +202,13 @@ function validateConfiguration(config) {
     'configDb.user',
     'mssql.host',
     'mssql.database',
-    'mssql.user',
-    'waterPlanning.serviceUrl'
+    'mssql.user'
   ];
+
+  // Only require external planning URL when mode is external
+  if (config.waterPlanning.mode === 'external') {
+    required.push('waterPlanning.serviceUrl');
+  }
 
   for (const path of required) {
     const value = path.split('.').reduce((obj, key) => obj?.[key], config);
@@ -177,4 +223,8 @@ function validateConfiguration(config) {
 const config = loadConfiguration();
 validateConfiguration(config);
 
-module.exports = config;
+// Export config as the main export, and expose helpers for testing/consumers
+module.exports = Object.assign(config, {
+  parseBool,
+  loadCronEnablementFromEnv
+});

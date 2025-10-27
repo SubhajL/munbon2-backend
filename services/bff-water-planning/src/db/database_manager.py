@@ -4,7 +4,7 @@ from typing import Dict, List, Optional, Any, AsyncGenerator
 from datetime import datetime
 import redis.asyncio as redis
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy.pool import NullPool
+from sqlalchemy.pool import QueuePool
 from contextlib import asynccontextmanager
 
 from core import get_logger
@@ -53,23 +53,41 @@ class DatabaseManager:
             else:
                 encoded_postgres_url = settings.postgres_url
             
-            # PostgreSQL connection pool for raw queries
+            # PostgreSQL connection pool for raw queries (asyncpg)
             self._pg_pool = await asyncpg.create_pool(
                 encoded_postgres_url,
                 min_size=settings.db_pool_min_size,
                 max_size=settings.db_pool_max_size,
                 max_queries=settings.db_pool_max_queries,
                 max_inactive_connection_lifetime=settings.db_pool_max_inactive_connection_lifetime,
-                command_timeout=60
+                timeout=60,
+                command_timeout=60,
+                server_settings={
+                    "application_name": "bff-water-planning",
+                    "idle_in_transaction_session_timeout": "300000",
+                    "statement_timeout": "60000"
+                }
             )
             
-            # SQLAlchemy async engine for ORM
-            # Note: When using NullPool, we can't specify pool_size or max_overflow
+            # SQLAlchemy async engine with proper pooling and connection recycling
+            # Using QueuePool instead of NullPool for better connection management
             self.engine = create_async_engine(
                 encoded_postgres_url.replace('postgresql://', 'postgresql+asyncpg://'),
                 echo=settings.environment == "development",
                 pool_pre_ping=True,
-                poolclass=NullPool
+                poolclass=QueuePool,
+                pool_size=settings.db_pool_min_size,
+                max_overflow=settings.db_pool_max_size - settings.db_pool_min_size,
+                pool_timeout=30,
+                pool_recycle=3600,  # Recycle connections after 1 hour
+                connect_args={
+                    "timeout": 60,
+                    "command_timeout": 60,
+                    "server_settings": {
+                        "idle_in_transaction_session_timeout": "300000",  # 5 minutes
+                        "statement_timeout": "60000",  # 60 seconds
+                    },
+                },
             )
             
             # Create async session factory

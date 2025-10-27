@@ -150,17 +150,17 @@ async function testExternalServices() {
     }
   }
 
-  // Test ROS Service
-  if (config.ros.apiUrl) {
+  // Test Water Planning Service
+  if (config.waterPlanning && config.waterPlanning.serviceUrl) {
     try {
-      const response = await axios.get(
-        `${config.ros.apiUrl}/health`,
+      await axios.get(
+        `${config.waterPlanning.serviceUrl}/health`,
         { timeout: 5000 }
       );
-      console.log('✅ ROS Service is reachable');
+      console.log('✅ Water Planning Service is reachable');
     } catch (error) {
-      console.log('⚠️  ROS Service not reachable at', config.ros.apiUrl);
-      console.log('   Make sure the ROS service is running');
+      console.log('⚠️  Water Planning Service not reachable at', config.waterPlanning.serviceUrl);
+      console.log('   Ensure the planning API is running');
     }
   }
 }
@@ -177,7 +177,7 @@ function printSummary() {
     'MSSQL_HOST',
     'MSSQL_USER',
     'MSSQL_PASSWORD',
-    'ROS_API_KEY',
+'WATER_PLANNING_API_KEY',
     'SENSOR_DATA_API_KEY'
   ];
 

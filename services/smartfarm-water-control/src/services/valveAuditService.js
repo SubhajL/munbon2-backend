@@ -1,14 +1,14 @@
-const logger = require("../utils/logger");
+const logger = require('../utils/logger');
 
 /**
  * Service for logging valve control changes to audit table
  * Records comprehensive context including sensor values, thresholds, and decision reasoning
  */
 class ValveAuditService {
-  constructor(pool, schema = "water_control_smartfarm") {
+  constructor(pool, schema = 'water_control_smartfarm') {
     if (!/^[a-z_][a-z0-9_]*$/i.test(schema)) {
       throw new Error(
-        `Invalid schema name: "${schema}". Must contain only letters, numbers, and underscores.`,
+        `Invalid schema name: "${schema}". Must contain only letters, numbers, and underscores.`
       );
     }
     this.pool = pool;
@@ -22,12 +22,12 @@ class ValveAuditService {
    */
   async logValveChange(auditData) {
     const requiredFields = [
-      "plotId",
-      "valveName",
-      "newState",
-      "controlMode",
-      "action",
-      "reason",
+      'plotId',
+      'valveName',
+      'newState',
+      'controlMode',
+      'action',
+      'reason'
     ];
 
     for (const field of requiredFields) {
@@ -75,7 +75,7 @@ class ValveAuditService {
         auditData.plotId,
         auditData.valveName,
         auditData.changedAt || new Date(),
-        auditData.previousState || "UNKNOWN",
+        auditData.previousState || 'UNKNOWN',
         auditData.newState,
         moistureValue,
         waterLevelValue,
@@ -94,13 +94,13 @@ class ValveAuditService {
         auditData.mssqlTableUsed || null,
         auditData.estimatedDurationMinutes || null,
         auditData.estimatedVolumeLiters || null,
-        auditData.triggeredBy || "AUTO",
+        auditData.triggeredBy || 'AUTO',
         auditData.userId || null,
-        auditData.notes || null,
+        auditData.notes || null
       ]);
 
       if (result.rows.length === 0) {
-        throw new Error("Failed to insert audit record: no rows returned");
+        throw new Error('Failed to insert audit record: no rows returned');
       }
 
       const auditId = Number(result.rows[0].id);
@@ -113,14 +113,14 @@ class ValveAuditService {
           previousState: auditData.previousState,
           newState: auditData.newState,
           action: auditData.action,
-          reason: auditData.reason,
+          reason: auditData.reason
         },
-        "Valve change logged to audit table",
+        'Valve change logged to audit table'
       );
 
       return auditId;
     } catch (error) {
-      logger.error({ error, auditData }, "Failed to log valve change to audit");
+      logger.error({ error, auditData }, 'Failed to log valve change to audit');
       throw error;
     }
   }
@@ -145,12 +145,12 @@ class ValveAuditService {
 
       logger.debug(
         { auditId, succeeded, errorMessage },
-        "Audit record updated with command result",
+        'Audit record updated with command result'
       );
     } catch (error) {
       logger.error(
         { error, auditId, succeeded, errorMessage },
-        "Failed to update audit record",
+        'Failed to update audit record'
       );
       throw error;
     }
@@ -167,7 +167,7 @@ class ValveAuditService {
       limit = 100,
       offset = 0,
       startDate = null,
-      endDate = null,
+      endDate = null
     } = options;
 
     let query = `
@@ -210,7 +210,7 @@ class ValveAuditService {
       const result = await this.pool.query(query, params);
       return result.rows.map((row) => this.mapRowToAuditRecord(row));
     } catch (error) {
-      logger.error({ error, plotId, options }, "Failed to get audit history");
+      logger.error({ error, plotId, options }, 'Failed to get audit history');
       throw error;
     }
   }
@@ -244,7 +244,7 @@ class ValveAuditService {
       const result = await this.pool.query(query, [limit]);
       return result.rows.map((row) => this.mapRowToAuditRecord(row));
     } catch (error) {
-      logger.error({ error, limit }, "Failed to get recent changes");
+      logger.error({ error, limit }, 'Failed to get recent changes');
       throw error;
     }
   }
@@ -273,7 +273,7 @@ class ValveAuditService {
     const params = [startDate, endDate];
 
     if (plotId) {
-      query += " AND plot_id = $3";
+      query += ' AND plot_id = $3';
       params.push(plotId);
     }
 
@@ -290,12 +290,12 @@ class ValveAuditService {
         totalWaterUsedLiters: Number(row.total_water_used) || 0,
         avgDurationMinutes: row.avg_duration_minutes
           ? Number(row.avg_duration_minutes)
-          : 0,
+          : 0
       };
     } catch (error) {
       logger.error(
         { error, plotId, startDate, endDate },
-        "Failed to get change statistics",
+        'Failed to get change statistics'
       );
       throw error;
     }
@@ -347,7 +347,7 @@ class ValveAuditService {
       triggeredBy: row.triggered_by,
       userId: row.user_id,
       notes: row.notes,
-      createdAt: row.created_at,
+      createdAt: row.created_at
     };
   }
 }

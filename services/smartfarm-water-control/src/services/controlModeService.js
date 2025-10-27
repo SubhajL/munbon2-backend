@@ -29,7 +29,7 @@ class ControlModeService {
     }
 
     if (!this.cache.has(plotId)) {
-      throw new Error(`No control mode configured for plot: ${plotId}`);
+      return null; // skip plots without configured mode
     }
 
     return this.cache.get(plotId);

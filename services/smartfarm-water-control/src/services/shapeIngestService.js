@@ -41,7 +41,7 @@ class ShapeIngestService {
         plotId,
         plotName: props.plot_name || props.plotName || props.name || null,
         areaRai,
-        geojson: geometry,
+        geojson: geometry
       });
     }
     return results;
@@ -78,7 +78,7 @@ class ShapeIngestService {
         deviceType: 'moisture_sensor',
         lng: ms.coordinates?.[0],
         lat: ms.coordinates?.[1],
-        position: ms.position || null,
+        position: ms.position || null
       });
     }
 
@@ -92,7 +92,7 @@ class ShapeIngestService {
         sensorId: entry.devices?.moisture_sensor || null,
         controlMode: entry.control_mode || null,
         areaRai: entry.area_rai || null,
-        plotName: entry.plot_name || null,
+        plotName: entry.plot_name || null
       });
     }
 
@@ -114,7 +114,7 @@ class ShapeIngestService {
       deviceType: 'moisture_sensor',
       lng: ms.lng,
       lat: ms.lat,
-      plotId: null,
+      plotId: null
     }));
 
     // Plot configurations and sensor mappings
@@ -128,7 +128,7 @@ class ShapeIngestService {
         controlMode: a.controlMode || 'MOISTURE',
         valveId: a.valveId || null,
         flowmeterId: a.flowmeterId || null,
-        areaRai: a.areaRai || p.areaRai,
+        areaRai: a.areaRai || p.areaRai
       });
       if (a.sensorId) {
         sensorMappings.push({ sensorId: a.sensorId, plotId: p.plotId, sensorType: 'moisture' });
@@ -142,7 +142,7 @@ class ShapeIngestService {
   }
 
   async applyUpserts(plan) {
-    let counts = { plotBoundaries: 0, devices: 0, sensors: 0, plotConfigs: 0, sensorMappings: 0 };
+    const counts = { plotBoundaries: 0, devices: 0, sensors: 0, plotConfigs: 0, sensorMappings: 0 };
 
     for (const pb of plan.plotBoundaries) { await this.repo.upsertPlotBoundary(pb); counts.plotBoundaries++; }
     for (const d of plan.devices) { await this.repo.upsertDevice(d); counts.devices++; }

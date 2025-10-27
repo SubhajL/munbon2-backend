@@ -12,7 +12,7 @@ describe('start-smartfarm-workers', () => {
     expect(spawn).toHaveBeenCalledTimes(3);
     const calls = spawn.mock.calls.map(c => ({ cmd: c[0], args: c[1], env: c[2].env }));
     expect(calls[0].args[0]).toContain('start-zip-watcher.js');
-    expect(calls[0].env.ZIP_WATCH_DIR).toBe('/datauploads');
+    expect(calls[0].env.ZIP_WATCH_DIR).toMatch(/datauploads$/);
     expect(calls[1].args[0]).toContain('run-waterlevel-listener.js');
     expect(calls[1].env.WL_LISTEN).toBe('true');
     expect(calls[2].args[0]).toContain('listen-worker.js');

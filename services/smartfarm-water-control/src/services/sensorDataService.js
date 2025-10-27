@@ -64,8 +64,8 @@ class SensorDataService {
     const id = String(sensorId || '').toUpperCase();
 
     // Water-level sensors
-    if (id.includes('AWD') || id.includes('WL') || id.startsWith('AWD-') || id.startsWith('WL-')) {
-      return 'water-level';
+    if (id.includes('AWD') || id.includes('WL') || id.startsWith('AWD-') || id.startsWith('WL-') || id.includes('_WL_')) {
+      return 'water_level';
     }
 
     // Moisture sensors (legacy and new H-Px aliases)

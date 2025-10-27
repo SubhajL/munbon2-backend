@@ -20,7 +20,7 @@ async function unzipAndParse(zipPath, logger = console) {
     port: parseInt(process.env.CONFIG_DB_PORT || process.env.TIMESCALE_PORT || '5432'),
     database: process.env.CONFIG_DB_NAME || 'munbon_dev',
     user: process.env.CONFIG_DB_USER || process.env.TIMESCALE_USER,
-    password: process.env.CONFIG_DB_PASSWORD || process.env.TIMESCALE_PASSWORD,
+    password: process.env.CONFIG_DB_PASSWORD || process.env.TIMESCALE_PASSWORD
   });
   const repo = new ConfigRepository({ pool, logger, schemas: { smartfarm: 'ros_gis_smartfarm', control: 'water_control_smartfarm' } });
   const ingest = new MoistureShapeIngest({ repo, logger });
