@@ -1,10 +1,21 @@
 const express = require('express');
 const router = express.Router();
 const logger = require('../utils/logger');
+const { HealthController } = require('../controllers/healthController');
 
-module.exports = (controller) => {
-  // Health check
-  router.get('/health', (req, res) => {
+module.exports = (controller, services) => {
+  const healthController = new HealthController(services);
+  // Health check with full system status
+  router.get('/health', healthController.checkHealth.bind(healthController));
+
+  // Sensor data endpoint for charts
+  router.get(
+    '/sensor-data',
+    healthController.getSensorData.bind(healthController)
+  );
+
+  // Basic health check
+  router.get('/ping', (req, res) => {
     res.json({
       status: 'healthy',
       service: 'smartfarm-water-control',

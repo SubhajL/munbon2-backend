@@ -12,7 +12,7 @@ describe('ShapeIngestService (unit)', () => {
       upsertDevice: jest.fn().mockResolvedValue(),
       upsertSensorLocation: jest.fn().mockResolvedValue(),
       upsertPlotConfiguration: jest.fn().mockResolvedValue(),
-      upsertSensorMapping: jest.fn().mockResolvedValue(),
+      upsertSensorMapping: jest.fn().mockResolvedValue()
     };
     jest.isolateModules(() => {
       ShapeIngestService = require('../shapeIngestService');
@@ -36,10 +36,10 @@ describe('ShapeIngestService (unit)', () => {
     const result = svc.parseGeoJSON(geojson);
     expect(result).toEqual([
       {
-        plotId: 'p1',
+        plotId: 'SF-p1',
         plotName: 'Plot 1',
         areaRai: 1.23,
-        geojson: geojson.features[0].geometry,
+        geojson: geojson.features[0].geometry
       }
     ]);
 

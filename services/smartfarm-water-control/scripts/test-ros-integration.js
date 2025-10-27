@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 
 const axios = require('axios');
 require('dotenv').config();

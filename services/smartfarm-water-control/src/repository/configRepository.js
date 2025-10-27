@@ -1,5 +1,5 @@
 const ALLOWED_DEVICE_TYPES = new Set(['solenoid_valve', 'flow_meter', 'moisture_sensor', 'water_level_sensor', 'valve']);
-const ALLOWED_CONTROL_MODES = new Set(['AWD', 'MOISTURE']);
+const ALLOWED_CONTROL_MODES = new Set(['AWD', 'MOISTURE', 'none']);
 
 class ConfigRepository {
   constructor({ pool, logger, schemas }) {
