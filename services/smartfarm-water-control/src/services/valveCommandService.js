@@ -1,5 +1,9 @@
 const sql = require('mssql');
 const logger = require('../utils/logger');
+const {
+  convertUTCToLocalTime,
+  formatDateForMSSQL
+} = require('../utils/timezone');
 
 class ValveCommandService {
   constructor(config) {
@@ -7,6 +11,7 @@ class ValveCommandService {
     this.timescaleRepository = config.timescaleRepository;
     this.valveMapping = config.valveMapping;
     this.tableName = config.tableName;
+    this.timezone = config.timezone || 'Asia/Bangkok';
     this.valveStates = new Map();
 
     // SCADA valve name mapping: smartfarm -> SCADA
@@ -42,6 +47,9 @@ class ValveCommandService {
       this.scadaNameMapping.get(smartfarmValveName) || smartfarmValveName;
 
     try {
+      const localTime = convertUTCToLocalTime(timestamp, this.timezone);
+      const formattedTime = formatDateForMSSQL(localTime);
+
       const query = `
         INSERT INTO ${this.tableName}
         (valve_name, valve_level, startdatetime)
@@ -52,7 +60,7 @@ class ValveCommandService {
         .request()
         .input('valve_name', sql.VarChar(50), scadaValveName)
         .input('valve_level', sql.Int, level)
-        .input('startdatetime', sql.DateTime, timestamp)
+        .input('startdatetime', sql.VarChar(50), formattedTime)
         .query(query);
 
       logger.info(
