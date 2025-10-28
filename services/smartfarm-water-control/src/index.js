@@ -21,6 +21,7 @@ const OutboxCleanupService = require('./services/outboxCleanupService');
 const GeoSpatialSensorResolver = require('./services/geoSpatialSensorResolver');
 const { WaterController } = require('./controllers/waterController');
 const createRoutes = require('./routes');
+const { buildValveMappingFromDb, mergeValveMapping } = require('./utils/plotConfigBuilder');
 
 class SmartFarmWaterControlApp {
   constructor() {
@@ -49,27 +50,30 @@ class SmartFarmWaterControlApp {
         configRepository.pool
       );
 
-      const { plots: configurePlots, valveMapping } =
-        buildPlotConfigsFromEnriched({
-          plots,
-          mappings,
-          deviceOverrides: config.deviceNames || null
-        });
+      const base = buildPlotConfigsFromEnriched({
+        plots,
+        mappings,
+        deviceOverrides: null
+      });
+
+      // Load valve mapping strictly from DB
+      const dbValveMap = await buildValveMappingFromDb(configRepository);
+      const merged = mergeValveMapping({ plots: base.plots, dbValveMap });
 
       // Update runtime config
-      config.plots = configurePlots;
-      config.valveMapping = valveMapping;
+      config.plots = merged.plots;
+      config.valveMapping = merged.valveMapping;
 
       logger.info(
-        `Loaded ${configurePlots.length} plot configurations from database`
+        `Loaded ${merged.plots.length} plot configurations from database`
       );
-      configurePlots.forEach((plot) => {
+      merged.plots.forEach((plot) => {
         logger.info(
           `  - ${plot.plotId.substring(0, 8)}... | ${plot.controlMode} | Valve: ${plot.valveId}`
         );
       });
 
-      return configurePlots;
+      return merged.plots;
     } catch (error) {
       logger.error('Failed to load plot configurations from database');
       logger.error(error.message);
@@ -148,7 +152,8 @@ class SmartFarmWaterControlApp {
           mssqlPool,
           timescaleRepository,
           valveMapping: config.valveMapping,
-          tableName: config.mssql.tableName
+          tableName: config.mssql.tableName,
+          timezone: config.mssql.timezone
         }),
         waterPlanning: new WaterPlanningService({
           planningRepository: configRepository, // write planned data to munbon_dev

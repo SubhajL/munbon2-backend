@@ -117,7 +117,8 @@ function loadConfiguration() {
       database: process.env.MSSQL_DB,
       user: process.env.MSSQL_USER,
       password: process.env.MSSQL_PASSWORD,
-      tableName: process.env.MSSQL_TABLE_VALVE_COMMAND || 'tb_valve_command_v2'
+      tableName: process.env.MSSQL_TABLE_VALVE_COMMAND || 'tb_valve_command_v2',
+      timezone: process.env.TIMEZONE || 'Asia/Bangkok'
     },
 
     waterPlanning: {
