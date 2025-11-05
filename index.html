@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Munbon Dashboards</title>
+    <link rel="icon" href="data:," />
+    <style>
+      body { font-family: -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif; background:#f6f7f8; padding:40px; }
+      .card { max-width: 720px; margin: 0 auto; background:#fff; border-radius:12px; padding:24px; box-shadow:0 2px 8px rgba(0,0,0,.06); }
+      h1 { margin:0 0 8px; font-size:24px; }
+      p { color:#555; margin: 0 0 16px; }
+      .row { display:flex; gap:12px; align-items:center; margin: 16px 0; }
+      input { flex:1; padding:10px 12px; border:1px solid #ddd; border-radius:8px; font-size:14px; }
+      button { padding:10px 14px; border:0; background:#2563eb; color:#fff; border-radius:8px; cursor:pointer; }
+      a.button { display:inline-block; padding:10px 14px; background:#16a34a; color:#fff; text-decoration:none; border-radius:8px; }
+      ul { padding-left: 18px; }
+      code { background:#f0f2f5; padding:2px 6px; border-radius:6px; }
+    </style>
+    <script src="frontend-config.js"></script>
+  </head>
+  <body>
+    <div class="card">
+      <h1>Munbon Frontend Dashboards</h1>
+      <p>Point these static dashboards to your backend API and open the views below.</p>
+      <div class="row">
+        <input id="apiBase" placeholder="API Base e.g. http://localhost:3001/api/v1" />
+        <button id="save">Save</button>
+      </div>
+      <p style="font-size:13px;color:#666">Current API: <code id="current"></code></p>
+      <ul>
+        <li><a class="button" href="frontend-health-dashboard.html" target="_blank">Service Health + Charts</a></li>
+        <li><a class="button" href="frontend-moisture-graphs.html" target="_blank">Moisture Graphs</a></li>
+        <li><a class="button" href="frontend-water-level-graphs.html" target="_blank">Water Level Graphs</a></li>
+      </ul>
+      <p style="font-size:12px;color:#777">Tip: you can also set the API via query param: <code>?api=http://localhost:3001/api/v1</code></p>
+    </div>
+    <script>
+      const el = {
+        input: document.getElementById('apiBase'),
+        save: document.getElementById('save'),
+        current: document.getElementById('current')
+      };
+      el.input.value = window.API_BASE || 'http://localhost:3001/api/v1';
+      el.current.textContent = window.API_BASE || 'http://localhost:3001/api/v1';
+      el.save.onclick = () => {
+        const v = el.input.value.trim();
+        if (!v) return;
+        try { localStorage.setItem('MUNBON_API_BASE', v); } catch (e) {}
+        el.current.textContent = v;
+        alert('Saved. Reload any dashboard tabs to apply.');
+      };
+    </script>
+  </body>
+  </html>
+
