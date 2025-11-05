@@ -6,15 +6,18 @@ import { createSensorRoutes } from './sensors.routes';
 import { createWaterLevelRoutes } from './water-level.routes';
 import { createMoistureRoutes } from './moisture.routes';
 import { createExternalRoutes } from './external.routes';
+import { createServiceManagementRoutes } from './service-management.routes';
+import type { SmartFarmRepositoryLike } from '../repository/smartfarm.repository';
 
 interface RouteOptions {
   sensorDataService: SensorDataService;
   timescaleRepo: TimescaleRepository;
   logger: Logger;
+  smartFarmRepository?: SmartFarmRepositoryLike;
 }
 
 export function setupRoutes(app: Express, options: RouteOptions): void {
-  const { sensorDataService, timescaleRepo, logger } = options;
+  const { sensorDataService, timescaleRepo, logger, smartFarmRepository } = options;
 
   // Mount API route modules
   app.use('/api/v1', createSensorRoutes({
@@ -25,18 +28,23 @@ export function setupRoutes(app: Express, options: RouteOptions): void {
 
   app.use('/api/v1', createWaterLevelRoutes({
     repository: timescaleRepo,
-    logger
+    logger,
+    smartFarmRepository,
   }));
 
   app.use('/api/v1', createMoistureRoutes({
     repository: timescaleRepo,
-    logger
+    logger,
+    smartFarmRepository,
   }));
 
   app.use('/api/v1/external', createExternalRoutes({
     repository: timescaleRepo,
     logger
   }));
+
+  // Service management routes
+  app.use('/api/v1', createServiceManagementRoutes());
 
   // Sensor data ingestion endpoint (for HTTP fallback)
   app.post('/api/v1/:token/telemetry', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
