@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Moisture Sensor Monitoring - Munbon</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script src="frontend-config.js"></script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: #f5f5f5;
+        padding: 20px;
+      }
+
+      .container {
+        max-width: 1600px;
+        margin: 0 auto;
+      }
+
+      .header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 30px;
+        flex-wrap: wrap;
+        gap: 20px;
+      }
+
+      h1 {
+        color: #333;
+        font-size: 28px;
+      }
+
+      .back-button {
+        padding: 10px 20px;
+        background: #666;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-block;
+        transition: background 0.2s;
+      }
+
+      .back-button:hover {
+        background: #555;
+      }
+
+      .controls {
+        display: flex;
+        gap: 15px;
+        margin-bottom: 30px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+
+      .controls label {
+        color: #333;
+        font-weight: 500;
+      }
+
+      .controls select {
+        padding: 8px 12px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-size: 14px;
+      }
+
+      .refresh-btn {
+        padding: 8px 20px;
+        background: #4caf50;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-weight: 500;
+        transition: background 0.2s;
+      }
+
+      .refresh-btn:hover {
+        background: #45a049;
+      }
+
+      .sensors-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
+        gap: 25px;
+        margin-bottom: 40px;
+      }
+
+      .sensor-panel {
+        background: white;
+        border-radius: 8px;
+        padding: 20px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
+
+      .sensor-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 15px;
+      }
+
+      .sensor-title {
+        font-size: 16px;
+        font-weight: 600;
+        color: #333;
+      }
+
+      .sensor-stats {
+        display: flex;
+        gap: 15px;
+        margin-bottom: 15px;
+        flex-wrap: wrap;
+      }
+
+      .stat {
+        font-size: 12px;
+        color: #666;
+      }
+
+      .stat-value {
+        font-weight: 600;
+        color: #333;
+      }
+
+      .chart-container {
+        position: relative;
+        height: 250px;
+      }
+
+      .loading {
+        text-align: center;
+        padding: 40px;
+        color: #666;
+      }
+
+      .error-message {
+        background: #ffebee;
+        color: #c62828;
+        padding: 12px;
+        border-radius: 4px;
+        margin: 10px 0;
+        font-size: 13px;
+      }
+
+      .last-update {
+        text-align: center;
+        color: #666;
+        font-size: 14px;
+        margin-top: 20px;
+      }
+
+      @media (max-width: 768px) {
+        .sensors-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1>🌾 Moisture Sensor Monitoring</h1>
+        <a href="frontend-health-dashboard.html" class="back-button"
+          >← Back to Dashboard</a
+        >
+      </div>
+
+      <div class="controls">
+        <label for="periodSelect">Period:</label>
+        <select id="periodSelect">
+          <option value="24h" selected>Last 24 Hours</option>
+          <option value="3d">Last 3 Days</option>
+          <option value="7d">Last 7 Days</option>
+          <option value="14d">Last 14 Days</option>
+        </select>
+        <button class="refresh-btn" onclick="refreshData()">
+          🔄 Refresh Now
+        </button>
+      </div>
+
+      <div class="sensors-grid" id="sensorsGrid">
+        <div class="loading">Loading sensor data...</div>
+      </div>
+
+      <div class="last-update" id="lastUpdate"></div>
+    </div>
+
+    <script>
+      const API_BASE = window.API_BASE || "http://localhost:3001/api/v1";
+      const SENSOR_IDS = [
+        "0001-0001",
+        "0001-0002",
+        "0001-0003",
+        "0001-0004",
+        "0001-0005",
+        "0001-0006",
+        "0001-0007",
+        "0001-0008",
+        "0001-0009",
+        "0001-0010",
+        "0001-0011",
+        "0001-0012",
+      ];
+
+      let charts = {};
+      let refreshInterval = null;
+
+      async function fetchMoistureData(period) {
+        try {
+          // Fetch all sensors for the selected period (no default sensorIds filter)
+          const response = await fetch(
+            `${API_BASE}/moisture/chart?period=${period}&timeZone=Asia/Bangkok`,
+          );
+
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+
+          return await response.json();
+        } catch (error) {
+          console.error("Error fetching moisture data:", error);
+          throw error;
+        }
+      }
+
+      function calculateStats(dataPoints, field) {
+        if (!dataPoints || dataPoints.length === 0)
+          return { min: 0, max: 0, avg: 0 };
+
+        const values = dataPoints
+          .map((p) => p[field])
+          .filter((v) => v !== null);
+        if (values.length === 0) return { min: 0, max: 0, avg: 0 };
+
+        return {
+          min: Math.min(...values),
+          max: Math.max(...values),
+          avg: values.reduce((a, b) => a + b, 0) / values.length,
+        };
+      }
+
+      function renderSensors(data) {
+        const grid = document.getElementById("sensorsGrid");
+        grid.innerHTML = "";
+
+        if (!data.sensors || Object.keys(data.sensors).length === 0) {
+          grid.innerHTML =
+            '<div class="error-message">No sensor data available</div>';
+          return;
+        }
+
+        const availableIds = Object.keys(data.sensors);
+        let idsToRender = SENSOR_IDS.filter(id => availableIds.includes(id));
+        if (idsToRender.length === 0) idsToRender = availableIds;
+
+        idsToRender.forEach((sensorId) => {
+          const sensorData = data.sensors[sensorId];
+
+          const panel = document.createElement("div");
+          panel.className = "sensor-panel";
+          panel.id = `sensor-${sensorId}`;
+
+          const surfaceStats = calculateStats(
+            sensorData.dataPoints,
+            "avgMoistureSurface",
+          );
+          const deepStats = calculateStats(
+            sensorData.dataPoints,
+            "avgMoistureDeep",
+          );
+
+          panel.innerHTML = `
+                    <div class="sensor-header">
+                        <div class="sensor-title">Sensor ${sensorId}${sensorData.plotId ? ` • Plot: ${sensorData.plotId}` : ''}</div>
+                        <div class="stat">${sensorData.dataPoints.length} points</div>
+                    </div>
+                    <div class="sensor-stats">
+                        <div class="stat">
+                            Surface: <span class="stat-value">${surfaceStats.avg.toFixed(1)}%</span>
+                            (${surfaceStats.min.toFixed(1)}-${surfaceStats.max.toFixed(1)}%)
+                        </div>
+                        <div class="stat">
+                            Deep: <span class="stat-value">${deepStats.avg.toFixed(1)}%</span>
+                            (${deepStats.min.toFixed(1)}-${deepStats.max.toFixed(1)}%)
+                        </div>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="chart-${sensorId}"></canvas>
+                    </div>
+                `;
+
+          grid.appendChild(panel);
+
+          renderChart(sensorId, sensorData.dataPoints);
+        });
+
+        document.getElementById("lastUpdate").textContent =
+          `Last updated: ${new Date().toLocaleString()}`;
+      }
+
+      function renderChart(sensorId, dataPoints) {
+        const canvasId = `chart-${sensorId}`;
+        const ctx = document.getElementById(canvasId);
+
+        if (!ctx) return;
+
+        if (charts[sensorId]) {
+          charts[sensorId].destroy();
+        }
+
+        // Build consistent datasets with fixed palette
+        const palette = {
+          surface: 'rgb(20, 184, 166)', // teal
+          deep: 'rgb(236, 72, 153)',    // pink
+          lower: 'rgb(220, 38, 38)',    // red
+          upper: 'rgb(234, 179, 8)',    // amber
+        };
+
+        const buildDataset = (label, data, color, opts = {}) => ({
+          label,
+          data,
+          borderColor: color,
+          backgroundColor: 'rgba(0,0,0,0)',
+          borderWidth: 2,
+          tension: 0.4,
+          fill: false,
+          spanGaps: true,
+          pointRadius: 2,
+          pointHoverRadius: 4,
+          ...opts,
+        });
+
+        const surfaceData = dataPoints.map((p) => ({ x: new Date(p.time), y: p.avgMoistureSurface }));
+        const deepData = dataPoints.map((p) => ({ x: new Date(p.time), y: p.avgMoistureDeep }));
+
+        const startX = dataPoints.length ? new Date(dataPoints[0].time) : new Date();
+        const endX = dataPoints.length ? new Date(dataPoints[dataPoints.length - 1].time) : new Date();
+        const thresholds = (window.lastResponse && window.lastResponse.sensors && window.lastResponse.sensors[sensorId] && window.lastResponse.sensors[sensorId].thresholds) || null;
+
+        const datasets = [];
+        // 1) Surface
+        datasets.push(buildDataset('Surface', surfaceData, palette.surface, { order: 1 }));
+        // 2) Deep (dashed, thicker than thresholds)
+        datasets.push(buildDataset('Deep', deepData, palette.deep, { order: 2, borderDash: [5, 5] }));
+        // 3) Lower / 4) Upper thresholds (thin, solid)
+        if (thresholds && thresholds.lower !== null && thresholds.lower !== undefined) {
+          datasets.push(buildDataset('Lower threshold', [
+            { x: startX, y: thresholds.lower },
+            { x: endX, y: thresholds.lower },
+          ], palette.lower, { order: 3, borderWidth: 1, tension: 0, pointRadius: 0 }));
+        }
+        if (thresholds && thresholds.upper !== null && thresholds.upper !== undefined) {
+          datasets.push(buildDataset('Upper threshold', [
+            { x: startX, y: thresholds.upper },
+            { x: endX, y: thresholds.upper },
+          ], palette.upper, { order: 4, borderWidth: 1, tension: 0, pointRadius: 0 }));
+        }
+
+        charts[sensorId] = new Chart(ctx, {
+          type: "line",
+          data: {
+            datasets,
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                display: true,
+                position: "top",
+              },
+              tooltip: {
+                mode: "index",
+                intersect: false,
+              },
+            },
+            scales: {
+              x: {
+                type: "time",
+                time: {
+                  unit: "hour",
+                  displayFormats: {
+                    hour: "MM/dd HH:mm",
+                  },
+                },
+                title: {
+                  display: true,
+                  text: "Time",
+                },
+              },
+              y: {
+                beginAtZero: false,
+                title: {
+                  display: true,
+                  text: "Moisture %",
+                },
+              },
+            },
+          },
+        });
+      }
+
+      async function loadData() {
+        const grid = document.getElementById("sensorsGrid");
+        grid.innerHTML = '<div class="loading">Loading sensor data...</div>';
+
+        try {
+          const period = document.getElementById("periodSelect").value;
+          const data = await fetchMoistureData(period);
+          // Save to window for threshold lookups
+          window.lastResponse = data;
+          renderSensors(data);
+        } catch (error) {
+          grid.innerHTML = `<div class="error-message">Failed to load data: ${error.message}</div>`;
+        }
+      }
+
+      function refreshData() {
+        loadData();
+      }
+
+      function setupAutoRefresh() {
+        if (refreshInterval) {
+          clearInterval(refreshInterval);
+        }
+        refreshInterval = setInterval(() => {
+          loadData();
+        }, 60000);
+      }
+
+      document.getElementById("periodSelect").addEventListener("change", () => {
+        loadData();
+        setupAutoRefresh();
+      });
+
+      window.onload = () => {
+        loadData();
+        setupAutoRefresh();
+      };
+
+      window.onbeforeunload = () => {
+        if (refreshInterval) {
+          clearInterval(refreshInterval);
+        }
+      };
+    </script>
+  </body>
+</html>
