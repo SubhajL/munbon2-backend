@@ -25,6 +25,9 @@ AsyncSessionLocal = async_sessionmaker(
 # Create base class for models
 Base = declarative_base()
 
+# Backward-compatible alias expected by deps
+SessionLocal = AsyncSessionLocal
+
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """Dependency to get database session"""

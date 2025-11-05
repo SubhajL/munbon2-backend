@@ -6,11 +6,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSock
 from sqlalchemy import select, and_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ....core.deps import get_db, get_current_user, get_redis, verify_websocket_token
-from ....core.redis import RedisClient
-from ....core.logger import get_logger
-from ....models.schedule import WeeklySchedule, ScheduledOperation
-from ....schemas.monitoring import (
+from core.deps import get_db, get_current_user, get_redis, verify_websocket_token
+from core.redis import RedisClient
+from core.logger import get_logger
+from models.schedule import WeeklySchedule, ScheduledOperation
+from schemas.monitoring import (
     ScheduleStatus, OperationProgress, TeamStatus,
     AlertMessage, PerformanceMetrics
 )

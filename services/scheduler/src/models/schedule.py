@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Date, Time, Float, Boolean, Text, JSON
+from sqlalchemy import Column, String, Integer, Date, Time, Float, Boolean, Text, JSON, DateTime
 from sqlalchemy.dialects.postgresql import UUID, ARRAY
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -6,7 +6,7 @@ import uuid
 from datetime import date, time
 from typing import Optional, List, Dict
 
-from ..core.database import Base
+from core.database import Base
 from .base import BaseModel
 
 
