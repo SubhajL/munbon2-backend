@@ -4,8 +4,8 @@ exports.sensorRepository = exports.SensorRepository = void 0;
 const database_1 = require("../config/database");
 const logger_1 = require("../utils/logger");
 class SensorRepository {
-    timescalePool = (0, database_1.getTimescalePool)();
-    postgresPool = (0, database_1.getPostgresPool)();
+    get timescalePool() { return (0, database_1.getTimescalePool)(); }
+    get postgresPool() { return (0, database_1.getPostgresPool)(); }
     async getLatestWaterLevel(fieldId) {
         try {
             const sensorQuery = `
