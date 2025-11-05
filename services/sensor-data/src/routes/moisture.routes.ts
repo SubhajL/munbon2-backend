@@ -1,15 +1,23 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { Logger } from 'pino';
 import { TimescaleRepository } from '../repository/timescale.repository';
+import { MoistureChartDataService } from '../services/moisture-chart-data.service';
+import { MoistureChartFormatter } from '../transformers/moisture-chart-formatter';
+import { isValidPeriod } from '../utils/time-period.utils';
+
+import type { SmartFarmRepositoryLike } from '../repository/smartfarm.repository';
 
 interface MoistureRoutesOptions {
   repository: TimescaleRepository;
   logger: Logger;
+  smartFarmRepository?: SmartFarmRepositoryLike;
 }
 
 export function createMoistureRoutes(options: MoistureRoutesOptions): Router {
   const router = Router();
   const { repository, logger } = options;
+  const chartDataService = new MoistureChartDataService(repository, logger);
+  const chartFormatter = new MoistureChartFormatter();
 
   // Get all moisture readings with filters
   router.get('/moisture', async (req: Request, res: Response, next: NextFunction) => {
@@ -402,6 +410,71 @@ export function createMoistureRoutes(options: MoistureRoutesOptions): Router {
       });
     } catch (error) {
       logger.error({ error }, 'Failed to get flood history');
+      next(error);
+    }
+  });
+
+  // Get chart data for visualization with period selection
+  // Returns per-sensor datasets with local timezone timestamps
+  // Query params: period (24h|3d|7d|14d), sensorIds (comma-separated, optional)
+  router.get('/moisture/chart', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const period = (req.query.period as string | undefined) || '24h';
+      const sensorIdsParam = (req.query.sensorIds as string | undefined)?.trim();
+      const timeZone = (req.query.timeZone as string | undefined) || 'UTC';
+
+      // Validate period
+      if (!isValidPeriod(period)) {
+        res.status(400).json({
+          error: `Invalid period: ${period}. Must be one of: 24h, 3d, 7d, 14d`,
+        });
+        return;
+      }
+
+      // Parse sensor IDs if provided
+      const sensorIds = sensorIdsParam
+        ? sensorIdsParam.split(',').map(s => s.trim()).filter(Boolean)
+        : undefined;
+
+      // Get data from service
+      const rows = await chartDataService.getMoistureChartData(period, sensorIds);
+
+      let meta: Record<string, { plotId?: string | null; thresholds?: { lower: number | null; upper: number | null } }> | undefined;
+      if (options.smartFarmRepository && rows.length > 0) {
+        try {
+          const sensorIdsPresent = Array.from(new Set(rows.map((r) => r.sensor_id)));
+          const mappings = await options.smartFarmRepository.getPlotMappingsBySensorIds(sensorIdsPresent);
+          const plotIds = Array.from(new Set(Object.values(mappings)));
+          const thresholdsByPlot = await options.smartFarmRepository.getThresholdsByPlotIds(plotIds);
+          meta = {};
+          for (const sid of sensorIdsPresent) {
+            const pid = mappings[sid];
+            if (!pid) continue;
+            const thr = thresholdsByPlot[pid];
+            meta[sid] = {
+              plotId: pid,
+              thresholds: thr ? { lower: thr.moistureLower, upper: thr.moistureUpper } : { lower: null, upper: null },
+            };
+          }
+        } catch (e) {
+          logger.warn({ err: e as any }, 'SmartFarm metadata enrichment failed');
+        }
+      }
+
+      // Format response with per-sensor data and local timestamps
+      const response = chartFormatter.formatChartDataBySensor(
+        rows,
+        period as '24h' | '3d' | '7d' | '14d',
+        timeZone,
+        meta
+      );
+
+      res.json(response);
+    } catch (error) {
+      logger.error(
+        { error, period: req.query.period, sensorIds: req.query.sensorIds },
+        'Failed to get moisture chart data'
+      );
       next(error);
     }
   });
