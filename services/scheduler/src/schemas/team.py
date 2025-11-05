@@ -71,7 +71,7 @@ class TeamMember(BaseModel):
 
 class TeamBase(BaseModel):
     """Base team information"""
-    team_code: str = Field(..., regex="^TEAM-[A-Z0-9]+$", description="Unique team code")
+    team_code: str = Field(..., pattern="^TEAM-[A-Z0-9]+$", description="Unique team code")
     name: str = Field(..., max_length=100)
     base_location: str = Field(..., description="Home base location")
     base_latitude: float = Field(..., ge=-90, le=90)
@@ -194,8 +194,8 @@ class TeamAvailability(BaseModel):
         None, description="Available time slots if partially available"
     )
     max_operations: Optional[int] = Field(None, description="Override max operations for this date")
-    
-    @root_validator
+
+    @root_validator(skip_on_failure=True)
     def validate_availability(cls, values):
         if not values.get('available') and not values.get('reason'):
             raise ValueError("Reason required when team is not available")
@@ -235,6 +235,17 @@ class TeamInstructions(BaseModel):
             date: lambda v: v.isoformat(),
             UUID: lambda v: str(v),
         }
+
+
+class TeamAssignment(BaseModel):
+    """Assignments summary for a team on a specific date"""
+    date: date
+    team_id: str
+    total_operations: int
+    completed_operations: int
+    failed_operations: int
+    total_distance_km: float
+    operations: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class TeamPerformance(BaseModel):

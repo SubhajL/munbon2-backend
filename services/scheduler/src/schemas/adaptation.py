@@ -118,7 +118,7 @@ class WeatherChangeRequest(BaseModel):
     # Recommendations from weather service
     recommended_adjustment_percent: Optional[float] = Field(None, ge=-100, le=100)
     
-    @root_validator
+    @root_validator(skip_on_failure=True)
     def validate_weather_data(cls, values):
         change_type = values.get('change_type')
         if change_type == WeatherChangeType.RAINFALL and values.get('rainfall_mm') is None:
@@ -190,6 +190,7 @@ class ReoptimizationRequest(BaseModel):
     # Trigger
     trigger_type: AdaptationType
     trigger_description: str
+    reason: Optional[str] = Field(None, description="Human-readable reason for reoptimization")
     
     # Constraints for reoptimization
     constraints: Dict[str, Any] = Field(default_factory=dict)
@@ -310,6 +311,48 @@ class ContingencyPlan(BaseModel):
             datetime: lambda v: v.isoformat() if v else None,
             UUID: lambda v: str(v),
         }
+
+
+class GateFailureEvent(BaseModel):
+    """Event payload for gate failure (runtime adaptation)"""
+    gate_id: str
+    failure_type: FailureType
+    estimated_repair_hours: float = Field(..., ge=0)
+    timestamp: Optional[datetime] = None
+
+
+class WeatherChangeEvent(BaseModel):
+    """Event payload for weather change (runtime adaptation)"""
+    rainfall_mm: float = 0
+    temperature_change: float = 0
+    humidity_percent: Optional[float] = None
+    wind_speed_kmh: Optional[float] = None
+    timestamp: Optional[datetime] = None
+
+
+class DemandChangeEvent(BaseModel):
+    """Event payload for demand change (runtime adaptation)"""
+    zone_id: str
+    plot_ids: List[str]
+    additional_demand_m3: float = Field(..., ge=0)
+    urgency: str
+    reason: str
+
+
+class EmergencyOverride(BaseModel):
+    """Emergency override command payload"""
+    gate_id: str
+    target_opening: float = Field(..., ge=0, le=100)
+    override_safety_checks: bool = False
+    reason: str
+
+
+class AdaptationRequest(BaseModel):
+    """Generic adaptation request envelope (not currently used by endpoints)"""
+    request_type: AdaptationType
+    payload: Dict[str, Any]
+    requested_by: Optional[str] = None
+    requested_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class AdaptationMetrics(BaseModel):

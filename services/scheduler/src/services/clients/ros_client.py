@@ -1,9 +1,9 @@
 from typing import List, Dict, Any, Optional
 from datetime import date
 
-from .base_client import BaseServiceClient
-from ...core.config import settings
-from ...core.logger import get_logger
+from services.clients.base_client import BaseServiceClient
+from core.config import settings
+from core.logger import get_logger
 
 logger = get_logger(__name__)
 

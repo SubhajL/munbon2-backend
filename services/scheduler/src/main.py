@@ -5,13 +5,13 @@ from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import uvicorn
 
-from .core.config import settings
-from .core.database import init_db, close_db, engine
-from .core.redis import get_redis_client
-from .core.logger import setup_logging, get_logger
-from .api.v1.routes import api_router
-from .models import *  # Import all models to register them
-from .models.base import Base
+from core.config import settings
+from core.database import init_db, close_db, engine
+from core.redis import get_redis
+from core.logger import setup_logging, get_logger
+from api.v1.routes import api_router
+from models import *  # Import all models to register them
+from core.database import Base
 
 # Setup logging
 setup_logging()
@@ -29,8 +29,9 @@ async def lifespan(app: FastAPI):
         await conn.run_sync(Base.metadata.create_all)
     logger.info("Database tables created/verified")
     
-    # Connect to Redis
-    redis_client = await get_redis_client()
+# Connect to Redis
+    redis_client = await get_redis()  # get singleton
+    await redis_client.connect()
     logger.info("Redis client initialized")
     
     yield
@@ -86,8 +87,9 @@ async def readiness_check():
     """Readiness check endpoint"""
     # Check database connection
     try:
+        from sqlalchemy import text
         async with engine.connect() as conn:
-            await conn.execute("SELECT 1")
+            await conn.execute(text("SELECT 1"))
         db_status = "connected"
     except Exception as e:
         logger.error(f"Database connection failed: {str(e)}")

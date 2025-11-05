@@ -2,8 +2,8 @@ import httpx
 from typing import Optional, Dict, Any
 from abc import ABC, abstractmethod
 
-from ...core.logger import get_logger
-from ...core.config import settings
+from core.logger import get_logger
+from core.config import settings
 
 logger = get_logger(__name__)
 
@@ -90,3 +90,6 @@ class BaseServiceClient(ABC):
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self.close()
+
+# Backwards-compatible alias
+BaseClient = BaseServiceClient

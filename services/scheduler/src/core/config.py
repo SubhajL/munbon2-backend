@@ -1,6 +1,7 @@
 from typing import List, Optional
-from pydantic_settings import BaseSettings
-from pydantic import validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import field_validator
+from urllib.parse import urlparse
 
 
 class Settings(BaseSettings):
@@ -9,6 +10,10 @@ class Settings(BaseSettings):
     service_port: int = 3021
     log_level: str = "INFO"
     environment: str = "development"
+    # Backwards-compatibility aliases
+    app_name: str = "scheduler"
+    app_version: str = "0.1.0"
+    allowed_origins: List[str] = ["*"]
     
     # Database
     database_url: str
@@ -54,16 +59,29 @@ class Settings(BaseSettings):
     
     # CORS
     cors_origins: List[str] = ["*"]
-    
-    @validator("cors_origins", pre=True)
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
     def assemble_cors_origins(cls, v):
         if isinstance(v, str):
-            return [i.strip() for i in v.split(",")]
+            return [i.strip() for i in v.split(",") if i.strip()]
         return v
-    
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def normalize_database_url(cls, v: str) -> str:
+        if not isinstance(v, str):
+            return v
+        # Upgrade sync psycopg2 URL to asyncpg
+        if v.startswith("postgresql://") and "+asyncpg" not in v:
+            return v.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return v
 
 
 settings = Settings()

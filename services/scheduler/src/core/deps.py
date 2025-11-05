@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import jwt
 
 from .database import SessionLocal
-from .redis import RedisClient, get_redis_client
+from .redis import RedisClient, get_redis as _get_redis
 from .config import settings
 from .logger import get_logger
 
@@ -26,7 +26,7 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 async def get_redis() -> RedisClient:
     """Redis dependency"""
-    return await get_redis_client()
+    return await _get_redis()
 
 
 async def verify_token(token: str) -> Optional[Dict]:
