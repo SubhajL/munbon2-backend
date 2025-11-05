@@ -9,16 +9,16 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 import structlog
 
-from ..controllers.dual_mode_gate_controller import DualModeGateController
-from ..schemas.gate_control import (
+from controllers.dual_mode_gate_controller import DualModeGateController
+from schemas.gate_control import (
     GateState,
     GateStateResponse,
     ManualGateCommand,
     GateMode,
     GateTransitionRequest
 )
-from ..db.connections import DatabaseManager
-from ..core.metrics import gate_operations_counter
+from db.connections import DatabaseManager
+from core.metrics import gate_operations_counter
 
 logger = structlog.get_logger()
 router = APIRouter()

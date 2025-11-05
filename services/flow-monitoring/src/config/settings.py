@@ -1,5 +1,5 @@
 from typing import List
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
 
 
@@ -22,11 +22,11 @@ class Settings(BaseSettings):
     # Redis Configuration
     redis_url: str = Field(..., env="REDIS_URL")
     
-    # Kafka Configuration
-    kafka_brokers: str = Field(..., env="KAFKA_BROKERS")
-    kafka_topic_sensors: str = Field(..., env="KAFKA_TOPIC_SENSORS")
-    kafka_topic_analytics: str = Field(..., env="KAFKA_TOPIC_ANALYTICS")
-    kafka_consumer_group: str = Field(..., env="KAFKA_CONSUMER_GROUP")
+    # Kafka Configuration (optional; service runs without Kafka)
+    kafka_brokers: Optional[str] = Field(default=None, env="KAFKA_BROKERS")
+    kafka_topic_sensors: Optional[str] = Field(default=None, env="KAFKA_TOPIC_SENSORS")
+    kafka_topic_analytics: Optional[str] = Field(default=None, env="KAFKA_TOPIC_ANALYTICS")
+    kafka_consumer_group: Optional[str] = Field(default=None, env="KAFKA_CONSUMER_GROUP")
     
     # Model Configuration
     model_update_interval: int = Field(default=300, env="MODEL_UPDATE_INTERVAL")
@@ -40,23 +40,30 @@ class Settings(BaseSettings):
     
     # API Settings
     api_prefix: str = Field(default="/api/v1", env="API_PREFIX")
-    cors_origins: List[str] = Field(
-        default=["http://localhost:3000", "http://localhost:3001"],
+    cors_origins: str = Field(
+        default="http://localhost:3000,http://localhost:3001",
         env="CORS_ORIGINS"
     )
-    
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
-    
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        case_sensitive=False,
+        extra="ignore",
+        protected_namespaces=("settings_",),
+    )
+
     @property
     def kafka_brokers_list(self) -> List[str]:
-        return self.kafka_brokers.split(",")
-    
+        if not self.kafka_brokers:
+            return []
+        return [broker.strip() for broker in self.kafka_brokers.split(",")]
+
     @property
     def cors_origins_list(self) -> List[str]:
+        if not self.cors_origins:
+            return []
         if isinstance(self.cors_origins, str):
-            return self.cors_origins.split(",")
+            return [origin.strip() for origin in self.cors_origins.split(",")]
         return self.cors_origins
 
 
