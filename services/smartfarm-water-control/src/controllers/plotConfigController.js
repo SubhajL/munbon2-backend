@@ -75,17 +75,18 @@ class PlotConfigController {
       const { cropType, controlMode, updatedBy, notes } = req.body;
 
       // Validation
-      if (!cropType || !["rice", "corn"].includes(cropType)) {
+      const validCropTypes = ["rice", "corn", "-", "durian", "banana", "durian + banana", "stevia"];
+      if (!cropType || !validCropTypes.includes(cropType)) {
         return res.status(400).json({
           success: false,
-          error: "Invalid cropType. Must be 'rice' or 'corn'",
+          error: `Invalid cropType. Must be one of: ${validCropTypes.join(", ")}`,
         });
       }
 
-      if (!controlMode || !["AWD", "MOISTURE"].includes(controlMode)) {
+      if (!controlMode || !["AWD", "MOISTURE", "-"].includes(controlMode)) {
         return res.status(400).json({
           success: false,
-          error: "Invalid controlMode. Must be 'AWD' or 'MOISTURE'",
+          error: "Invalid controlMode. Must be 'AWD', 'MOISTURE', or '-'",
         });
       }
 
@@ -140,14 +141,15 @@ class PlotConfigController {
           });
         }
 
-        if (!["rice", "corn"].includes(config.cropType)) {
+        const validCropTypes = ["rice", "corn", "-", "durian", "banana", "durian + banana", "stevia"];
+        if (!validCropTypes.includes(config.cropType)) {
           return res.status(400).json({
             success: false,
             error: `Invalid cropType '${config.cropType}' for plot ${config.plotId}`,
           });
         }
 
-        if (!["AWD", "MOISTURE"].includes(config.controlMode)) {
+        if (!["AWD", "MOISTURE", "-"].includes(config.controlMode)) {
           return res.status(400).json({
             success: false,
             error: `Invalid controlMode '${config.controlMode}' for plot ${config.plotId}`,
