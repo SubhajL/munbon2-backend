@@ -38,13 +38,38 @@ export class TimescaleRepository {
   private config: PoolConfig;
 
   constructor(config: PoolConfig) {
+    const sslEnabled = (process.env.TIMESCALE_SSL || '').toLowerCase() === 'true';
+    const rejectUnauthorized = (process.env.TIMESCALE_SSL_REJECT_UNAUTHORIZED || 'false').toLowerCase() === 'true';
+
     this.config = {
       ...config,
+      ...(sslEnabled ? { ssl: { rejectUnauthorized } } : {}),
+      // Improve connection resilience for flaky networks/NATs
+      keepAlive: true,
       max: 20,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 2000,
     };
     this.pool = new Pool(this.config);
+
+    // Ensure we query the intended schema first if provided
+    const schema = process.env.TIMESCALE_SCHEMA || 'public';
+    this.pool.on('connect', (client) => {
+      client.query(`SET search_path TO ${schema}, public`).catch(() => {
+        // ignore if schema does not exist; queries will hit public
+      });
+    });
+
+    // Prevent process crash on unexpected idle client errors (e.g., ENETUNREACH/EADDRNOTAVAIL)
+    // See: https://node-postgres.com/api/pool#events
+    this.pool.on('error', (err) => {
+      // Log and continue; individual queries still reject to callers
+      console.error('pg: unexpected pool error (ignored)', {
+        code: (err as any)?.code,
+        errno: (err as any)?.errno,
+        message: err?.message,
+      });
+    });
   }
 
   async initialize(): Promise<void> {
