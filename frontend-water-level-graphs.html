@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Water Level Sensor Monitoring - Munbon</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script src="frontend-config.js"></script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: #f5f5f5;
+        padding: 20px;
+      }
+
+      .container {
+        max-width: 1400px;
+        margin: 0 auto;
+      }
+
+      .header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 30px;
+        flex-wrap: wrap;
+        gap: 20px;
+      }
+
+      h1 {
+        color: #333;
+        font-size: 28px;
+      }
+
+      .back-button {
+        padding: 10px 20px;
+        background: #666;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-block;
+        transition: background 0.2s;
+      }
+
+      .back-button:hover {
+        background: #555;
+      }
+
+      .controls {
+        display: flex;
+        gap: 15px;
+        margin-bottom: 30px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+
+      .controls label {
+        color: #333;
+        font-weight: 500;
+      }
+
+      .controls select {
+        padding: 8px 12px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-size: 14px;
+      }
+
+      .refresh-btn {
+        padding: 8px 20px;
+        background: #2196f3;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-weight: 500;
+        transition: background 0.2s;
+      }
+
+      .refresh-btn:hover {
+        background: #1976d2;
+      }
+
+      .sensors-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+        gap: 25px;
+        margin-bottom: 40px;
+      }
+
+      .sensor-panel {
+        background: white;
+        border-radius: 8px;
+        padding: 20px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
+
+      .sensor-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 15px;
+      }
+
+      .sensor-title {
+        font-size: 16px;
+        font-weight: 600;
+        color: #333;
+      }
+
+      .quality-badge {
+        padding: 4px 10px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: 500;
+      }
+
+      .quality-high {
+        background: #4caf50;
+        color: white;
+      }
+
+      .quality-medium {
+        background: #ff9800;
+        color: white;
+      }
+
+      .quality-low {
+        background: #f44336;
+        color: white;
+      }
+
+      .sensor-stats {
+        display: flex;
+        gap: 15px;
+        margin-bottom: 15px;
+        flex-wrap: wrap;
+      }
+
+      .stat {
+        font-size: 12px;
+        color: #666;
+      }
+
+      .stat-value {
+        font-weight: 600;
+        color: #333;
+      }
+
+      .chart-container {
+        position: relative;
+        height: 280px;
+      }
+
+      .loading {
+        text-align: center;
+        padding: 40px;
+        color: #666;
+      }
+
+      .error-message {
+        background: #ffebee;
+        color: #c62828;
+        padding: 12px;
+        border-radius: 4px;
+        margin: 10px 0;
+        font-size: 13px;
+      }
+
+      .last-update {
+        text-align: center;
+        color: #666;
+        font-size: 14px;
+        margin-top: 20px;
+      }
+
+      @media (max-width: 768px) {
+        .sensors-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1>🌊 Water Level Sensor Monitoring</h1>
+        <a href="frontend-health-dashboard.html" class="back-button"
+          >← Back to Dashboard</a
+        >
+      </div>
+
+      <div class="controls">
+        <label for="periodSelect">Period:</label>
+        <select id="periodSelect">
+          <option value="24h" selected>Last 24 Hours</option>
+          <option value="3d">Last 3 Days</option>
+          <option value="7d">Last 7 Days</option>
+          <option value="14d">Last 14 Days</option>
+        </select>
+        <button class="refresh-btn" onclick="refreshData()">
+          🔄 Refresh Now
+        </button>
+      </div>
+
+      <div class="sensors-grid" id="sensorsGrid">
+        <div class="loading">Loading sensor data...</div>
+      </div>
+
+      <div class="last-update" id="lastUpdate"></div>
+    </div>
+
+    <script>
+      const API_BASE = window.API_BASE || "http://localhost:3001/api/v1";
+      const SENSOR_IDS = [
+        "AWD-B89D",
+        "AWD-558F",
+        "AWD-A4F8",
+        "AWD-6D47",
+        "AWD-4ED4",
+        "AWD-B89D",
+      ];
+
+      let charts = {};
+      let refreshInterval = null;
+
+      async function fetchWaterLevelData(period) {
+        try {
+          const response = await fetch(
+            `${API_BASE}/water-levels/chart?period=${period}&timeZone=Asia/Bangkok`,
+          );
+
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+
+          return await response.json();
+        } catch (error) {
+          console.error("Error fetching water level data:", error);
+          throw error;
+        }
+      }
+
+      function calculateStats(dataPoints) {
+        if (!dataPoints || dataPoints.length === 0) {
+          return {
+            minLevel: 0,
+            maxLevel: 0,
+            avgLevel: 0,
+            avgQuality: 0,
+          };
+        }
+
+        const levels = dataPoints
+          .map((p) => p.avgLevel)
+          .filter((v) => v !== null);
+        const qualities = dataPoints
+          .map((p) => p.avgQuality)
+          .filter((v) => v !== null);
+
+        if (levels.length === 0) {
+          return {
+            minLevel: 0,
+            maxLevel: 0,
+            avgLevel: 0,
+            avgQuality: 0,
+          };
+        }
+
+        return {
+          minLevel: Math.min(...levels),
+          maxLevel: Math.max(...levels),
+          avgLevel: levels.reduce((a, b) => a + b, 0) / levels.length,
+          avgQuality:
+            qualities.length > 0
+              ? qualities.reduce((a, b) => a + b, 0) / qualities.length
+              : 0,
+        };
+      }
+
+      function getQualityClass(quality) {
+        if (quality >= 90) return "quality-high";
+        if (quality >= 70) return "quality-medium";
+        return "quality-low";
+      }
+
+      function getQualityLabel(quality) {
+        if (quality >= 90) return "Excellent";
+        if (quality >= 70) return "Good";
+        return "Poor";
+      }
+
+      function renderSensors(data) {
+        const grid = document.getElementById("sensorsGrid");
+        grid.innerHTML = "";
+
+        if (!data.sensors || Object.keys(data.sensors).length === 0) {
+          grid.innerHTML =
+            '<div class="error-message">No sensor data available</div>';
+          return;
+        }
+
+        const uniqueSensorIds = Object.keys(data.sensors);
+
+        uniqueSensorIds.forEach((sensorId) => {
+          const sensorData = data.sensors[sensorId];
+
+          if (!sensorData) {
+            return;
+          }
+
+          const panel = document.createElement("div");
+          panel.className = "sensor-panel";
+          panel.id = `sensor-${sensorId}`;
+
+          const stats = calculateStats(sensorData.dataPoints);
+          const qualityClass = getQualityClass(stats.avgQuality);
+          const qualityLabel = getQualityLabel(stats.avgQuality);
+
+          panel.innerHTML = `
+                    <div class="sensor-header">
+                        <div class="sensor-title">Sensor ${sensorId}${sensorData.plotId ? ` • Plot: ${sensorData.plotId}` : ''}</div>
+                        <span class="quality-badge ${qualityClass}">
+                            ${qualityLabel} (${stats.avgQuality.toFixed(0)}%)
+                        </span>
+                    </div>
+                    <div class="sensor-stats">
+                        <div class="stat">
+                            Avg: <span class="stat-value">${stats.avgLevel.toFixed(1)} cm</span>
+                        </div>
+                        <div class="stat">
+                            Range: <span class="stat-value">
+                                ${stats.minLevel.toFixed(1)}-${stats.maxLevel.toFixed(1)} cm
+                            </span>
+                        </div>
+                        <div class="stat">
+                            Points: <span class="stat-value">${sensorData.dataPoints.length}</span>
+                        </div>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="chart-${sensorId}"></canvas>
+                    </div>
+                `;
+
+          grid.appendChild(panel);
+
+          renderChart(sensorId, sensorData.dataPoints);
+        });
+
+        document.getElementById("lastUpdate").textContent =
+          `Last updated: ${new Date().toLocaleString()}`;
+      }
+
+      function renderChart(sensorId, dataPoints) {
+        const canvasId = `chart-${sensorId}`;
+        const ctx = document.getElementById(canvasId);
+
+        if (!ctx) return;
+
+        if (charts[sensorId]) {
+          charts[sensorId].destroy();
+        }
+
+        const palette = {
+          avg: 'rgb(33, 150, 243)',   // blue
+          lower: 'rgb(220, 38, 38)',  // red
+          upper: 'rgb(234, 179, 8)',  // amber
+        };
+
+        const buildDataset = (label, data, color, opts = {}) => ({
+          label,
+          data,
+          borderColor: color,
+          backgroundColor: 'rgba(0,0,0,0)',
+          borderWidth: 2,
+          tension: 0.4,
+          fill: true,
+          spanGaps: true,
+          pointRadius: 2,
+          pointHoverRadius: 5,
+          ...opts,
+        });
+
+        const chartData = dataPoints.map((p) => ({ x: new Date(p.time), y: p.avgLevel }));
+
+        const startX = chartData.length ? chartData[0].x : new Date();
+        const endX = chartData.length ? chartData[chartData.length - 1].x : new Date();
+        const sensor = (window.lastResponse && window.lastResponse.sensors && window.lastResponse.sensors[sensorId]) || {};
+        const thr = sensor.thresholds || null;
+        const datasets = [];
+        datasets.push(buildDataset('Avg Level (cm)', chartData, palette.avg, { order: 1 }));
+        if (thr && thr.lower !== null && thr.lower !== undefined) {
+          datasets.push(buildDataset('Lower threshold', [
+            { x: startX, y: thr.lower },
+            { x: endX, y: thr.lower },
+          ], palette.lower, { order: 2, borderWidth: 1, tension: 0, pointRadius: 0, fill: false }));
+        }
+        if (thr && thr.upper !== null && thr.upper !== undefined) {
+          datasets.push(buildDataset('Upper threshold', [
+            { x: startX, y: thr.upper },
+            { x: endX, y: thr.upper },
+          ], palette.upper, { order: 3, borderWidth: 1, tension: 0, pointRadius: 0, fill: false }));
+        }
+
+        charts[sensorId] = new Chart(ctx, {
+          type: "line",
+          data: {
+            datasets,
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                display: true,
+                position: "top",
+              },
+              tooltip: {
+                mode: "index",
+                intersect: false,
+                callbacks: {
+                  label: function (context) {
+                    const dataPoint = dataPoints[context.dataIndex];
+                    return [
+                      `Level: ${dataPoint.avgLevel?.toFixed(1) || "N/A"} cm`,
+                      `Min: ${dataPoint.minLevel?.toFixed(1) || "N/A"} cm`,
+                      `Max: ${dataPoint.maxLevel?.toFixed(1) || "N/A"} cm`,
+                      `Quality: ${dataPoint.avgQuality?.toFixed(0) || "N/A"}%`,
+                    ];
+                  },
+                },
+              },
+            },
+            scales: {
+              x: {
+                type: "time",
+                time: {
+                  unit: "hour",
+                  displayFormats: {
+                    hour: "MM/dd HH:mm",
+                  },
+                },
+                title: {
+                  display: true,
+                  text: "Time",
+                },
+              },
+              y: {
+                beginAtZero: false,
+                title: {
+                  display: true,
+                  text: "Level (cm)",
+                },
+              },
+            },
+          },
+        });
+      }
+
+      async function loadData() {
+        const grid = document.getElementById("sensorsGrid");
+        grid.innerHTML = '<div class="loading">Loading sensor data...</div>';
+
+        try {
+          const period = document.getElementById("periodSelect").value;
+          const data = await fetchWaterLevelData(period);
+          window.lastResponse = data;
+          renderSensors(data);
+        } catch (error) {
+          grid.innerHTML = `<div class="error-message">Failed to load data: ${error.message}</div>`;
+        }
+      }
+
+      function refreshData() {
+        loadData();
+      }
+
+      function setupAutoRefresh() {
+        if (refreshInterval) {
+          clearInterval(refreshInterval);
+        }
+        refreshInterval = setInterval(() => {
+          loadData();
+        }, 60000);
+      }
+
+      document.getElementById("periodSelect").addEventListener("change", () => {
+        loadData();
+        setupAutoRefresh();
+      });
+
+      window.onload = () => {
+        loadData();
+        setupAutoRefresh();
+      };
+
+      window.onbeforeunload = () => {
+        if (refreshInterval) {
+          clearInterval(refreshInterval);
+        }
+      };
+    </script>
+  </body>
+</html>
