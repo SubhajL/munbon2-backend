@@ -9,8 +9,8 @@ import {
 } from '../types/sensor.types';
 
 export class SensorRepository {
-  private timescalePool = getTimescalePool();
-  private postgresPool = getPostgresPool();
+  private get timescalePool() { return getTimescalePool(); }
+  private get postgresPool() { return getPostgresPool(); }
 
   /**
    * Get latest water level reading for a field

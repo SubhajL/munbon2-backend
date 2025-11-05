@@ -1,4 +1,4 @@
-import dotenv from 'dotenv';
+import * as dotenv from 'dotenv';
 
 // Load test environment variables
 dotenv.config({ path: '.env.test' });
