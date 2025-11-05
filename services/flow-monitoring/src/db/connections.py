@@ -24,6 +24,8 @@ class DatabaseManager:
         try:
             # Connect to InfluxDB
             await self.influxdb.connect()
+            if not await self.influxdb.ping():
+                raise Exception("InfluxDB ping failed")
             logger.info("Connected to InfluxDB")
             
             # Connect to TimescaleDB

@@ -11,7 +11,7 @@ from api import gates as gates_api
 from core.logging import setup_logging
 from core.metrics import setup_metrics
 from db.connections import DatabaseManager
-from services.kafka_consumer import KafkaConsumerService
+# Kafka consumer is optional; import lazily when configured
 from controllers.dual_mode_gate_controller import DualModeGateController
 
 
@@ -21,7 +21,7 @@ logger = structlog.get_logger()
 
 # Global instances
 db_manager = DatabaseManager()
-kafka_consumer = KafkaConsumerService()
+kafka_consumer = None
 gate_controller = None
 
 
@@ -45,9 +45,14 @@ async def lifespan(app: FastAPI):
         gates_api.gate_controller = gate_controller
         logger.info("Gate controller initialized")
         
-        # Start Kafka consumer
-        asyncio.create_task(kafka_consumer.start())
-        logger.info("Kafka consumer started")
+        # Start Kafka consumer only if configured
+        if settings.kafka_brokers:
+            from services.kafka_consumer import KafkaConsumerService
+            kafka_consumer = KafkaConsumerService()
+            asyncio.create_task(kafka_consumer.start())
+            logger.info("Kafka consumer started")
+        else:
+            logger.info("Kafka disabled (no KAFKA_BROKERS configured)")
         
         # Setup metrics
         setup_metrics()
@@ -59,7 +64,8 @@ async def lifespan(app: FastAPI):
         logger.info("Shutting down Flow Monitoring Service")
         
         # Stop Kafka consumer
-        await kafka_consumer.stop()
+        if kafka_consumer:
+            await kafka_consumer.stop()
         
         # Close database connections
         await db_manager.disconnect_all()
