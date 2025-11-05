@@ -1,9 +1,10 @@
 import strawberry
 from typing import List, Optional
 from datetime import datetime
+from strawberry.scalars import JSON
 
 from schemas.crop_season import CropSeasonConfigType
-from ..context import GraphQLContext
+from context import GraphQLContext
 from core import get_logger
 from database import Database
 
@@ -110,7 +111,7 @@ class CropSeasonQueries:
         self,
         info: strawberry.Info[GraphQLContext],
         config_id: str
-    ) -> List[dict]:
+    ) -> List[JSON]:
         """Get change history for a crop season configuration"""
         db = Database()
         history = []

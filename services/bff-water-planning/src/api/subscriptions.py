@@ -4,8 +4,9 @@ import asyncio
 import redis.asyncio as redis
 import json
 from datetime import datetime
+from strawberry.scalars import JSON
 
-from ..context import GraphQLContext
+from context import GraphQLContext
 from config import settings
 from core import get_logger
 
@@ -268,7 +269,7 @@ class Subscription:
         self,
         info: strawberry.Info[GraphQLContext],
         gate_id: str
-    ) -> AsyncGenerator[dict, None]:
+    ) -> AsyncGenerator[JSON, None]:
         """Subscribe to real-time water flow measurements"""
         redis_client = await redis.from_url(settings.redis_url)
         pubsub = redis_client.pubsub()

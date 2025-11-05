@@ -8,7 +8,7 @@ from schemas.crop_season import (
     CropSeasonConfigType, CropSeasonConfigInput, CropSeasonInitResult,
     CropSeasonConfig, CoverageTypeEnum
 )
-from ..context import GraphQLContext
+from context import GraphQLContext
 from core import get_logger
 from database import Database
 
