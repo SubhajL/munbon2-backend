@@ -1,4 +1,4 @@
-# BeautifyAI Codebase Review Guidelines (AI-Assisted)
+# Codebase Review Guidelines (AI-Assisted)
 
 ## Purpose & Scope
 - Provide a single reference for AI-assisted reviewers to protect long-term system health while keeping velocity high.

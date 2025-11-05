@@ -1,9 +1,9 @@
-# CLAUDE.md
+# WARP.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to WARP.ai when working with code in this repository.
 
 
-# Claude Code Guidelines by Sabrina Ramonov
+# Warp Guidelines by Sabrina Ramonov
 
 ## Implementation Best Practices
 
@@ -80,7 +80,7 @@ These rules ensure maintainability, safety, and developer velocity.
 ### 7 - Git
 
 - **GH-1 (MUST**) Use Conventional Commits format when writing commit messages: https://www.conventionalcommits.org/en/v1.0.0
-- **GH-2 (SHOULD NOT**) Refer to Claude or Anthropic in commit messages.
+
 
 ---
 
@@ -156,7 +156,7 @@ Remember the following shortcuts which the user may invoke at any time.
 When I type "qnew", this means:
 
 ```
-Understand all BEST PRACTICES listed in CLAUDE.md.
+Understand all BEST PRACTICES listed in WARP.md.
 Your code SHOULD ALWAYS follow these best practices.
 Understand and strictly follow the architecture in CONTEXT.md 
 ```
@@ -189,9 +189,9 @@ When I type "qcheck", this means:
 You are a SKEPTICAL senior software engineer.
 Perform this analysis for every MAJOR code change you introduced (skip minor changes):
 
-1. CLAUDE.md checklist Writing Functions Best Practices.
-2. CLAUDE.md checklist Writing Tests Best Practices.
-3. CLAUDE.md checklist Implementation Best Practices.
+1. WARP.md checklist Writing Functions Best Practices.
+2. WARP.md checklist Writing Tests Best Practices.
+3. WARP.md checklist Implementation Best Practices.
 ```
 
 ### QCHECKF
@@ -202,7 +202,7 @@ When I type "qcheckf", this means:
 You are a SKEPTICAL senior software engineer.
 Perform this analysis for every MAJOR function you added or edited (skip minor changes):
 
-1. CLAUDE.md checklist Writing Functions Best Practices.
+1. WARP.md checklist Writing Functions Best Practices.
 ```
 
 ### QCHECKT
@@ -213,7 +213,7 @@ When I type "qcheckt", this means:
 You are a SKEPTICAL senior software engineer.
 Perform this analysis for every MAJOR test you added or edited (skip minor changes):
 
-1. CLAUDE.md checklist Writing Tests Best Practices.
+1. WARP.md checklist Writing Tests Best Practices.
 ```
 
 ### QUX
@@ -234,7 +234,6 @@ Add all changes to staging, create a commit, and push to remote.
 
 Follow this checklist for writing your commit message:
 - SHOULD use Conventional Commits format: https://www.conventionalcommits.org/en/v1.0.0
-- SHOULD NOT refer to Claude or Anthropic in the commit message.
 - SHOULD structure commit message as follows:
 <type>[optional scope]: <description>
 [optional body]
@@ -249,7 +248,7 @@ footers other than BREAKING CHANGE: <description> may be provided and follow a c
 
 #Additional Guidance:
 
-guidance to Claude Code (claude.ai/code) when working with code in this repository.
+guidance to WARP when working with code in this repository.
 
 ## Testing Principles (MANDATORY)
 

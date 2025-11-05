@@ -1,5 +1,32 @@
 # Munbon2 Backend – Architectural Context
 
+## 0. Irrigation Canal Worktree
+
+### nIrrigation Canal Worktree (Canal planning & delivery)
+Category	Details
+Primary services	services/bff-water-planning (GraphQL, schedulers), services/flow-monitoring (hydraulics, Kafka), services/ros-gis-integration (ROS↔GIS bridge), services/scheduler (weekly ops), services/awd-control (for canal valves), services/gis, services/water-accounting, services/gravity-optimizer (if active).
+Data sources	Timescale sensor_data (water levels, shared), Postgres munbon_dev (ros.*, scheduler tables), PostGIS gis, SCADA MSSQL (tb_gatelevel_command), Redis, Kafka.
+Key tables	ros.daily_demands, ros.weekly_demands, ros_hydraulics.*; gis.hydraulic_network, gis.sensor_data; sensor_management.sensor_mappings; scheduler.weekly_schedules, .scheduled_operations; AWD tables awd.*; InfluxDB buckets for flow analytics.
+Focus directories	services/bff-water-planning/src (services, schedulers, tests), services/flow-monitoring/src, services/ros-gis-integration/src, services/scheduler/src, services/awd-control/src, services/gis/src, services/water-accounting/src.
+Explicit exclusions	All smart-farm specific services (services/smartfarm-water-control, services/bff-water-control, services/moisture-monitoring, services/weather-monitoring except read-only for shared APIs), frontends outside canal domain.
+Integration coordination	Any changes to shared DB schemas (sensor_data, munbon_dev, sensor_management), Kafka topics, or AWD interfaces must be communicated to smart-farm worktree. Ensure valve commands and sensor mappings remain compatible with smart-farm usage.
+
+### Prompt template for Irrigation Canal AI instance
+
+You are working exclusively on the irrigation canal planning and delivery stack. Focus on:
+
+services/bff-water-planning, services/flow-monitoring, services/ros-gis-integration, services/scheduler, services/awd-control, services/gis, services/water-accounting, services/gravity-optimizer
+Relevant docs (CONTEXT.md, CLAUDE.md, docs/CLAUDE_INSTANCE_*)
+Do not modify smart-farm services (services/smartfarm-water-control, services/bff-water-control, services/moisture-monitoring, services/weather-monitoring); read them only for shared configuration references.
+Datastores: Timescale sensor_data, Postgres/PostGIS munbon_dev & gis, SCADA MSSQL. Coordinate schema/API changes with the smart-farm worktree to keep sensor mappings and AWD command interfaces consistent.
+
+### Coordination checklist for both worktrees
+
+Share any migrations touching sensor_data, munbon_dev, gis, or sensor_management schemas.
+Notify counterpart if you change Kafka topic names, Redis keys, SQS queue processing, or AWD command payloads.
+Keep shared documentation (CONTEXT.md, docs/CLAUDE_INSTANCE_*) updated with changes affecting both domains.
+If introducing new APIs or changing existing ones between services (e.g., ROS/GIS endpoints, sensor-data APIs), announce and document the contract.
+
 ## 1. System Overview
 - Mission: automate water planning, distribution, and monitoring for the Munbon Irrigation Project in Thailand.
 - Approach: microservice ecosystem (Node.js/TypeScript, Go, Python/FastAPI, Java/Spring) orchestrated via Docker/Kubernetes, fronted by Kong API Gateway and multiple BFFs (web, mobile, water planning/control).
