@@ -10,7 +10,7 @@ from schemas.time_based_demand import (
     DemandTimeSeriesType, TimePeriodEnum, CalculationMethodEnum
 )
 from schemas.crop_season import CropSeasonConfigType, CropSeasonConfigInput, CropSeasonInitResult
-from ..context import GraphQLContext
+from context import GraphQLContext
 from core import get_logger
 from database import Database
 

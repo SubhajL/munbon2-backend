@@ -3,6 +3,7 @@ from datetime import datetime, date
 from pydantic import BaseModel, Field
 from enum import Enum
 import strawberry
+from strawberry.scalars import JSON
 
 
 class TimePeriodEnum(str, Enum):
@@ -149,7 +150,7 @@ class SpatialDemandType:
     """Spatial water demand data for map visualization"""
     feature_id: str  # section_id or zone_id
     feature_type: str  # 'section' or 'zone'
-    geometry: Optional[Dict]  # GeoJSON geometry
+    geometry: Optional[JSON]  # GeoJSON geometry
     
     # Current demand
     current_demand_m3: float

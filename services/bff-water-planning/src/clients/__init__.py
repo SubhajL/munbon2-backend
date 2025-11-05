@@ -5,6 +5,8 @@ from .awd_client import AWDControlClient
 from .flow_monitoring_client import FlowMonitoringClient
 from .scheduler_client import SchedulerClient
 from .weather_client import WeatherClient
+from .rid_ms_client import RIDMSClient
+from .sensor_data_client import SensorDataClient
 
 __all__ = [
     "ROSClient", 
@@ -13,5 +15,7 @@ __all__ = [
     "AWDControlClient",
     "FlowMonitoringClient",
     "SchedulerClient",
-    "WeatherClient"
+    "WeatherClient",
+    "RIDMSClient",
+    "SensorDataClient",
 ]

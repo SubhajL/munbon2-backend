@@ -1,8 +1,9 @@
 import strawberry
 from typing import Optional, List
 from datetime import datetime
+from strawberry.scalars import JSON
 
-from ..context import GraphQLContext
+from context import GraphQLContext
 from services.awd_integration import AWDIntegrationService
 from core import get_logger
 
@@ -45,7 +46,7 @@ class AWDActivationResult:
     success: bool
     plot_id: str
     message: str
-    awd_parameters: Optional[dict] = None
+    awd_parameters: Optional[JSON] = None
     estimated_annual_savings_m3: Optional[float] = None
 
 

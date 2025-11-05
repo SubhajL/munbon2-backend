@@ -18,7 +18,7 @@ from services import (
     FeedbackService,
     PriorityEngine
 )
-from ..context import GraphQLContext
+from context import GraphQLContext
 from core import get_logger
 
 logger = get_logger(__name__)
