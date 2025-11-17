@@ -1,4 +1,4 @@
-const logger = require("../utils/logger");
+const logger = require('../utils/logger');
 
 class MoistureControlService {
   constructor(config) {
@@ -10,21 +10,21 @@ class MoistureControlService {
 
     // Validate moisture reading
     if (moisturePercent < 0 || moisturePercent > 100) {
-      metadata.warning = "Invalid moisture reading";
+      metadata.warning = 'Invalid moisture reading';
     }
 
     let action;
     let reason;
 
     if (moisturePercent < thresholdLow) {
-      action = "ON";
-      reason = "Moisture below low threshold";
+      action = 'ON';
+      reason = 'Moisture below low threshold';
     } else if (moisturePercent > thresholdHigh) {
-      action = "OFF";
-      reason = "Moisture above high threshold";
+      action = 'OFF';
+      reason = 'Moisture above high threshold';
     } else {
-      action = "MAINTAIN";
-      reason = "Moisture within acceptable range";
+      action = 'MAINTAIN';
+      reason = 'Moisture within acceptable range';
     }
 
     const decision = {
@@ -35,8 +35,8 @@ class MoistureControlService {
       currentValue: moisturePercent,
       thresholds: {
         low: thresholdLow,
-        high: thresholdHigh,
-      },
+        high: thresholdHigh
+      }
     };
 
     if (Object.keys(metadata).length > 0) {
@@ -49,9 +49,9 @@ class MoistureControlService {
         action,
         moisturePercent,
         thresholdLow,
-        thresholdHigh,
+        thresholdHigh
       },
-      "Moisture control decision made",
+      'Moisture control decision made'
     );
 
     return decision;
@@ -61,19 +61,19 @@ class MoistureControlService {
     currentMoisture,
     currentValveState,
     lowThreshold,
-    highThreshold,
+    highThreshold
   ) {
     if (currentMoisture < lowThreshold) {
-      return "ON";
+      return 'ON';
     } else if (currentMoisture > highThreshold) {
-      return "OFF";
+      return 'OFF';
     } else {
-      return "MAINTAIN";
+      return 'MAINTAIN';
     }
   }
 
   shouldIrrigate(action) {
-    return action === "ON";
+    return action === 'ON';
   }
 
   calculateIrrigationDuration(currentMoisture, lowThreshold, highThreshold) {
@@ -93,23 +93,23 @@ class MoistureControlService {
 
   async executeMoistureIrrigation(plotId, valveAction, valveCommandService) {
     try {
-      if (valveAction === "MAINTAIN") {
-        return { success: true, message: "No action needed" };
+      if (valveAction === 'MAINTAIN') {
+        return { success: true, message: 'No action needed' };
       }
 
-      const level = valveAction === "ON" ? 1 : 0;
+      const level = valveAction === 'ON' ? 1 : 0;
       const result = await valveCommandService.sendValveCommand(
         plotId,
         level,
         new Date(),
-        `Moisture control: ${valveAction}`,
+        `Moisture control: ${valveAction}`
       );
 
       return result;
     } catch (error) {
       logger.error(
         { error, plotId, valveAction },
-        "Failed to execute moisture irrigation",
+        'Failed to execute moisture irrigation'
       );
       throw error;
     }

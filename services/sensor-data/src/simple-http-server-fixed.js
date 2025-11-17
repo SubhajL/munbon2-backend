@@ -132,48 +132,29 @@ app.post('/api/sensor-data/moisture/:token', async (req, res) => {
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       `;
       
-      // Helper function to safely parse numeric values with validation
-      const parseNumeric = (value, min = null, max = null) => {
-        if (value === null || value === undefined || value === '') return null;
-        const parsed = parseFloat(value);
-        if (isNaN(parsed)) return null;
-        if (min !== null && parsed < min) return null;
-        if (max !== null && parsed > max) return null;
-        return parsed;
-      };
+// Use shared hardened utilities
+      const { sanitizeMoistureSensor, formatMoistureSensorId, parseNumeric: parseNumShared } = require('./utils/moisture-parse');
+      // Retain a local helper for temp of lat/lng using shared to ensure same semantics
+      const parseNumeric = (value, min = null, max = null) => parseNumShared(value, min, max);
       
       try {
-        // Prepare values with proper validation
-        const moistureSurface = parseNumeric(sensor.humid_hi, 0, 100);
-        const moistureDeep = parseNumeric(sensor.humid_low, 0, 100);
-        const tempSurface = parseNumeric(sensor.temp_hi, -50, 100);
-        const tempDeep = parseNumeric(sensor.temp_low, -50, 100);
-        const ambientHumidity = parseNumeric(sensor.amb_humid, 0, 100);
-        const ambientTemp = parseNumeric(sensor.amb_temp, -50, 100);
-        
-        // Battery voltage: convert from 400-range to voltage (e.g., 408 -> 4.08V)
-        // But cap at 9.99 if database has NUMERIC(3,2) constraint
-        let voltage = null;
-        if (sensor.sensor_batt) {
-          const battValue = parseNumeric(sensor.sensor_batt);
-          if (battValue) {
-            voltage = Math.min(battValue / 100, 9.99);
-          }
-        }
+        // Sanitize moisture fields with clamping for 0..100
+        const sanitized = sanitizeMoistureSensor(sensor);
+        const sensorId = formatMoistureSensorId(gatewayId, sensor.sensor_id);
         
         await dbPool.query(query, [
           timestamp,
-          gatewayId.padStart(4, '0') + '-' + (sensor.sensor_id || '').padStart(4, '0'),
+          sensorId,
           lat,
           lng,
-          moistureSurface,
-          moistureDeep,
-          tempSurface,
-          tempDeep,
-          ambientHumidity,
-          ambientTemp,
-          voltage,
-          sensor.flood === 'yes',
+          sanitized.moistureSurfacePct,
+          sanitized.moistureDeepPct,
+          sanitized.tempSurfaceC,
+          sanitized.tempDeepC,
+          sanitized.ambientHumidityPct,
+          sanitized.ambientTempC,
+          sanitized.voltage,
+          sanitized.floodStatus,
           0.95
         ]);
       } catch (dbError) {

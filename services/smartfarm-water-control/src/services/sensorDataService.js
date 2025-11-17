@@ -1,4 +1,4 @@
-const logger = require("../utils/logger");
+const logger = require('../utils/logger');
 
 class SensorDataService {
   constructor(config) {
@@ -7,25 +7,35 @@ class SensorDataService {
     this.cacheTimeout = 60000; // 1 minute cache
   }
 
-  async getSensorReading(sensorId) {
+  async getSensorReading(sensorId, options = {}) {
     try {
+      // Determine sensor type from ID early for cache key
+      const sensorType = this.determineSensorType(sensorId);
+      const cacheKey =
+        sensorType === 'moisture'
+          ? `${sensorId}|${options.moistureLayer || 'surface'}`
+          : sensorId;
+
       // Check cache first
-      const cached = this.cache.get(sensorId);
+      const cached = this.cache.get(cacheKey);
       if (cached && Date.now() - cached.timestamp < this.cacheTimeout) {
         return cached.data;
       }
 
-      // Determine sensor type from ID
-      const sensorType = this.determineSensorType(sensorId);
-
-      // Get reading from database
-      const reading = await this.timescaleRepository.getLatestSensorReading(
-        sensorId,
-        sensorType
-      );
+      // Get reading from database (pass layer for moisture)
+      const reading =
+        sensorType === 'moisture'
+          ? await this.timescaleRepository.getLatestMoistureReading(
+              sensorId,
+              options.moistureLayer || 'surface'
+            )
+          : await this.timescaleRepository.getLatestSensorReading(
+              sensorId,
+              sensorType
+            );
 
       if (!reading) {
-        logger.warn({ sensorId }, "No data found for sensor");
+        logger.warn({ sensorId }, 'No data found for sensor');
         return null;
       }
 
@@ -36,23 +46,25 @@ class SensorDataService {
         type: reading.type,
         value: reading.value,
         unit: reading.unit,
-        depth: sensorType === "moisture" ? 30 : undefined, // Default 30cm depth for moisture
+        depth: sensorType === 'moisture' ? 30 : undefined // Default 30cm depth for moisture
       };
 
       // Cache the result
-      this.cache.set(sensorId, {
+      this.cache.set(cacheKey, {
         data: formattedReading,
-        timestamp: Date.now(),
+        timestamp: Date.now()
       });
 
       return formattedReading;
     } catch (error) {
-      logger.error({ error, sensorId }, "Failed to get sensor reading");
+      logger.error({ error, sensorId }, 'Failed to get sensor reading');
 
-      // Return last cached value if available
-      const cached = this.cache.get(sensorId);
+      // Return last cached value if available (try both keys)
+      const legacy = this.cache.get(sensorId);
+      const layered = this.cache.get(`${sensorId}|${(options && options.moistureLayer) || 'surface'}`);
+      const cached = layered || legacy;
       if (cached) {
-        logger.warn({ sensorId }, "Returning stale cached data due to error");
+        logger.warn({ sensorId }, 'Returning stale cached data due to error');
         return cached.data;
       }
 
@@ -61,11 +73,18 @@ class SensorDataService {
   }
 
   determineSensorType(sensorId) {
-    if (sensorId.includes("AWD") || sensorId.includes("WL")) {
-      return "water-level";
-    } else if (sensorId.includes("MOIST") || sensorId.includes("MS")) {
-      return "moisture";
+    const id = String(sensorId || '').toUpperCase();
+
+    // Water-level sensors
+    if (id.includes('AWD') || id.includes('WL') || id.startsWith('AWD-') || id.startsWith('WL-') || id.includes('_WL_')) {
+      return 'water_level';
     }
+
+    // Moisture sensors (legacy and new H-Px aliases)
+    if (id.includes('MOIST') || id.includes('MS') || id.startsWith('H-P')) {
+      return 'moisture';
+    }
+
     throw new Error(`Unknown sensor type for ID: ${sensorId}`);
   }
 
@@ -86,10 +105,10 @@ class SensorDataService {
         type: reading.type,
         value: reading.value,
         unit: reading.unit,
-        depth: sensorType === "moisture" ? 30 : undefined,
+        depth: sensorType === 'moisture' ? 30 : undefined
       }));
     } catch (error) {
-      logger.error({ error, sensorId }, "Failed to get sensor history");
+      logger.error({ error, sensorId }, 'Failed to get sensor history');
       return [];
     }
   }
@@ -105,7 +124,7 @@ class SensorDataService {
       return {
         sensorId,
         healthy: false,
-        reason: error.message,
+        reason: error.message
       };
     }
   }

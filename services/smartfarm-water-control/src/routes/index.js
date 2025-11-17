@@ -1,99 +1,110 @@
-const express = require("express");
+const express = require('express');
 const router = express.Router();
-const logger = require("../utils/logger");
+const logger = require('../utils/logger');
+const { HealthController } = require('../controllers/healthController');
 
-module.exports = (controller) => {
-  // Health check
-  router.get("/health", (req, res) => {
+module.exports = (controller, services) => {
+  const healthController = new HealthController(services);
+  // Health check with full system status
+  router.get('/health', healthController.checkHealth.bind(healthController));
+
+  // Sensor data endpoint for charts
+  router.get(
+    '/sensor-data',
+    healthController.getSensorData.bind(healthController)
+  );
+
+  // Basic health check
+  router.get('/ping', (req, res) => {
     res.json({
-      status: "healthy",
-      service: "smartfarm-water-control",
-      timestamp: new Date().toISOString(),
+      status: 'healthy',
+      service: 'smartfarm-water-control',
+      timestamp: new Date().toISOString()
     });
   });
 
   // Get status of all plots
-  router.get("/plots", async (req, res) => {
+  router.get('/plots', async (req, res) => {
     try {
       const statuses = await Promise.all(
         controller.config.plots.map((plot) =>
-          controller.getPlotStatus(plot.plotId),
-        ),
+          controller.getPlotStatus(plot.plotId)
+        )
       );
 
       res.json({
         success: true,
-        data: statuses,
+        data: statuses
       });
     } catch (error) {
-      logger.error({ error }, "Failed to get plot statuses");
+      logger.error({ error }, 'Failed to get plot statuses');
       res.status(500).json({
         success: false,
-        error: error.message,
+        error: error.message
       });
     }
   });
 
   // Get status of specific plot
-  router.get("/plots/:plotId", async (req, res) => {
+  router.get('/plots/:plotId', async (req, res) => {
     try {
       const { plotId } = req.params;
       const status = await controller.getPlotStatus(plotId);
 
       res.json({
         success: true,
-        data: status,
+        data: status
       });
     } catch (error) {
       logger.error(
         { error, plotId: req.params.plotId },
-        "Failed to get plot status",
+        'Failed to get plot status'
       );
-      res.status(error.message.includes("not found") ? 404 : 500).json({
+      res.status(error.message.includes('not found') ? 404 : 500).json({
         success: false,
-        error: error.message,
+        error: error.message
       });
     }
   });
 
   // Trigger control loop manually
-  router.post("/control/run", async (req, res) => {
+  router.post('/control/run', async (req, res) => {
     try {
       await controller.runControlLoop();
 
       res.json({
         success: true,
-        message: "Control loop executed successfully",
+        message: 'Control loop executed successfully'
       });
     } catch (error) {
-      logger.error({ error }, "Failed to run control loop");
+      logger.error({ error }, 'Failed to run control loop');
       res.status(500).json({
         success: false,
-        error: error.message,
+        error: error.message
       });
     }
   });
 
   // Trigger planning loop manually
-  router.post("/planning/run", async (req, res) => {
+  router.post('/planning/run', async (req, res) => {
     try {
       await controller.runPlanningLoop();
 
       res.json({
         success: true,
-        message: "Planning loop executed successfully",
+        message: 'Planning loop executed successfully'
       });
     } catch (error) {
-      logger.error({ error }, "Failed to run planning loop");
+      logger.error({ error }, 'Failed to run planning loop');
       res.status(500).json({
         success: false,
-        error: error.message,
+        error: error.message
       });
     }
   });
 
   // Get water balance for a plot
-  router.get("/plots/:plotId/balance", async (req, res) => {
+  router.get('/plots/:plotId/balance', async (req, res) => {
     try {
       const { plotId } = req.params;
       const { date } = req.query;
@@ -101,86 +112,86 @@ module.exports = (controller) => {
       const targetDate = date ? new Date(date) : new Date();
       const balance = await controller.waterBalance.calculateDailyBalance(
         plotId,
-        targetDate,
+        targetDate
       );
 
       res.json({
         success: true,
-        data: balance,
+        data: balance
       });
     } catch (error) {
       logger.error(
         { error, plotId: req.params.plotId },
-        "Failed to get water balance",
+        'Failed to get water balance'
       );
       res.status(500).json({
         success: false,
-        error: error.message,
+        error: error.message
       });
     }
   });
 
   // Get water usage metrics
-  router.get("/metrics/usage", async (req, res) => {
+  router.get('/metrics/usage', async (req, res) => {
     try {
       const { startDate, endDate } = req.query;
 
       if (!startDate || !endDate) {
         return res.status(400).json({
           success: false,
-          error: "startDate and endDate are required",
+          error: 'startDate and endDate are required'
         });
       }
 
       const metrics = await controller.waterBalance.aggregateUsageMetrics(
         new Date(startDate),
-        new Date(endDate),
+        new Date(endDate)
       );
 
       res.json({
         success: true,
-        data: metrics,
+        data: metrics
       });
     } catch (error) {
-      logger.error({ error }, "Failed to get usage metrics");
+      logger.error({ error }, 'Failed to get usage metrics');
       res.status(500).json({
         success: false,
-        error: error.message,
+        error: error.message
       });
     }
   });
 
   // Manual valve control
-  router.post("/plots/:plotId/valve", async (req, res) => {
+  router.post('/plots/:plotId/valve', async (req, res) => {
     try {
       const { plotId } = req.params;
-      const { action, reason = "Manual control" } = req.body;
+      const { action, reason = 'Manual control' } = req.body;
 
-      if (!["ON", "OFF"].includes(action)) {
+      if (!['ON', 'OFF'].includes(action)) {
         return res.status(400).json({
           success: false,
-          error: "Invalid action. Must be ON or OFF",
+          error: 'Invalid action. Must be ON or OFF'
         });
       }
 
-      const level = action === "ON" ? 1 : 0;
+      const level = action === 'ON' ? 1 : 0;
       await controller.valveCommand.sendValveCommand(
         plotId,
         level,
         new Date(),
-        reason,
+        reason
       );
 
       // Track manual irrigation
-      if (action === "ON") {
+      if (action === 'ON') {
         const plotConfig = controller.config.plots.find(
-          (p) => p.plotId === plotId,
+          (p) => p.plotId === plotId
         );
         controller.waterBalance.startIrrigation(
           plotId,
           plotConfig.valveName,
-          "MANUAL",
-          0,
+          'MANUAL',
+          0
         );
       } else {
         await controller.waterBalance.stopIrrigation(plotId);
@@ -188,34 +199,34 @@ module.exports = (controller) => {
 
       res.json({
         success: true,
-        message: `Valve ${action} command sent for plot ${plotId}`,
+        message: `Valve ${action} command sent for plot ${plotId}`
       });
     } catch (error) {
       logger.error(
         { error, plotId: req.params.plotId },
-        "Failed to control valve",
+        'Failed to control valve'
       );
       res.status(500).json({
         success: false,
-        error: error.message,
+        error: error.message
       });
     }
   });
 
   // Update daily progress manually
-  router.post("/progress/update", async (req, res) => {
+  router.post('/progress/update', async (req, res) => {
     try {
       await controller.updateDailyProgress();
 
       res.json({
         success: true,
-        message: "Daily progress updated successfully",
+        message: 'Daily progress updated successfully'
       });
     } catch (error) {
-      logger.error({ error }, "Failed to update daily progress");
+      logger.error({ error }, 'Failed to update daily progress');
       res.status(500).json({
         success: false,
-        error: error.message,
+        error: error.message
       });
     }
   });

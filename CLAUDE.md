@@ -3,7 +3,7 @@
 This file provides guidance to WARP.ai when working with code in this repository.
 
 
-# Warp Guidelines by Sabrina Ramonov
+# WARP Guidelines by Sabrina Ramonov
 
 ## Implementation Best Practices
 
@@ -80,7 +80,6 @@ These rules ensure maintainability, safety, and developer velocity.
 ### 7 - Git
 
 - **GH-1 (MUST**) Use Conventional Commits format when writing commit messages: https://www.conventionalcommits.org/en/v1.0.0
-
 
 ---
 
@@ -248,7 +247,7 @@ footers other than BREAKING CHANGE: <description> may be provided and follow a c
 
 #Additional Guidance:
 
-guidance to WARP when working with code in this repository.
+guidance to WARP.ai when working with code in this repository.
 
 ## Testing Principles (MANDATORY)
 
