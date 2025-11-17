@@ -110,6 +110,31 @@
         justify-content: space-between;
         align-items: center;
         margin-bottom: 15px;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .mode-toggle {
+        display: inline-flex;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        overflow: hidden;
+      }
+      .mode-toggle button {
+        background: #fff;
+        border: none;
+        padding: 6px 10px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .mode-toggle button.active {
+        background: #e7f5ff;
+        color: #0369a1;
+        font-weight: 600;
+      }
+      .mode-toggle button:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
       }
 
       .sensor-title {
@@ -186,6 +211,11 @@
           <option value="7d">Last 7 Days</option>
           <option value="14d">Last 14 Days</option>
         </select>
+        <div class="mode-toggle" id="globalModeToggle" style="margin-left:8px;">
+          <button id="globalRawBtn" class="active">Raw</button>
+          <button id="globalSmoothedBtn">Smoothed</button>
+          <button id="globalBothBtn">Both</button>
+        </div>
         <button class="refresh-btn" onclick="refreshData()">
           🔄 Refresh Now
         </button>
@@ -217,12 +247,13 @@
 
       let charts = {};
       let refreshInterval = null;
+      const sensorModes = {}; // sensorId -> 'raw' | 'smoothed'
 
       async function fetchMoistureData(period) {
         try {
           // Fetch all sensors for the selected period (no default sensorIds filter)
           const response = await fetch(
-            `${API_BASE}/moisture/chart?period=${period}&timeZone=Asia/Bangkok`,
+            `${API_BASE}/moisture/chart?period=${period}&timeZone=Asia/Bangkok&includeSmoothed=true`,
           );
 
           if (!response.ok) {
@@ -252,8 +283,191 @@
         };
       }
 
+      // Helpers for dataset assembly (browser)
+      function buildLineDataset(label, data, color, opts = {}) {
+        return {
+          label,
+          data,
+          borderColor: color,
+          backgroundColor: 'rgba(0,0,0,0)',
+          borderWidth: 2,
+          tension: 0.4,
+          fill: false,
+          spanGaps: true,
+          pointRadius: 2,
+          pointHoverRadius: 4,
+          ...opts,
+        };
+      }
+      const defaultPalette = {
+        surface: 'rgb(20, 184, 166)',
+        deep: 'rgb(236, 72, 153)',
+        surfaceSmoothed: 'rgb(2, 132, 199)',
+        deepSmoothed: 'rgb(139, 92, 246)',
+        lower: 'rgb(220, 38, 38)',
+        upper: 'rgb(234, 179, 8)',
+      };
+      function toXY(series, pick) {
+        return series.map((p) => ({ x: new Date(p.time), y: pick(p) }));
+      }
+      function assembleMoistureDatasets(mode, dataPoints, smoothedDataPoints, thresholds, palette = defaultPalette) {
+        const rawSurface = toXY(dataPoints, (p) => p.avgMoistureSurface);
+        const rawDeep = toXY(dataPoints, (p) => p.avgMoistureDeep);
+        const smoothSurface = toXY(smoothedDataPoints || [], (p) => p.avgMoistureSurface);
+        const smoothDeep = toXY(smoothedDataPoints || [], (p) => p.avgMoistureDeep);
+
+        let startX = null, endX = null;
+        if (mode === 'both') {
+          const candidates = [];
+          const pushRange = (s) => { if (s.length) { candidates.push(s[0].x, s[s.length-1].x); } };
+          pushRange(rawSurface.length ? rawSurface : rawDeep);
+          pushRange(smoothSurface.length ? smoothSurface : smoothDeep);
+          if (candidates.length) {
+            startX = new Date(Math.min(...candidates.map(d => d.getTime())));
+            endX = new Date(Math.max(...candidates.map(d => d.getTime())));
+          }
+        } else {
+          const src = (mode === 'smoothed') ? (smoothSurface.length ? smoothSurface : smoothDeep) : (rawSurface.length ? rawSurface : rawDeep);
+          if (src.length) { startX = src[0].x; endX = src[src.length - 1].x; }
+        }
+
+        const datasets = [];
+        if (mode === 'raw') {
+          datasets.push(buildLineDataset('Surface', rawSurface, palette.surface, { order: 1 }));
+          datasets.push(buildLineDataset('Deep', rawDeep, palette.deep, { order: 2, borderDash: [5, 5] }));
+        } else if (mode === 'smoothed') {
+          datasets.push(buildLineDataset('Smoothed surface', smoothSurface, palette.surfaceSmoothed, { order: 1, borderWidth: 3 }));
+          datasets.push(buildLineDataset('Smoothed deep', smoothDeep, palette.deepSmoothed, { order: 2, borderDash: [6, 4], borderWidth: 3 }));
+        } else {
+          datasets.push(buildLineDataset('Surface', rawSurface, palette.surface, { order: 1 }));
+          datasets.push(buildLineDataset('Deep', rawDeep, palette.deep, { order: 2, borderDash: [5, 5] }));
+        }
+        if (thresholds && startX && endX) {
+          if (thresholds.lower !== null && thresholds.lower !== undefined) {
+            datasets.push(buildLineDataset('Lower threshold', [ { x: startX, y: thresholds.lower }, { x: endX, y: thresholds.lower } ], palette.lower, { order: 3, borderWidth: 1, tension: 0, pointRadius: 0 }));
+          }
+          if (thresholds.upper !== null && thresholds.upper !== undefined) {
+            datasets.push(buildLineDataset('Upper threshold', [ { x: startX, y: thresholds.upper }, { x: endX, y: thresholds.upper } ], palette.upper, { order: 4, borderWidth: 1, tension: 0, pointRadius: 0 }));
+          }
+        }
+        if (mode === 'both') {
+          datasets.push(buildLineDataset('Smoothed surface', smoothSurface, palette.surfaceSmoothed, { order: 5, borderWidth: 3 }));
+          datasets.push(buildLineDataset('Smoothed deep', smoothDeep, palette.deepSmoothed, { order: 6, borderDash: [6, 4], borderWidth: 3 }));
+        }
+        return datasets;
+      }
+
+      function initSensorMode(sensorId, hasSmoothed) {
+        const key = `MUNBON_MODE_${sensorId}`;
+        try {
+          const saved = localStorage.getItem(key);
+          if ((saved === 'smoothed' || saved === 'both') && hasSmoothed) return saved;
+          if (saved === 'raw') return 'raw';
+        } catch (_) {}
+        return 'raw';
+      }
+
+      function persistSensorMode(sensorId, mode) {
+        try { localStorage.setItem(`MUNBON_MODE_${sensorId}`, mode); } catch (_) {}
+      }
+
+      function createModeToggle(sensorId, hasSmoothed) {
+        const container = document.createElement('div');
+        container.className = 'mode-toggle';
+        const rawBtn = document.createElement('button');
+        rawBtn.textContent = 'Raw';
+        const smBtn = document.createElement('button');
+        smBtn.textContent = 'Smoothed';
+        const bothBtn = document.createElement('button');
+        bothBtn.textContent = 'Both';
+        smBtn.disabled = !hasSmoothed;
+        bothBtn.disabled = !hasSmoothed;
+        container.appendChild(rawBtn);
+        container.appendChild(smBtn);
+        container.appendChild(bothBtn);
+
+        const syncActive = () => {
+          const mode = sensorModes[sensorId] || 'raw';
+          rawBtn.classList.toggle('active', mode === 'raw');
+          smBtn.classList.toggle('active', mode === 'smoothed');
+          bothBtn.classList.toggle('active', mode === 'both');
+        };
+
+        rawBtn.addEventListener('click', () => {
+          sensorModes[sensorId] = 'raw';
+          persistSensorMode(sensorId, 'raw');
+          syncActive();
+          const s = window.lastResponse.sensors[sensorId];
+          renderChartFromMode(sensorId, s.dataPoints, s.smoothedDataPoints || [], s.thresholds || null, 'raw');
+        });
+        smBtn.addEventListener('click', () => {
+          if (!hasSmoothed) return;
+          sensorModes[sensorId] = 'smoothed';
+          persistSensorMode(sensorId, 'smoothed');
+          syncActive();
+          const s = window.lastResponse.sensors[sensorId];
+          renderChartFromMode(sensorId, s.dataPoints, s.smoothedDataPoints || [], s.thresholds || null, 'smoothed');
+        });
+        bothBtn.addEventListener('click', () => {
+          if (!hasSmoothed) return;
+          sensorModes[sensorId] = 'both';
+          persistSensorMode(sensorId, 'both');
+          syncActive();
+          const s = window.lastResponse.sensors[sensorId];
+          renderChartFromMode(sensorId, s.dataPoints, s.smoothedDataPoints || [], s.thresholds || null, 'both');
+        });
+
+        syncActive();
+        return container;
+      }
+
+      function renderChartFromMode(sensorId, dataPoints, smoothedDataPoints, thresholds, mode) {
+        const canvasId = `chart-${sensorId}`;
+        const ctx = document.getElementById(canvasId);
+        if (!ctx) return;
+        const datasets = assembleMoistureDatasets(mode, dataPoints, smoothedDataPoints, thresholds, defaultPalette);
+        if (charts[sensorId]) {
+          charts[sensorId].data.datasets = datasets;
+          charts[sensorId].update();
+          return;
+        }
+        charts[sensorId] = new Chart(ctx, {
+          type: 'line',
+          data: { datasets },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { display: true, position: 'top' },
+              tooltip: { mode: 'index', intersect: false },
+            },
+            scales: {
+              x: {
+                type: 'time',
+                time: { unit: 'hour', displayFormats: { hour: 'MM/dd HH:mm' } },
+                title: { display: true, text: 'Time' },
+              },
+              y: { beginAtZero: false, title: { display: true, text: 'Moisture %' } },
+            },
+          },
+        });
+      }
+
+      function destroyAllCharts() {
+        try {
+          if (charts) {
+            Object.keys(charts).forEach((k) => {
+              try { charts[k]?.destroy?.(); } catch (_) {}
+            });
+          }
+        } catch (_) {}
+        charts = {};
+      }
+
       function renderSensors(data) {
         const grid = document.getElementById("sensorsGrid");
+        // Clear existing charts bound to old canvases before rebuilding DOM
+        destroyAllCharts();
         grid.innerHTML = "";
 
         if (!data.sensors || Object.keys(data.sensors).length === 0) {
@@ -285,7 +499,10 @@
           panel.innerHTML = `
                     <div class="sensor-header">
                         <div class="sensor-title">Sensor ${sensorId}${sensorData.plotId ? ` • Plot: ${sensorData.plotId}` : ''}</div>
-                        <div class="stat">${sensorData.dataPoints.length} points</div>
+                        <div style="display:flex; gap:10px; align-items:center;">
+                          <div class="stat">${sensorData.dataPoints.length} points</div>
+                          <div class="mode-toggle-holder"></div>
+                        </div>
                     </div>
                     <div class="sensor-stats">
                         <div class="stat">
@@ -304,114 +521,20 @@
 
           grid.appendChild(panel);
 
-          renderChart(sensorId, sensorData.dataPoints);
+          const hasSmoothed = (sensorData.smoothedDataPoints && sensorData.smoothedDataPoints.length > 0);
+          const initialMode = initSensorMode(sensorId, hasSmoothed);
+          sensorModes[sensorId] = initialMode;
+          const holder = panel.querySelector('.mode-toggle-holder');
+          holder.appendChild(createModeToggle(sensorId, hasSmoothed));
+
+          renderChartFromMode(sensorId, sensorData.dataPoints, sensorData.smoothedDataPoints || [], sensorData.thresholds || null, initialMode);
         });
 
         document.getElementById("lastUpdate").textContent =
           `Last updated: ${new Date().toLocaleString()}`;
       }
 
-      function renderChart(sensorId, dataPoints) {
-        const canvasId = `chart-${sensorId}`;
-        const ctx = document.getElementById(canvasId);
-
-        if (!ctx) return;
-
-        if (charts[sensorId]) {
-          charts[sensorId].destroy();
-        }
-
-        // Build consistent datasets with fixed palette
-        const palette = {
-          surface: 'rgb(20, 184, 166)', // teal
-          deep: 'rgb(236, 72, 153)',    // pink
-          lower: 'rgb(220, 38, 38)',    // red
-          upper: 'rgb(234, 179, 8)',    // amber
-        };
-
-        const buildDataset = (label, data, color, opts = {}) => ({
-          label,
-          data,
-          borderColor: color,
-          backgroundColor: 'rgba(0,0,0,0)',
-          borderWidth: 2,
-          tension: 0.4,
-          fill: false,
-          spanGaps: true,
-          pointRadius: 2,
-          pointHoverRadius: 4,
-          ...opts,
-        });
-
-        const surfaceData = dataPoints.map((p) => ({ x: new Date(p.time), y: p.avgMoistureSurface }));
-        const deepData = dataPoints.map((p) => ({ x: new Date(p.time), y: p.avgMoistureDeep }));
-
-        const startX = dataPoints.length ? new Date(dataPoints[0].time) : new Date();
-        const endX = dataPoints.length ? new Date(dataPoints[dataPoints.length - 1].time) : new Date();
-        const thresholds = (window.lastResponse && window.lastResponse.sensors && window.lastResponse.sensors[sensorId] && window.lastResponse.sensors[sensorId].thresholds) || null;
-
-        const datasets = [];
-        // 1) Surface
-        datasets.push(buildDataset('Surface', surfaceData, palette.surface, { order: 1 }));
-        // 2) Deep (dashed, thicker than thresholds)
-        datasets.push(buildDataset('Deep', deepData, palette.deep, { order: 2, borderDash: [5, 5] }));
-        // 3) Lower / 4) Upper thresholds (thin, solid)
-        if (thresholds && thresholds.lower !== null && thresholds.lower !== undefined) {
-          datasets.push(buildDataset('Lower threshold', [
-            { x: startX, y: thresholds.lower },
-            { x: endX, y: thresholds.lower },
-          ], palette.lower, { order: 3, borderWidth: 1, tension: 0, pointRadius: 0 }));
-        }
-        if (thresholds && thresholds.upper !== null && thresholds.upper !== undefined) {
-          datasets.push(buildDataset('Upper threshold', [
-            { x: startX, y: thresholds.upper },
-            { x: endX, y: thresholds.upper },
-          ], palette.upper, { order: 4, borderWidth: 1, tension: 0, pointRadius: 0 }));
-        }
-
-        charts[sensorId] = new Chart(ctx, {
-          type: "line",
-          data: {
-            datasets,
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-              legend: {
-                display: true,
-                position: "top",
-              },
-              tooltip: {
-                mode: "index",
-                intersect: false,
-              },
-            },
-            scales: {
-              x: {
-                type: "time",
-                time: {
-                  unit: "hour",
-                  displayFormats: {
-                    hour: "MM/dd HH:mm",
-                  },
-                },
-                title: {
-                  display: true,
-                  text: "Time",
-                },
-              },
-              y: {
-                beginAtZero: false,
-                title: {
-                  display: true,
-                  text: "Moisture %",
-                },
-              },
-            },
-          },
-        });
-      }
+      /* obsolete: replaced by renderChartFromMode */
 
       async function loadData() {
         const grid = document.getElementById("sensorsGrid");
@@ -432,6 +555,43 @@
         loadData();
       }
 
+      function applyGlobalMode(mode) {
+        if (!window.lastResponse || !window.lastResponse.sensors) return;
+        const sensors = window.lastResponse.sensors;
+        Object.keys(sensors).forEach((sensorId) => {
+          const s = sensors[sensorId];
+          const hasSmoothed = !!(s.smoothedDataPoints && s.smoothedDataPoints.length);
+          const effective = ((mode === 'smoothed' || mode === 'both') && !hasSmoothed) ? 'raw' : mode;
+          sensorModes[sensorId] = effective;
+          try { localStorage.setItem(`MUNBON_MODE_${sensorId}`, effective); } catch (_) {}
+          renderChartFromMode(sensorId, s.dataPoints, s.smoothedDataPoints || [], s.thresholds || null, effective);
+          const container = document.querySelector(`#sensor-${sensorId} .mode-toggle`);
+          if (container) {
+            const btns = container.querySelectorAll('button');
+            btns.forEach((b) => b.classList.remove('active'));
+            const [rawBtn, smBtn, bothBtn] = btns;
+            if (rawBtn) rawBtn.classList.toggle('active', effective === 'raw');
+            if (smBtn) smBtn.classList.toggle('active', effective === 'smoothed');
+            if (bothBtn) bothBtn.classList.toggle('active', effective === 'both');
+          }
+        });
+      }
+
+      function setupGlobalToggle() {
+        const rawB = document.getElementById('globalRawBtn');
+        const smoothB = document.getElementById('globalSmoothedBtn');
+        const bothB = document.getElementById('globalBothBtn');
+        const setActive = (mode) => {
+          [rawB, smoothB, bothB].forEach(b => b.classList.remove('active'));
+          if (mode === 'raw') rawB.classList.add('active');
+          if (mode === 'smoothed') smoothB.classList.add('active');
+          if (mode === 'both') bothB.classList.add('active');
+        };
+        rawB.addEventListener('click', () => { setActive('raw'); applyGlobalMode('raw'); });
+        smoothB.addEventListener('click', () => { setActive('smoothed'); applyGlobalMode('smoothed'); });
+        bothB.addEventListener('click', () => { setActive('both'); applyGlobalMode('both'); });
+      }
+
       function setupAutoRefresh() {
         if (refreshInterval) {
           clearInterval(refreshInterval);
@@ -447,6 +607,7 @@
       });
 
       window.onload = () => {
+        setupGlobalToggle();
         loadData();
         setupAutoRefresh();
       };

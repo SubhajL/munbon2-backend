@@ -422,6 +422,7 @@ export function createMoistureRoutes(options: MoistureRoutesOptions): Router {
       const period = (req.query.period as string | undefined) || '24h';
       const sensorIdsParam = (req.query.sensorIds as string | undefined)?.trim();
       const timeZone = (req.query.timeZone as string | undefined) || 'UTC';
+      const includeSmoothed = String(req.query.includeSmoothed || 'false').toLowerCase() === 'true';
 
       // Validate period
       if (!isValidPeriod(period)) {
@@ -437,7 +438,7 @@ export function createMoistureRoutes(options: MoistureRoutesOptions): Router {
         : undefined;
 
       // Get data from service
-      const rows = await chartDataService.getMoistureChartData(period, sensorIds);
+      const rows = await chartDataService.getMoistureChartData(period, sensorIds, includeSmoothed);
 
       let meta: Record<string, { plotId?: string | null; thresholds?: { lower: number | null; upper: number | null } }> | undefined;
       if (options.smartFarmRepository && rows.length > 0) {

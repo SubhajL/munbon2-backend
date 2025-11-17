@@ -13,6 +13,8 @@ export interface MoistureReadingRow {
   min_moisture_deep?: string | number;
   max_moisture_deep?: string | number;
   sample_count?: string | number;
+  /** Optional origin of the row when overlaying sources */
+  source?: 'raw' | 'smoothed';
   temp_surface_c?: string | number | null;
   temp_deep_c?: string | number | null;
   ambient_temp_c?: string | number | null;
@@ -46,6 +48,7 @@ export interface SensorChartData {
     upper: number | null;
   };
   dataPoints: SensorDataPoint[];
+  smoothedDataPoints?: SensorDataPoint[];
   stats: {
     totalSamples: number;
     timeRange: {
