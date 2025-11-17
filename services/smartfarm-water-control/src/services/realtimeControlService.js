@@ -1,8 +1,21 @@
 class RealtimeControlService {
-  constructor(repository, valveCommandService, logger, options = {}) {
+  constructor(
+    repository,
+    valveCommandService,
+    logger,
+    options = {},
+    valveAuditService = null
+  ) {
     this.repository = repository;
     this.valveCommandService = valveCommandService;
     this.logger = logger;
+    this.valveAuditService = valveAuditService;
+
+    // Optional separate repository for writing sensor_plot_readings (e.g., config DB)
+    this.readingsRepository = options.readingsRepository || repository;
+
+    // Optional geo-spatial resolver for water level sensors
+    this.geoSpatialResolver = options.geoSpatialResolver || null;
 
     const configuredWindow = options.moistureFreshnessWindowMs ?? 300000;
 
@@ -15,6 +28,25 @@ class RealtimeControlService {
     } else {
       this.moistureFreshnessWindowMs = configuredWindow;
     }
+  }
+
+  /**
+   * Normalize sensor ID from gateway-sensor format (0001-0001) to 8-digit format (00000001)
+   * for DB lookup in sensor_plot_mapping and sensor_plot_readings tables.
+   * @param {string} sensorId - Raw sensor ID from notification payload
+   * @returns {string} Normalized 8-digit sensor ID
+   */
+  normalizeSensorId(sensorId) {
+    if (!sensorId || typeof sensorId !== 'string') return sensorId;
+    // Match pattern: gatewayID-sensorID (e.g., 0001-0001, 0001-0002, 0001-0010)
+    const match = sensorId.match(/^\d{4}-(\d{4})$/);
+    if (match) {
+      // Extract sensor part and pad to 8 digits
+      const sensorPart = match[1];
+      return sensorPart.padStart(8, '0');
+    }
+    // Already 8-digit or other format: return as-is
+    return sensorId;
   }
 
   getReadingAge(timestamp) {
@@ -111,10 +143,77 @@ class RealtimeControlService {
     };
   }
 
-  async handleSensorReading({ sensorId, value, timestamp, sensorType }) {
-    const pool = this.repository.pool;
+  async ensureWaterLevelMappingFromCoordinates({ sensorId, locationLat, locationLng }) {
+    // Validate inputs
+    if (
+      typeof locationLat !== 'number' ||
+      typeof locationLng !== 'number' ||
+      Number.isNaN(locationLat) ||
+      Number.isNaN(locationLng)
+    ) {
+      return { changed: false, plotId: null, previousPlotId: null };
+    }
+
+    // Fetch existing mapping (if any)
+    const existing = await this.readingsRepository.getSensorPlotMapping(
+      this.readingsRepository.pool,
+      sensorId
+    );
+
+    // Resolve plot from coordinates using resolver
+    const resolvedPlotId = await this.geoSpatialResolver.resolvePlotFromCoordinates(
+      locationLng,
+      locationLat,
+      'water_level'
+    );
+
+    if (!resolvedPlotId) {
+      return {
+        changed: false,
+        plotId: existing ? existing.plotId : null,
+        previousPlotId: existing ? existing.plotId : null
+      };
+    }
+
+    if (existing && existing.plotId === resolvedPlotId) {
+      return { changed: false, plotId: resolvedPlotId, previousPlotId: existing.plotId };
+    }
+
+    // Upsert new mapping
+    await this.repository.upsertSensorPlotMapping(this.repository.pool, {
+      sensorId,
+      plotId: resolvedPlotId,
+      sensorType: 'water_level'
+    });
+
+    return {
+      changed: true,
+      plotId: resolvedPlotId,
+      previousPlotId: existing ? existing.plotId : null
+    };
+  }
+
+  async handleSensorReading({
+    sensorId,
+    value,
+    timestamp,
+    sensorType,
+    locationLat,
+    locationLng
+  }) {
+    const configPool = this.readingsRepository.pool;
+    const controlPool = this.repository.pool;
 
     try {
+      // Normalize sensor ID: 0001-0001 → 00000001 for DB lookup
+      const normalizedSensorId = this.normalizeSensorId(sensorId);
+      if (normalizedSensorId !== sensorId) {
+        this.logger.debug(
+          { rawSensorId: sensorId, normalizedSensorId },
+          'Normalized sensor ID for DB lookup'
+        );
+      }
+
       if (sensorType === 'moisture') {
         const ageMs = this.getReadingAge(timestamp);
 
@@ -135,18 +234,71 @@ class RealtimeControlService {
         }
       }
 
-      const mapping = await this.repository.getSensorPlotMapping(
-        pool,
-        sensorId
+      // Attempt automatic relocation for water level sensors when coordinates present
+      if (sensorType === 'water_level' && this.geoSpatialResolver) {
+        try {
+          await this.ensureWaterLevelMappingFromCoordinates({
+            sensorId: normalizedSensorId,
+            locationLat,
+            locationLng
+          });
+        } catch (e) {
+          this.logger.warn({ error: e }, 'Auto-relocation attempt failed');
+        }
+      }
+
+      let mapping = await this.readingsRepository.getSensorPlotMapping(
+        configPool,
+        normalizedSensorId
       );
 
+      // For water_level sensors without mapping, try geo-spatial resolution
+      if (!mapping && sensorType === 'water_level' && this.geoSpatialResolver) {
+        if (
+          typeof locationLat === 'number' &&
+          typeof locationLng === 'number'
+        ) {
+          this.logger.info(
+            { sensorId: normalizedSensorId, locationLat, locationLng },
+            'Water level sensor not mapped: attempting geo-spatial resolution'
+          );
+
+          const resolution = await this.geoSpatialResolver.resolveAndMapSensor({
+            sensorId: normalizedSensorId,
+            longitude: locationLng,
+            latitude: locationLat,
+            sensorType
+          });
+
+          if (resolution) {
+            this.logger.info(
+              {
+                sensorId: normalizedSensorId,
+                plotId: resolution.plotId,
+                wasCreated: resolution.wasCreated
+              },
+              'Geo-spatial resolution successful'
+            );
+
+            // Re-fetch mapping after creation
+            mapping = await this.readingsRepository.getSensorPlotMapping(
+              configPool,
+              normalizedSensorId
+            );
+          }
+        }
+      }
+
       if (!mapping) {
-        this.logger.warn({ sensorId }, 'Sensor not mapped to any plot');
+        this.logger.warn(
+          { sensorId, normalizedSensorId, sensorType },
+          'Sensor not mapped to any plot'
+        );
         return;
       }
 
-      const thresholds = await this.repository.getControlThresholds(
-        pool,
+      const thresholds = await this.readingsRepository.getControlThresholds(
+        configPool,
         mapping.plotId
       );
 
@@ -158,10 +310,113 @@ class RealtimeControlService {
         return;
       }
 
-      const valveState = await this.repository.getValveState(
-        pool,
+      const valveState = await this.readingsRepository.getValveState(
+        configPool,
         mapping.plotId
       );
+
+      // Persist latest reading snapshot for monitoring
+      try {
+        // First, clean up any stale readings for this sensor in other plots
+        // (handles case where sensor physically moved between plots)
+        const stalePlots =
+          await this.readingsRepository.deleteStaleReadingsForSensor(
+            this.readingsRepository.pool,
+            {
+              sensorId: normalizedSensorId,
+              sensorType,
+              currentPlotId: mapping.plotId
+            }
+          );
+
+        if (stalePlots.length > 0) {
+          this.logger.info(
+            {
+              sensorId: normalizedSensorId,
+              stalePlots,
+              currentPlot: mapping.plotId
+            },
+            'Cleaned up stale sensor readings from previous plots'
+          );
+        }
+
+        // Fetch all fresh sensor readings for this plot and sensor type
+        const freshReadings =
+          await this.readingsRepository.getFreshSensorReadingsForPlot(
+            this.readingsRepository.pool,
+            {
+              plotId: mapping.plotId,
+              sensorType,
+              moistureLayer:
+                sensorType === 'moisture'
+                  ? (thresholds && thresholds.moistureLayer) || 'surface'
+                  : undefined
+            }
+          );
+
+        let readingToStore;
+
+        if (freshReadings.length >= 2) {
+          // Multiple sensors: compute average
+          const sensorIds = freshReadings.map((r) => r.sensorId);
+          const values = freshReadings.map((r) => r.value);
+          const avgValue =
+            values.reduce((sum, v) => sum + v, 0) / values.length;
+
+          readingToStore = {
+            plotId: mapping.plotId,
+            sensorId: `AVG_${freshReadings.length}_sensors`,
+            sensorType,
+            value: avgValue,
+            units: sensorType === 'moisture' ? '%' : 'cm',
+            timestamp,
+            contributingSensorIds: sensorIds
+          };
+
+          this.logger.info(
+            {
+              plotId: mapping.plotId,
+              sensorType,
+              contributingSensors: sensorIds,
+              individualValues: values,
+              averageValue: avgValue
+            },
+            'Computed average from multiple sensors'
+          );
+        } else {
+          // Single sensor or no other fresh readings
+          // For water_level, prefer the mapped sensor id (e.g., AWD-xxxx) from freshReadings if available
+          const preferredId =
+            sensorType === 'water_level' && freshReadings.length === 1
+              ? freshReadings[0].sensorId
+              : normalizedSensorId;
+
+          readingToStore = {
+            plotId: mapping.plotId,
+            sensorId: preferredId,
+            sensorType,
+            value,
+            units: sensorType === 'moisture' ? '%' : 'cm',
+            timestamp,
+            contributingSensorIds: [preferredId]
+          };
+        }
+
+        await this.readingsRepository.upsertSensorPlotReading(
+          this.readingsRepository.pool,
+          readingToStore
+        );
+      } catch (e) {
+        this.logger.warn(
+          {
+            error: e,
+            rawSensorId: sensorId,
+            normalizedSensorId,
+            plotId: mapping.plotId
+          },
+          'Failed to upsert sensor_plot_readings'
+        );
+      }
 
       const decision = this.evaluateControlDecision({
         value,
@@ -170,9 +425,9 @@ class RealtimeControlService {
         currentState: valveState.currentState
       });
 
-      const logId = await this.repository.logControlDecision(pool, {
+      const logId = await this.repository.logControlDecision(controlPool, {
         plotId: mapping.plotId,
-        sensorId,
+        sensorId: normalizedSensorId,
         sensorType,
         action: decision.action,
         reason: decision.reason,
@@ -185,39 +440,97 @@ class RealtimeControlService {
       });
 
       if (decision.action !== 'MAINTAIN') {
+        let auditId = null;
+
         try {
+          // Log to audit table before executing command
+          if (this.valveAuditService) {
+            const valveName = this.valveCommandService.valveMapping.get(
+              mapping.plotId
+            );
+            const config = await this.repository.getPlotConfiguration(
+              mapping.plotId
+            );
+
+            const controlMode =
+              config?.controlMode ||
+              (sensorType === 'moisture' ? 'MOISTURE' : 'AWD');
+
+            auditId = await this.valveAuditService.logValveChange({
+              plotId: mapping.plotId,
+              valveName: valveName || 'UNKNOWN',
+              changedAt: new Date(),
+              previousState: valveState.currentState || 'UNKNOWN',
+              newState: decision.newState,
+              moistureValue: sensorType === 'moisture' ? value : null,
+              waterLevelValue: sensorType === 'water_level' ? value : null,
+              sensorId: normalizedSensorId,
+              sensorTimestamp: timestamp,
+              controlMode,
+              moistureLowerThreshold: thresholds.moistureLowerThreshold,
+              moistureUpperThreshold: thresholds.moistureUpperThreshold,
+              waterLevelLowerThreshold: thresholds.waterLevelLowerThreshold,
+              waterLevelUpperThreshold: thresholds.waterLevelUpperThreshold,
+              action: decision.action,
+              reason: decision.reason,
+              valveCommandSent: true,
+              mssqlTableUsed: this.valveCommandService.tableName,
+              triggeredBy: 'AUTO'
+            });
+          }
+
           await this.executeValveCommandWithRetry(
-            pool,
+            configPool,
             mapping.plotId,
             decision,
             timestamp,
             logId
           );
 
-          await this.repository.updateDecisionLogResult(pool, logId, true);
+          await this.repository.updateDecisionLogResult(
+            controlPool,
+            logId,
+            true
+          );
+
+          // Update audit with success
+          if (this.valveAuditService && auditId) {
+            await this.valveAuditService.updateCommandResult(auditId, true);
+          }
 
           this.logger.info(
             {
               plotId: mapping.plotId,
               action: decision.action,
               value,
-              sensorType
+              sensorType,
+              auditId
             },
             'Control action executed successfully'
           );
         } catch (error) {
           await this.repository.updateDecisionLogResult(
-            pool,
+            controlPool,
             logId,
             false,
             error.message
           );
 
+          // Update audit with failure
+          if (this.valveAuditService && auditId) {
+            await this.valveAuditService.updateCommandResult(
+              auditId,
+              false,
+              error.message
+            );
+          }
+
           this.logger.error(
             {
               error,
               plotId: mapping.plotId,
-              action: decision.action
+              action: decision.action,
+              auditId
             },
             'Failed to execute control action'
           );
@@ -253,7 +566,7 @@ class RealtimeControlService {
     timestamp,
     _logId
   ) {
-    const level = decision.action === 'TURN_ON' ? 100 : 0;
+    const level = decision.action === 'TURN_ON' ? 1 : 0;
 
     await this.valveCommandService.sendValveCommandWithRetry(
       plotId,

@@ -25,17 +25,20 @@ Log Decision → Execute Valve Command → Update State
 ## Prerequisites
 
 1. **Database Setup**: Ensure TimescaleDB migrations are applied
+
    ```bash
    cd /Users/subhajlimanond/dev/munbon2-backend/services/smartfarm-water-control
    node scripts/run-migrations.js
    ```
 
 2. **Seed Test Data**: Populate control thresholds and sensor mappings
+
    ```bash
    node scripts/seed-realtime-control.js
    ```
 
 3. **Enable Listener**: Set environment variable in `.env`
+
    ```
    ENABLE_DB_LISTENER=true
    ```
@@ -48,15 +51,17 @@ Log Decision → Execute Valve Command → Update State
 The seed script creates:
 
 ### Control Thresholds
-| Plot ID       | Moisture Lower | Moisture Upper | Water Level Lower | Water Level Upper |
-|--------------|---------------|----------------|-------------------|-------------------|
-| TEST-PLOT-01 | 10.0%         | 15.0%          | 5.0cm             | 15.0cm            |
-| TEST-PLOT-02 | 12.0%         | 18.0%          | 6.0cm             | 12.0cm            |
-| TEST-PLOT-03 | 8.0%          | 14.0%          | 4.0cm             | 10.0cm            |
+
+| Plot ID      | Moisture Lower | Moisture Upper | Water Level Lower | Water Level Upper |
+| ------------ | -------------- | -------------- | ----------------- | ----------------- |
+| TEST-PLOT-01 | 10.0%          | 15.0%          | 5.0cm             | 15.0cm            |
+| TEST-PLOT-02 | 12.0%          | 18.0%          | 6.0cm             | 12.0cm            |
+| TEST-PLOT-03 | 8.0%           | 14.0%          | 4.0cm             | 10.0cm            |
 
 ### Sensor Mappings
-| Sensor ID              | Plot ID       | Sensor Type |
-|-----------------------|--------------|-------------|
+
+| Sensor ID             | Plot ID      | Sensor Type |
+| --------------------- | ------------ | ----------- |
 | MOISTURE-SENSOR-01    | TEST-PLOT-01 | moisture    |
 | MOISTURE-SENSOR-02    | TEST-PLOT-02 | moisture    |
 | WATER-LEVEL-SENSOR-01 | TEST-PLOT-01 | water_level |
@@ -72,6 +77,7 @@ npm run dev
 ```
 
 **Expected Output**:
+
 ```
 INFO: TimescaleDB connected successfully
 INFO: MSSQL connected successfully (if configured)
@@ -91,6 +97,7 @@ node scripts/test-sensor-insert.js
 ```
 
 This script will:
+
 - Insert 4 test sensor readings
 - Display decisions logged
 - Show current valve states
@@ -136,7 +143,7 @@ INFO: Received sensor evaluation notification { sensorId: 'MOISTURE-SENSOR-01', 
 INFO: Evaluating control decision { plotId: 'TEST-PLOT-01', value: 8.5, thresholds: { ... } }
 INFO: Decision: TURN_ON (Moisture 8.5% <= lower threshold 10.0%)
 INFO: Logging control decision { action: 'TURN_ON', plotId: 'TEST-PLOT-01', ... }
-INFO: Sending valve command with retry { plotId: 'TEST-PLOT-01', level: 100, attempt: 1 }
+INFO: Sending valve command with retry { plotId: 'TEST-PLOT-01', level: 1, attempt: 1 }
 INFO: Valve command succeeded { plotId: 'TEST-PLOT-01', attempt: 1, success: true }
 INFO: Updated valve state { plotId: 'TEST-PLOT-01', newState: 'ON' }
 ```
@@ -198,10 +205,12 @@ ORDER BY UpdateTime DESC;
 ### Scenario 2: Invalid Sensor Data
 
 1. Insert negative moisture:
+
    ```sql
    INSERT INTO public.moisture_readings (sensor_id, moisture_percent, timestamp)
    VALUES ('MOISTURE-SENSOR-01', -5.0, NOW());
    ```
+
    - **Expected**: MAINTAIN, reason "Invalid sensor reading"
 
 2. Insert overflow moisture (> 100%):
@@ -209,6 +218,7 @@ ORDER BY UpdateTime DESC;
    INSERT INTO public.moisture_readings (sensor_id, moisture_percent, timestamp)
    VALUES ('MOISTURE-SENSOR-01', 120.0, NOW());
    ```
+
    - **Expected**: MAINTAIN, reason "Invalid sensor reading"
 
 ### Scenario 3: Unmapped Sensor
@@ -218,6 +228,7 @@ ORDER BY UpdateTime DESC;
    INSERT INTO public.moisture_readings (sensor_id, moisture_percent, timestamp)
    VALUES ('UNKNOWN-SENSOR', 8.5, NOW());
    ```
+
    - **Expected**: No decision logged, listener skips unmapped sensor
 
 ### Scenario 4: Valve Command Failure
@@ -236,6 +247,7 @@ ORDER BY UpdateTime DESC;
    INSERT INTO public.water_level_readings (sensor_id, water_level_cm, timestamp)
    VALUES ('WATER-LEVEL-SENSOR-01', 120.0, NOW());
    ```
+
    - **Expected**: TURN_OFF immediately, reason "Water level overflow"
 
 ## Troubleshooting
@@ -245,6 +257,7 @@ ORDER BY UpdateTime DESC;
 **Symptom**: Sensor inserts don't trigger any logs
 
 **Check**:
+
 1. Ensure `ENABLE_DB_LISTENER=true` in `.env`
 2. Verify listener started:
    ```
@@ -266,6 +279,7 @@ ORDER BY UpdateTime DESC;
 **Symptom**: Decisions logged but `valve_command_sent = FALSE`
 
 **Check**:
+
 1. Ensure MSSQL connection is configured in `.env`
 2. Check MSSQL connection logs:
    ```
@@ -278,6 +292,7 @@ ORDER BY UpdateTime DESC;
 **Symptom**: Notifications received but no decisions logged
 
 **Check**:
+
 1. Verify sensor is mapped:
    ```sql
    SELECT * FROM water_control_smartfarm.sensor_plot_mapping

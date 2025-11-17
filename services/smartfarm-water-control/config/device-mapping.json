@@ -1,0 +1,627 @@
+{
+  "version": "2025-10-13-v0.2",
+  "description": "Smart Farm Device Mapping Configuration - Maps plot UUIDs to new device names from GIS data",
+  "coordinate_system": "WGS84 (EPSG:4326)",
+  "last_updated": "2025-10-14T06:23:18Z",
+  "device_inventory": {
+    "solenoid_valves": {
+      "count": 14,
+      "naming_pattern": "SV-{zone}{number}",
+      "zones": {
+        "U": "Upper irrigation zone (U1-U8)",
+        "L": "Lower irrigation zone (L1-L6)"
+      }
+    },
+    "flow_meters": {
+      "count": 5,
+      "naming_pattern": "F-{zone}{number}",
+      "zones": {
+        "U": "Upper zone flow monitoring (U1, U2, U7)",
+        "L": "Lower zone flow monitoring (L1, L2)"
+      }
+    },
+    "moisture_sensors": {
+      "count": 7,
+      "naming_pattern": "H-P{position}-{device_id}",
+      "positions": 4,
+      "device_ids": [
+        "00000001",
+        "00000002",
+        "00000004",
+        "00000006",
+        "00000007",
+        "00000008",
+        "00000010"
+      ]
+    }
+  },
+  "devices": {
+    "solenoid_valves": [
+      {
+        "device_name": "SV-U1",
+        "coordinates": [
+          102.148591,
+          14.495207
+        ],
+        "zone": "upper",
+        "device_type": "solenoid_valve",
+        "control_mode": "AWD"
+      },
+      {
+        "device_name": "SV-U2",
+        "coordinates": [
+          102.148607,
+          14.495223
+        ],
+        "zone": "upper",
+        "device_type": "solenoid_valve",
+        "control_mode": "AWD"
+      },
+      {
+        "device_name": "SV-U3",
+        "coordinates": [
+          102.149156,
+          14.495708
+        ],
+        "zone": "upper",
+        "device_type": "solenoid_valve",
+        "control_mode": "MOISTURE"
+      },
+      {
+        "device_name": "SV-U4",
+        "coordinates": [
+          102.149172,
+          14.495722
+        ],
+        "zone": "upper",
+        "device_type": "solenoid_valve",
+        "control_mode": "MOISTURE"
+      },
+      {
+        "device_name": "SV-U5",
+        "coordinates": [
+          102.150331,
+          14.496799
+        ],
+        "zone": "upper",
+        "device_type": "solenoid_valve",
+        "control_mode": "AWD"
+      },
+      {
+        "device_name": "SV-U6",
+        "coordinates": [
+          102.150347,
+          14.496813
+        ],
+        "zone": "upper",
+        "device_type": "solenoid_valve",
+        "control_mode": "AWD"
+      },
+      {
+        "device_name": "SV-U7",
+        "coordinates": [
+          102.151483,
+          14.497863
+        ],
+        "zone": "upper",
+        "device_type": "solenoid_valve",
+        "control_mode": "MOISTURE"
+      },
+      {
+        "device_name": "SV-U8",
+        "coordinates": [
+          102.151499,
+          14.497877
+        ],
+        "zone": "upper",
+        "device_type": "solenoid_valve",
+        "control_mode": "MOISTURE"
+      },
+      {
+        "device_name": "SV-L1",
+        "coordinates": [
+          102.150062,
+          14.496425
+        ],
+        "zone": "lower",
+        "device_type": "solenoid_valve",
+        "control_mode": "AWD"
+      },
+      {
+        "device_name": "SV-L2",
+        "coordinates": [
+          102.150553,
+          14.496871
+        ],
+        "zone": "lower",
+        "device_type": "solenoid_valve",
+        "control_mode": "MOISTURE"
+      },
+      {
+        "device_name": "SV-L3",
+        "coordinates": [
+          102.150853,
+          14.497145
+        ],
+        "zone": "lower",
+        "device_type": "solenoid_valve",
+        "control_mode": "AWD"
+      },
+      {
+        "device_name": "SV-L4",
+        "coordinates": [
+          102.151341,
+          14.497586
+        ],
+        "zone": "lower",
+        "device_type": "solenoid_valve",
+        "control_mode": "MOISTURE"
+      },
+      {
+        "device_name": "SV-L5",
+        "coordinates": [
+          102.150668,
+          14.496425
+        ],
+        "zone": "lower",
+        "device_type": "solenoid_valve",
+        "control_mode": "AWD"
+      },
+      {
+        "device_name": "SV-L6",
+        "coordinates": [
+          102.151325,
+          14.497038
+        ],
+        "zone": "lower",
+        "device_type": "solenoid_valve",
+        "control_mode": "MOISTURE"
+      }
+    ],
+    "flow_meters": [
+      {
+        "device_name": "F-U1",
+        "coordinates": [
+          102.148584,
+          14.495215
+        ],
+        "zone": "upper",
+        "device_type": "flow_meter",
+        "monitors": [
+          "SV-U1"
+        ]
+      },
+      {
+        "device_name": "F-U2",
+        "coordinates": [
+          102.148599,
+          14.49523
+        ],
+        "zone": "upper",
+        "device_type": "flow_meter",
+        "monitors": [
+          "SV-U2"
+        ]
+      },
+      {
+        "device_name": "F-U7",
+        "coordinates": [
+          102.151475,
+          14.49787
+        ],
+        "zone": "upper",
+        "device_type": "flow_meter",
+        "monitors": [
+          "SV-U7",
+          "SV-U8"
+        ]
+      },
+      {
+        "device_name": "F-L1",
+        "coordinates": [
+          102.148983,
+          14.495357
+        ],
+        "zone": "lower",
+        "device_type": "flow_meter",
+        "monitors": [
+          "SV-L1"
+        ]
+      },
+      {
+        "device_name": "F-L2",
+        "coordinates": [
+          102.149172,
+          14.495155
+        ],
+        "zone": "lower",
+        "device_type": "flow_meter",
+        "monitors": [
+          "SV-L2"
+        ]
+      }
+    ],
+    "moisture_sensors": [
+      {
+        "device_name": "H-P1-00000007",
+        "device_id": "00000007",
+        "coordinates": [
+          102.149018,
+          14.49563
+        ],
+        "position": 1,
+        "device_type": "hygrometer",
+        "monitors_plots": [
+          "fbd7920c-1a05-487c-a79e-a4003ab30be9"
+        ]
+      },
+      {
+        "device_name": "H-P1-00000006",
+        "device_id": "00000006",
+        "coordinates": [
+          102.148789,
+          14.495426
+        ],
+        "position": 1,
+        "device_type": "hygrometer",
+        "monitors_plots": [
+          "535d0d0b-afdb-49f2-85dd-74c13ee7b561"
+        ]
+      },
+      {
+        "device_name": "H-P2-00000004",
+        "device_id": "00000004",
+        "coordinates": [
+          102.149574,
+          14.496151
+        ],
+        "position": 2,
+        "device_type": "hygrometer",
+        "monitors_plots": [
+          "491f0baf-452a-437a-ab0c-68b621ba5922"
+        ]
+      },
+      {
+        "device_name": "H-P2-00000008",
+        "device_id": "00000008",
+        "coordinates": [
+          102.149555,
+          14.496138
+        ],
+        "position": 2,
+        "device_type": "hygrometer",
+        "monitors_plots": [
+          "5177f028-0209-47dd-a9a3-36a9e73f239d"
+        ]
+      },
+      {
+        "device_name": "H-P3-00000001",
+        "device_id": "00000001",
+        "coordinates": [
+          102.150287,
+          14.496811
+        ],
+        "position": 3,
+        "device_type": "hygrometer",
+        "monitors_plots": [
+          "6ab85dc0-7486-42ca-a7e1-62d4f2e80bd1"
+        ]
+      },
+      {
+        "device_name": "H-P3-00000002",
+        "device_id": "00000002",
+        "coordinates": [
+          102.150273,
+          14.496796
+        ],
+        "position": 3,
+        "device_type": "hygrometer",
+        "monitors_plots": [
+          "aabb24c1-b673-42f3-b90a-56f3d81d53a8"
+        ]
+      },
+      {
+        "device_name": "H-P4-00000010",
+        "device_id": "00000010",
+        "coordinates": [
+          102.150017,
+          14.496865
+        ],
+        "position": 4,
+        "device_type": "hygrometer",
+        "monitors_plots": [
+          "7072584e-e3cd-4bcc-9221-7a3a23386d2a"
+        ]
+      }
+    ]
+  },
+  "plot_device_mapping": {
+    "fbd7920c-1a05-487c-a79e-a4003ab30be9": {
+      "plot_name": "Smart Farm Plot 1",
+      "area_rai": 2.51,
+      "stage": "4",
+      "control_mode": "AWD",
+      "devices": {
+        "solenoid_valve": "SV-U1",
+        "flow_meter": "F-U1",
+        "moisture_sensor": "H-P1-00000007"
+      }
+    },
+    "535d0d0b-afdb-49f2-85dd-74c13ee7b561": {
+      "plot_name": "Smart Farm Plot 2",
+      "area_rai": 2.18,
+      "stage": "5",
+      "control_mode": "AWD",
+      "devices": {
+        "solenoid_valve": "SV-U2",
+        "flow_meter": "F-U2",
+        "moisture_sensor": "H-P1-00000006"
+      }
+    },
+    "7072584e-e3cd-4bcc-9221-7a3a23386d2a": {
+      "plot_name": "Smart Farm Plot 3",
+      "area_rai": 5.37,
+      "stage": "5",
+      "control_mode": "MOISTURE",
+      "devices": {
+        "solenoid_valve": "SV-U7",
+        "flow_meter": "F-U7",
+        "moisture_sensor": "H-P4-00000010"
+      }
+    },
+    "5ea77d99-c3fa-43f5-9087-be15de92d615": {
+      "plot_name": "Smart Farm Plot 4",
+      "area_rai": 1.13,
+      "stage": "5",
+      "control_mode": "MOISTURE",
+      "devices": {
+        "solenoid_valve": "SV-U3",
+        "flow_meter": "F-L2",
+        "moisture_sensor": null
+      }
+    },
+    "aabb24c1-b673-42f3-b90a-56f3d81d53a8": {
+      "plot_name": "Smart Farm Plot 5",
+      "area_rai": 1.17,
+      "stage": "5",
+      "control_mode": "MOISTURE",
+      "devices": {
+        "solenoid_valve": "SV-L2",
+        "flow_meter": null,
+        "moisture_sensor": "H-P3-00000002"
+      }
+    },
+    "cc74748e-1c92-4d06-9376-df96924eef4f": {
+      "plot_name": "Smart Farm Plot 6",
+      "area_rai": 1.24,
+      "stage": "5",
+      "control_mode": "AWD",
+      "devices": {
+        "solenoid_valve": "SV-L3",
+        "flow_meter": null,
+        "moisture_sensor": null
+      }
+    },
+    "f0b3c562-6060-4ebd-897d-d47b642f8d23": {
+      "plot_name": "Smart Farm Plot 7",
+      "area_rai": 1.24,
+      "stage": "5",
+      "control_mode": "MOISTURE",
+      "devices": {
+        "solenoid_valve": "SV-L4",
+        "flow_meter": null,
+        "moisture_sensor": null
+      }
+    },
+    "491f0baf-452a-437a-ab0c-68b621ba5922": {
+      "plot_name": "Smart Farm Plot 8",
+      "area_rai": 2.7,
+      "stage": "5",
+      "control_mode": "MOISTURE",
+      "devices": {
+        "solenoid_valve": "SV-U4",
+        "flow_meter": null,
+        "moisture_sensor": "H-P2-00000004"
+      }
+    },
+    "5177f028-0209-47dd-a9a3-36a9e73f239d": {
+      "plot_name": "Smart Farm Plot 9",
+      "area_rai": 2.03,
+      "stage": "5",
+      "control_mode": "MOISTURE",
+      "devices": {
+        "solenoid_valve": "SV-L6",
+        "flow_meter": null,
+        "moisture_sensor": "H-P2-00000008"
+      }
+    },
+    "6ab85dc0-7486-42ca-a7e1-62d4f2e80bd1": {
+      "plot_name": "Smart Farm Plot 10",
+      "area_rai": 2.68,
+      "stage": "5",
+      "control_mode": "AWD",
+      "devices": {
+        "solenoid_valve": "SV-U5",
+        "flow_meter": null,
+        "moisture_sensor": "H-P3-00000001"
+      }
+    },
+    "7012604e-07d7-4223-843f-c16bb4727843": {
+      "plot_name": "Smart Farm Plot 11",
+      "area_rai": 2.03,
+      "stage": "5",
+      "control_mode": "AWD",
+      "devices": {
+        "solenoid_valve": "SV-U6",
+        "flow_meter": null,
+        "moisture_sensor": null
+      }
+    },
+    "c34e125d-805a-4bc3-a0f6-7ba717a47f28": {
+      "plot_name": "Smart Farm Plot 12",
+      "area_rai": 2.6,
+      "stage": "5",
+      "control_mode": "AWD",
+      "devices": {
+        "solenoid_valve": "SV-L1",
+        "flow_meter": "F-L1",
+        "moisture_sensor": null
+      }
+    },
+    "SF-L1": {
+      "plot_name": "SF-L1",
+      "area_rai": null,
+      "devices": {
+        "solenoid_valve": "SV-L1",
+        "flow_meter": null,
+        "moisture_sensor": null
+      }
+    },
+    "SF-L2": {
+      "plot_name": "SF-L2",
+      "area_rai": null,
+      "devices": {
+        "solenoid_valve": "SV-L2",
+        "flow_meter": null,
+        "moisture_sensor": null
+      }
+    },
+    "SF-L3": {
+      "plot_name": "SF-L3",
+      "area_rai": null,
+      "devices": {
+        "solenoid_valve": "SV-L3",
+        "flow_meter": null,
+        "moisture_sensor": null
+      }
+    },
+    "SF-L4": {
+      "plot_name": "SF-L4",
+      "area_rai": null,
+      "devices": {
+        "solenoid_valve": "SV-L4",
+        "flow_meter": null,
+        "moisture_sensor": null
+      }
+    },
+    "SF-L5": {
+      "plot_name": "SF-L5",
+      "area_rai": null,
+      "devices": {
+        "solenoid_valve": "SV-L5",
+        "flow_meter": null,
+        "moisture_sensor": null
+      }
+    },
+    "SF-L6": {
+      "plot_name": "SF-L6",
+      "area_rai": null,
+      "devices": {
+        "solenoid_valve": "SV-L6",
+        "flow_meter": null,
+        "moisture_sensor": null
+      }
+    },
+    "SF-U1": {
+      "plot_name": "SF-U1",
+      "area_rai": null,
+      "devices": {
+        "solenoid_valve": "SV-U1"
+      }
+    },
+    "SF-U2": {
+      "plot_name": "SF-U2",
+      "area_rai": null,
+      "devices": {
+        "solenoid_valve": "SV-U2"
+      }
+    },
+    "SF-U3": {
+      "plot_name": "SF-U3",
+      "area_rai": null,
+      "devices": {
+        "solenoid_valve": "SV-U3"
+      }
+    },
+    "SF-U4": {
+      "plot_name": "SF-U4",
+      "area_rai": null,
+      "devices": {
+        "solenoid_valve": "SV-U4"
+      }
+    },
+    "SF-U5": {
+      "plot_name": "SF-U5",
+      "area_rai": null,
+      "devices": {
+        "solenoid_valve": "SV-U5"
+      }
+    },
+    "SF-U6": {
+      "plot_name": "SF-U6",
+      "area_rai": null,
+      "devices": {
+        "solenoid_valve": "SV-U6"
+      }
+    },
+    "SF-U7": {
+      "plot_name": "SF-U7",
+      "area_rai": null,
+      "devices": {
+        "solenoid_valve": "SV-U7"
+      }
+    },
+    "SF-GH-1": {
+      "plot_name": "SF-GH-1",
+      "area_rai": null,
+      "devices": {
+        "solenoid_valve": "SV_SF-GH-1"
+      }
+    },
+    "SF-GH1": {
+      "plot_name": "SF-GH1",
+      "area_rai": null,
+      "devices": {
+        "solenoid_valve": "SV_SF-GH-1"
+      }
+    },
+    "SFGH1": {
+      "plot_name": "SFGH1",
+      "area_rai": null,
+      "devices": {
+        "solenoid_valve": "SV_SF-GH-1"
+      }
+    },
+    "SF-GH-2": {
+      "plot_name": "SF-GH-2",
+      "area_rai": null,
+      "devices": {
+        "solenoid_valve": "SV_SF-GH-2"
+      }
+    },
+    "SF-GH2": {
+      "plot_name": "SF-GH2",
+      "area_rai": null,
+      "devices": {
+        "solenoid_valve": "SV_SF-GH-2"
+      }
+    },
+    "SFGH2": {
+      "plot_name": "SFGH2",
+      "area_rai": null,
+      "devices": {
+        "solenoid_valve": "SV_SF-GH-2"
+      }
+    }
+  },
+  "sensor_endpoint_tokens": {
+    "moisture_sensors": "munbon-moisture-smartfarm",
+    "water_level_sensors": "munbon-level-smartfarm",
+    "flow_meters": "munbon-flow-smartfarm"
+  },
+  "migration_notes": {
+    "from_legacy": "This configuration replaces generic sensor IDs with specific device names",
+    "plot_configs_format": "New format: plotId:solenoidValve:flowMeter:moistureSensor:controlMode",
+    "backward_compatibility": "Legacy UUIDs are maintained for existing database records"
+  }
+}

@@ -40,7 +40,7 @@ const envSchema = joi_1.default.object({
     MAPBOX_ACCESS_TOKEN: joi_1.default.string().optional(),
     GISTDA_API_KEY: joi_1.default.string().optional(),
     GISTDA_BASE_URL: joi_1.default.string().default('https://api.gistda.or.th'),
-    DB_POOL_SIZE: joi_1.default.number().default(20),
+    DB_POOL_SIZE: joi_1.default.number().default(5),
     DB_POOL_IDLE_TIMEOUT: joi_1.default.number().default(30000),
     ENABLE_QUERY_LOGGING: joi_1.default.boolean().default(false),
 }).unknown(true);

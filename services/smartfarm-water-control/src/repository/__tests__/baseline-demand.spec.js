@@ -1,15 +1,15 @@
-const { Pool } = require("pg");
-const fc = require("fast-check");
+const { Pool } = require('pg');
+const fc = require('fast-check');
 const {
   describe,
   test,
   expect,
   beforeAll,
-  afterAll,
-} = require("@jest/globals");
+  afterAll
+} = require('@jest/globals');
 
 // Load environment
-require("dotenv").config();
+require('dotenv').config();
 
 // Kc values calibrated from Excel: คบ.มูลบน_ROS_ฤดูฝน(2568).xlsm
 const KC_CURVES = {
@@ -27,9 +27,9 @@ const KC_CURVES = {
       { week: 10, kc: 1.34 },
       { week: 11, kc: 1.23 },
       { week: 12, kc: 0.94 },
-      { week: 13, kc: 0.86 },
+      { week: 13, kc: 0.86 }
     ],
-    durationDays: 91,
+    durationDays: 91
   },
   corn: {
     values: [
@@ -43,35 +43,35 @@ const KC_CURVES = {
       { week: 8, kc: 1.15 },
       { week: 9, kc: 0.96 },
       { week: 10, kc: 0.72 },
-      { week: 11, kc: 0.61 },
+      { week: 11, kc: 0.61 }
     ],
-    durationDays: 77,
-  },
+    durationDays: 77
+  }
 };
 
 const SEASONAL_ET0 = {
   dry: 5.5,
-  wet: 4.5,
+  wet: 4.5
 };
 
 const PERCOLATION_BY_MODE = {
   AWD: 2.0,
-  MOISTURE: 0.0,
+  MOISTURE: 0.0
 };
 
 const RAI_TO_SQM = 1600;
 
-describe("baseline water demand calculations", () => {
+describe('baseline water demand calculations', () => {
   let pool;
   let testSeasonId;
 
   beforeAll(async () => {
     pool = new Pool({
       host: process.env.TIMESCALE_HOST,
-      port: parseInt(process.env.TIMESCALE_PORT || "5432"),
+      port: parseInt(process.env.TIMESCALE_PORT || '5432'),
       database: process.env.TIMESCALE_DB,
       user: process.env.TIMESCALE_USER,
-      password: process.env.TIMESCALE_PASSWORD,
+      password: process.env.TIMESCALE_PASSWORD
     });
 
     // Create a test season
@@ -82,13 +82,13 @@ describe("baseline water demand calculations", () => {
         season_name, active
       ) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
       [
-        "test-plot-001",
-        "rice",
-        "2025-01-15",
-        "2025-05-14",
-        "Test Season",
-        false,
-      ],
+        'test-plot-001',
+        'rice',
+        '2025-01-15',
+        '2025-05-14',
+        'Test Season',
+        false
+      ]
     );
     testSeasonId = result.rows[0].id;
     client.release();
@@ -98,14 +98,14 @@ describe("baseline water demand calculations", () => {
     // Cleanup test data
     const client = await pool.connect();
     await client.query(
-      "DELETE FROM ros_gis_smartfarm.crop_seasons WHERE plot_id = $1",
-      ["test-plot-001"],
+      'DELETE FROM ros_gis_smartfarm.crop_seasons WHERE plot_id = $1',
+      ['test-plot-001']
     );
     client.release();
     await pool.end();
   });
 
-  test("calculates gross demand correctly for AWD rice initial stage (week 1)", () => {
+  test('calculates gross demand correctly for AWD rice initial stage (week 1)', () => {
     const areaRai = 2.51;
     const et0Mm = 5.5;
     const kc = 1.03; // Excel calibrated value for rice week 1
@@ -118,7 +118,7 @@ describe("baseline water demand calculations", () => {
     expect(grossDemandM3).toBeCloseTo(30.78, 2);
   });
 
-  test("calculates gross demand correctly for MOISTURE corn mid-season (week 6)", () => {
+  test('calculates gross demand correctly for MOISTURE corn mid-season (week 6)', () => {
     const areaRai = 3.0;
     const et0Mm = 4.5;
     const kc = 1.22; // Excel calibrated value for corn week 6
@@ -131,7 +131,7 @@ describe("baseline water demand calculations", () => {
     expect(grossDemandM3).toBeCloseTo(26.35, 2);
   });
 
-  test("property: gross demand scales linearly with area", () => {
+  test('property: gross demand scales linearly with area', () => {
     fc.assert(
       fc.property(
         fc.float({ min: 0.5, max: 10.0, noNaN: true }),
@@ -149,12 +149,12 @@ describe("baseline water demand calculations", () => {
 
           const expectedDemand2 = demand1 * scale;
           return Math.abs(demand2 - expectedDemand2) < 0.001;
-        },
-      ),
+        }
+      )
     );
   });
 
-  test("property: adding percolation always increases or maintains gross demand", () => {
+  test('property: adding percolation always increases or maintains gross demand', () => {
     fc.assert(
       fc.property(
         fc.float({ min: 0.5, max: 10.0, noNaN: true }),
@@ -167,12 +167,12 @@ describe("baseline water demand calculations", () => {
             ((et0Mm * kc + 2.0) * areaRai * RAI_TO_SQM) / 1000;
 
           return demandWithPercolation >= demandWithoutPercolation;
-        },
-      ),
+        }
+      )
     );
   });
 
-  test("retrieves baseline demand for specific date", async () => {
+  test('retrieves baseline demand for specific date', async () => {
     const client = await pool.connect();
 
     // Insert a test record
@@ -187,10 +187,10 @@ describe("baseline water demand calculations", () => {
       ON CONFLICT (season_id, date) DO NOTHING`,
       [
         testSeasonId,
-        "2025-01-15",
+        '2025-01-15',
         1,
-        "initial",
-        "rice",
+        'initial',
+        'rice',
         2.51,
         5.5,
         1.1,
@@ -200,15 +200,15 @@ describe("baseline water demand calculations", () => {
         0.0,
         0.0,
         32.33,
-        "baseline",
-        "Test record",
-      ],
+        'baseline',
+        'Test record'
+      ]
     );
 
     const result = await client.query(
       `SELECT * FROM ros_gis_smartfarm.daily_water_demands_baseline
        WHERE season_id = $1 AND date = $2`,
-      [testSeasonId, "2025-01-15"],
+      [testSeasonId, '2025-01-15']
     );
 
     client.release();
@@ -218,21 +218,21 @@ describe("baseline water demand calculations", () => {
       expect.objectContaining({
         season_id: testSeasonId,
         crop_week: 1,
-        growth_stage: "initial",
-        crop_type: "rice",
-        area_rai: "2.51",
-        et0_mm: "5.50",
-        kc_value: "1.10",
-        percolation_mm: "2.00",
-        gross_demand_mm: "8.05",
-        gross_demand_m3: "32.33",
-        net_demand_m3: "32.33",
-        calculation_method: "baseline",
-      }),
+        growth_stage: 'initial',
+        crop_type: 'rice',
+        area_rai: '2.51',
+        et0_mm: '5.50',
+        kc_value: '1.10',
+        percolation_mm: '2.00',
+        gross_demand_mm: '8.05',
+        gross_demand_m3: '32.33',
+        net_demand_m3: '32.33',
+        calculation_method: 'baseline'
+      })
     );
   });
 
-  test("enforces unique constraint on season_id and date", async () => {
+  test('enforces unique constraint on season_id and date', async () => {
     const client = await pool.connect();
 
     await client.query(
@@ -246,10 +246,10 @@ describe("baseline water demand calculations", () => {
       ON CONFLICT (season_id, date) DO NOTHING`,
       [
         testSeasonId,
-        "2025-01-16",
+        '2025-01-16',
         1,
-        "initial",
-        "rice",
+        'initial',
+        'rice',
         2.51,
         5.5,
         1.1,
@@ -259,8 +259,8 @@ describe("baseline water demand calculations", () => {
         0.0,
         0.0,
         32.33,
-        "baseline",
-      ],
+        'baseline'
+      ]
     );
 
     // Try to insert duplicate - should update via ON CONFLICT
@@ -276,10 +276,10 @@ describe("baseline water demand calculations", () => {
         gross_demand_m3 = EXCLUDED.gross_demand_m3`,
       [
         testSeasonId,
-        "2025-01-16",
+        '2025-01-16',
         1,
-        "initial",
-        "rice",
+        'initial',
+        'rice',
         2.51,
         5.5,
         1.1,
@@ -289,21 +289,21 @@ describe("baseline water demand calculations", () => {
         0.0,
         0.0,
         32.33,
-        "baseline",
-      ],
+        'baseline'
+      ]
     );
 
     const result = await client.query(
-      "SELECT COUNT(*) as count FROM ros_gis_smartfarm.daily_water_demands_baseline WHERE season_id = $1 AND date = $2",
-      [testSeasonId, "2025-01-16"],
+      'SELECT COUNT(*) as count FROM ros_gis_smartfarm.daily_water_demands_baseline WHERE season_id = $1 AND date = $2',
+      [testSeasonId, '2025-01-16']
     );
 
     client.release();
 
-    expect(result.rows[0].count).toBe("1");
+    expect(result.rows[0].count).toBe('1');
   });
 
-  test("verifies crop duration matches Kc curve configuration", () => {
+  test('verifies crop duration matches Kc curve configuration', () => {
     const riceDays = KC_CURVES.rice.durationDays;
     const cornDays = KC_CURVES.corn.durationDays;
 
@@ -318,7 +318,7 @@ describe("baseline water demand calculations", () => {
     expect(Math.max(...cornWeeks)).toBe(11); // 77 days / 7 = 11 weeks
   });
 
-  test("seasonal ET0 selection based on planting month", () => {
+  test('seasonal ET0 selection based on planting month', () => {
     // Dry season (November - April)
     expect(SEASONAL_ET0.dry).toBe(5.5);
 
@@ -345,33 +345,33 @@ describe("baseline water demand calculations", () => {
   });
 });
 
-describe("crop season management", () => {
+describe('crop season management', () => {
   let pool;
 
   beforeAll(async () => {
     pool = new Pool({
       host: process.env.TIMESCALE_HOST,
-      port: parseInt(process.env.TIMESCALE_PORT || "5432"),
+      port: parseInt(process.env.TIMESCALE_PORT || '5432'),
       database: process.env.TIMESCALE_DB,
       user: process.env.TIMESCALE_USER,
-      password: process.env.TIMESCALE_PASSWORD,
+      password: process.env.TIMESCALE_PASSWORD
     });
   });
 
   afterAll(async () => {
     const client = await pool.connect();
     await client.query(
-      "DELETE FROM ros_gis_smartfarm.crop_seasons WHERE plot_id LIKE 'test-%'",
+      'DELETE FROM ros_gis_smartfarm.crop_seasons WHERE plot_id LIKE \'test-%\''
     );
     client.release();
     await pool.end();
   });
 
-  test("creates crop season with correct harvest date", async () => {
+  test('creates crop season with correct harvest date', async () => {
     const client = await pool.connect();
 
-    const plantingDateStr = "2025-01-15";
-    const expectedHarvestDateStr = "2025-05-14";
+    const plantingDateStr = '2025-01-15';
+    const expectedHarvestDateStr = '2025-05-14';
 
     const result = await client.query(
       `INSERT INTO ros_gis_smartfarm.crop_seasons (
@@ -380,13 +380,13 @@ describe("crop season management", () => {
       ) VALUES ($1, $2, $3, $4, $5, $6)
       RETURNING id, expected_harvest_date::text as expected_harvest_date`,
       [
-        "test-season-001",
-        "rice",
+        'test-season-001',
+        'rice',
         plantingDateStr,
         expectedHarvestDateStr,
-        "Test Season 2025",
-        true,
-      ],
+        'Test Season 2025',
+        true
+      ]
     );
 
     client.release();
@@ -395,7 +395,7 @@ describe("crop season management", () => {
     expect(result.rows[0].expected_harvest_date).toBe(expectedHarvestDateStr);
   });
 
-  test("enforces only one active season per plot", async () => {
+  test('enforces only one active season per plot', async () => {
     const client = await pool.connect();
 
     // Insert first active season
@@ -405,13 +405,13 @@ describe("crop season management", () => {
         season_name, active
       ) VALUES ($1, $2, $3, $4, $5, $6)`,
       [
-        "test-multi-season",
-        "rice",
-        "2024-11-01",
-        "2025-02-28",
-        "Season 1",
-        true,
-      ],
+        'test-multi-season',
+        'rice',
+        '2024-11-01',
+        '2025-02-28',
+        'Season 1',
+        true
+      ]
     );
 
     // Insert second active season (should deactivate first)
@@ -421,23 +421,23 @@ describe("crop season management", () => {
         season_name, active
       ) VALUES ($1, $2, $3, $4, $5, $6)`,
       [
-        "test-multi-season",
-        "corn",
-        "2025-03-01",
-        "2025-05-29",
-        "Season 2",
-        true,
-      ],
+        'test-multi-season',
+        'corn',
+        '2025-03-01',
+        '2025-05-29',
+        'Season 2',
+        true
+      ]
     );
 
     const result = await client.query(
       `SELECT COUNT(*) as count FROM ros_gis_smartfarm.crop_seasons
        WHERE plot_id = $1 AND active = true`,
-      ["test-multi-season"],
+      ['test-multi-season']
     );
 
     client.release();
 
-    expect(result.rows[0].count).toBe("1");
+    expect(result.rows[0].count).toBe('1');
   });
 });

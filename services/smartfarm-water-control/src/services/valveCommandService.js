@@ -1,5 +1,9 @@
 const sql = require('mssql');
 const logger = require('../utils/logger');
+const {
+  convertUTCToLocalTime,
+  formatDateForMSSQL
+} = require('../utils/timezone');
 
 class ValveCommandService {
   constructor(config) {
@@ -7,16 +11,45 @@ class ValveCommandService {
     this.timescaleRepository = config.timescaleRepository;
     this.valveMapping = config.valveMapping;
     this.tableName = config.tableName;
+    this.timezone = config.timezone || 'Asia/Bangkok';
     this.valveStates = new Map();
+
+    // SCADA valve name mapping: smartfarm -> SCADA
+    this.scadaNameMapping = new Map([
+      ['SV-U1', 'SV_C1_L'],
+      ['SV-U2', 'SV_C1_R'],
+      ['SV-U3', 'SV_C2_L'],
+      ['SV-U4', 'SV_C2_R'],
+      ['SV-U5', 'SV_C3_L'],
+      ['SV-U6', 'SV_C3_R'],
+      ['SV-U7', 'SV_C4_L'],
+      ['SV-U8', 'SV_C4_R'],
+      ['SV-L1', 'SV_L'],
+      ['SV-L5', 'SV_M'],
+      ['SV-L2', 'SV_N'],
+      ['SV-L3', 'SV_O'],
+      ['SV-L6', 'SV_P'],
+      ['SV-L4', 'SV_Q']
+    ]);
   }
 
   async sendValveCommand(plotId, level, timestamp, reason) {
-    const valveName = this.valveMapping.get(plotId);
-    if (!valveName) {
+    const smartfarmValveName = this.valveMapping.get(plotId);
+    if (!smartfarmValveName) {
       throw new Error(`Valve not found for plot: ${plotId}`);
     }
+    if (!this.mssqlPool) {
+      throw new Error('MSSQL unavailable for valve commands');
+    }
+
+    // Translate smartfarm valve name to SCADA name
+    const scadaValveName =
+      this.scadaNameMapping.get(smartfarmValveName) || smartfarmValveName;
 
     try {
+      const localTime = convertUTCToLocalTime(timestamp, this.timezone);
+      const formattedTime = formatDateForMSSQL(localTime);
+
       const query = `
         INSERT INTO ${this.tableName}
         (valve_name, valve_level, startdatetime)
@@ -25,15 +58,16 @@ class ValveCommandService {
 
       await this.mssqlPool
         .request()
-        .input('valve_name', sql.VarChar(50), valveName)
+        .input('valve_name', sql.VarChar(50), scadaValveName)
         .input('valve_level', sql.Int, level)
-        .input('startdatetime', sql.DateTime, timestamp)
+        .input('startdatetime', sql.VarChar(50), formattedTime)
         .query(query);
 
       logger.info(
         {
           plotId,
-          valveName,
+          smartfarmValveName,
+          scadaValveName,
           level,
           reason,
           timestamp: timestamp.toISOString()
@@ -50,7 +84,8 @@ class ValveCommandService {
 
       return {
         success: true,
-        valveName,
+        smartfarmValveName,
+        scadaValveName,
         level,
         timestamp
       };
