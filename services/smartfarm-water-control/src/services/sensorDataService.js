@@ -7,22 +7,32 @@ class SensorDataService {
     this.cacheTimeout = 60000; // 1 minute cache
   }
 
-  async getSensorReading(sensorId) {
+  async getSensorReading(sensorId, options = {}) {
     try {
+      // Determine sensor type from ID early for cache key
+      const sensorType = this.determineSensorType(sensorId);
+      const cacheKey =
+        sensorType === 'moisture'
+          ? `${sensorId}|${options.moistureLayer || 'surface'}`
+          : sensorId;
+
       // Check cache first
-      const cached = this.cache.get(sensorId);
+      const cached = this.cache.get(cacheKey);
       if (cached && Date.now() - cached.timestamp < this.cacheTimeout) {
         return cached.data;
       }
 
-      // Determine sensor type from ID
-      const sensorType = this.determineSensorType(sensorId);
-
-      // Get reading from database
-      const reading = await this.timescaleRepository.getLatestSensorReading(
-        sensorId,
-        sensorType
-      );
+      // Get reading from database (pass layer for moisture)
+      const reading =
+        sensorType === 'moisture'
+          ? await this.timescaleRepository.getLatestMoistureReading(
+              sensorId,
+              options.moistureLayer || 'surface'
+            )
+          : await this.timescaleRepository.getLatestSensorReading(
+              sensorId,
+              sensorType
+            );
 
       if (!reading) {
         logger.warn({ sensorId }, 'No data found for sensor');
@@ -40,7 +50,7 @@ class SensorDataService {
       };
 
       // Cache the result
-      this.cache.set(sensorId, {
+      this.cache.set(cacheKey, {
         data: formattedReading,
         timestamp: Date.now()
       });
@@ -49,8 +59,10 @@ class SensorDataService {
     } catch (error) {
       logger.error({ error, sensorId }, 'Failed to get sensor reading');
 
-      // Return last cached value if available
-      const cached = this.cache.get(sensorId);
+      // Return last cached value if available (try both keys)
+      const legacy = this.cache.get(sensorId);
+      const layered = this.cache.get(`${sensorId}|${(options && options.moistureLayer) || 'surface'}`);
+      const cached = layered || legacy;
       if (cached) {
         logger.warn({ sensorId }, 'Returning stale cached data due to error');
         return cached.data;

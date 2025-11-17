@@ -143,6 +143,56 @@ class RealtimeControlService {
     };
   }
 
+  async ensureWaterLevelMappingFromCoordinates({ sensorId, locationLat, locationLng }) {
+    // Validate inputs
+    if (
+      typeof locationLat !== 'number' ||
+      typeof locationLng !== 'number' ||
+      Number.isNaN(locationLat) ||
+      Number.isNaN(locationLng)
+    ) {
+      return { changed: false, plotId: null, previousPlotId: null };
+    }
+
+    // Fetch existing mapping (if any)
+    const existing = await this.readingsRepository.getSensorPlotMapping(
+      this.readingsRepository.pool,
+      sensorId
+    );
+
+    // Resolve plot from coordinates using resolver
+    const resolvedPlotId = await this.geoSpatialResolver.resolvePlotFromCoordinates(
+      locationLng,
+      locationLat,
+      'water_level'
+    );
+
+    if (!resolvedPlotId) {
+      return {
+        changed: false,
+        plotId: existing ? existing.plotId : null,
+        previousPlotId: existing ? existing.plotId : null
+      };
+    }
+
+    if (existing && existing.plotId === resolvedPlotId) {
+      return { changed: false, plotId: resolvedPlotId, previousPlotId: existing.plotId };
+    }
+
+    // Upsert new mapping
+    await this.repository.upsertSensorPlotMapping(this.repository.pool, {
+      sensorId,
+      plotId: resolvedPlotId,
+      sensorType: 'water_level'
+    });
+
+    return {
+      changed: true,
+      plotId: resolvedPlotId,
+      previousPlotId: existing ? existing.plotId : null
+    };
+  }
+
   async handleSensorReading({
     sensorId,
     value,
@@ -181,6 +231,19 @@ class RealtimeControlService {
             'Stale moisture reading ignored: data too old for control decision'
           );
           return;
+        }
+      }
+
+      // Attempt automatic relocation for water level sensors when coordinates present
+      if (sensorType === 'water_level' && this.geoSpatialResolver) {
+        try {
+          await this.ensureWaterLevelMappingFromCoordinates({
+            sensorId: normalizedSensorId,
+            locationLat,
+            locationLng
+          });
+        } catch (e) {
+          this.logger.warn({ error: e }, 'Auto-relocation attempt failed');
         }
       }
 
@@ -283,7 +346,11 @@ class RealtimeControlService {
             this.readingsRepository.pool,
             {
               plotId: mapping.plotId,
-              sensorType
+              sensorType,
+              moistureLayer:
+                sensorType === 'moisture'
+                  ? (thresholds && thresholds.moistureLayer) || 'surface'
+                  : undefined
             }
           );
 
@@ -317,15 +384,21 @@ class RealtimeControlService {
             'Computed average from multiple sensors'
           );
         } else {
-          // Single sensor or no other fresh readings: use raw value
+          // Single sensor or no other fresh readings
+          // For water_level, prefer the mapped sensor id (e.g., AWD-xxxx) from freshReadings if available
+          const preferredId =
+            sensorType === 'water_level' && freshReadings.length === 1
+              ? freshReadings[0].sensorId
+              : normalizedSensorId;
+
           readingToStore = {
             plotId: mapping.plotId,
-            sensorId: normalizedSensorId,
+            sensorId: preferredId,
             sensorType,
             value,
             units: sensorType === 'moisture' ? '%' : 'cm',
             timestamp,
-            contributingSensorIds: [normalizedSensorId]
+            contributingSensorIds: [preferredId]
           };
         }
 

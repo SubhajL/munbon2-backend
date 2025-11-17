@@ -155,6 +155,28 @@ npm run dev
 npm start
 ```
 
+## CLI: Print plot→valve map (no server)
+
+Use this utility to audit plot→valve mapping and SCADA names without starting the service.
+
+Commands:
+
+```
+# table output
+npm run print:plot-valves
+
+# filter by plots
+node scripts/print-plot-valve-map.js --plots "SF-U*,SF-L*"
+
+# JSON output
+npm run print:plot-valves:json
+
+# SCADA names only
+node scripts/print-plot-valve-map.js --only-scada --plots "SF-U*"
+```
+
+It reads config/device-mapping.json and applies SF-* overrides. No DB or cron is started.
+
 ## API Endpoints
 
 ### Plot Management

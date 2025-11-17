@@ -4,6 +4,7 @@ class WaterLevelLocationListener {
     this.configDb = configDbPool; // connects to munbon_dev
     this.logger = logger || console;
     this.pollMs = 30000;
+    this.recentLimit = parseInt(process.env.WL_RECENT_LIMIT || '10');
     this.timer = null;
   }
 
@@ -25,20 +26,23 @@ class WaterLevelLocationListener {
   }
 
   async processOnce() {
-    // Select latest lat/lon per sensor_id (device_id) where lat/lng present
+    // Select from only the most recent N rows overall (performance-friendly)
     const q = `
-      SELECT DISTINCT ON (sensor_id)
-        sensor_id AS device_id,
-        location_lng AS lng,
-        location_lat AS lat
-      FROM (
+      WITH recent AS (
         SELECT sensor_id,
                COALESCE(location_lng, CAST(NULL AS DOUBLE PRECISION)) AS location_lng,
                COALESCE(location_lat, CAST(NULL AS DOUBLE PRECISION)) AS location_lat,
                time AS timestamp
         FROM public.water_level_readings
         WHERE location_lng IS NOT NULL AND location_lat IS NOT NULL
-      ) s
+        ORDER BY time DESC
+        LIMIT ${this.recentLimit}
+      )
+      SELECT DISTINCT ON (sensor_id)
+        sensor_id AS device_id,
+        location_lng AS lng,
+        location_lat AS lat
+      FROM recent
       ORDER BY sensor_id, timestamp DESC
     `;
 

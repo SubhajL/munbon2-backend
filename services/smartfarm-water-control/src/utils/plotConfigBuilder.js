@@ -51,4 +51,29 @@ function buildPlotConfigsFromEnriched({ plots, mappings, deviceOverrides }) {
   return { plots: plotsOut, valveMapping };
 }
 
-module.exports = { buildPlotConfigsFromEnriched };
+async function buildValveMappingFromDb(repo) {
+  const rows = await repo.getAllValvePlotMappings();
+  const map = new Map();
+  for (const r of rows) map.set(r.plotId, r.valveName);
+  return map;
+}
+
+function mergeValveMapping({ plots, dbValveMap }) {
+  if (!(dbValveMap instanceof Map)) throw new Error('dbValveMap must be a Map');
+  const out = [];
+  const valveMapping = new Map();
+  for (const p of plots) {
+    const valve = dbValveMap.get(p.plotId);
+    if (!valve) {
+      // Bypass: skip plots without explicit mapping instead of failing hard
+      // They will be excluded from control until mapping is provided
+      continue;
+    }
+    const merged = { ...p, valveId: valve, valveName: valve };
+    out.push(merged);
+    valveMapping.set(p.plotId, valve);
+  }
+  return { plots: out, valveMapping };
+}
+
+module.exports = { buildPlotConfigsFromEnriched, buildValveMappingFromDb, mergeValveMapping };

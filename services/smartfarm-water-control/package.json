@@ -39,9 +39,19 @@
     "seed:classification": "node scripts/seed-smartfarm-classification.js",
     "migrate:allow-garden": "node scripts/migrations/allow-garden-croptype.js",
     "migrate:add-contributing-sensor-ids": "node scripts/migrations/add-contributing-sensor-ids.js",
+    "migrate:create-valve-plot-mapping": "node scripts/migrations/create-valve-plot-mapping.js",
+    "migrate:create-deactivated-sensors": "node scripts/migrations/create-deactivated-sensors.js",
+    "seed:valve-plot-mapping": "node scripts/seed-valve-plot-mapping-from-json.js",
+    "maintain:moisture-mapping": "node scripts/maintain-moisture-mapping.js",
+    "rebuild:wl-mapping-from-gps": "node scripts/rebuild-wl-mapping-from-gps.js" ,
     "listener:waterlevel-locations": "node scripts/run-waterlevel-listener.js",
     "import:moisture-zip": "node scripts/import-moisture-sensors-from-zip.js",
-    "workers:smartfarm": "node scripts/start-smartfarm-workers.js"
+    "workers:smartfarm": "node scripts/start-smartfarm-workers.js",
+    "print:plot-valves": "node scripts/print-plot-valve-map.js",
+    "print:plot-valves:json": "node scripts/print-plot-valve-map.js --json",
+    "valves:off": "node scripts/close-valves.js",
+    "valves:off:open": "node scripts/close-open-valves.js",
+    "valves:on": "node scripts/open-valves.js"
   },
   "keywords": [
     "smart-farm",

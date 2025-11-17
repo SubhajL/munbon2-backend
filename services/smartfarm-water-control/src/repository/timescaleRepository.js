@@ -1,5 +1,10 @@
 const logger = require('../utils/logger');
 
+// Helper: map layer -> column name for moisture
+function moistureColumnForLayer(layer = 'surface') {
+  return layer === 'deep' ? 'moisture_deep_pct' : 'moisture_surface_pct';
+}
+
 class TimescaleRepository {
   constructor(
     pool,
@@ -12,14 +17,15 @@ class TimescaleRepository {
     this.schemas = schemas;
   }
 
-  // Get latest sensor reading for a specific sensor
-  async getLatestSensorReading(sensorId, sensorType) {
+// Get latest sensor reading for a specific sensor
+  async getLatestSensorReading(sensorId, sensorType, options = {}) {
     let tableName;
     let valueColumn;
 
     if (sensorType === 'moisture') {
       tableName = 'moisture_readings';
-      valueColumn = 'moisture_surface_pct';
+      const layer = options.moistureLayer || 'surface';
+      valueColumn = moistureColumnForLayer(layer);
     } else if (sensorType === 'water_level') {
       tableName = 'water_level_readings';
       valueColumn = 'water_level_cm';
@@ -68,14 +74,20 @@ class TimescaleRepository {
     }
   }
 
-  // Get sensor readings within a time range
-  async getSensorHistory(sensorId, sensorType, startDate, endDate) {
+  // Convenience: latest moisture reading with layer selection
+  async getLatestMoistureReading(sensorId, moistureLayer = 'surface') {
+    return this.getLatestSensorReading(sensorId, 'moisture', { moistureLayer });
+  }
+
+// Get sensor readings within a time range
+  async getSensorHistory(sensorId, sensorType, startDate, endDate, options = {}) {
     let tableName;
     let valueColumn;
 
     if (sensorType === 'moisture') {
       tableName = 'moisture_readings';
-      valueColumn = 'moisture_surface_pct';
+      const layer = options.moistureLayer || 'surface';
+      valueColumn = moistureColumnForLayer(layer);
     } else if (sensorType === 'water_level') {
       tableName = 'water_level_readings';
       valueColumn = 'water_level_cm';
@@ -578,7 +590,7 @@ class TimescaleRepository {
     }
   }
 
-  // Get control thresholds for a plot
+// Get control thresholds for a plot
   async getControlThresholds(db, plotId) {
     const query = `
       SELECT
@@ -586,7 +598,8 @@ class TimescaleRepository {
         moisture_lower_threshold,
         moisture_upper_threshold,
         water_level_lower_threshold,
-        water_level_upper_threshold
+        water_level_upper_threshold,
+        COALESCE(moisture_layer, 'surface') AS moisture_layer
       FROM ${this.schemas.control}.control_thresholds
       WHERE plot_id = $1
     `;
@@ -604,7 +617,8 @@ class TimescaleRepository {
         moistureLowerThreshold: parseFloat(row.moisture_lower_threshold),
         moistureUpperThreshold: parseFloat(row.moisture_upper_threshold),
         waterLevelLowerThreshold: parseFloat(row.water_level_lower_threshold),
-        waterLevelUpperThreshold: parseFloat(row.water_level_upper_threshold)
+        waterLevelUpperThreshold: parseFloat(row.water_level_upper_threshold),
+        moistureLayer: row.moisture_layer || 'surface'
       };
     } catch (error) {
       logger.error({ error, plotId }, 'Failed to get control thresholds');
@@ -785,9 +799,9 @@ class TimescaleRepository {
     }
   }
 
-  // Get all fresh sensor readings for a given plot and sensor type
+// Get all fresh sensor readings for a given plot and sensor type
   // Returns array of {sensorId, value, timestamp}
-  async getFreshSensorReadingsForPlot(db, { plotId, sensorType }) {
+  async getFreshSensorReadingsForPlot(db, { plotId, sensorType, moistureLayer = 'surface' }) {
     // Freshness window: water_level = 4 hours, moisture = 30 mins
     const freshnessWindowMs =
       sensorType === 'water_level' ? 4 * 60 * 60 * 1000 : 30 * 60 * 1000;
@@ -812,7 +826,7 @@ class TimescaleRepository {
         sensorType === 'moisture' ? 'moisture_readings' : 'water_level_readings';
       const valueColumn =
         sensorType === 'moisture'
-          ? 'moisture_surface_pct'
+          ? moistureColumnForLayer(moistureLayer)
           : 'water_level_cm';
 
       // Use DISTINCT ON to get latest reading per sensor
@@ -841,6 +855,28 @@ class TimescaleRepository {
       );
       throw error;
     }
+  }
+
+// Get latest moisture readings for a set of sensors (freshness window)
+  async getLatestMoistureReadings(db, sensorIds, freshnessWindowMs = 30 * 60 * 1000, moistureLayer = 'surface') {
+    if (!Array.isArray(sensorIds) || sensorIds.length === 0) return [];
+    const valueColumn = moistureColumnForLayer(moistureLayer);
+    const readingsQuery = `
+      SELECT DISTINCT ON (sensor_id)
+        sensor_id,
+        ${valueColumn} as value,
+        time as timestamp
+      FROM moisture_readings
+      WHERE sensor_id = ANY($1)
+        AND time >= NOW() - INTERVAL '${freshnessWindowMs} milliseconds'
+      ORDER BY sensor_id, time DESC
+    `;
+    const result = await db.query(readingsQuery, [sensorIds]);
+    return result.rows.map((row) => ({
+      sensorId: row.sensor_id,
+      value: parseFloat(row.value),
+      timestamp: row.timestamp
+    }));
   }
 
   // Upsert latest sensor reading per plot and sensor_type
@@ -1118,6 +1154,75 @@ class TimescaleRepository {
     }
   }
 
+  async getPersistentlyZeroMoistureSensors({ days = 7, epsilon = 1.0 } = {}) {
+    const query = `
+      WITH windowed AS (
+        SELECT sensor_id,
+               MAX(moisture_surface_pct) AS max_value
+        FROM moisture_readings
+        WHERE time >= NOW() - INTERVAL '${days} days'
+        GROUP BY sensor_id
+      )
+      SELECT sensor_id
+      FROM windowed
+      WHERE max_value <= $1
+    `;
+    const result = await this.pool.query(query, [epsilon]);
+    return result.rows.map((r) => r.sensor_id);
+  }
+
+  async deactivateSensorsTx({ sensorIds = [], reason = 'deactivated', performedBy = 'system' } = {}) {
+    if (!Array.isArray(sensorIds) || sensorIds.length === 0) return { deactivated: 0, removed: 0 };
+    await this.pool.query('BEGIN');
+    try {
+      const insertSql = `
+        INSERT INTO ${this.schemas.control}.deactivated_sensors (sensor_id, reason, performed_by, deactivated_at)
+        SELECT UNNEST($1::text[]), $2, $3, NOW()
+        ON CONFLICT (sensor_id) DO UPDATE SET reason = EXCLUDED.reason, performed_by = EXCLUDED.performed_by, deactivated_at = NOW()
+      `;
+      const ins = await this.pool.query(insertSql, [sensorIds, reason, performedBy]);
+      const deleteSql = `
+        DELETE FROM ${this.schemas.control}.sensor_plot_mapping
+        WHERE sensor_id = ANY($1)
+      `;
+      const del = await this.pool.query(deleteSql, [sensorIds]);
+      await this.pool.query('COMMIT');
+      return { deactivated: ins.rowCount || 0, removed: del.rowCount || 0 };
+    } catch (e) {
+      await this.pool.query('ROLLBACK');
+      throw e;
+    }
+  }
+
+  async getLatestWLGpsPerSensor({ maxSensors = 1000 } = {}) {
+    const query = `
+      SELECT DISTINCT ON (sensor_id)
+        sensor_id,
+        location_lat,
+        location_lng,
+        time
+      FROM public.water_level_readings
+      WHERE location_lat IS NOT NULL AND location_lng IS NOT NULL
+      ORDER BY sensor_id, time DESC
+      LIMIT $1
+    `;
+    const result = await this.pool.query(query, [maxSensors]);
+    return result.rows;
+  }
+
+  async upsertWLSensorMapping({ sensorId, plotId }) {
+    return this.upsertSensorPlotMapping(this.pool, { sensorId, plotId, sensorType: 'water_level' });
+  }
+
+  async deleteLegacyWLSfMappings() {
+    const q = `
+      DELETE FROM ${this.schemas.control}.sensor_plot_mapping
+      WHERE sensor_id LIKE 'WL_SF%'
+    `;
+    const res = await this.pool.query(q);
+    return res.rowCount || 0;
+  }
+
   async getOutboxBacklogCount(db) {
     const query = `
       SELECT COUNT(*) as count
@@ -1137,6 +1242,17 @@ class TimescaleRepository {
   async close() {
     await this.pool.end();
   }
+
+  // Valve mapping (control DB) - fetch all plot→valve rows
+  async getAllValvePlotMappings(db = this.pool) {
+    const query = `
+      SELECT plot_id, smartfarm_valve_name
+      FROM ${this.schemas.control}.valve_plot_mapping
+      ORDER BY plot_id
+    `;
+    const result = await db.query(query);
+    return result.rows.map((r) => ({ plotId: r.plot_id, valveName: r.smartfarm_valve_name }));
+  }
 }
 
-module.exports = { TimescaleRepository };
+module.exports = { TimescaleRepository, moistureColumnForLayer };
