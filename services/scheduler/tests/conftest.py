@@ -12,18 +12,18 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
+import os
 
-from src.main import app
-from src.core.database import Base, get_db
-from src.core.redis import get_redis_client
-from src.core.config import settings
-from src.models.schedule import WeeklySchedule, ScheduledOperation
-from src.models.team import FieldTeam
+from main import app
+from core.database import Base, get_db
+from core.config import settings
+from models.schedule import WeeklySchedule, ScheduledOperation
+from models.team import FieldTeam
+from core.deps import get_redis
 
 
-# Test database setup
-TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
+# Test database setup (consistent with asyncpg engine used by app)
+TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/postgres")
 
 
 @pytest.fixture(scope="session")
@@ -39,8 +39,6 @@ async def async_engine():
     """Create async test database engine"""
     engine = create_async_engine(
         TEST_DATABASE_URL,
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
     )
     
     async with engine.begin() as conn:
@@ -76,7 +74,7 @@ def test_client(async_session) -> TestClient:
         return MockRedisClient()
     
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_redis_client] = override_get_redis
+    app.dependency_overrides[get_redis] = override_get_redis
     
     with TestClient(app) as client:
         yield client
@@ -111,6 +109,12 @@ class MockRedisClient:
     
     async def exists(self, key: str) -> bool:
         return key in self.data
+
+    async def get_list(self, key: str):
+        value = self.data.get(key)
+        if isinstance(value, list):
+            return value
+        return []
 
 
 @pytest.fixture
@@ -316,10 +320,16 @@ def mock_external_services(monkeypatch):
                 "current_flow": 3.5,
                 "last_update": datetime.utcnow().isoformat(),
             }
+
+        async def emergency_gate_control(self, gate_id: str, target_opening: float, override_safety: bool, operator: str, reason: str):
+            return {
+                "previous_opening": 50.0,
+                "execution_time": 0.1,
+            }
     
-    monkeypatch.setattr("src.services.clients.ROSClient", MockROSClient)
-    monkeypatch.setattr("src.services.clients.GISClient", MockGISClient)
-    monkeypatch.setattr("src.services.clients.FlowMonitoringClient", MockFlowMonitoringClient)
+    monkeypatch.setattr("services.clients.ROSClient", MockROSClient)
+    monkeypatch.setattr("services.clients.GISClient", MockGISClient)
+    monkeypatch.setattr("services.clients.FlowMonitoringClient", MockFlowMonitoringClient)
 
 
 @pytest.fixture

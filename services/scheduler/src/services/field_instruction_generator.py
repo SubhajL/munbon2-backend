@@ -11,8 +11,8 @@ from reportlab.lib.units import inch
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image, PageBreak
 from reportlab.platypus.flowables import KeepTogether
 
-from ..core.logger import get_logger
-from ..models.schedule import ScheduledOperation, FieldInstruction
+from core.logger import get_logger
+from models.schedule import ScheduledOperation, FieldInstruction
 
 logger = get_logger(__name__)
 

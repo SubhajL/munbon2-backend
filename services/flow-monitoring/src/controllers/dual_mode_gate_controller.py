@@ -10,17 +10,17 @@ from enum import Enum
 import structlog
 import numpy as np
 
-from ..schemas.gate_control import (
+from schemas.gate_control import (
     GateMode, GateType, ControlStatus, GateState, GateStateResponse,
     ManualInstruction, GateTransitionValidation, SynchronizationStatus
 )
-from ..hydraulic_solver import HydraulicSolver
-from ..calibrated_gate_flow import CalibratedGateFlow
-from ..db.connections import DatabaseManager
-from ..db.influxdb_client import InfluxDBClient
-from ..db.timescale_client import TimescaleClient
-from ..db.redis_client import RedisClient
-from ..core.metrics import (
+from hydraulic_solver import HydraulicSolver
+from calibrated_gate_flow import CalibratedGateFlow
+from db.connections import DatabaseManager
+from db.influxdb_client import InfluxDBClient
+from db.timescale_client import TimescaleClient
+from db.redis_client import RedisClient
+from core.metrics import (
     gate_operations_counter, gate_mode_gauge, 
     gate_opening_gauge, hydraulic_solver_iterations
 )

@@ -11,6 +11,7 @@ from uuid import UUID
 from enum import Enum
 
 from pydantic import BaseModel, Field, validator
+from .team import TeamStatus  # re-export for endpoints expecting it here
 
 
 class AlertLevel(str, Enum):
@@ -192,6 +193,9 @@ class MonitoringAlert(BaseModel):
             UUID: lambda v: str(v),
         }
 
+# Backwards-compatibility alias used by endpoints
+AlertMessage = MonitoringAlert
+
 
 class PerformanceMetric(BaseModel):
     """Performance metric data point"""
@@ -214,6 +218,26 @@ class PerformanceMetric(BaseModel):
     # Threshold
     is_below_threshold: bool = False
     threshold_value: Optional[float]
+    
+    class Config:
+        json_encoders = {
+            datetime: lambda v: v.isoformat(),
+            UUID: lambda v: str(v),
+        }
+
+
+class PerformanceMetrics(BaseModel):
+    """Aggregated real-time performance metrics for the active schedule"""
+    schedule_id: Optional[UUID]
+    water_delivery_efficiency: float
+    operation_completion_rate: float
+    on_time_performance: float
+    resource_utilization: float
+    current_flow_rate_m3s: float
+    target_flow_rate_m3s: float
+    active_gates: int
+    active_teams: int
+    last_updated: datetime
     
     class Config:
         json_encoders = {

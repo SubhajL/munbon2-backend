@@ -11,8 +11,8 @@ import os
 
 import httpx
 
-from .base_client import BaseClient
-from ...core.logger import get_logger
+from services.clients.base_client import BaseClient
+from core.logger import get_logger
 
 
 logger = get_logger(__name__)

@@ -1,10 +1,15 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { Logger } from 'pino';
 import { TimescaleRepository } from '../repository/timescale.repository';
+import { WaterLevelChartDataService } from '../services/water-level-chart-data.service';
+import { WaterLevelChartFormatter } from '../transformers/water-level-chart-formatter';
+import type { SmartFarmRepositoryLike } from '../repository/smartfarm.repository';
+import { isValidPeriod } from '../utils/time-period.utils';
 
 interface WaterLevelRoutesOptions {
   repository: TimescaleRepository;
   logger: Logger;
+  smartFarmRepository?: SmartFarmRepositoryLike;
 }
 
 export function createWaterLevelRoutes(options: WaterLevelRoutesOptions): Router {
@@ -353,6 +358,70 @@ export function createWaterLevelRoutes(options: WaterLevelRoutesOptions): Router
       });
     } catch (error) {
       logger.error({ error }, 'Failed to get water level comparison');
+      next(error);
+    }
+  });
+
+  // Get chart data for visualization with configurable period and sensor filtering
+  router.get('/water-levels/chart', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const {
+        period = '24h',
+        sensorIds,
+        timeZone = 'UTC'
+      } = req.query;
+
+      if (!isValidPeriod(period as string)) {
+        res.status(400).json({ 
+          error: `Invalid period: ${period}. Must be one of: 24h, 3d, 7d, 14d` 
+        });
+        return;
+      }
+
+      const sensorIdArray = sensorIds 
+        ? (sensorIds as string).split(',').map(id => id.trim())
+        : undefined;
+
+      const service = new WaterLevelChartDataService(repository, logger);
+      const formatter = new WaterLevelChartFormatter();
+
+      const rows = await service.getWaterLevelChartData(
+        period as string,
+        sensorIdArray
+      );
+
+      let meta: Record<string, { plotId?: string | null; thresholds?: { lower: number | null; upper: number | null } }> | undefined;
+      if (options.smartFarmRepository && rows.length > 0) {
+        try {
+          const sensorIdsPresent = Array.from(new Set(rows.map((r) => r.sensor_id)));
+          const mappings = await options.smartFarmRepository.getPlotMappingsBySensorIds(sensorIdsPresent);
+          const plotIds = Array.from(new Set(Object.values(mappings)));
+          const thresholdsByPlot = await options.smartFarmRepository.getThresholdsByPlotIds(plotIds);
+          meta = {};
+          for (const sid of sensorIdsPresent) {
+            const pid = mappings[sid];
+            if (!pid) continue;
+            const thr = thresholdsByPlot[pid];
+            meta[sid] = {
+              plotId: pid,
+              thresholds: thr ? { lower: thr.waterLevelLower, upper: thr.waterLevelUpper } : { lower: null, upper: null },
+            };
+          }
+        } catch (e) {
+          logger.warn({ err: e as any }, 'SmartFarm metadata enrichment failed');
+        }
+      }
+
+      const response = formatter.formatChartDataBySensor(
+        rows,
+        period as '24h' | '3d' | '7d' | '14d',
+        timeZone as string,
+        meta
+      );
+
+      res.json(response);
+    } catch (error) {
+      logger.error({ error }, 'Failed to get water level chart data');
       next(error);
     }
   });

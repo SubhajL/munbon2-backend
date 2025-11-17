@@ -11,7 +11,8 @@ from .sensor import (
     SensorConfig,
     SensorCalibration,
     SensorStatus,
-    CalibrationHistory
+    CalibrationHistory,
+    SensorHealthMetrics
 )
 from .location import (
     MonitoringLocation,
@@ -29,7 +30,8 @@ from .common import (
     PaginationParams,
     TimeRange,
     APIResponse,
-    ErrorResponse
+    ErrorResponse,
+    PaginatedResponse
 )
 
 __all__ = [
@@ -47,6 +49,7 @@ __all__ = [
     "SensorCalibration",
     "SensorStatus",
     "CalibrationHistory",
+    "SensorHealthMetrics",
     
     # Location schemas
     "MonitoringLocation",
@@ -64,5 +67,6 @@ __all__ = [
     "PaginationParams",
     "TimeRange",
     "APIResponse",
-    "ErrorResponse"
+    "ErrorResponse",
+    "PaginatedResponse"
 ]

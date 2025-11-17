@@ -1,5 +1,7 @@
 import * as dotenv from 'dotenv';
+import path from 'path';
 import express from 'express';
+import cors from 'cors';
 import helmet from 'helmet';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
@@ -11,8 +13,13 @@ import { TimescaleRepository } from '../../repository/timescale.repository';
 import { setupRoutes } from '../../routes';
 import { errorHandler } from '../../middleware/error-handler';
 import { swaggerSpec } from '../../config/swagger';
+import { SmartFarmRepository } from '../../repository/smartfarm.repository';
 
+// Load env from default location (cwd) and then from the service directory to
+// ensure PM2 runs from repo root still picks up services/sensor-data/.env
 dotenv.config();
+const serviceEnvPath = path.resolve(__dirname, '../../..', '.env');
+dotenv.config({ path: serviceEnvPath, override: true });
 
 const logger = pino({
   transport: {
@@ -36,6 +43,11 @@ async function main() {
     });
 
     // Middleware
+    app.use(cors({
+      origin: '*',
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key', 'X-Admin-Token']
+    }));
     app.use(helmet({
       contentSecurityPolicy: {
         directives: {
@@ -67,11 +79,25 @@ async function main() {
     // Initialize repositories
     const timescaleRepo = new TimescaleRepository({
       host: process.env.TIMESCALE_HOST || 'localhost',
-      port: parseInt(process.env.TIMESCALE_PORT || '5433'),
+      port: parseInt(process.env.TIMESCALE_PORT || '5432'),
       database: process.env.TIMESCALE_DB || 'munbon_timescale',
       user: process.env.TIMESCALE_USER || 'postgres',
       password: process.env.TIMESCALE_PASSWORD || ''
     });
+
+    // Log connection target (safe: no password)
+    logger.info({
+      host: process.env.TIMESCALE_HOST,
+      port: process.env.TIMESCALE_PORT,
+      database: process.env.TIMESCALE_DB,
+      user: process.env.TIMESCALE_USER,
+      ssl: process.env.TIMESCALE_SSL || 'false'
+    }, 'Connecting to TimescaleDB');
+
+    // Optional schema logging for visibility
+    if (process.env.TIMESCALE_SCHEMA) {
+      logger.info(`Using Timescale schema: ${process.env.TIMESCALE_SCHEMA}`);
+    }
 
     await timescaleRepo.initialize();
     logger.info('TimescaleDB initialized');
@@ -94,11 +120,15 @@ async function main() {
       logger
     });
 
+    // Optional SmartFarm repository for plot/threshold enrichment
+    const smartFarmRepo = new SmartFarmRepository();
+
     // Setup routes
     setupRoutes(app, {
       sensorDataService,
       timescaleRepo,
-      logger
+      logger,
+      smartFarmRepository: smartFarmRepo,
     });
 
     // Error handler

@@ -9,8 +9,6 @@ from .schedule import (
     ScheduleResponse,
     ScheduleSummary,
     ScheduleGenerateRequest,
-    ScheduleConstraints,
-    ScheduleMetrics,
 )
 
 # Operation schemas
@@ -85,21 +83,24 @@ from .adaptation import (
 
 # Demand schemas
 from .demands import (
-    DemandData,
-    ZoneDemand,
-    PlotDemand,
-    AggregatedDemand,
-    DeliveryPath,
-    DemandConstraint,
+    SectionDemand,
+    DemandSubmission,
+    DemandConflict,
+    DemandValidationResult,
+    DemandResponse,
+    AggregatedDemands,
+    DemandProcessingStatus,
 )
 
 # Field operation schemas
 from .field_ops import (
     FieldInstruction,
-    GateInstruction,
-    TeamDailyPlan,
-    OfflineData,
-    InstructionSet,
+    GateOperation,
+    TeamLocation,
+    PhotoUpload,
+    RouteOptimization,
+    OfflineDataPackage,
+    SyncData,
 )
 
 __all__ = [
@@ -109,8 +110,6 @@ __all__ = [
     "ScheduleResponse",
     "ScheduleSummary",
     "ScheduleGenerateRequest",
-    "ScheduleConstraints",
-    "ScheduleMetrics",
     # Operation
     "OperationBase",
     "OperationCreate",
@@ -170,16 +169,19 @@ __all__ = [
     "ContingencyPlan",
     "AdaptationMetrics",
     # Demand
-    "DemandData",
-    "ZoneDemand",
-    "PlotDemand",
-    "AggregatedDemand",
-    "DeliveryPath",
-    "DemandConstraint",
+    "SectionDemand",
+    "DemandSubmission",
+    "DemandConflict",
+    "DemandValidationResult",
+    "DemandResponse",
+    "AggregatedDemands",
+    "DemandProcessingStatus",
     # Field ops
     "FieldInstruction",
-    "GateInstruction",
-    "TeamDailyPlan",
-    "OfflineData",
-    "InstructionSet",
+    "GateOperation",
+    "TeamLocation",
+    "PhotoUpload",
+    "RouteOptimization",
+    "OfflineDataPackage",
+    "SyncData",
 ]

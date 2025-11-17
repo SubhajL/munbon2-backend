@@ -2,9 +2,10 @@ import strawberry
 from typing import List, Optional, Dict
 from datetime import datetime, timedelta
 import asyncio
+from strawberry.scalars import JSON
 
 from schemas.client_specific import ChartData, ChartDataset
-from ..context import GraphQLContext
+from context import GraphQLContext
 from core import get_logger
 
 logger = get_logger(__name__)
@@ -26,7 +27,7 @@ class ComprehensiveSectionData:
     
     # From GIS Service
     plot_count: int
-    crop_distribution: Dict[str, int]
+    crop_distribution: JSON
     
     # From Weather Service
     current_temperature: float
@@ -55,7 +56,7 @@ class WaterPlanningOverview:
     active_awd_plots: int
     
     # Service health
-    services_status: Dict[str, bool]
+    services_status: JSON
     
     # Charts
     demand_by_zone_chart: ChartData
@@ -64,8 +65,8 @@ class WaterPlanningOverview:
     
     # Alerts
     critical_sections: List[str]
-    maintenance_alerts: List[Dict]
-    weather_alerts: List[Dict]
+    maintenance_alerts: List[JSON]
+    weather_alerts: List[JSON]
 
 
 @strawberry.type

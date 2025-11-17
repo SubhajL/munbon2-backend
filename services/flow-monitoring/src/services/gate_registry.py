@@ -7,9 +7,9 @@ Used by all instances to understand gate automation status
 import json
 from typing import Dict, List, Optional, Set
 from pathlib import Path
-from core import get_logger
+import structlog
 
-logger = get_logger(__name__)
+logger = structlog.get_logger()
 
 
 class GateRegistry:

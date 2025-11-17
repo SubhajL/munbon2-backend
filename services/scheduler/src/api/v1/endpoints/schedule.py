@@ -2,19 +2,19 @@ from typing import Dict, List, Optional, Any
 from datetime import datetime, date
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Path, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ....core.deps import get_db, get_current_user, get_redis
-from ....core.redis import RedisClient
-from ....core.logger import get_logger
-from ....models.schedule import WeeklySchedule, ScheduledOperation
-from ....schemas.schedule import (
+from core.deps import get_db, get_current_user, get_redis
+from core.redis import RedisClient
+from core.logger import get_logger
+from models.schedule import WeeklySchedule, ScheduledOperation
+from schemas.schedule import (
     ScheduleCreate, ScheduleResponse, ScheduleUpdate,
     ScheduleGenerateRequest, ScheduleSummary
 )
-from ....services.schedule_optimizer import ScheduleOptimizer
-from ....services.clients import ROSClient, GISClient, FlowMonitoringClient
+from services.schedule_optimizer import ScheduleOptimizer
+from services.clients import ROSClient, GISClient, FlowMonitoringClient
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -116,8 +116,8 @@ async def get_schedule(
 
 @router.get("/week/{week_number}/{year}", response_model=ScheduleResponse)
 async def get_schedule_by_week(
-    week_number: int = Query(..., ge=1, le=53),
-    year: int = Query(..., ge=2024, le=2030),
+    week_number: int = Path(..., ge=1, le=53),
+    year: int = Path(..., ge=2024, le=2030),
     db: AsyncSession = Depends(get_db),
     current_user: Dict = Depends(get_current_user)
 ) -> ScheduleResponse:

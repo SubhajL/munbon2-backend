@@ -1,6 +1,7 @@
 import strawberry
 from typing import List, Optional
 from datetime import datetime
+from strawberry.scalars import JSON
 
 
 # Mobile-specific types (lightweight)
@@ -77,19 +78,19 @@ class WebDemandDetails:
     net_demand_m3: float
     method: str
     priority_score: float
-    priority_factors: Optional[dict] = None
+    priority_factors: Optional[JSON] = None
 
 
 @strawberry.type
 class WebWaterDashboard:
     """Web dashboard with full analytics"""
-    zone: dict  # Full zone data
+    zone: JSON  # Full zone data
     demand_details: List[WebDemandDetails]
-    awd_full_status: Optional[dict] = None
+    awd_full_status: Optional[JSON] = None
     charts: Optional[ChartData] = None
-    historical_data: Optional[List[dict]] = None
-    predictions: Optional[List[dict]] = None
-    performance_metrics: Optional[dict] = None
+    historical_data: Optional[List[JSON]] = None
+    predictions: Optional[List[JSON]] = None
+    performance_metrics: Optional[JSON] = None
 
 
 # API-specific types (structured)
@@ -97,7 +98,7 @@ class WebWaterDashboard:
 class APIResponse:
     """Standard API response wrapper"""
     success: bool
-    data: Optional[dict] = None
+    data: Optional[JSON] = None
     error: Optional[str] = None
     timestamp: datetime = strawberry.field(default_factory=datetime.utcnow)
     
@@ -111,4 +112,4 @@ class APIDemandData:
     gross_demand_m3: float
     net_demand_m3: float
     method: str
-    metadata: Optional[dict] = None
+    metadata: Optional[JSON] = None

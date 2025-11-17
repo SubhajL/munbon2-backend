@@ -1,6 +1,7 @@
 import strawberry
 from strawberry.fastapi import GraphQLRouter
 from datetime import datetime
+from strawberry.scalars import JSON
 
 # Import all query types
 from .graphql_enhanced import Query as EnhancedQuery
@@ -17,7 +18,7 @@ from .crop_season_mutations import CropSeasonMutations
 from .subscriptions import Subscription
 
 # Import context builder
-from ..context import build_context, cleanup_context, GraphQLContext
+from context import build_context, cleanup_context, GraphQLContext
 
 
 # Combine all queries
@@ -43,8 +44,8 @@ class Mutation(BaseMutation, AWDMutations):
         self,
         info: strawberry.Info[GraphQLContext],
         scenario_name: str,
-        parameters: dict
-    ) -> dict:
+        parameters: JSON
+    ) -> JSON:
         """Trigger a what-if scenario calculation"""
         import uuid
         from api.subscriptions import publish_demand_update
@@ -68,7 +69,7 @@ class Mutation(BaseMutation, AWDMutations):
         override_value: float,
         reason: str,
         valid_until: datetime
-    ) -> dict:
+    ) -> JSON:
         """Override automatic demand calculation with manual value"""
         # In production, would save to database
         return {

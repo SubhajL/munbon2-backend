@@ -10,7 +10,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 import uuid
 
-from .base import Base
+from core.database import Base
 
 
 class FieldTeam(Base):
@@ -62,6 +62,7 @@ class FieldTeam(Base):
     __table_args__ = (
         Index('idx_team_status_active', 'status', 'active'),
         Index('idx_team_zones', 'assigned_zones'),
+        {"extend_existing": True},
     )
 
 
@@ -96,6 +97,7 @@ class TeamMember(Base):
     __table_args__ = (
         Index('idx_member_team', 'team_id'),
         Index('idx_member_active', 'active'),
+        {"extend_existing": True},
     )
 
 
@@ -122,4 +124,5 @@ class TeamAvailability(Base):
         UniqueConstraint('team_id', 'date', name='uq_team_date_availability'),
         Index('idx_availability_date', 'date'),
         Index('idx_availability_team_date', 'team_id', 'date'),
+        {"extend_existing": True},
     )

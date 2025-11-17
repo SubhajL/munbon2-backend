@@ -269,3 +269,5 @@ venv_aos_export/
 # Claude session logs
 docs/claude-sessions/
 !docs/claude-sessions/README.md
+# Local UI scratch files
+frontend-test.html
