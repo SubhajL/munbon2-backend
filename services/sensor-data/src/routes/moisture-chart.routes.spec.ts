@@ -225,5 +225,44 @@ describe('Moisture Chart Routes', () => {
       expect(res.body.summary.totalSensors).toBe(1);
       expect(res.body.summary.totalDataPoints).toBe(2);
     });
+    it('returns overlay when includeSmoothed=true', async () => {
+      const mockRows: any[] = [
+        {
+          time: new Date('2025-11-03T12:00:00Z'),
+          sensor_id: 'MS-00001-00001',
+          avg_moisture_surface: 60,
+          min_moisture_surface: 58,
+          max_moisture_surface: 62,
+          avg_moisture_deep: 55,
+          min_moisture_deep: 53,
+          max_moisture_deep: 57,
+          sample_count: 1,
+          source: 'raw',
+        },
+        {
+          time: new Date('2025-11-03T12:00:00Z'),
+          sensor_id: 'MS-00001-00001',
+          avg_moisture_surface: 59,
+          min_moisture_surface: 58,
+          max_moisture_surface: 60,
+          avg_moisture_deep: 54,
+          min_moisture_deep: 53,
+          max_moisture_deep: 55,
+          sample_count: 1,
+          source: 'smoothed',
+        },
+      ];
+
+      (mockRepository.query as jest.Mock).mockResolvedValueOnce({ rows: mockRows });
+
+      const res = await request(app)
+        .get('/moisture/chart?includeSmoothed=true')
+        .expect(200);
+
+      const sensor = res.body.sensors['MS-00001-00001'];
+      expect(sensor).toBeDefined();
+      expect(sensor.dataPoints).toHaveLength(1);
+      expect(sensor.smoothedDataPoints).toHaveLength(1);
+    });
   });
 });

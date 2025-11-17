@@ -16,6 +16,7 @@ export async function handler(event: any): Promise<APIGatewayProxyResult> {
     const period = (qs.period as string) || '24h';
     const sensorIdsParam = (qs.sensorIds as string) || '';
     const timeZone = (qs.timeZone as string) || 'UTC';
+    const includeSmoothed = String(qs.includeSmoothed || 'false').toLowerCase() === 'true';
 
     if (!isValidPeriod(period)) {
       return {
@@ -29,7 +30,7 @@ export async function handler(event: any): Promise<APIGatewayProxyResult> {
       ? sensorIdsParam.split(',').map((s) => s.trim()).filter(Boolean)
       : undefined;
 
-    const rows = await service.getMoistureChartData(period, sensorIds);
+    const rows = await service.getMoistureChartData(period, sensorIds, includeSmoothed);
     const body = formatter.formatChartDataBySensor(rows, period as any, timeZone);
 
     return {

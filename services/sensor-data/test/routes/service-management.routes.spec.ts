@@ -14,7 +14,7 @@ describe('service-management.routes', () => {
     jest.clearAllMocks();
     app = express();
     app.use(express.json());
-    app.use('/api/v1', createServiceManagementRoutes());
+    app.use('/api/v1', createServiceManagementRoutes({ repository: { query: jest.fn() } as any }));
   });
 
   describe('GET /api/v1/services/status', () => {

@@ -262,6 +262,43 @@ describe('formatChartDataBySensor', () => {
     });
   });
 
+  describe('source splitting', () => {
+    it('splits raw and smoothed rows into separate series', () => {
+      const formatter = new MoistureChartFormatter();
+      const rows: any[] = [
+        {
+          time: new Date('2025-11-03T12:00:00Z'),
+          sensor_id: 'MS-00001-00001',
+          avg_moisture_surface: 60,
+          min_moisture_surface: 58,
+          max_moisture_surface: 62,
+          avg_moisture_deep: 55,
+          min_moisture_deep: 53,
+          max_moisture_deep: 57,
+          sample_count: 1,
+          source: 'raw',
+        },
+        {
+          time: new Date('2025-11-03T12:00:00Z'),
+          sensor_id: 'MS-00001-00001',
+          avg_moisture_surface: 59,
+          min_moisture_surface: 58,
+          max_moisture_surface: 60,
+          avg_moisture_deep: 54,
+          min_moisture_deep: 53,
+          max_moisture_deep: 55,
+          sample_count: 1,
+          source: 'smoothed',
+        },
+      ];
+
+      const response = formatter.formatChartDataBySensor(rows, '24h', 'UTC');
+      const sensor = response.sensors['MS-00001-00001'];
+      expect(sensor.dataPoints).toHaveLength(1);
+      expect(sensor.smoothedDataPoints).toHaveLength(1);
+    });
+  });
+
   describe('formatTimestamp', () => {
     it('returns ISO string in UTC timezone', () => {
       const date = new Date('2025-11-03T12:00:00Z');

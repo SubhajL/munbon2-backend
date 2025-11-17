@@ -38,7 +38,7 @@ export class MoistureChartFormatter {
     let totalDataPoints = 0;
 
     for (const [sensorId, sensorRows] of sensorMap.entries()) {
-      const dataPoints: SensorDataPoint[] = sensorRows.map((row) => ({
+      const toPoint = (row: MoistureReadingRow): SensorDataPoint => ({
         time: this.formatTimestamp(row.time, timeZone),
         avgMoistureSurface: this.safeParseFloat(row.avg_moisture_surface),
         minMoistureSurface: this.safeParseFloat(row.min_moisture_surface),
@@ -47,7 +47,13 @@ export class MoistureChartFormatter {
         minMoistureDeep: this.safeParseFloat(row.min_moisture_deep),
         maxMoistureDeep: this.safeParseFloat(row.max_moisture_deep),
         sampleCount: parseInt(String(row.sample_count), 10),
-      }));
+      });
+
+      const rawRows = sensorRows.filter((r) => !r.source || r.source === 'raw');
+      const smoothedRows = sensorRows.filter((r) => r.source === 'smoothed');
+
+      const dataPoints: SensorDataPoint[] = rawRows.map(toPoint);
+      const smoothedDataPoints: SensorDataPoint[] = smoothedRows.map(toPoint);
 
       const totalSamples = sensorRows.reduce(
         (sum, row) => sum + parseInt(String(row.sample_count), 10),
@@ -62,6 +68,7 @@ export class MoistureChartFormatter {
         plotId: sensorMeta?.plotId ?? null,
         thresholds: sensorMeta?.thresholds ?? undefined,
         dataPoints,
+        smoothedDataPoints: smoothedDataPoints.length ? smoothedDataPoints : undefined,
         stats: {
           totalSamples,
           timeRange: {
@@ -71,7 +78,7 @@ export class MoistureChartFormatter {
         },
       };
 
-      totalDataPoints += dataPoints.length;
+      totalDataPoints += dataPoints.length + smoothedDataPoints.length;
     }
 
     const timeRange = getTimeRange(period);

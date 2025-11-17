@@ -18,7 +18,8 @@ export class MoistureChartDataService {
    */
   async getMoistureChartData(
     period: string,
-    sensorIds?: string[]
+    sensorIds?: string[],
+    includeSmoothed: boolean = false
   ): Promise<MoistureReadingRow[]> {
     try {
       // Validate and parse period
@@ -26,33 +27,67 @@ export class MoistureChartDataService {
       const timeRange = getTimeRange(validatedPeriod);
 
       // Build query with optional sensor filter
-      let query = `
-        SELECT 
-          time_bucket('15 minutes'::interval, time) AS time,
-          sensor_id,
-          AVG(moisture_surface_pct) as avg_moisture_surface,
-          MIN(moisture_surface_pct) as min_moisture_surface,
-          MAX(moisture_surface_pct) as max_moisture_surface,
-          AVG(moisture_deep_pct) as avg_moisture_deep,
-          MIN(moisture_deep_pct) as min_moisture_deep,
-          MAX(moisture_deep_pct) as max_moisture_deep,
-          COUNT(*) as sample_count
-        FROM moisture_readings
-        WHERE time >= $1 AND time <= $2
-      `;
+      const baseSelect = `
+          SELECT 
+            time_bucket('15 minutes'::interval, time) AS time,
+            sensor_id,
+            AVG(moisture_surface_pct) as avg_moisture_surface,
+            MIN(moisture_surface_pct) as min_moisture_surface,
+            MAX(moisture_surface_pct) as max_moisture_surface,
+            AVG(moisture_deep_pct) as avg_moisture_deep,
+            MIN(moisture_deep_pct) as min_moisture_deep,
+            MAX(moisture_deep_pct) as max_moisture_deep,
+            COUNT(*) as sample_count`;
 
+      let query: string;
       const params: any[] = [timeRange.start, timeRange.end];
 
-      if (sensorIds && sensorIds.length > 0) {
-        const normalizedIds = this.normalizeSensorIds(sensorIds);
-        query += ' AND sensor_id = ANY($3)';
-        params.push(normalizedIds);
+      if (!includeSmoothed) {
+        // Raw-only path
+        query = `
+          ${baseSelect}
+          FROM moisture_readings
+          WHERE time >= $1 AND time <= $2`;
+        if (sensorIds && sensorIds.length > 0) {
+          const normalizedIds = this.normalizeSensorIds(sensorIds);
+          query += ' AND sensor_id = ANY($3)';
+          params.push(normalizedIds);
+        }
+        query += `
+          GROUP BY time_bucket('15 minutes'::interval, time), sensor_id
+          ORDER BY time ASC;`;
+      } else {
+        // Overlay path - union raw and smoothed with source tag
+        const whereSensor = (hasIds: boolean, index: number) =>
+          hasIds ? ` AND sensor_id = ANY($${index})` : '';
+
+        let unionParts: string[] = [];
+        // Part 1: raw
+        unionParts.push(`
+          SELECT *, 'raw' as source FROM (
+            ${baseSelect}
+            FROM moisture_readings
+            WHERE time >= $1 AND time <= $2${whereSensor(!!sensorIds?.length, 3)}
+            GROUP BY time_bucket('15 minutes'::interval, time), sensor_id
+          ) raw_part`);
+        // Part 2: smoothed
+        const smoothedIndex = sensorIds?.length ? 3 : 3; // same param index reused
+        unionParts.push(`
+          SELECT *, 'smoothed' as source FROM (
+            ${baseSelect}
+            FROM smoothed_moisture_readings
+            WHERE time >= $1 AND time <= $2${whereSensor(!!sensorIds?.length, smoothedIndex)}
+            GROUP BY time_bucket('15 minutes'::interval, time), sensor_id
+          ) smoothed_part`);
+
+        query = unionParts.join('\nUNION ALL\n') + '\nORDER BY time ASC;';
+
+        if (sensorIds && sensorIds.length > 0) {
+          const normalizedIds = this.normalizeSensorIds(sensorIds);
+          params.push(normalizedIds);
+        }
       }
 
-      query += `
-        GROUP BY time_bucket('15 minutes'::interval, time), sensor_id
-        ORDER BY time ASC;
-      `;
 
       const result = await this.repository.query(query, params);
       return result.rows;
