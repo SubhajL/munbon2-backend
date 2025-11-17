@@ -90,6 +90,71 @@ class ConfigRepository {
     await this.pool.query(sql, [plotId, cropType || null, controlMode || null]);
   }
 
+  // Valve plot mapping DAO (water_control_smartfarm)
+  async upsertValvePlotMapping({ plotId, valveName, updatedBy = null, notes = null }) {
+    if (!plotId || !valveName) throw new Error('plotId and valveName are required');
+    const sql = `
+      INSERT INTO ${this.schemas.control}.valve_plot_mapping
+        (plot_id, smartfarm_valve_name, updated_at, updated_by, notes)
+      VALUES ($1, $2, NOW(), $3, $4)
+      ON CONFLICT (plot_id)
+      DO UPDATE SET
+        smartfarm_valve_name = EXCLUDED.smartfarm_valve_name,
+        updated_at = NOW(),
+        updated_by = EXCLUDED.updated_by,
+        notes = EXCLUDED.notes
+    `;
+    await this.pool.query(sql, [plotId, valveName, updatedBy, notes]);
+  }
+
+  async getValveForPlot(plotId) {
+    const sql = `
+      SELECT smartfarm_valve_name
+      FROM ${this.schemas.control}.valve_plot_mapping
+      WHERE plot_id = $1
+    `;
+    const { rows } = await this.pool.query(sql, [plotId]);
+    if (!rows || rows.length === 0) return null;
+    return rows[0].smartfarm_valve_name;
+  }
+
+  async getAllValvePlotMappings() {
+    const sql = `
+      SELECT plot_id, smartfarm_valve_name
+      FROM ${this.schemas.control}.valve_plot_mapping
+      ORDER BY plot_id
+    `;
+    const { rows } = await this.pool.query(sql);
+    return rows.map((r) => ({ plotId: r.plot_id, valveName: r.smartfarm_valve_name }));
+  }
+
+  // Find plot by coordinates using PostGIS spatial query
+  async findPlotByCoordinates(db, longitude, latitude) {
+    const query = `
+      SELECT plot_id
+      FROM ${this.schemas.smartfarm}.plot_boundaries
+      WHERE ST_Contains(
+        geom,
+        ST_SetSRID(ST_MakePoint($1, $2), 4326)
+      )
+      LIMIT 1
+    `;
+
+    const result = await db.query(query, [longitude, latitude]);
+    if (!result.rows || result.rows.length === 0) return null;
+    return result.rows[0].plot_id;
+  }
+
+  async listMappedSensorsForPlot(plotId, sensorType = 'moisture') {
+    const sql = `
+      SELECT sensor_id
+      FROM ${this.schemas.control}.sensor_plot_mapping
+      WHERE plot_id = $1 AND sensor_type = $2
+    `;
+    const { rows } = await this.pool.query(sql, [plotId, sensorType]);
+    return rows.map((r) => r.sensor_id);
+  }
+
   // water_control_smartfarm.sensor_plot_mapping (unique on sensor_id)
   async upsertSensorMapping({ sensorId, plotId, sensorType }) {
     if (!sensorId || !plotId || !sensorType) throw new Error('sensorId, plotId, sensorType required');

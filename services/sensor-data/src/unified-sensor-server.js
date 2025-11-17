@@ -76,6 +76,13 @@ app.post('/api/sensor-data/moisture/:token', async (req, res) => {
   try {
     const { token } = req.params;
     const data = parseRequestBody(req);
+
+    // Import hardened parsers lazily to avoid top-level require re-ordering
+    const {
+      sanitizeMoistureSensor,
+      formatMoistureSensorId,
+      parseNumeric,
+    } = require('./utils/moisture-parse');
     
     logger.info({ 
       token, 
@@ -96,10 +103,10 @@ app.post('/api/sensor-data/moisture/:token', async (req, res) => {
     
     // Extract sensor data
     const gatewayId = data.gw_id || data.gateway_id || data.sensor_id;
-    const sensors = data.sensor || [];
+    const sensors = Array.isArray(data.sensor) ? data.sensor : [];
     const timestamp = new Date();
-    const lat = parseFloat(data.gps_lat || data.latitude) || null;
-    const lng = parseFloat(data.gps_lng || data.longitude) || null;
+    const lat = parseNumeric(data.gps_lat ?? data.latitude, -90, 90);
+    const lng = parseNumeric(data.gps_lng ?? data.longitude, -180, 180);
     
     // Insert data directly to database using correct column names
     for (const sensor of sensors) {
@@ -120,20 +127,23 @@ app.post('/api/sensor-data/moisture/:token', async (req, res) => {
           quality_score
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       `;
-      
+
+      const s = sanitizeMoistureSensor(sensor);
+      const sensorId = formatMoistureSensorId(gatewayId, sensor?.sensor_id);
+
       await dbPool.query(query, [
         timestamp,
-        gatewayId.padStart(4, '0') + '-' + (sensor.sensor_id || '').padStart(4, '0'),
-        lat,
-        lng,
-        parseFloat(sensor.humid_hi) || null,
-        parseFloat(sensor.humid_low) || null,
-        parseFloat(sensor.temp_hi) || null,
-        parseFloat(sensor.temp_low) || null,
-        parseFloat(sensor.amb_humid) || null,
-        parseFloat(sensor.amb_temp) || null,
-        sensor.sensor_batt ? parseFloat(sensor.sensor_batt) / 100 : null,
-        sensor.flood === 'yes',
+        sensorId,
+        lat ?? null,
+        lng ?? null,
+        s.moistureSurfacePct,
+        s.moistureDeepPct,
+        s.tempSurfaceC,
+        s.tempDeepC,
+        s.ambientHumidityPct,
+        s.ambientTempC,
+        s.voltage,
+        s.floodStatus,
         0.95
       ]);
     }

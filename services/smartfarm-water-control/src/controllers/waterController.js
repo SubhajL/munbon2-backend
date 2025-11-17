@@ -27,8 +27,21 @@ class WaterController {
 
       logger.info({ plotId, controlMode }, 'Processing plot');
 
-      // Get current sensor reading
-      const sensorReading = await this.sensorData.getSensorReading(sensorId);
+      // Get thresholds from database once (also carries moisture_layer)
+      const thresholds = await this.repository.getControlThresholds(
+        this.repository.pool,
+        plotId
+      );
+
+      // Get current sensor reading (respect moisture layer only for MOISTURE mode)
+      let sensorReading;
+      if (controlMode === 'MOISTURE') {
+        sensorReading = await this.sensorData.getSensorReading(sensorId, {
+          moistureLayer: thresholds?.moistureLayer || 'surface'
+        });
+      } else {
+        sensorReading = await this.sensorData.getSensorReading(sensorId);
+      }
 
       if (!sensorReading) {
         logger.warn({ plotId, sensorId }, 'No sensor reading available');
@@ -37,12 +50,6 @@ class WaterController {
 
       // Get current valve status
       const currentValveStatus = await this.valveCommand.getValveStatus(plotId);
-
-      // Get thresholds from database once
-      const thresholds = await this.repository.getControlThresholds(
-        this.repository.pool,
-        plotId
-      );
 
       if (!thresholds) {
         logger.warn({ plotId }, 'No thresholds configured for plot');
