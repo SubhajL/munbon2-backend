@@ -1,0 +1,115 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Sensor Data API (Moisture + Water Level) - Lambda + HTTP API in VPC
+
+Parameters:
+  StackName:
+    Type: String
+    Default: sensor-data-api
+  StageName:
+    Type: String
+    Default: prod
+  RegionParam:
+    Type: String
+    Default: ap-southeast-1
+  # VPC
+  SubnetIds:
+    Type: List<String>
+    Description: Private subnet IDs for the Lambda functions
+  SecurityGroupIds:
+    Type: List<String>
+    Description: Security group IDs for the Lambda functions
+  # DB
+  TimescaleHost:
+    Type: String
+    Description: TimescaleDB private host or IP
+  TimescalePort:
+    Type: String
+    Default: '5432'
+  TimescaleDb:
+    Type: String
+    Default: sensor_data
+  TimescaleUser:
+    Type: String
+    Default: postgres
+  TimescalePassword:
+    Type: String
+    NoEcho: true
+  CorsAllowedOrigin:
+    Type: String
+    Default: '*'  # set to CloudFront domain for production
+
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    Timeout: 15
+    MemorySize: 256
+    Architectures: [arm64]
+    Environment:
+      Variables:
+        NODE_OPTIONS: --enable-source-maps
+        TIMESCALE_HOST: !Ref TimescaleHost
+        TIMESCALE_PORT: !Ref TimescalePort
+        TIMESCALE_DB: !Ref TimescaleDb
+        TIMESCALE_USER: !Ref TimescaleUser
+        TIMESCALE_PASSWORD: !Ref TimescalePassword
+    VpcConfig:
+      SecurityGroupIds: !Ref SecurityGroupIds
+      SubnetIds: !Ref SubnetIds
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: node20
+        Format: esm
+        Sourcemap: true
+        External:
+          - pg-native
+
+Resources:
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: !Ref StageName
+      CorsConfiguration:
+        AllowMethods: [GET, OPTIONS]
+        AllowOrigins: [!Ref CorsAllowedOrigin]
+        AllowHeaders: ['*']
+
+  MoistureChartFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${StackName}-moisture-chart
+      CodeUri: ../../services/sensor-data
+      Handler: lambda/handlers/getMoistureChart.handler
+      Policies:
+        - AWSLambdaBasicExecutionRole
+      Events:
+        Get:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /api/v1/moisture/chart
+            Method: GET
+
+  WaterLevelChartFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${StackName}-water-level-chart
+      CodeUri: ../../services/sensor-data
+      Handler: lambda/handlers/getWaterLevelChart.handler
+      Policies:
+        - AWSLambdaBasicExecutionRole
+      Events:
+        Get:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /api/v1/water-levels/chart
+            Method: GET
+
+Outputs:
+  ApiEndpoint:
+    Description: HTTP API endpoint base URL
+    Value: !Sub https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}
+

@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from datetime import date, datetime
 from uuid import UUID
 
@@ -7,11 +7,11 @@ from sqlalchemy import select, and_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from ....core.deps import get_db, get_current_user, get_redis
-from ....core.redis import RedisClient
-from ....core.logger import get_logger
-from ....models.schedule import FieldTeam, FieldInstruction, ScheduledOperation
-from ....schemas.team import (
+from core.deps import get_db, get_current_user, get_redis
+from core.redis import RedisClient
+from core.logger import get_logger
+from models.schedule import FieldTeam, FieldInstruction, ScheduledOperation
+from schemas.team import (
     TeamCreate, TeamResponse, TeamUpdate,
     TeamAssignment, TeamPerformance, TeamLocation
 )

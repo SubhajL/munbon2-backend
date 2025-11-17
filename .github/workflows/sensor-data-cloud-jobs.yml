@@ -1,0 +1,43 @@
+name: sensor-data cloud jobs
+
+on:
+  workflow_dispatch:
+    inputs:
+      runTests:
+        description: "Run service tests"
+        required: false
+        default: "true"
+      dbSmoke:
+        description: "Run DB smoke check (requires secrets)"
+        required: false
+        default: "true"
+
+jobs:
+  tests:
+    if: ${{ github.event.inputs.runTests != 'false' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install deps
+        run: npm ci
+        working-directory: services/sensor-data
+      - name: Run tests
+        run: npm test -- --runInBand
+        working-directory: services/sensor-data
+
+  db-smoke:
+    if: ${{ github.event.inputs.dbSmoke != 'false' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Timescale smoke check
+        if: ${{ secrets.TIMESCALE_HOST && secrets.TIMESCALE_PASSWORD }}
+        env:
+          PGPASSWORD: ${{ secrets.TIMESCALE_PASSWORD }}
+        run: |
+          sudo apt-get update -y && sudo apt-get install -y postgresql-client || true
+          psql -h ${{ secrets.TIMESCALE_HOST }} -p 5432 -U postgres -d sensor_data -c "SELECT NOW();"
+          psql -h ${{ secrets.TIMESCALE_HOST }} -p 5432 -U postgres -d sensor_data -c "SELECT COUNT(*) AS moisture FROM moisture_readings;"
+          psql -h ${{ secrets.TIMESCALE_HOST }} -p 5432 -U postgres -d sensor_data -c "SELECT COUNT(*) AS water FROM water_level_readings;"

@@ -51,6 +51,11 @@ class TimescaleClient:
     async def _create_tables(self) -> None:
         """Create necessary tables and hypertables"""
         async with self.pool.acquire() as conn:
+            # Try to ensure Timescale extension exists (may fail without superuser)
+            try:
+                await conn.execute("CREATE EXTENSION IF NOT EXISTS timescaledb")
+            except Exception as e:
+                logger.error("Failed to ensure timescaledb extension", error=str(e))
             # Create flow aggregates table
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS flow_aggregates (
@@ -68,14 +73,17 @@ class TimescaleClient:
             ''')
             
             # Convert to hypertable if not already
-            await conn.execute('''
-                SELECT create_hypertable(
-                    'flow_aggregates', 
-                    'time',
-                    if_not_exists => TRUE,
-                    chunk_time_interval => INTERVAL '1 day'
-                )
-            ''')
+            try:
+                await conn.execute('''
+                    SELECT create_hypertable(
+                        'flow_aggregates', 
+                        'time',
+                        if_not_exists => TRUE,
+                        chunk_time_interval => INTERVAL '1 day'
+                    )
+                ''')
+            except Exception as e:
+                logger.error("Timescale extension not available; skipping hypertable for flow_aggregates", error=str(e))
             
             # Create water balance table
             await conn.execute('''
@@ -92,14 +100,17 @@ class TimescaleClient:
             ''')
             
             # Convert to hypertable if not already
-            await conn.execute('''
-                SELECT create_hypertable(
-                    'water_balance', 
-                    'time',
-                    if_not_exists => TRUE,
-                    chunk_time_interval => INTERVAL '1 day'
-                )
-            ''')
+            try:
+                await conn.execute('''
+                    SELECT create_hypertable(
+                        'water_balance', 
+                        'time',
+                        if_not_exists => TRUE,
+                        chunk_time_interval => INTERVAL '1 day'
+                    )
+                ''')
+            except Exception as e:
+                logger.error("Timescale extension not available; skipping hypertable for water_balance", error=str(e))
             
             # Create anomalies table
             await conn.execute('''

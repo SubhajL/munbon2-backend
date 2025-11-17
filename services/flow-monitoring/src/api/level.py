@@ -5,7 +5,7 @@ from uuid import UUID
 import structlog
 
 from schemas import WaterLevel, APIResponse, FlowForecast
-from services.level_service import LevelService
+from services.flow_service import FlowService as LevelService
 from db import DatabaseManager
 from core.metrics import http_requests_total, http_request_duration_seconds
 

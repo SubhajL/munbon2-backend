@@ -1,37 +1,88 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.closeDatabases = exports.executeQuery = exports.getTimescalePool = exports.getPostgresPool = exports.connectDatabases = void 0;
+exports.closeDatabases = exports.executeQuery = exports.getTimescalePool = exports.getPostgresPool = exports.connectDatabases = exports.buildTimescaleConfig = exports.buildPostgresConfig = void 0;
 const pg_1 = require("pg");
 const logger_1 = require("../utils/logger");
 let postgresPool;
 let timescalePool;
 const POSTGRES_SCHEMA = process.env.POSTGRES_SCHEMA || 'awd';
 const TIMESCALE_SCHEMA = process.env.TIMESCALE_SCHEMA || 'public';
+const DEFAULT_PORT = 5432;
+const DEFAULT_POOL_OPTIONS = Object.freeze({
+    max: 20,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 2000,
+});
+const TRUE_VALUES = new Set(['true', '1', 'yes', 'require']);
+const ensureConnectionString = (envKey) => {
+    const raw = process.env[envKey];
+    if (!raw || !raw.trim()) {
+        throw new Error(`${envKey} must be set`);
+    }
+    return raw.trim();
+};
+const parseDatabaseUrl = (envKey) => {
+    const raw = ensureConnectionString(envKey);
+    let parsed;
+    try {
+        parsed = new URL(raw);
+    }
+    catch (error) {
+        throw new Error(`Invalid ${envKey}: ${(error && error.message) || 'unknown error'}`);
+    }
+    const host = parsed.hostname;
+    const port = parsed.port ? parseInt(parsed.port, 10) : DEFAULT_PORT;
+    const database = parsed.pathname ? parsed.pathname.replace(/^\//, '') : '';
+    if (!host || !database) {
+        throw new Error(`${envKey} must include host and database name`);
+    }
+    return {
+        host,
+        port,
+        database,
+        user: parsed.username ? decodeURIComponent(parsed.username) : undefined,
+        password: parsed.password ? decodeURIComponent(parsed.password) : undefined,
+    };
+};
+const buildPostgresConfig = () => {
+    const base = parseDatabaseUrl('POSTGRES_URL');
+    return Object.assign(Object.assign({}, DEFAULT_POOL_OPTIONS), base);
+};
+exports.buildPostgresConfig = buildPostgresConfig;
+const buildTimescaleConfig = () => {
+    const base = parseDatabaseUrl('TIMESCALE_URL');
+    const config = Object.assign(Object.assign({}, DEFAULT_POOL_OPTIONS), base);
+    const sslFlag = process.env.TIMESCALE_SSL;
+    if (sslFlag && TRUE_VALUES.has(sslFlag.toLowerCase())) {
+        config.ssl = { rejectUnauthorized: false };
+    }
+    return config;
+};
+exports.buildTimescaleConfig = buildTimescaleConfig;
+const logConnectionAttempt = (target, config) => {
+    var _a;
+    logger_1.logger.info({
+        target,
+        host: config.host,
+        port: config.port,
+        database: config.database,
+        schema: target === 'postgres' ? POSTGRES_SCHEMA : TIMESCALE_SCHEMA,
+        ssl: Boolean(config.ssl),
+        user: (_a = config.user) !== null && _a !== void 0 ? _a : undefined,
+        hasPassword: typeof config.password === 'string' && config.password.length > 0,
+    }, `Connecting to ${target} database`);
+};
 const connectDatabases = async () => {
     try {
-        postgresPool = new pg_1.Pool({
-            host: process.env.POSTGRES_HOST || 'localhost',
-            port: parseInt(process.env.POSTGRES_PORT || '5432'),
-            database: process.env.POSTGRES_DB || 'munbon_dev',
-            user: process.env.POSTGRES_USER || 'postgres',
-            password: process.env.POSTGRES_PASSWORD || 'postgres',
-            max: 20,
-            idleTimeoutMillis: 30000,
-            connectionTimeoutMillis: 2000,
-        });
+        const postgresConfig = buildPostgresConfig();
+        logConnectionAttempt('postgres', postgresConfig);
+        postgresPool = new pg_1.Pool(postgresConfig);
         await postgresPool.query(`SET search_path TO ${POSTGRES_SCHEMA}, public`);
         await postgresPool.query('SELECT NOW()');
         logger_1.logger.info(`PostgreSQL connected successfully with schema: ${POSTGRES_SCHEMA}`);
-        timescalePool = new pg_1.Pool({
-            host: process.env.TIMESCALE_HOST || 'localhost',
-            port: parseInt(process.env.TIMESCALE_PORT || '5432'),
-            database: process.env.TIMESCALE_DB || 'sensor_data',
-            user: process.env.TIMESCALE_USER || 'postgres',
-            password: process.env.TIMESCALE_PASSWORD || 'postgres',
-            max: 20,
-            idleTimeoutMillis: 30000,
-            connectionTimeoutMillis: 2000,
-        });
+        const timescaleConfig = buildTimescaleConfig();
+        logConnectionAttempt('timescale', timescaleConfig);
+        timescalePool = new pg_1.Pool(timescaleConfig);
         await timescalePool.query(`SET search_path TO ${TIMESCALE_SCHEMA}, public`);
         await timescalePool.query('SELECT NOW()');
         logger_1.logger.info(`TimescaleDB connected successfully with schema: ${TIMESCALE_SCHEMA}`);

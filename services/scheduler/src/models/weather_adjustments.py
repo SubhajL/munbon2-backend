@@ -13,7 +13,7 @@ from sqlalchemy.dialects.postgresql import UUID
 import uuid
 from datetime import datetime
 
-from .base import Base
+from core.database import Base
 
 
 class WeeklyWeatherAdjustment(Base):

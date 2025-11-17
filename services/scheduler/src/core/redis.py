@@ -12,7 +12,8 @@ class RedisClient:
         
     async def connect(self):
         """Initialize Redis connection"""
-        self.client = await redis.from_url(
+        # redis.from_url returns an async Redis client; no await necessary
+        self.client = redis.from_url(
             settings.redis_url,
             password=settings.redis_password,
             encoding="utf-8",
@@ -88,6 +89,30 @@ class RedisClient:
             if isinstance(message, dict):
                 message = json.dumps(message)
             await self.client.publish(channel, message)
+
+    async def exists(self, key: str) -> bool:
+        """Check if a key exists"""
+        if not self.client:
+            return False
+        val = await self.client.exists(key)
+        # redis-py returns int count
+        return bool(val)
+
+    async def get_list(self, key: str):
+        """Get a list from Redis, parsing JSON items when possible"""
+        if not self.client:
+            return []
+        items = await self.client.lrange(key, 0, -1)
+        parsed = []
+        for it in items:
+            if isinstance(it, str):
+                try:
+                    parsed.append(json.loads(it))
+                except json.JSONDecodeError:
+                    parsed.append(it)
+            else:
+                parsed.append(it)
+        return parsed
     
     async def subscribe(self, *channels):
         """Subscribe to channels"""
@@ -104,4 +129,9 @@ redis_client = RedisClient()
 
 async def get_redis() -> RedisClient:
     """Dependency to get Redis client"""
+    return redis_client
+
+
+async def get_redis_client() -> RedisClient:
+    """Backward-compatible alias expected by tests"""
     return redis_client

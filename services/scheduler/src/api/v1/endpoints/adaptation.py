@@ -6,17 +6,17 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, and_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ....core.deps import get_db, get_current_user, get_redis
-from ....core.redis import RedisClient
-from ....core.logger import get_logger
-from ....models.schedule import WeeklySchedule, ScheduledOperation
-from ....schemas.adaptation import (
+from core.deps import get_db, get_current_user, get_redis
+from core.redis import RedisClient
+from core.logger import get_logger
+from models.schedule import WeeklySchedule, ScheduledOperation
+from schemas.adaptation import (
     AdaptationRequest, AdaptationResponse, AdaptationStrategy,
     GateFailureEvent, WeatherChangeEvent, DemandChangeEvent,
     ReoptimizationRequest, EmergencyOverride
 )
-from ....services.real_time_adapter import RealTimeAdapter
-from ....services.clients import ROSClient, GISClient, FlowMonitoringClient
+from services.real_time_adapter import RealTimeAdapter
+from services.clients import ROSClient, GISClient, FlowMonitoringClient
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -321,7 +321,8 @@ async def emergency_override(
     """
     
     # Validate authorization
-    if not current_user.get("roles", []).intersection(["admin", "emergency_operator"]):
+    roles = set(current_user.get("roles", []))
+    if not roles.intersection({"admin", "emergency_operator"}):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Insufficient permissions for emergency override"

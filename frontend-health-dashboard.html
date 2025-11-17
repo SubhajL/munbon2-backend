@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Munbon Service Health Dashboard</title>
+    <script src="frontend-config.js"></script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: #f5f5f5;
+        padding: 20px;
+      }
+
+      .container {
+        max-width: 1400px;
+        margin: 0 auto;
+      }
+
+      h1 {
+        color: #333;
+        margin-bottom: 10px;
+      }
+
+      .subtitle {
+        color: #666;
+        margin-bottom: 30px;
+      }
+
+      .services-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        gap: 20px;
+        margin-bottom: 40px;
+      }
+
+      .service-panel {
+        background: white;
+        border-radius: 8px;
+        padding: 20px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        border-left: 4px solid #ddd;
+      }
+
+      .service-panel.online {
+        border-left-color: #4caf50;
+      }
+      .service-panel.stopped {
+        border-left-color: #f44336;
+      }
+      .service-panel.errored {
+        border-left-color: #ff9800;
+      }
+
+      .service-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 15px;
+      }
+
+      .service-name {
+        font-size: 16px;
+        font-weight: 600;
+        color: #333;
+      }
+
+      .status-badge {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: 500;
+        text-transform: uppercase;
+      }
+
+      .status-badge.online {
+        background: #4caf50;
+        color: white;
+      }
+      .status-badge.stopped {
+        background: #f44336;
+        color: white;
+      }
+      .status-badge.errored {
+        background: #ff9800;
+        color: white;
+      }
+
+      .metrics {
+        margin: 15px 0;
+      }
+
+      .metric-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 8px 0;
+        border-bottom: 1px solid #eee;
+      }
+
+      .metric-row:last-child {
+        border-bottom: none;
+      }
+
+      .metric-label {
+        color: #666;
+        font-size: 13px;
+      }
+
+      .metric-value {
+        color: #333;
+        font-size: 13px;
+        font-weight: 500;
+      }
+
+      .actions {
+        display: flex;
+        gap: 10px;
+        margin-top: 15px;
+      }
+
+      button {
+        flex: 1;
+        padding: 8px 16px;
+        border: none;
+        border-radius: 4px;
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .btn-start {
+        background: #4caf50;
+        color: white;
+      }
+
+      .btn-start:hover:not(:disabled) {
+        background: #45a049;
+      }
+
+      .btn-stop {
+        background: #f44336;
+        color: white;
+      }
+
+      .btn-stop:hover:not(:disabled) {
+        background: #da190b;
+      }
+
+      .loading {
+        text-align: center;
+        padding: 20px;
+        color: #666;
+      }
+
+      .error-message {
+        background: #ffebee;
+        color: #c62828;
+        padding: 12px;
+        border-radius: 4px;
+        margin: 10px 0;
+        font-size: 13px;
+      }
+
+      @media (min-width: 1024px) {
+        .charts-grid {
+          grid-template-columns: repeat(2, 1fr);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>🌾 Munbon Service Health Dashboard</h1>
+      <p class="subtitle">
+        Real-time monitoring of microservices and sensor data
+      </p>
+
+      <div class="services-grid" id="servicesGrid">
+        <div class="loading">Loading services...</div>
+      </div>
+
+      <div
+        class="navigation-section"
+        style="
+          margin: 40px 0;
+          display: flex;
+          gap: 20px;
+          justify-content: center;
+        "
+      >
+        <a
+          href="frontend-moisture-graphs.html"
+          class="nav-button"
+          style="flex: 1; max-width: 400px; text-decoration: none"
+          aria-label="View detailed moisture sensor graphs"
+        >
+          <button
+            style="
+              width: 100%;
+              padding: 20px;
+              font-size: 16px;
+              font-weight: 600;
+              border: none;
+              border-radius: 8px;
+              background: linear-gradient(135deg, #4caf50 0%, #45a049 100%);
+              color: white;
+              cursor: pointer;
+              box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+              transition:
+                transform 0.2s,
+                box-shadow 0.2s;
+            "
+            onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 12px rgba(0,0,0,0.15)'"
+            onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 6px rgba(0,0,0,0.1)'"
+          >
+            🌾 View Moisture Graphs
+          </button>
+        </a>
+        <a
+          href="frontend-water-level-graphs.html"
+          class="nav-button"
+          style="flex: 1; max-width: 400px; text-decoration: none"
+          aria-label="View detailed water level sensor graphs"
+        >
+          <button
+            style="
+              width: 100%;
+              padding: 20px;
+              font-size: 16px;
+              font-weight: 600;
+              border: none;
+              border-radius: 8px;
+              background: linear-gradient(135deg, #2196f3 0%, #1976d2 100%);
+              color: white;
+              cursor: pointer;
+              box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+              transition:
+                transform 0.2s,
+                box-shadow 0.2s;
+            "
+            onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 12px rgba(0,0,0,0.15)'"
+            onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 6px rgba(0,0,0,0.1)'"
+          >
+            🌊 View Water Level Graphs
+          </button>
+        </a>
+      </div>
+
+      <!-- Charts removed: use dedicated pages linked above -->
+    </div>
+
+    <script>
+      const API_BASE = window.API_BASE || "http://localhost:3001/api/v1";
+
+      let serviceStates = new Map();
+
+
+      // Fetch service status
+      async function fetchServiceStatus() {
+        try {
+          const response = await fetch(`${API_BASE}/services/status`);
+          if (!response.ok) throw new Error("Failed to fetch services");
+
+          const data = await response.json();
+          renderServices(data.services);
+        } catch (error) {
+          console.error("Error fetching services:", error);
+          document.getElementById("servicesGrid").innerHTML =
+            `<div class="error-message">Failed to load services: ${error.message}</div>`;
+        }
+      }
+
+      // Render service panels
+      function renderServices(services) {
+        const grid = document.getElementById("servicesGrid");
+        grid.innerHTML = "";
+
+        if (services.length === 0) {
+          grid.innerHTML = '<div class="loading">No services found</div>';
+          return;
+        }
+
+        services.forEach((service) => {
+          serviceStates.set(service.name, service);
+
+          const panel = document.createElement("div");
+          panel.className = `service-panel ${service.status}`;
+          panel.id = `service-${service.name}`;
+
+          const memoryMB = (service.memory / 1024 / 1024).toFixed(1);
+
+          panel.innerHTML = `
+                    <div class="service-header">
+                        <div class="service-name">${service.name}</div>
+                        <span class="status-badge ${service.status}">${service.status}</span>
+                    </div>
+                    <div class="metrics">
+                        <div class="metric-row">
+                            <span class="metric-label">Uptime</span>
+                            <span class="metric-value">${service.uptimeFormatted}</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">CPU</span>
+                            <span class="metric-value">${service.cpu.toFixed(1)}%</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Memory</span>
+                            <span class="metric-value">${memoryMB} MB</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Restarts</span>
+                            <span class="metric-value">${service.restartCount}</span>
+                        </div>
+                    </div>
+                    <div class="actions">
+                        <button class="btn-start" onclick="startService('${service.name}')" 
+                                ${service.status === "online" ? "disabled" : ""}>
+                            ▶ Start
+                        </button>
+                        <button class="btn-stop" onclick="stopService('${service.name}')"
+                                ${service.status === "stopped" ? "disabled" : ""}>
+                            ⏹ Stop
+                        </button>
+                    </div>
+                `;
+
+          grid.appendChild(panel);
+        });
+      }
+
+      // Start service
+      async function startService(serviceName) {
+        const panel = document.getElementById(`service-${serviceName}`);
+        const buttons = panel.querySelectorAll("button");
+        buttons.forEach((btn) => (btn.disabled = true));
+
+        try {
+          const response = await fetch(
+            `${API_BASE}/services/${serviceName}/start`,
+            {
+              method: "POST",
+            },
+          );
+
+          if (!response.ok) throw new Error("Failed to start service");
+
+          await fetchServiceStatus();
+        } catch (error) {
+          console.error("Error starting service:", error);
+          alert(`Failed to start ${serviceName}: ${error.message}`);
+          buttons.forEach((btn) => (btn.disabled = false));
+        }
+      }
+
+      // Stop service
+      async function stopService(serviceName) {
+        const panel = document.getElementById(`service-${serviceName}`);
+        const buttons = panel.querySelectorAll("button");
+        buttons.forEach((btn) => (btn.disabled = true));
+
+        try {
+          const response = await fetch(
+            `${API_BASE}/services/${serviceName}/stop`,
+            {
+              method: "POST",
+            },
+          );
+
+          if (!response.ok) throw new Error("Failed to stop service");
+
+          await fetchServiceStatus();
+        } catch (error) {
+          console.error("Error stopping service:", error);
+          alert(`Failed to stop ${serviceName}: ${error.message}`);
+          buttons.forEach((btn) => (btn.disabled = false));
+        }
+      }
+
+      // Initialize on load
+      window.onload = async () => {
+        await fetchServiceStatus();
+
+        // Refresh services every 10 seconds
+        setInterval(fetchServiceStatus, 10000);
+      };
+    </script>
+  </body>
+</html>

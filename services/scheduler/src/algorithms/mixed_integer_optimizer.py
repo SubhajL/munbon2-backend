@@ -4,9 +4,9 @@ import pulp
 import numpy as np
 from collections import defaultdict
 
-from ..core.logger import get_logger
-from .constraint_builder import ConstraintBuilder
-from .travel_optimizer import TravelOptimizer
+from core.logger import get_logger
+from algorithms.constraint_builder import ConstraintBuilder
+from algorithms.travel_optimizer import TravelOptimizer
 
 logger = get_logger(__name__)
 

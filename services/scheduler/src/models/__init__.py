@@ -5,7 +5,7 @@ Import all models here to ensure they are registered with SQLAlchemy
 before creating tables.
 """
 
-from .base import Base
+from core.database import Base
 from .schedule import WeeklySchedule, ScheduledOperation, FieldInstruction
 from .team import FieldTeam, TeamMember, TeamAvailability
 from .weather_adjustments import (
