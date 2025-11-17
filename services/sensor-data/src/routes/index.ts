@@ -44,7 +44,7 @@ export function setupRoutes(app: Express, options: RouteOptions): void {
   }));
 
   // Service management routes
-  app.use('/api/v1', createServiceManagementRoutes());
+  app.use('/api/v1', createServiceManagementRoutes({ repository: timescaleRepo }));
 
   // Sensor data ingestion endpoint (for HTTP fallback)
   app.post('/api/v1/:token/telemetry', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
