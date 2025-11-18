@@ -1,0 +1,230 @@
+import * as path from 'path';
+
+export interface ServiceSpec {
+  name: string;
+  type: 'python' | 'node';
+  port: number;
+  script: string;
+  args?: string;
+  env?: Record<string, string>;
+}
+
+export interface PM2ProcessConfig {
+  name: string;
+  script: string;
+  cwd: string;
+  interpreter?: string;
+  args?: string;
+  autorestart: boolean;
+  max_memory_restart: string;
+  env?: Record<string, string>;
+  error_file: string;
+  out_file: string;
+  log_date_format: string;
+  merge_logs: boolean;
+  time: boolean;
+}
+
+const REPO_ROOT = path.resolve(__dirname, '../../..');
+const LOGS_DIR = path.join(REPO_ROOT, 'logs');
+
+export function buildProcessConfig(spec: ServiceSpec): PM2ProcessConfig {
+  const servicePath = path.join(REPO_ROOT, 'services', spec.name);
+
+  const config: PM2ProcessConfig = {
+    name: spec.name,
+    script: spec.script,
+    cwd: servicePath,
+    autorestart: true,
+    max_memory_restart: spec.type === 'python' ? '512M' : '256M',
+    error_file: path.join(LOGS_DIR, `${spec.name}-error.log`),
+    out_file: path.join(LOGS_DIR, `${spec.name}-out.log`),
+    log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+    merge_logs: true,
+    time: true,
+  };
+
+  if (spec.type === 'python') {
+    config.interpreter = 'bash';
+  }
+
+  if (spec.args) {
+    config.args = spec.args;
+  }
+
+  if (spec.env) {
+    config.env = spec.env;
+  }
+
+  return config;
+}
+
+export function getIrrigationProcesses(): PM2ProcessConfig[] {
+  const serviceSpecs: ServiceSpec[] = [
+    {
+      name: 'flow-monitoring',
+      type: 'python',
+      port: 3011,
+      script: './start.sh',
+      env: {
+        PORT: '3011',
+        LOG_LEVEL: 'INFO',
+        POSTGRES_URL: 'postgresql://postgres:P@ssw0rd123!@43.208.201.191:5432/munbon_dev',
+        TIMESCALE_URL: 'postgresql://postgres:P@ssw0rd123!@43.208.201.191:5432/sensor_data',
+        REDIS_URL: 'redis://localhost:6379/3',
+        KAFKA_BROKERS: 'localhost:9092',
+        KAFKA_TOPIC_SENSORS: 'sensor-data',
+        KAFKA_TOPIC_ANALYTICS: 'flow-analytics',
+        KAFKA_CONSUMER_GROUP: 'flow-monitoring-consumer',
+        INFLUXDB_URL: 'http://localhost:8086',
+        INFLUXDB_TOKEN: 'your-influxdb-token-here',
+        INFLUXDB_ORG: 'munbon',
+        INFLUXDB_BUCKET: 'flow_monitoring',
+      },
+    },
+    {
+      name: 'scheduler',
+      type: 'python',
+      port: 3012,
+      script: './start.sh',
+      env: {
+        PORT: '3012',
+        LOG_LEVEL: 'INFO',
+        POSTGRES_URL: 'postgresql://postgres:P@ssw0rd123!@43.208.201.191:5432/munbon_dev',
+        REDIS_URL: 'redis://localhost:6379/4',
+        WEATHER_API_URL: 'http://localhost:3006',
+        SMS_GATEWAY_URL: 'http://localhost:3050',
+        FLOW_MONITORING_URL: 'http://localhost:3011',
+        ROS_GIS_URL: 'http://localhost:3047',
+        DATABASE_URL: 'postgresql+asyncpg://postgres:P@ssw0rd123!@43.208.201.191:5432/munbon_dev',
+        ROS_SERVICE_URL: 'http://localhost:3047',
+        GIS_SERVICE_URL: 'http://localhost:3007',
+        WEATHER_SERVICE_URL: 'http://localhost:3006',
+        AUTH_SERVICE_URL: 'http://localhost:3005',
+        JWT_SECRET_KEY: 'change-me',
+      },
+    },
+    {
+      name: 'bff-water-planning',
+      type: 'python',
+      port: 3002,
+      script: './start.sh',
+      env: {
+        PORT: '3002',
+        HOST: '0.0.0.0',
+        ENVIRONMENT: 'production',
+        LOG_LEVEL: 'INFO',
+        POSTGRES_URL: 'postgresql://postgres:P@ssw0rd123!@43.208.201.191:5432/munbon_dev',
+        GIS_DATABASE_URL: 'postgresql://postgres:P@ssw0rd123!@43.208.201.191:5432/munbon_gis',
+        TIMESCALE_URL: 'postgresql://postgres:P@ssw0rd123!@43.208.201.191:5432/sensor_data',
+        REDIS_URL: 'redis://localhost:6379/2',
+        ROS_SERVICE_URL: 'http://localhost:3047',
+        GIS_SERVICE_URL: 'http://localhost:3007',
+        AWD_CONTROL_URL: 'http://localhost:3010',
+        FLOW_MONITORING_URL: 'http://localhost:3011',
+        SCHEDULER_URL: 'http://localhost:3021',
+        WEATHER_API_URL: 'http://localhost:3006',
+        WEATHER_SERVICE_URL: 'http://localhost:3006',
+        SENSOR_DATA_URL: 'http://localhost:3003',
+        USE_MOCK_SERVER: 'false',
+        CORS_ORIGINS: 'http://localhost:3000,http://localhost:3001',
+      },
+    },
+    {
+      name: 'ros-gis-integration',
+      type: 'python',
+      port: 3047,
+      script: './start.sh',
+      env: {
+        PORT: '3047',
+        LOG_LEVEL: 'INFO',
+        POSTGRES_URL: 'postgresql://postgres:P@ssw0rd123!@43.208.201.191:5432/munbon_dev',
+        GIS_DATABASE_URL: 'postgresql://postgres:P@ssw0rd123!@43.208.201.191:5432/munbon_gis',
+        REDIS_URL: 'redis://localhost:6379/5',
+        FLOW_MONITORING_URL: 'http://localhost:3011',
+        SCHEDULER_URL: 'http://localhost:3021',
+        GIS_SERVICE_URL: 'http://localhost:3007',
+        ROS_SERVICE_URL: 'http://localhost:3047',
+        CORS_ORIGINS: 'http://localhost:3000,http://localhost:3001',
+      },
+    },
+    {
+      name: 'awd-control',
+      type: 'node',
+      port: 3010,
+      script: 'npm',
+      args: 'start',
+      env: {
+        PORT: '3010',
+        LOG_LEVEL: 'info',
+        POSTGRES_URL: 'postgresql://postgres:P@ssw0rd123!@43.208.201.191:5432/munbon_dev',
+        TIMESCALE_URL: 'postgresql://postgres:P@ssw0rd123!@43.208.201.191:5432/sensor_data',
+        TIMESCALE_HOST: '43.208.201.191',
+        TIMESCALE_PORT: '5432',
+        TIMESCALE_USER: 'postgres',
+        TIMESCALE_PASSWORD: 'P@ssw0rd123!',
+        TIMESCALE_DB: 'sensor_data',
+        REDIS_URL: 'redis://localhost:6379/6',
+        KAFKA_BROKERS: 'localhost:9092',
+        POSTGRES_HOST: '43.208.201.191',
+        POSTGRES_PORT: '5432',
+        POSTGRES_DB: 'munbon_dev',
+        POSTGRES_USER: 'postgres',
+        POSTGRES_PASSWORD: 'P@ssw0rd123!',
+      },
+    },
+    {
+      name: 'gis',
+      type: 'node',
+      port: 3007,
+      script: 'npm',
+      args: 'start',
+      env: {
+        PORT: '3007',
+        LOG_LEVEL: 'info',
+        ENVIRONMENT: 'production',
+        DATABASE_URL: 'postgresql://postgres:P@ssw0rd123!@43.208.201.191:5432/munbon_gis',
+        POSTGRES_URL: 'postgresql://postgres:P@ssw0rd123!@43.208.201.191:5432/munbon_dev',
+        REDIS_URL: 'redis://localhost:6379/7',
+        SRID: '32647',
+        GEOMETRY_COLUMN: 'geom',
+        MAX_FEATURES_PER_REQUEST: '10000',
+        TILE_CACHE_TTL_SECONDS: '3600',
+        MAX_ZOOM_LEVEL: '18',
+        MIN_ZOOM_LEVEL: '8',
+        WEATHER_API_URL: 'http://localhost:3006',
+        SENSOR_DATA_URL: 'http://localhost:3003',
+        SPATIAL_INDEX_CACHE_SIZE: '50000',
+        QUERY_TIMEOUT_SECONDS: '30',
+        CONNECTION_POOL_SIZE: '20',
+      },
+    },
+    {
+      name: 'water-accounting',
+      type: 'python',
+      port: 3020,
+      script: './start.sh',
+      env: {
+        PORT: '3020',
+        LOG_LEVEL: 'INFO',
+        ENVIRONMENT: 'production',
+        POSTGRES_URL: 'postgresql://postgres:P@ssw0rd123!@43.208.201.191:5432/munbon_dev',
+        REDIS_URL: 'redis://localhost:6379/8',
+        TIMESCALE_URL: 'postgresql://postgres:P@ssw0rd123!@43.208.201.191:5432/sensor_data',
+        FLOW_MONITORING_URL: 'http://localhost:3014',
+        GIS_SERVICE_URL: 'http://localhost:3007',
+        WATER_LEVEL_URL: 'http://localhost:3008',
+        WEATHER_API_URL: 'http://localhost:3006',
+        ACCOUNTING_PERIOD_DAYS: '30',
+        BALANCE_CALCULATION_INTERVAL_HOURS: '1',
+        REPORT_GENERATION_TIME: '06:00',
+        TIMEZONE: 'Asia/Bangkok',
+        MAX_CALCULATION_BATCH_SIZE: '10000',
+        CACHE_TTL_SECONDS: '1800',
+        HISTORICAL_DATA_RETENTION_DAYS: '365',
+      },
+    },
+  ];
+
+  return serviceSpecs.map(buildProcessConfig);
+}

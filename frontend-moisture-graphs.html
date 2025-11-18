@@ -230,6 +230,22 @@
 
     <script>
       const API_BASE = window.API_BASE || "http://localhost:3001/api/v1";
+      // Preferred display timezone: URL ?tz=, localStorage MUNBON_TZ, fallback Asia/Bangkok
+      function getQueryParam(name) {
+        const m = new RegExp('(?:[?&])' + name + '=([^&]+)').exec(window.location.search);
+        return m && decodeURIComponent(m[1]);
+      }
+      function getPreferredTimeZone() {
+        const fromUrl = getQueryParam('tz');
+        if (fromUrl) {
+          try { localStorage.setItem('MUNBON_TZ', fromUrl); } catch (_) {}
+          return fromUrl;
+        }
+        try { const stored = localStorage.getItem('MUNBON_TZ'); if (stored) return stored; } catch (_) {}
+        return 'Asia/Bangkok';
+      }
+      const PREFERRED_TZ = getPreferredTimeZone();
+      const CLIENT_LOCALE = (navigator.language || navigator.userLanguage || 'en-US');
       const SENSOR_IDS = [
         "0001-0001",
         "0001-0002",
@@ -253,7 +269,7 @@
         try {
           // Fetch all sensors for the selected period (no default sensorIds filter)
           const response = await fetch(
-            `${API_BASE}/moisture/chart?period=${period}&timeZone=Asia/Bangkok&includeSmoothed=true`,
+            `${API_BASE}/moisture/chart?period=${period}&timeZone=${encodeURIComponent(PREFERRED_TZ)}&includeSmoothed=true`,
           );
 
           if (!response.ok) {
@@ -308,6 +324,8 @@
         upper: 'rgb(234, 179, 8)',
       };
       function toXY(series, pick) {
+        // Server now returns timestamps with explicit timezone offsets (e.g. +07:00).
+        // Rely on the browser to parse and render correct local time.
         return series.map((p) => ({ x: new Date(p.time), y: pick(p) }));
       }
       function assembleMoistureDatasets(mode, dataPoints, smoothedDataPoints, thresholds, palette = defaultPalette) {
@@ -439,15 +457,44 @@
             maintainAspectRatio: false,
             plugins: {
               legend: { display: true, position: 'top' },
-              tooltip: { mode: 'index', intersect: false },
+              tooltip: {
+                mode: 'index',
+                intersect: false,
+              },
             },
             scales: {
               x: {
                 type: 'time',
-                time: { unit: 'hour', displayFormats: { hour: 'MM/dd HH:mm' } },
-                title: { display: true, text: 'Time' },
+                time: {
+                  unit: 'hour',
+                  displayFormats: {
+                    hour: 'MMM dd HH:mm',
+                    day: 'MMM dd HH:mm'
+                  },
+                  tooltipFormat: 'MMM dd, yyyy, HH:mm:ss'
+                },
+                title: {
+                  display: true,
+                  // Show the viewer's local timezone in axis title
+                  text: `Time (${PREFERRED_TZ})`,
+                  font: { size: 14 }
+                },
+                ticks: {
+                  maxRotation: 45,
+                  minRotation: 45,
+                  autoSkip: false,
+                  autoSkipPadding: 10,
+                  source: 'data'
+                }
               },
-              y: { beginAtZero: false, title: { display: true, text: 'Moisture %' } },
+              y: {
+                beginAtZero: false,
+                title: {
+                  display: true,
+                  text: 'Moisture %',
+                  font: { size: 14 }
+                }
+              },
             },
           },
         });
@@ -531,7 +578,7 @@
         });
 
         document.getElementById("lastUpdate").textContent =
-          `Last updated: ${new Date().toLocaleString()}`;
+          `Last updated: ${new Date().toLocaleString(CLIENT_LOCALE, { timeZone: PREFERRED_TZ, hour12: false })} (${PREFERRED_TZ})`;
       }
 
       /* obsolete: replaced by renderChartFromMode */

@@ -9,6 +9,7 @@ export interface WaterLevelReadingRow {
   max_level?: string | number;
   avg_quality?: string | number;
   sample_count?: string | number;
+  source?: 'raw' | 'smoothed'; // Added to distinguish data origin
 }
 
 /**
@@ -34,6 +35,7 @@ export interface WaterLevelSensorData {
     upper: number | null;
   };
   dataPoints: WaterLevelDataPoint[];
+  smoothedDataPoints?: WaterLevelDataPoint[]; // Added for smoothed data overlay
   stats: {
     totalSamples: number;
     timeRange: {
