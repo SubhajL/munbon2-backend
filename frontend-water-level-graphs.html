@@ -6,6 +6,7 @@
     <title>Water Level Monitoring - Munbon</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script src="frontend-config.js"></script>
     <style>
       * {
         margin: 0;
@@ -228,7 +229,7 @@
     </div>
 
     <script>
-      const API_BASE = "http://localhost:3001/api/v1";
+      const API_BASE = window.API_BASE || "http://localhost:3001/api/v1";
       const SENSOR_IDS = [
         "AWD-6D47",
         "AWD-9950",
