@@ -368,7 +368,8 @@ export function createWaterLevelRoutes(options: WaterLevelRoutesOptions): Router
       const {
         period = '24h',
         sensorIds,
-        timeZone = 'UTC'
+        timeZone = 'UTC',
+        includeSmoothed = 'false'
       } = req.query;
 
       if (!isValidPeriod(period as string)) {
@@ -387,7 +388,8 @@ export function createWaterLevelRoutes(options: WaterLevelRoutesOptions): Router
 
       const rows = await service.getWaterLevelChartData(
         period as string,
-        sensorIdArray
+        sensorIdArray,
+        includeSmoothed === 'true'
       );
 
       let meta: Record<string, { plotId?: string | null; thresholds?: { lower: number | null; upper: number | null } }> | undefined;

@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Water Level Monitoring - Munbon Irrigation System</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.10/dayjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.10/plugin/utc.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.10/plugin/timezone.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: #2d3748;
+            font-size: 28px;
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            color: #718096;
+            font-size: 14px;
+        }
+
+        .controls {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .control-row {
+            display: flex;
+            gap: 16px;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-bottom: 16px;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #4a5568;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        select, button {
+            padding: 10px 16px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 14px;
+            background: white;
+            color: #2d3748;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        select:hover, select:focus {
+            border-color: #667eea;
+            outline: none;
+        }
+
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            font-weight: 600;
+        }
+
+        button:hover {
+            background: #5a67d8;
+            transform: translateY(-1px);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        .mode-toggle {
+            display: flex;
+            gap: 0;
+            background: #edf2f7;
+            border-radius: 8px;
+            padding: 4px;
+        }
+
+        .mode-button {
+            padding: 8px 20px;
+            border: none;
+            background: transparent;
+            color: #4a5568;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            border-radius: 6px;
+            transition: all 0.2s;
+        }
+
+        .mode-button.active {
+            background: white;
+            color: #667eea;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .mode-button:hover:not(.active) {
+            color: #2d3748;
+        }
+
+        .chart-container {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        .chart-wrapper {
+            position: relative;
+            height: 500px;
+        }
+
+        .stats {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+        }
+
+        .stat-card {
+            padding: 16px;
+            background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%);
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #718096;
+            font-weight: 600;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            color: #2d3748;
+            font-weight: 700;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #718096;
+        }
+
+        .error {
+            background: #fed7d7;
+            color: #c53030;
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .legend-custom {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            margin-top: 16px;
+            flex-wrap: wrap;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: #4a5568;
+        }
+
+        .legend-color {
+            width: 20px;
+            height: 3px;
+            border-radius: 2px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>💧 Water Level Monitoring</h1>
+            <p class="subtitle">Real-time water level data with Hampel Filter + EMA smoothing</p>
+        </div>
+
+        <div class="controls">
+            <div class="control-row">
+                <div class="control-group">
+                    <label>Time Period</label>
+                    <select id="periodSelect">
+                        <option value="24h">Last 24 Hours</option>
+                        <option value="3d">Last 3 Days</option>
+                        <option value="7d">Last 7 Days</option>
+                        <option value="14d">Last 14 Days</option>
+                    </select>
+                </div>
+
+                <div class="control-group">
+                    <label>Sensor</label>
+                    <select id="sensorSelect">
+                        <option value="all">All Sensors</option>
+                        <option value="AWD-6D47">AWD-6D47</option>
+                        <option value="AWD-9950">AWD-9950</option>
+                        <option value="AWD-B89D">AWD-B89D</option>
+                        <option value="AWD-558F">AWD-558F</option>
+                        <option value="AWD-4ED4">AWD-4ED4</option>
+                        <option value="AWD-A4F8">AWD-A4F8</option>
+                    </select>
+                </div>
+
+                <div class="control-group">
+                    <label>Display Mode</label>
+                    <div class="mode-toggle">
+                        <button class="mode-button active" data-mode="raw">Raw</button>
+                        <button class="mode-button" data-mode="smoothed">Smoothed</button>
+                        <button class="mode-button" data-mode="both">Both</button>
+                    </div>
+                </div>
+
+                <div class="control-group" style="margin-left: auto;">
+                    <label>&nbsp;</label>
+                    <button id="refreshButton">🔄 Refresh</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="errorMessage" class="error" style="display: none;"></div>
+
+        <div class="chart-container">
+            <div id="loadingMessage" class="loading">Loading water level data...</div>
+            <div class="chart-wrapper" style="display: none;">
+                <canvas id="waterLevelChart"></canvas>
+            </div>
+            <div class="legend-custom" id="legendContainer"></div>
+        </div>
+
+        <div class="stats" id="statsContainer" style="display: none;">
+            <h2 style="margin-bottom: 16px; color: #2d3748; font-size: 18px;">Statistics</h2>
+            <div class="stats-grid" id="statsGrid"></div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize dayjs plugins
+        dayjs.extend(window.dayjs_plugin_utc);
+        dayjs.extend(window.dayjs_plugin_timezone);
+
+        const API_BASE = 'http://localhost:3001/api/v1';
+        const TIMEZONE = 'Asia/Bangkok';
+
+        let chart = null;
+        let currentData = null;
+
+        // Load saved preferences
+        const savedPeriod = localStorage.getItem('waterLevelPeriod') || '24h';
+        const savedSensor = localStorage.getItem('waterLevelSensor') || 'all';
+        const savedMode = localStorage.getItem('waterLevelMode') || 'raw';
+
+        document.getElementById('periodSelect').value = savedPeriod;
+        document.getElementById('sensorSelect').value = savedSensor;
+        setActiveMode(savedMode);
+
+        // Event listeners
+        document.getElementById('periodSelect').addEventListener('change', (e) => {
+            localStorage.setItem('waterLevelPeriod', e.target.value);
+            fetchData();
+        });
+
+        document.getElementById('sensorSelect').addEventListener('change', (e) => {
+            localStorage.setItem('waterLevelSensor', e.target.value);
+            fetchData();
+        });
+
+        document.querySelectorAll('.mode-button').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const mode = e.target.dataset.mode;
+                localStorage.setItem('waterLevelMode', mode);
+                setActiveMode(mode);
+                if (currentData) {
+                    updateChart(currentData);
+                }
+            });
+        });
+
+        document.getElementById('refreshButton').addEventListener('click', fetchData);
+
+        function setActiveMode(mode) {
+            document.querySelectorAll('.mode-button').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.mode === mode);
+            });
+        }
+
+        function getActiveMode() {
+            return document.querySelector('.mode-button.active').dataset.mode;
+        }
+
+        async function fetchData() {
+            const period = document.getElementById('periodSelect').value;
+            const sensor = document.getElementById('sensorSelect').value;
+            const mode = getActiveMode();
+
+            const includeSmoothed = mode === 'smoothed' || mode === 'both';
+
+            try {
+                document.getElementById('loadingMessage').style.display = 'block';
+                document.querySelector('.chart-wrapper').style.display = 'none';
+                document.getElementById('errorMessage').style.display = 'none';
+                document.getElementById('statsContainer').style.display = 'none';
+
+                let url = `${API_BASE}/water-levels/chart?period=${period}&timeZone=${TIMEZONE}&includeSmoothed=${includeSmoothed}`;
+                if (sensor !== 'all') {
+                    url += `&sensorIds=${sensor}`;
+                }
+
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                currentData = data;
+                updateChart(data);
+                updateStats(data);
+
+            } catch (error) {
+                showError(`Failed to fetch data: ${error.message}`);
+            }
+        }
+
+        function showError(message) {
+            document.getElementById('errorMessage').textContent = message;
+            document.getElementById('errorMessage').style.display = 'block';
+            document.getElementById('loadingMessage').style.display = 'none';
+        }
+
+        function updateChart(data) {
+            const mode = getActiveMode();
+            const sensors = Object.keys(data.sensors || {});
+
+            if (sensors.length === 0) {
+                showError('No data available for the selected period and sensor');
+                return;
+            }
+
+            // Prepare datasets
+            const datasets = [];
+            const colors = [
+                { raw: 'rgba(54, 162, 235, 1)', smoothed: 'rgba(75, 192, 192, 1)' },
+                { raw: 'rgba(255, 99, 132, 1)', smoothed: 'rgba(153, 102, 255, 1)' },
+                { raw: 'rgba(255, 206, 86, 1)', smoothed: 'rgba(255, 159, 64, 1)' },
+                { raw: 'rgba(75, 192, 192, 1)', smoothed: 'rgba(54, 162, 235, 1)' },
+                { raw: 'rgba(153, 102, 255, 1)', smoothed: 'rgba(255, 99, 132, 1)' },
+                { raw: 'rgba(255, 159, 64, 1)', smoothed: 'rgba(255, 206, 86, 1)' }
+            ];
+
+            sensors.forEach((sensorId, index) => {
+                const sensorData = data.sensors[sensorId];
+                const colorSet = colors[index % colors.length];
+
+                // Raw data
+                if ((mode === 'raw' || mode === 'both') && sensorData.dataPoints?.length > 0) {
+                    datasets.push({
+                        label: `${sensorId} (Raw)`,
+                        data: sensorData.dataPoints.map(point => ({
+                            x: dayjs(point.time).tz(TIMEZONE).format(),
+                            y: parseFloat(point.avg_level)
+                        })),
+                        borderColor: colorSet.raw,
+                        backgroundColor: colorSet.raw.replace('1)', '0.1)'),
+                        borderWidth: 2,
+                        pointRadius: 3,
+                        pointHoverRadius: 5,
+                        tension: 0.1
+                    });
+                }
+
+                // Smoothed data
+                if ((mode === 'smoothed' || mode === 'both') && sensorData.smoothedDataPoints?.length > 0) {
+                    datasets.push({
+                        label: `${sensorId} (Smoothed)`,
+                        data: sensorData.smoothedDataPoints.map(point => ({
+                            x: dayjs(point.time).tz(TIMEZONE).format(),
+                            y: parseFloat(point.avg_level)
+                        })),
+                        borderColor: colorSet.smoothed,
+                        backgroundColor: colorSet.smoothed.replace('1)', '0.1)'),
+                        borderWidth: 2,
+                        pointRadius: 3,
+                        pointHoverRadius: 5,
+                        tension: 0.4,
+                        borderDash: mode === 'both' ? [5, 5] : []
+                    });
+                }
+            });
+
+            // Destroy existing chart
+            if (chart) {
+                chart.destroy();
+            }
+
+            // Create new chart
+            const ctx = document.getElementById('waterLevelChart').getContext('2d');
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: { datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                title: (items) => {
+                                    return dayjs(items[0].parsed.x).tz(TIMEZONE).format('MMM D, YYYY HH:mm');
+                                },
+                                label: (context) => {
+                                    return `${context.dataset.label}: ${context.parsed.y.toFixed(2)} cm`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: {
+                                unit: 'hour',
+                                displayFormats: {
+                                    hour: 'MMM D HH:mm'
+                                }
+                            },
+                            title: {
+                                display: true,
+                                text: `Time (${TIMEZONE})`
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'Water Level (cm)'
+                            },
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+
+            // Update custom legend
+            updateLegend(datasets);
+
+            document.getElementById('loadingMessage').style.display = 'none';
+            document.querySelector('.chart-wrapper').style.display = 'block';
+        }
+
+        function updateLegend(datasets) {
+            const container = document.getElementById('legendContainer');
+            container.innerHTML = datasets.map(dataset => `
+                <div class="legend-item">
+                    <div class="legend-color" style="background: ${dataset.borderColor};"></div>
+                    <span>${dataset.label}</span>
+                </div>
+            `).join('');
+        }
+
+        function updateStats(data) {
+            const sensors = Object.keys(data.sensors || {});
+            if (sensors.length === 0) return;
+
+            const stats = [];
+            const mode = getActiveMode();
+
+            sensors.forEach(sensorId => {
+                const sensorData = data.sensors[sensorId];
+
+                if (mode === 'raw' || mode === 'both') {
+                    const rawPoints = sensorData.dataPoints || [];
+                    if (rawPoints.length > 0) {
+                        const avgLevel = rawPoints.reduce((sum, p) => sum + parseFloat(p.avg_level), 0) / rawPoints.length;
+                        const latest = rawPoints[rawPoints.length - 1];
+                        stats.push({
+                            label: `${sensorId} (Raw) Latest`,
+                            value: `${parseFloat(latest.avg_level).toFixed(2)} cm`
+                        });
+                        stats.push({
+                            label: `${sensorId} (Raw) Average`,
+                            value: `${avgLevel.toFixed(2)} cm`
+                        });
+                    }
+                }
+
+                if (mode === 'smoothed' || mode === 'both') {
+                    const smoothedPoints = sensorData.smoothedDataPoints || [];
+                    if (smoothedPoints.length > 0) {
+                        const avgLevel = smoothedPoints.reduce((sum, p) => sum + parseFloat(p.avg_level), 0) / smoothedPoints.length;
+                        const latest = smoothedPoints[smoothedPoints.length - 1];
+                        stats.push({
+                            label: `${sensorId} (Smoothed) Latest`,
+                            value: `${parseFloat(latest.avg_level).toFixed(2)} cm`
+                        });
+                        stats.push({
+                            label: `${sensorId} (Smoothed) Average`,
+                            value: `${avgLevel.toFixed(2)} cm`
+                        });
+                    }
+                }
+            });
+
+            const statsGrid = document.getElementById('statsGrid');
+            statsGrid.innerHTML = stats.map(stat => `
+                <div class="stat-card">
+                    <div class="stat-label">${stat.label}</div>
+                    <div class="stat-value">${stat.value}</div>
+                </div>
+            `).join('');
+
+            document.getElementById('statsContainer').style.display = 'block';
+        }
+
+        // Initial load
+        fetchData();
+    </script>
+</body>
+</html>
