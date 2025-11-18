@@ -1,0 +1,31 @@
+"""
+FIX: ROS GIS Integration - Module Import Error
+
+PROBLEM: Service module imports failing during initialization
+ERROR: Module import failures in services/__init__.py
+
+LIKELY CAUSES:
+1. Circular import in one of the service files
+2. Missing dependency in one of the service classes
+3. Syntax error in a service file
+
+DIAGNOSIS STEPS:
+
+1. Test each service import individually:
+   cd ~/dev/munbon2-backend/services/ros-gis-integration
+   source venv/bin/activate
+   
+   python -c "import sys; sys.path.insert(0, 'src'); from services.demand_aggregator import DemandAggregatorService"
+   python -c "import sys; sys.path.insert(0, 'src'); from services.spatial_mapping import SpatialMappingService"
+   python -c "import sys; sys.path.insert(0, 'src'); from services.priority_engine import PriorityEngine"
+   python -c "import sys; sys.path.insert(0, 'src'); from services.feedback_manager import FeedbackService"
+
+2. Check for syntax errors:
+   python -m py_compile src/services/*.py
+
+3. Look for circular imports:
+   Check if any service file imports from api/graphql_schema.py
+
+COMMON FIX:
+If there's a circular import, move shared types/classes to a separate file like:
+   src/types.py or src/common.py

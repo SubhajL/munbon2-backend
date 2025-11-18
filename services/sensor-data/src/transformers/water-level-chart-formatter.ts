@@ -23,20 +23,42 @@ export class WaterLevelChartFormatter {
     timeZone: string,
     meta?: Record<string, { plotId?: string | null; thresholds?: { lower: number | null; upper: number | null } }>
   ): WaterLevelChartResponse {
-    const sensorMap = new Map<string, WaterLevelReadingRow[]>();
+    // Separate raw and smoothed data by sensor
+    const rawSensorMap = new Map<string, WaterLevelReadingRow[]>();
+    const smoothedSensorMap = new Map<string, WaterLevelReadingRow[]>();
+
     for (const row of rows) {
       const sensorId = row.sensor_id;
-      if (!sensorMap.has(sensorId)) {
-        sensorMap.set(sensorId, []);
+      const source = row.source || 'raw';
+
+      if (source === 'smoothed') {
+        if (!smoothedSensorMap.has(sensorId)) {
+          smoothedSensorMap.set(sensorId, []);
+        }
+        smoothedSensorMap.get(sensorId)!.push(row);
+      } else {
+        if (!rawSensorMap.has(sensorId)) {
+          rawSensorMap.set(sensorId, []);
+        }
+        rawSensorMap.get(sensorId)!.push(row);
       }
-      sensorMap.get(sensorId)!.push(row);
     }
 
     const sensors: Record<string, WaterLevelSensorData> = {};
     let totalDataPoints = 0;
 
-    for (const [sensorId, sensorRows] of sensorMap.entries()) {
-      const dataPoints: WaterLevelDataPoint[] = sensorRows.map((row) => ({
+    // Get all unique sensor IDs
+    const allSensorIds = new Set([
+      ...rawSensorMap.keys(),
+      ...smoothedSensorMap.keys(),
+    ]);
+
+    for (const sensorId of allSensorIds) {
+      const rawRows = rawSensorMap.get(sensorId) || [];
+      const smoothedRows = smoothedSensorMap.get(sensorId) || [];
+
+      // Format raw data points
+      const dataPoints: WaterLevelDataPoint[] = rawRows.map((row) => ({
         time: this.formatTimestamp(row.time, timeZone),
         avgLevel: this.safeParseFloat(row.avg_level),
         minLevel: this.safeParseFloat(row.min_level),
@@ -45,10 +67,19 @@ export class WaterLevelChartFormatter {
         sampleCount: parseInt(String(row.sample_count), 10),
       }));
 
-      const totalSamples = sensorRows.reduce(
-        (sum, row) => sum + parseInt(String(row.sample_count), 10),
-        0
-      );
+      // Format smoothed data points (if any)
+      const smoothedDataPoints: WaterLevelDataPoint[] = smoothedRows.map((row) => ({
+        time: this.formatTimestamp(row.time, timeZone),
+        avgLevel: this.safeParseFloat(row.avg_level),
+        minLevel: this.safeParseFloat(row.min_level),
+        maxLevel: this.safeParseFloat(row.max_level),
+        avgQuality: this.safeParseFloat(row.avg_quality),
+        sampleCount: parseInt(String(row.sample_count), 10),
+      }));
+
+      const totalSamples =
+        rawRows.reduce((sum, row) => sum + parseInt(String(row.sample_count), 10), 0) +
+        smoothedRows.reduce((sum, row) => sum + parseInt(String(row.sample_count), 10), 0);
 
       const timeRange = getTimeRange(period);
 
@@ -58,6 +89,7 @@ export class WaterLevelChartFormatter {
         plotId: sensorMeta?.plotId ?? null,
         thresholds: sensorMeta?.thresholds ?? undefined,
         dataPoints,
+        ...(smoothedDataPoints.length > 0 && { smoothedDataPoints }),
         stats: {
           totalSamples,
           timeRange: {
@@ -67,7 +99,7 @@ export class WaterLevelChartFormatter {
         },
       };
 
-      totalDataPoints += dataPoints.length;
+      totalDataPoints += dataPoints.length + smoothedDataPoints.length;
     }
 
     const timeRange = getTimeRange(period);
@@ -79,13 +111,13 @@ export class WaterLevelChartFormatter {
       },
       period,
       timeRange: {
-        start: timeRange.start.toISOString(),
-        end: timeRange.end.toISOString(),
+        start: this.formatTimestamp(timeRange.start, timeZone),
+        end: this.formatTimestamp(timeRange.end, timeZone),
       },
       localTimeZone: timeZone,
       sensors,
       summary: {
-        totalSensors: sensorMap.size,
+        totalSensors: allSensorIds.size,
         totalDataPoints,
       },
     };
@@ -95,9 +127,9 @@ export class WaterLevelChartFormatter {
    * Format a date/timestamp to local timezone ISO string.
    */
   formatTimestamp(timestamp: Date | string, timeZone: string): string {
-    const date =
-      typeof timestamp === 'string' ? new Date(timestamp) : timestamp;
-    return dayjs.utc(date).tz(timeZone).toISOString();
+    const date = typeof timestamp === 'string' ? new Date(timestamp) : timestamp;
+    // Include explicit offset for the requested timezone
+    return dayjs.utc(date).tz(timeZone).format();
   }
 
   /**

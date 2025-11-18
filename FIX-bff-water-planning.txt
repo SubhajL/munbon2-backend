@@ -1,0 +1,32 @@
+"""
+FIX: BFF Water Planning - Import Error
+
+PROBLEM: Relative import going beyond top-level package
+ERROR: "ImportError: attempted relative import beyond top-level package"
+
+LOCATION: ~/dev/munbon2-backend/services/bff-water-planning/src/api/graphql_enhanced.py
+
+CURRENT CODE (Line 21):
+from ..context import GraphQLContext
+
+SOLUTION OPTIONS:
+
+Option 1 - Change to single-level relative import:
+from context import GraphQLContext
+
+Option 2 - Use absolute import with sys.path:
+import sys
+sys.path.insert(0, '/path/to/src')
+from context import GraphQLContext
+
+Option 3 - Fix the package structure:
+# In src/__init__.py, ensure it's treating src as a package
+
+RECOMMENDED FIX:
+Replace line 21 in graphql_enhanced.py:
+
+FROM:
+from ..context import GraphQLContext
+
+TO:
+from context import GraphQLContext
