@@ -1,0 +1,26 @@
+"""
+FIX: Water Accounting Service - Pydantic Configuration Error
+
+PROBLEM: Extra fields in .env are being rejected by Pydantic
+ERROR: "Extra inputs are not permitted"
+
+SOLUTION: Update the Settings class to allow extra fields
+"""
+
+# FILE: ~/dev/munbon2-backend/services/water-accounting/src/config.py
+
+# CHANGE THE Config class (around line 67):
+
+# FROM:
+    class Config:
+        env_file = ".env"
+        case_sensitive = True
+
+# TO:
+    class Config:
+        env_file = ".env"
+        case_sensitive = True
+        extra = "ignore"  # <-- ADD THIS LINE
+
+# This will allow Pydantic to ignore extra fields in .env that aren't defined in the model.
+#
