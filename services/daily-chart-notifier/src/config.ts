@@ -19,9 +19,20 @@ function optionalEnv(name: string, defaultValue: string): string {
   return process.env[name] || defaultValue;
 }
 
+function parseIntStrict(value: string, envName: string): number {
+  const parsed = parseInt(value, 10);
+  if (!Number.isFinite(parsed)) {
+    throw new ConfigError(`Invalid numeric value for ${envName}: "${value}"`);
+  }
+  return parsed;
+}
+
 function optionalEnvInt(name: string, defaultValue: number): number {
   const value = process.env[name];
-  return value ? parseInt(value, 10) : defaultValue;
+  if (!value) {
+    return defaultValue;
+  }
+  return parseIntStrict(value, name);
 }
 
 export function loadConfig(): Config {
