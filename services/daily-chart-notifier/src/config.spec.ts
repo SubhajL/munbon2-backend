@@ -120,4 +120,22 @@ describe("loadConfig", () => {
 
     expect(config.timezone).toBe("America/New_York");
   });
+
+  test("throws ConfigError when SMTP_PORT is non-numeric string", () => {
+    Object.assign(process.env, validEnv, { SMTP_PORT: "abc" });
+
+    expect(() => loadConfig()).toThrow("Invalid numeric value for SMTP_PORT");
+  });
+
+  test("throws ConfigError when SSH_PORT is non-numeric string", () => {
+    Object.assign(process.env, validEnv, { SSH_PORT: "not-a-number" });
+
+    expect(() => loadConfig()).toThrow("Invalid numeric value for SSH_PORT");
+  });
+
+  test("throws ConfigError when port value produces NaN", () => {
+    Object.assign(process.env, validEnv, { SMTP_PORT: "NaN" });
+
+    expect(() => loadConfig()).toThrow("Invalid numeric value for SMTP_PORT");
+  });
 });

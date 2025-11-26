@@ -1,5 +1,10 @@
 import { describe, expect, test, vi, beforeEach } from "vitest";
-import { fetchPm2Logs, buildLogCommand } from "./log-fetcher";
+import {
+  fetchPm2Logs,
+  buildLogCommand,
+  sanitizeLogPath,
+  LogFetchError,
+} from "./log-fetcher";
 import type { Config } from "./types";
 
 vi.mock("ssh2", () => {
@@ -76,6 +81,60 @@ const mockConfig: Config = {
   pm2LogPath: "~/.pm2/logs/app-out.log",
   timezone: "Asia/Bangkok",
 };
+
+describe("sanitizeLogPath", () => {
+  test("throws LogFetchError for path with semicolon (command injection)", () => {
+    const maliciousPath = "/var/log/app.log;rm -rf /";
+
+    expect(() => sanitizeLogPath(maliciousPath)).toThrow(LogFetchError);
+    expect(() => sanitizeLogPath(maliciousPath)).toThrow(
+      "contains unsafe characters",
+    );
+  });
+
+  test("throws LogFetchError for path with pipe (command chaining)", () => {
+    const maliciousPath = "/var/log/app.log|cat /etc/passwd";
+
+    expect(() => sanitizeLogPath(maliciousPath)).toThrow(LogFetchError);
+  });
+
+  test("throws LogFetchError for path with backtick (command substitution)", () => {
+    const maliciousPath = "/var/log/`whoami`.log";
+
+    expect(() => sanitizeLogPath(maliciousPath)).toThrow(LogFetchError);
+  });
+
+  test("throws LogFetchError for path with $() (command substitution)", () => {
+    const maliciousPath = "$(whoami)/logs/app.log";
+
+    expect(() => sanitizeLogPath(maliciousPath)).toThrow(LogFetchError);
+  });
+
+  test("throws LogFetchError for empty path", () => {
+    expect(() => sanitizeLogPath("")).toThrow(LogFetchError);
+    expect(() => sanitizeLogPath("")).toThrow("cannot be empty");
+  });
+
+  test("throws LogFetchError for path traversal with ..", () => {
+    const traversalPath = "../../../etc/passwd";
+
+    expect(() => sanitizeLogPath(traversalPath)).toThrow(LogFetchError);
+    expect(() => sanitizeLogPath(traversalPath)).toThrow("path traversal");
+  });
+
+  test("allows valid Unix paths with tilde, dots, slashes, underscores, hyphens", () => {
+    const validPaths = [
+      "~/.pm2/logs/app-out.log",
+      "/var/log/app.log",
+      "/home/ubuntu/logs/sensor_data.log",
+      "logs/app-2024-01-15.log",
+    ];
+
+    for (const path of validPaths) {
+      expect(sanitizeLogPath(path)).toBe(path);
+    }
+  });
+});
 
 describe("buildLogCommand", () => {
   test("builds tail command for log file", () => {
@@ -156,5 +215,66 @@ describe("fetchPm2Logs", () => {
     const result = await fetchPm2Logs(mockConfig);
 
     expect(result).toBe("");
+  });
+
+  test("rejects with LogFetchError when exit code is non-zero", async () => {
+    const { Client } = await import("ssh2");
+    const mockClient = new Client();
+
+    const mockStream = {
+      on: vi.fn((event: string, callback: Function) => {
+        if (event === "close") {
+          setTimeout(() => callback(1), 10);
+        }
+        return mockStream;
+      }),
+      stderr: {
+        on: vi.fn((event: string, callback: Function) => {
+          if (event === "data") {
+            callback(Buffer.from("No such file or directory"));
+          }
+          return mockStream.stderr;
+        }),
+      },
+    };
+
+    mockClient.exec.mockImplementationOnce((cmd: string, cb: Function) => {
+      cb(null, mockStream);
+    });
+
+    await expect(fetchPm2Logs(mockConfig)).rejects.toMatchObject({
+      name: "LogFetchError",
+      message: expect.stringContaining("exit code 1"),
+      exitCode: 1,
+    });
+  });
+
+  test("includes stderr in error message when command fails", async () => {
+    const { Client } = await import("ssh2");
+    const mockClient = new Client();
+    const stderrMessage = "tail: cannot open '/var/log/nonexistent.log'";
+
+    const mockStream = {
+      on: vi.fn((event: string, callback: Function) => {
+        if (event === "close") {
+          setTimeout(() => callback(1), 10);
+        }
+        return mockStream;
+      }),
+      stderr: {
+        on: vi.fn((event: string, callback: Function) => {
+          if (event === "data") {
+            callback(Buffer.from(stderrMessage));
+          }
+          return mockStream.stderr;
+        }),
+      },
+    };
+
+    mockClient.exec.mockImplementationOnce((cmd: string, cb: Function) => {
+      cb(null, mockStream);
+    });
+
+    await expect(fetchPm2Logs(mockConfig)).rejects.toThrow(stderrMessage);
   });
 });

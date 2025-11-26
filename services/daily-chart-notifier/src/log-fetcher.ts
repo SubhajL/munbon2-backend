@@ -5,12 +5,37 @@ import { logger } from "./utils/logger";
 
 const DEFAULT_LOG_LINES = 2000;
 const SSH_TIMEOUT_MS = 30000;
+const SAFE_PATH_PATTERN = /^[a-zA-Z0-9_.~/-]+$/;
+
+export class LogFetchError extends Error {
+  constructor(
+    message: string,
+    public readonly exitCode?: number,
+  ) {
+    super(message);
+    this.name = "LogFetchError";
+  }
+}
+
+export function sanitizeLogPath(logPath: string): string {
+  if (!logPath || logPath.length === 0) {
+    throw new LogFetchError("Log path cannot be empty");
+  }
+  if (!SAFE_PATH_PATTERN.test(logPath)) {
+    throw new LogFetchError("Invalid log path: contains unsafe characters");
+  }
+  if (logPath.includes("..")) {
+    throw new LogFetchError("Invalid log path: path traversal not allowed");
+  }
+  return logPath;
+}
 
 export function buildLogCommand(
   logPath: string,
   lines: number = DEFAULT_LOG_LINES,
 ): string {
-  return `tail -n ${lines} ${logPath}`;
+  const safePath = sanitizeLogPath(logPath);
+  return `tail -n ${lines} ${safePath}`;
 }
 
 export async function fetchPm2Logs(
@@ -53,11 +78,15 @@ export async function fetchPm2Logs(
           clearTimeout(timeout);
           conn.end();
 
-          if (code !== 0 && errorOutput) {
-            logger.warn(
-              { code, errorOutput },
-              "Command exited with non-zero code",
+          if (code !== 0) {
+            const errorMsg = errorOutput || "Unknown error";
+            reject(
+              new LogFetchError(
+                `Log fetch failed with exit code ${code}: ${errorMsg}`,
+                code,
+              ),
             );
+            return;
           }
 
           logger.info({ bytesReceived: output.length }, "Log fetch complete");
