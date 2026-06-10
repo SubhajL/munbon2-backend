@@ -29,6 +29,7 @@
   "license": "PROPRIETARY",
   "dependencies": {
     "dotenv": "^16.3.1",
+    "modbus-serial": "^8.0.25",
     "pino": "^8.16.2"
   },
   "devDependencies": {

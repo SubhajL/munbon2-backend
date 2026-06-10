@@ -1,21 +1,53 @@
 import 'dotenv/config';
-import { DEFAULT_UNIT_ID, GATE_LEVEL_VALUES, REGISTERS } from './domain';
+import { loadConfig } from './config';
+import { GatePoller } from './transport/poller';
+import { ModbusSerialTransport } from './transport/modbus-serial-transport';
 import { logger } from './utils/logger';
 
 /**
- * Service entry point. Transport (poll loop) and the HTTP API are added in
- * later slices; for now we boot, log the active register map, and self-check
- * the domain tables so a misconfigured build fails loudly at startup.
+ * Service entry point. Starts the Modbus poll loop for the configured site.
+ * The HTTP API is added in Slice 3; until then the latest snapshot is logged.
  */
 function main(): void {
+  const config = loadConfig();
+  const transport = new ModbusSerialTransport(config.modbus);
+  const poller = new GatePoller({
+    transport,
+    thresholds: config.freshness,
+    intervalMs: config.modbus.pollIntervalMs,
+    onSnapshot: (snapshot) =>
+      logger.info(
+        {
+          connection: snapshot.connection,
+          color: snapshot.markerColor,
+          gateLevel: snapshot.gateLevel.value?.technicalLabel ?? null,
+          lastUpdated: snapshot.lastUpdated,
+        },
+        'gate snapshot',
+      ),
+    onError: (error) =>
+      logger.warn({ err: error instanceof Error ? error.message : String(error) }, 'poll error'),
+  });
+
   logger.info(
     {
-      registers: REGISTERS,
-      gateLevels: GATE_LEVEL_VALUES,
-      defaultUnitId: DEFAULT_UNIT_ID,
+      site: config.site,
+      host: config.modbus.host,
+      port: config.modbus.port,
+      unitId: config.modbus.unitId,
+      intervalMs: config.modbus.pollIntervalMs,
     },
-    'scada-gate-control domain core loaded',
+    'starting scada-gate-control poller',
   );
+  poller.start();
+
+  const shutdown = (signal: string): void => {
+    logger.info({ signal }, 'shutting down');
+    poller.stop();
+    void transport.close().finally(() => process.exit(0));
+  };
+  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
 }
 
 main();
