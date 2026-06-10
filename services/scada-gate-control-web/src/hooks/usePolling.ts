@@ -1,6 +1,6 @@
-'use client';
+"use client";
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from "react";
 
 export type PollState<T> = {
   readonly data: T | null;
@@ -18,7 +18,11 @@ export function usePolling<T>(
   intervalMs: number,
   enabled = true,
 ): PollState<T> {
-  const [state, setState] = useState<PollState<T>>({ data: null, error: null, loading: enabled });
+  const [state, setState] = useState<PollState<T>>({
+    data: null,
+    error: null,
+    loading: enabled,
+  });
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
 
@@ -31,7 +35,11 @@ export function usePolling<T>(
         if (active) setState({ data, error: null, loading: false });
       } catch (error) {
         if (active) {
-          setState((prev) => ({ data: prev.data, error: error as Error, loading: false }));
+          setState((prev) => ({
+            data: prev.data,
+            error: error as Error,
+            loading: false,
+          }));
         }
       }
     };

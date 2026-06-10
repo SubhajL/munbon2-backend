@@ -2,7 +2,7 @@
  * Pure builders for the gate-control UI text, transcribed from the spec's
  * "Screen 2 / Control Behavior" section. No React — fully unit-testable.
  */
-import type { GateLevel } from './api';
+import type { GateLevel } from "./api";
 
 export type LevelMeta = {
   readonly level: GateLevel;
@@ -13,10 +13,25 @@ export type LevelMeta = {
 };
 
 export const LEVELS: Record<GateLevel, LevelMeta> = {
-  1: { level: 1, thaiLabel: 'ปิด', flowRate: 0.0, actionLabel: 'ปิดประตูน้ำ' },
-  2: { level: 2, thaiLabel: 'เปิดระดับ 1', flowRate: 0.5, actionLabel: 'เปิดประตูน้ำที่ระดับ 1' },
-  3: { level: 3, thaiLabel: 'เปิดระดับ 2', flowRate: 0.8, actionLabel: 'เปิดประตูน้ำที่ระดับ 2' },
-  4: { level: 4, thaiLabel: 'เปิด 100%', flowRate: 1.0, actionLabel: 'เปิดประตูน้ำ 100%' },
+  1: { level: 1, thaiLabel: "ปิด", flowRate: 0.0, actionLabel: "ปิดประตูน้ำ" },
+  2: {
+    level: 2,
+    thaiLabel: "เปิดระดับ 1",
+    flowRate: 0.5,
+    actionLabel: "เปิดประตูน้ำที่ระดับ 1",
+  },
+  3: {
+    level: 3,
+    thaiLabel: "เปิดระดับ 2",
+    flowRate: 0.8,
+    actionLabel: "เปิดประตูน้ำที่ระดับ 2",
+  },
+  4: {
+    level: 4,
+    thaiLabel: "เปิด 100%",
+    flowRate: 1.0,
+    actionLabel: "เปิดประตูน้ำ 100%",
+  },
 };
 
 export const LEVEL_VALUES: readonly GateLevel[] = [1, 2, 3, 4];
@@ -43,9 +58,12 @@ export function confirmBody(gateName: string, level: GateLevel): string {
 }
 
 /** Raw Modbus details shown in the confirmation modal. */
-export function confirmTechnical(level: GateLevel): { opGate: string; gateCf: string } {
+export function confirmTechnical(level: GateLevel): {
+  opGate: string;
+  gateCf: string;
+} {
   return {
     opGate: `Op_gate Address 108 = ${level}`,
-    gateCf: 'GateCF Address 17 = 1',
+    gateCf: "GateCF Address 17 = 1",
   };
 }

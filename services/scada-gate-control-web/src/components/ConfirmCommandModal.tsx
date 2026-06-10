@@ -1,8 +1,8 @@
-'use client';
+"use client";
 
-import * as Dialog from '@radix-ui/react-dialog';
-import type { GateLevel } from '@/lib/api';
-import { confirmBody, confirmTechnical } from '@/lib/control';
+import * as Dialog from "@radix-ui/react-dialog";
+import type { GateLevel } from "@/lib/api";
+import { confirmBody, confirmTechnical } from "@/lib/control";
 
 export type ConfirmCommandModalProps = {
   open: boolean;
@@ -59,7 +59,7 @@ export function ConfirmCommandModal({
                   disabled={pending}
                   className="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-fg transition-colors hover:bg-primary-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:opacity-50"
                 >
-                  {pending ? 'กำลังสั่งงาน…' : 'ยืนยันการสั่งงาน'}
+                  {pending ? "กำลังสั่งงาน…" : "ยืนยันการสั่งงาน"}
                 </button>
               </div>
             </>

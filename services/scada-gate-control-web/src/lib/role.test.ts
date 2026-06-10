@@ -1,40 +1,57 @@
-import { describe, expect, test } from 'vitest';
-import { canCommand, mapAppRole, roleFromToken, type AppRole } from './role';
+import { describe, expect, test } from "vitest";
+import { canCommand, mapAppRole, userFromToken, type AppRole } from "./role";
 
 const fakeJwt = (payload: object): string => {
   const b64url = (obj: object) =>
-    Buffer.from(JSON.stringify(obj)).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  return `${b64url({ alg: 'HS256' })}.${b64url(payload)}.sig`;
+    Buffer.from(JSON.stringify(obj))
+      .toString("base64")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+  return `${b64url({ alg: "HS256" })}.${b64url(payload)}.sig`;
 };
 
-describe('mapAppRole', () => {
+describe("mapAppRole", () => {
   test.each<[string[], AppRole]>([
-    [['rid_admin'], 'admin'],
-    [['zone_manager'], 'operator'],
-    [['guest'], 'viewer'],
-    [['guest', 'rid_admin'], 'admin'],
-  ])('%j -> %s', (roles, expected) => {
+    [["rid_admin"], "admin"],
+    [["zone_manager"], "operator"],
+    [["guest"], "viewer"],
+    [["guest", "rid_admin"], "admin"],
+  ])("%j -> %s", (roles, expected) => {
     expect(mapAppRole(roles)).toBe(expected);
   });
 });
 
-describe('canCommand', () => {
+describe("canCommand", () => {
   test.each<[AppRole, boolean]>([
-    ['viewer', false],
-    ['operator', true],
-    ['admin', true],
-  ])('%s -> %s', (role, expected) => {
+    ["viewer", false],
+    ["operator", true],
+    ["admin", true],
+  ])("%s -> %s", (role, expected) => {
     expect(canCommand(role)).toBe(expected);
   });
 });
 
-describe('roleFromToken', () => {
-  test('derives the app role from a JWT roles claim', () => {
-    expect(roleFromToken(fakeJwt({ sub: 'u', roles: ['zone_manager'], type: 'access' }))).toBe('operator');
+describe("userFromToken", () => {
+  test("extracts the email and mapped role from the access-token claims", () => {
+    expect(
+      userFromToken(
+        fakeJwt({
+          sub: "u",
+          email: "op@rid.go.th",
+          roles: ["zone_manager"],
+          type: "access",
+        }),
+      ),
+    ).toEqual({ email: "op@rid.go.th", role: "operator" });
   });
 
-  test('returns viewer for a missing or malformed token', () => {
-    expect(roleFromToken(undefined)).toBe('viewer');
-    expect(roleFromToken('not-a-jwt')).toBe('viewer');
+  test("falls back to a null email and viewer role when claims are missing or malformed", () => {
+    expect(userFromToken(fakeJwt({ sub: "u", roles: ["rid_admin"] }))).toEqual({
+      email: null,
+      role: "admin",
+    });
+    expect(userFromToken(undefined)).toEqual({ email: null, role: "viewer" });
+    expect(userFromToken("not-a-jwt")).toEqual({ email: null, role: "viewer" });
   });
 });
