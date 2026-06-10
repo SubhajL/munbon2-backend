@@ -1,11 +1,38 @@
 import { describe, expect, test } from 'vitest';
 import { ConfigError, loadConfig } from './config';
 
-const withHost = (extra: Record<string, string> = {}) => ({ MODBUS_HOST: '127.0.0.1', ...extra });
+const withHost = (extra: Record<string, string> = {}) => ({
+  MODBUS_HOST: '127.0.0.1',
+  JWT_SECRET: 'test-secret',
+  ...extra,
+});
 
 describe('loadConfig', () => {
   test('requires MODBUS_HOST (fails fast rather than polling a default host)', () => {
-    expect(() => loadConfig({})).toThrow(ConfigError);
+    expect(() => loadConfig({ JWT_SECRET: 's' })).toThrow(ConfigError);
+  });
+
+  test('requires JWT_SECRET (needed to verify auth tokens)', () => {
+    expect(() => loadConfig({ MODBUS_HOST: '127.0.0.1' })).toThrow(ConfigError);
+  });
+
+  test('applies auth issuer/audience defaults', () => {
+    const cfg = loadConfig(withHost());
+    expect(cfg.auth).toEqual({
+      jwtSecret: 'test-secret',
+      jwtIssuer: 'munbon-auth',
+      jwtAudience: 'munbon-api',
+    });
+  });
+
+  test('defaults rate limit and disallows in-memory audit by default', () => {
+    const cfg = loadConfig(withHost());
+    expect(cfg.rateLimit).toEqual({ windowMs: 60_000, max: 30 });
+    expect(cfg.allowInMemoryAudit).toBe(false);
+  });
+
+  test('ALLOW_IN_MEMORY_AUDIT=true enables the in-memory sink flag', () => {
+    expect(loadConfig(withHost({ ALLOW_IN_MEMORY_AUDIT: 'true' })).allowInMemoryAudit).toBe(true);
   });
 
   test('applies defaults for everything but the required host', () => {
