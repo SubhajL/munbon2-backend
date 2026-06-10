@@ -1,0 +1,47 @@
+{
+  "name": "@munbon/scada-gate-control",
+  "version": "0.1.0",
+  "description": "SCADA-like Modbus TCP gate control service for RID Munbon Phase 2 (Waste Way)",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "ts-node src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "probe": "ts-node src/scripts/probe-device.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint src --ext .ts",
+    "lint:fix": "eslint src --ext .ts --fix",
+    "type-check": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\""
+  },
+  "keywords": [
+    "munbon",
+    "scada",
+    "modbus",
+    "gate-control",
+    "rid"
+  ],
+  "author": "Munbon Team",
+  "license": "PROPRIETARY",
+  "dependencies": {
+    "dotenv": "^16.3.1",
+    "pino": "^8.16.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.5",
+    "@typescript-eslint/eslint-plugin": "^6.13.2",
+    "@typescript-eslint/parser": "^6.13.2",
+    "eslint": "^8.55.0",
+    "prettier": "^3.1.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3",
+    "vitest": "^1.1.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
