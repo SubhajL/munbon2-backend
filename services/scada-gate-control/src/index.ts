@@ -1,53 +1,97 @@
 import 'dotenv/config';
-import { loadConfig } from './config';
-import { GatePoller } from './transport/poller';
+import { Pool } from 'pg';
+import { loadConfig, type AppConfig } from './config';
 import { ModbusSerialTransport } from './transport/modbus-serial-transport';
+import { GateController } from './state/gate-controller';
+import { JwtTokenVerifier } from './api/auth';
+import { buildServer } from './api/server';
+import { CommandService } from './services/command-service';
+import { InMemoryAuditRepository } from './audit/memory-repository';
+import { PostgresAuditRepository } from './audit/pg-repository';
+import type { AuditRepository } from './audit/types';
 import { logger } from './utils/logger';
 
-/**
- * Service entry point. Starts the Modbus poll loop for the configured site.
- * The HTTP API is added in Slice 3; until then the latest snapshot is logged.
- */
-function main(): void {
+/** Durable audit is mandatory unless explicitly opted out for development. */
+async function resolveAudit(config: AppConfig): Promise<AuditRepository> {
+  if (config.databaseUrl) {
+    const pool = new Pool({ connectionString: config.databaseUrl });
+    const repository = new PostgresAuditRepository(pool);
+    await repository.ensureSchema();
+    return repository;
+  }
+  if (!config.allowInMemoryAudit) {
+    throw new Error(
+      'DATABASE_URL is required for a durable audit log; set ALLOW_IN_MEMORY_AUDIT=true only for development',
+    );
+  }
+  logger.warn('using NON-PERSISTENT in-memory audit log (ALLOW_IN_MEMORY_AUDIT=true)');
+  return new InMemoryAuditRepository();
+}
+
+async function main(): Promise<void> {
   const config = loadConfig();
+  const endpoint = {
+    host: config.modbus.host,
+    port: config.modbus.port,
+    unitId: config.modbus.unitId,
+  };
+
   const transport = new ModbusSerialTransport(config.modbus);
-  const poller = new GatePoller({
+  const controller = new GateController({
     transport,
     thresholds: config.freshness,
     intervalMs: config.modbus.pollIntervalMs,
-    onSnapshot: (snapshot) =>
-      logger.info(
-        {
-          connection: snapshot.connection,
-          color: snapshot.markerColor,
-          gateLevel: snapshot.gateLevel.value?.technicalLabel ?? null,
-          lastUpdated: snapshot.lastUpdated,
-        },
-        'gate snapshot',
-      ),
     onError: (error) =>
       logger.warn({ err: error instanceof Error ? error.message : String(error) }, 'poll error'),
   });
 
-  logger.info(
-    {
-      site: config.site,
-      host: config.modbus.host,
-      port: config.modbus.port,
-      unitId: config.modbus.unitId,
-      intervalMs: config.modbus.pollIntervalMs,
-    },
-    'starting scada-gate-control poller',
-  );
-  poller.start();
+  const audit = await resolveAudit(config);
+
+  const commandService = new CommandService({
+    actuator: controller,
+    audit,
+    now: () => Date.now(),
+    endpoint,
+    site: config.site,
+  });
+
+  const app = buildServer({
+    verifier: new JwtTokenVerifier({
+      secret: config.auth.jwtSecret,
+      issuer: config.auth.jwtIssuer,
+      audience: config.auth.jwtAudience,
+    }),
+    commandService,
+    snapshot: () => controller.snapshot(),
+    site: config.site,
+    endpoint,
+    rateLimit: config.rateLimit,
+  });
+
+  controller.start();
+  const server = app.listen(config.httpPort, () => {
+    logger.info(
+      {
+        site: config.site,
+        endpoint,
+        port: config.httpPort,
+        intervalMs: config.modbus.pollIntervalMs,
+      },
+      'scada-gate-control started',
+    );
+  });
 
   const shutdown = (signal: string): void => {
     logger.info({ signal }, 'shutting down');
-    poller.stop();
+    controller.stop();
+    server.close();
     void transport.close().finally(() => process.exit(0));
   };
   process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));
 }
 
-main();
+void main().catch((error) => {
+  logger.error({ err: error instanceof Error ? error.message : String(error) }, 'failed to start');
+  process.exit(1);
+});

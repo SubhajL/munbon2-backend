@@ -21,6 +21,16 @@ export type AppConfig = {
   readonly site: { readonly gateId: string; readonly name: string };
   readonly modbus: ModbusConnectionConfig & { readonly pollIntervalMs: number };
   readonly freshness: FreshnessThresholds;
+  readonly auth: {
+    readonly jwtSecret: string;
+    readonly jwtIssuer: string;
+    readonly jwtAudience: string;
+  };
+  /** Postgres connection string for the audit log; empty -> in-memory (dev only). */
+  readonly databaseUrl: string;
+  /** Allow the non-persistent in-memory audit sink when DATABASE_URL is unset. */
+  readonly allowInMemoryAudit: boolean;
+  readonly rateLimit: { readonly windowMs: number; readonly max: number };
 };
 
 function optionalEnv(env: NodeJS.ProcessEnv, name: string, fallback: string): string {
@@ -84,5 +94,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       pollIntervalMs,
     },
     freshness: { staleAfterMs, offlineAfterMs },
+    auth: {
+      jwtSecret: requireEnv(env, 'JWT_SECRET'),
+      jwtIssuer: optionalEnv(env, 'JWT_ISSUER', 'munbon-auth'),
+      jwtAudience: optionalEnv(env, 'JWT_AUDIENCE', 'munbon-api'),
+    },
+    databaseUrl: optionalEnv(env, 'DATABASE_URL', ''),
+    allowInMemoryAudit: optionalEnv(env, 'ALLOW_IN_MEMORY_AUDIT', 'false') === 'true',
+    rateLimit: {
+      windowMs: optionalEnvInt(env, 'COMMAND_RATE_WINDOW_MS', 60_000),
+      max: optionalEnvInt(env, 'COMMAND_RATE_MAX', 30),
+    },
   };
 }
