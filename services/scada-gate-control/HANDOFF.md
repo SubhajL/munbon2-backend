@@ -110,28 +110,57 @@ for visuals (translate tokens → shadcn/Tailwind, never raw HTML).
 - Web app: MapLibre/MapView is NOT unit-tested (WebGL/jsdom) — covered by build.
 - Don't run Graphite (`gt`) — repo uses plain git + `gh`.
 
-## Left to do — Slice 6 (hardening) ONLY
+## Slice 6 — login flow ✅ DONE (UNCOMMITTED in working tree)
+
+Real sign-in against `services/auth`, **Auth-only Next.js BFF** pattern (chosen
+over direct-to-auth / full proxy). NOT yet committed — diff sits in the
+`munbon2-backend-scada` working tree pending the user's Codex QCHECK pass.
+
+- Browser → same-origin `/api/auth/{login,refresh,logout}` route handlers →
+  `services/auth` (`AUTH_SERVICE_URL`, server-only env, default `:3001`).
+- Access token kept **in memory** (Bearer for SCADA calls — unchanged); refresh
+  token is a same-origin httpOnly `sgc_refresh` cookie scoped to `/api/auth`
+  (SameSite=lax → CSRF-safe; never sent to `/` or the SCADA backend).
+- `/login` page + `RequireAuth` guard (redirect `?next=`, open-redirect-safe),
+  account badge (email + role + log out), silent refresh on mount and on 401
+  (**coalesced** so concurrent pollers can't double-spend the rotating token).
+- `NEXT_PUBLIC_DEV_TOKEN` escape hatch retained for offline dev.
+- New: `lib/{config,auth-proxy,auth-client,auth-route}`, `app/api/auth/*/route`,
+  `components/{AuthProvider,RequireAuth,LoginForm}`, `app/login/page`. Modified:
+  `lib/role` (+`userFromToken`, −`roleFromToken`), `lib/api`
+  (+`getToken`/`onUnauthorized` 401-retry), `layout`, both protected pages.
+- Gates all green: typecheck · lint · prettier · build · **122 tests ×3** stable.
+- **Codex QCHECK done** (in the `-scada` worktree): 0 CRITICAL/HIGH; all 3 MEDIUM
+  - 2 LOW fixed — robust `Set-Cookie` via `getSetCookie()`; refresh classifies
+    401-definitive vs 5xx-transient (transient keeps the session, never a silent
+    sign-out); 5xx detail genericized; cross-tab refresh serialized via Web Locks
+    (per-tab dedup fallback); `isSafeNext` hardened + extracted to `lib/redirect`
+    with table tests; refresh/logout route handlers now have cookie-only contract
+    tests. Codex confirmed: token never persisted; `secure` cookie OK behind a TLS
+    proxy; no command double-actuation on 401-retry.
+- **Live verify needs manual setup** (no mock data): run `services/auth` :3001
+  (matching `JWT_SECRET`) + a real user account + backend :3030, then `npm run dev`.
+
+## Left to do — Slice 6 (hardening), remaining
 
 Ordered by value:
 
-1. **Login flow** — replace `NEXT_PUBLIC_DEV_TOKEN` shim with a real sign-in
-   against `services/auth` (store/refresh JWT). Until then the UI needs a token.
-2. **Real Waste Way lat/lng** + real gate image — update
+1. **Real Waste Way lat/lng** + real gate image — update
    `web/src/lib/gates.ts` (GATE_COORDS placeholder `101.9,14.9`) and swap the
    blueprint placeholder for the Stitch illustration `a89bc43704...` (or a real
    site photo). Spec open question.
-3. **Admin settings** — configurable Modbus Unit ID / register map (spec open
+2. **Admin settings** — configurable Modbus Unit ID / register map (spec open
    question: confirm Unit ID with vendor); multi-gate support (`/api/sites`
    already returns a list; add more `GATE_COORDS` + register maps).
-4. **Confirm the role→privilege mapping with RID** (`DEFAULT_ROLE_MAPPING` in
+3. **Confirm the role→privilege mapping with RID** (`DEFAULT_ROLE_MAPPING` in
    both backend `src/api/auth.ts` and web `src/lib/role.ts`).
-5. **Real-device validation** over Tailscale once the `172.16.1.0/24` route is
+4. **Real-device validation** over Tailscale once the `172.16.1.0/24` route is
    up (`npm run probe`, then careful live read; writes with extreme care).
-6. **Deferred earlier:** Storybook stories + 4-breakpoint responsive passes; add
+5. **Deferred earlier:** Storybook stories + 4-breakpoint responsive passes; add
    web e2e (Playwright) + a11y route tests.
-7. **Ops:** register backend in `pm2-ecosystem.config.js`; CI for both services;
+6. **Ops:** register backend in `pm2-ecosystem.config.js`; CI for both services;
    `DATABASE_URL` provisioning for the durable audit log; deploy the web app.
-8. Mark PR #5 ready for review when satisfied.
+7. Mark PR #5 ready for review when satisfied.
 
 ## Open questions from the spec (still pending real-world input)
 

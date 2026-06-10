@@ -1,38 +1,55 @@
-'use client';
+"use client";
 
-import { useMemo, useState } from 'react';
-import { useParams } from 'next/navigation';
-import { createApiClient, type CommandResult, type GateLevel } from '@/lib/api';
-import { usePolling } from '@/hooks/usePolling';
-import { canCommand as canCommandRole, roleFromToken } from '@/lib/role';
-import { GateDetailHeader } from '@/components/GateDetailHeader';
-import { LevelSensors } from '@/components/LevelSensors';
-import { SidePanel } from '@/components/SidePanel';
-import { ConfirmCommandModal } from '@/components/ConfirmCommandModal';
+import { useMemo, useState } from "react";
+import { useParams } from "next/navigation";
+import { createApiClient, type CommandResult, type GateLevel } from "@/lib/api";
+import { usePolling } from "@/hooks/usePolling";
+import { canCommand as canCommandRole } from "@/lib/role";
+import { useAuth } from "@/components/AuthProvider";
+import { RequireAuth } from "@/components/RequireAuth";
+import { GateDetailHeader } from "@/components/GateDetailHeader";
+import { LevelSensors } from "@/components/LevelSensors";
+import { SidePanel } from "@/components/SidePanel";
+import { ConfirmCommandModal } from "@/components/ConfirmCommandModal";
+import { API_BASE } from "@/lib/config";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:3030';
-const DEV_TOKEN = process.env.NEXT_PUBLIC_DEV_TOKEN;
 const POLL_MS = 3000;
 
 function resultMessage(result: CommandResult): string {
-  if (result.status === 'accepted') {
-    return result.pending ? 'สั่งงานแล้ว กำลังดำเนินการ… (pending)' : 'สั่งงานสำเร็จ (accepted)';
+  if (result.status === "accepted") {
+    return result.pending
+      ? "สั่งงานแล้ว กำลังดำเนินการ… (pending)"
+      : "สั่งงานสำเร็จ (accepted)";
   }
-  if (result.status === 'rejected') return `ถูกปฏิเสธ (rejected): ${result.reason}`;
+  if (result.status === "rejected")
+    return `ถูกปฏิเสธ (rejected): ${result.reason}`;
   return `ผิดพลาด (error): ${result.error}`;
 }
 
 export default function GateDetailPage() {
+  return (
+    <RequireAuth>
+      <GateDetailContent />
+    </RequireAuth>
+  );
+}
+
+function GateDetailContent() {
   const params = useParams<{ id: string }>();
   const gateId = params.id;
-  const client = useMemo(() => createApiClient({ baseUrl: API_BASE, token: DEV_TOKEN }), []);
-  const role = useMemo(() => roleFromToken(DEV_TOKEN), []);
-  const mayCommand = canCommandRole(role);
+  const { session, getToken, refresh } = useAuth();
+  const client = useMemo(
+    () =>
+      createApiClient({ baseUrl: API_BASE, getToken, onUnauthorized: refresh }),
+    [getToken, refresh],
+  );
+  const mayCommand = canCommandRole(session?.user.role ?? "viewer");
 
   const statusPoll = usePolling(() => client.getGateStatus(gateId), POLL_MS);
   const status = statusPoll.data;
-  const gateName = status?.name ?? 'Waste Way';
-  const currentLevel = (status?.gateLevel.value?.level ?? null) as GateLevel | null;
+  const gateName = status?.name ?? "Waste Way";
+  const currentLevel = (status?.gateLevel.value?.level ??
+    null) as GateLevel | null;
 
   const [selectedLevel, setSelectedLevel] = useState<GateLevel | null>(null);
   const [commandPending, setCommandPending] = useState(false);
@@ -43,7 +60,9 @@ export default function GateDetailPage() {
     if (selectedLevel === null) return;
     setCommandPending(true);
     try {
-      setMessage(resultMessage(await client.commandLevel(gateId, selectedLevel, true)));
+      setMessage(
+        resultMessage(await client.commandLevel(gateId, selectedLevel, true)),
+      );
     } catch (error) {
       setMessage(`ผิดพลาด (error): ${(error as Error).message}`);
     } finally {
@@ -55,7 +74,9 @@ export default function GateDetailPage() {
   async function commandHorn(enabled: boolean) {
     setHornPending(true);
     try {
-      setMessage(resultMessage(await client.commandHorn(gateId, enabled, true)));
+      setMessage(
+        resultMessage(await client.commandHorn(gateId, enabled, true)),
+      );
     } catch (error) {
       setMessage(`ผิดพลาด (error): ${(error as Error).message}`);
     } finally {
@@ -73,15 +94,16 @@ export default function GateDetailPage() {
             className="absolute inset-0 opacity-15"
             style={{
               backgroundImage:
-                'linear-gradient(var(--color-border) 1px, transparent 1px), linear-gradient(90deg, var(--color-border) 1px, transparent 1px)',
-              backgroundSize: '24px 24px',
+                "linear-gradient(var(--color-border) 1px, transparent 1px), linear-gradient(90deg, var(--color-border) 1px, transparent 1px)",
+              backgroundSize: "24px 24px",
             }}
           />
           <span className="absolute bottom-3 left-3 text-xs text-fg-muted">
             ภาพประตูน้ำ (gate image — placeholder)
           </span>
           <p className="absolute left-3 top-3 text-[11px] text-fg-muted">
-            คลิกขวาหรือคลิกระดับเพื่อสั่งงาน (right-click or click a level to command)
+            คลิกขวาหรือคลิกระดับเพื่อสั่งงาน (right-click or click a level to
+            command)
           </p>
           <div className="absolute right-4 top-1/2 w-[280px] -translate-y-1/2">
             <LevelSensors
@@ -92,7 +114,12 @@ export default function GateDetailPage() {
           </div>
         </section>
 
-        <SidePanel status={status} canCommand={mayCommand} hornPending={hornPending} onHorn={commandHorn} />
+        <SidePanel
+          status={status}
+          canCommand={mayCommand}
+          hornPending={hornPending}
+          onHorn={commandHorn}
+        />
       </div>
 
       {message ? (

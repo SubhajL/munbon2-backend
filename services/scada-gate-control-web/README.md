@@ -17,6 +17,14 @@ HMI styling from a Stitch-generated "Industrial SCADA Interface" design system.
       command), confirmation modal (Radix Dialog) showing the raw Modbus
       registers, side panel (Door_SW status-only, Horn เปิด/ปิด, raw level,
       endpoint, Unit ID), role-aware (Viewer controls disabled).
+- [x] Slice 6 (login) — real sign-in against `services/auth` via a same-origin
+      auth BFF (`/api/auth/login|refresh|logout` route handlers). Access token
+      is kept in memory; the refresh token is a same-origin httpOnly cookie
+      (`sgc_refresh`, scoped to `/api/auth`). `/login` page + `RequireAuth`
+      guard (redirects unauthenticated users with `?next=`), account badge with
+      role + log out, silent refresh on mount and on a 401 (coalesced so
+      concurrent pollers can't double-spend the rotating refresh token). The
+      `NEXT_PUBLIC_DEV_TOKEN` escape hatch still bypasses login for local dev.
 
 ## Run
 
@@ -27,18 +35,30 @@ npm test           # vitest (lib + component + axe a11y)
 npm run build
 ```
 
-## Configuration (env, all `NEXT_PUBLIC_`)
+## Configuration (env)
 
-| Var | Default | Meaning |
-| --- | --- | --- |
-| `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:3030` | backend base URL |
-| `NEXT_PUBLIC_DEV_TOKEN` | — | dev-only JWT (Bearer) until a login flow lands |
+| Var | Default | Scope | Meaning |
+| --- | --- | --- | --- |
+| `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:3030` | client | scada-gate-control backend base URL |
+| `AUTH_SERVICE_URL` | `http://localhost:3001` | **server** | `services/auth` base URL the auth BFF proxies to (never exposed to the browser) |
+| `NEXT_PUBLIC_DEV_TOKEN` | — | client | dev-only JWT (Bearer); when set, skips the login flow entirely |
+
+`AUTH_SERVICE_URL` is read server-side only (in the `/api/auth/*` route handlers);
+do not give it a `NEXT_PUBLIC_` prefix.
 
 ## Notes
 
 - Gate coordinates in `src/lib/gates.ts` are **placeholders** — replace with the
   real Waste Way lat/lng (and other Phase-2 gates) when RID provides them.
-- All endpoints require auth (Viewer can read); set `NEXT_PUBLIC_DEV_TOKEN` to a
-  valid access token from `services/auth` for local development, or the panel
-  shows the API-unreachable error state.
+- Sign in at `/login` with a `services/auth` account; protected screens redirect
+  there when unauthenticated. For local dev without the auth service running, set
+  `NEXT_PUBLIC_DEV_TOKEN` to a valid access token to bypass login.
+- The refresh token lives only in the same-origin httpOnly `sgc_refresh` cookie
+  (scoped to `/api/auth`); the access token is held in memory and refreshed
+  silently. Run `services/auth` (port 3001) alongside this app for the real flow.
+- Token renewal is coalesced within a tab (one in-flight refresh) and serialized
+  across tabs via the Web Locks API so the rotating refresh token is never spent
+  twice. Browsers without Web Locks fall back to per-tab coalescing only.
+- A transient auth-service outage (5xx / network) during renewal keeps the
+  current session rather than signing the user out; only a definitive 401 does.
 - Storybook and full 4-breakpoint responsive passes were deferred (see Slice 6).

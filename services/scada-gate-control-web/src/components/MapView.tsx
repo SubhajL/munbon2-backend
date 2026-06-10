@@ -1,25 +1,25 @@
-'use client';
+"use client";
 
-import 'maplibre-gl/dist/maplibre-gl.css';
-import type { ReactNode } from 'react';
-import Map, { Marker, Popup } from 'react-map-gl/maplibre';
-import type { StyleSpecification } from 'maplibre-gl';
-import type { SiteSummary } from '@/lib/api';
-import { DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM, GATE_COORDS } from '@/lib/gates';
-import { STATUS_COLOR_VAR } from '@/lib/status';
+import "maplibre-gl/dist/maplibre-gl.css";
+import type { ReactNode } from "react";
+import Map, { Marker, Popup } from "react-map-gl/maplibre";
+import type { StyleSpecification } from "maplibre-gl";
+import type { SiteSummary } from "@/lib/api";
+import { DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM, GATE_COORDS } from "@/lib/gates";
+import { STATUS_COLOR_VAR } from "@/lib/status";
 
 // Open-source raster basemap — no Mapbox token required.
 const MAP_STYLE: StyleSpecification = {
   version: 8,
   sources: {
     osm: {
-      type: 'raster',
-      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+      type: "raster",
+      tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
       tileSize: 256,
-      attribution: '© OpenStreetMap contributors',
+      attribution: "© OpenStreetMap contributors",
     },
   },
-  layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
+  layers: [{ id: "osm", type: "raster", source: "osm" }],
 };
 
 export type MapViewProps = {
@@ -29,7 +29,12 @@ export type MapViewProps = {
   renderPopup: (site: SiteSummary) => ReactNode;
 };
 
-export function MapView({ sites, selectedId, onSelect, renderPopup }: MapViewProps) {
+export function MapView({
+  sites,
+  selectedId,
+  onSelect,
+  renderPopup,
+}: MapViewProps) {
   const selected = sites.find((site) => site.id === selectedId) ?? null;
   const selectedCoords = selected ? GATE_COORDS[selected.id] : undefined;
 
@@ -41,7 +46,7 @@ export function MapView({ sites, selectedId, onSelect, renderPopup }: MapViewPro
         zoom: DEFAULT_MAP_ZOOM,
       }}
       mapStyle={MAP_STYLE}
-      style={{ position: 'absolute', inset: 0 }}
+      style={{ position: "absolute", inset: 0 }}
     >
       {sites.map((site) => {
         const coords = GATE_COORDS[site.id];
@@ -61,7 +66,10 @@ export function MapView({ sites, selectedId, onSelect, renderPopup }: MapViewPro
               type="button"
               aria-label={`${site.name} (${site.markerColor})`}
               className="size-4 cursor-pointer rounded-full border-2 border-white/80"
-              style={{ background: color, boxShadow: `0 0 0 4px color-mix(in srgb, ${color} 25%, transparent)` }}
+              style={{
+                background: color,
+                boxShadow: `0 0 0 4px color-mix(in srgb, ${color} 25%, transparent)`,
+              }}
             />
           </Marker>
         );
