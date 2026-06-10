@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@radix-ui/react-dialog": "^1.1.16",
     "clsx": "^2.1.1",
     "lucide-react": "^1.17.0",
     "maplibre-gl": "^5.24.0",

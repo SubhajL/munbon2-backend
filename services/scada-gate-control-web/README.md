@@ -11,7 +11,12 @@ HMI styling from a Stitch-generated "Industrial SCADA Interface" design system.
       status panel (online/stale/offline summary), gate markers coloured by
       status, click-to-open popup with decoded Gate_Level/Door_SW/Horn + a
       "ดูรายละเอียด / ควบคุม" button. Polls `/api/sites` (+ gate status) every 3s.
-- [ ] Slice 5 — Screen 2 Gate Detail / Control (`/gates/[id]`).
+- [x] Slice 5 — Screen 2 Gate Detail / Control (`/gates/[id]`): header with
+      back + connection badge + last-updated, framed gate illustration with 4
+      level sensors (current ON/green, click/right-click an OFF level to
+      command), confirmation modal (Radix Dialog) showing the raw Modbus
+      registers, side panel (Door_SW status-only, Horn เปิด/ปิด, raw level,
+      endpoint, Unit ID), role-aware (Viewer controls disabled).
 
 ## Run
 
