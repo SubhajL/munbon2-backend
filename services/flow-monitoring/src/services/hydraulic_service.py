@@ -4,6 +4,7 @@ Provides hydraulic modeling and verification capabilities
 """
 
 import asyncio
+import os
 from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime, timedelta
 from uuid import UUID
@@ -19,6 +20,7 @@ from db.influxdb_client import InfluxDBClient
 from db.timescale_client import TimescaleClient
 from core.metrics import hydraulic_solver_iterations, hydraulic_verification_duration
 from core.gate_flow import build_gate_flow_calibration, gate_flow_m3s, required_opening_m
+from core.network_topology import load_validated_network
 
 # P0 (F-01) fallback water levels: used ONLY when real sensor/solver levels are
 # unavailable. Real levels are threaded in P1 (see docs/remediation/FIX_F01_GATE_FLOW_LAW_SPEC.md §7).
@@ -45,8 +47,12 @@ class HydraulicService:
         """Initialize hydraulic solvers"""
         try:
             # Load network and geometry files
-            network_file = "/services/flow-monitoring/src/munbon_network_final.json"
+            # F-11: use the canonical, validated topology (was munbon_network_final.json,
+            # ~76% wrong). Guard connectivity before building solvers — fail fast, never
+            # run hydraulics on a fragmented graph.
+            network_file = os.path.join(os.path.dirname(__file__), "..", "config", "network.json")
             geometry_file = "/services/flow-monitoring/canal_geometry_template.json"
+            load_validated_network(network_file)
             
             # Initialize solvers
             self.hydraulic_solver = HydraulicSolver(network_file, geometry_file)
