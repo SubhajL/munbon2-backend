@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
+import os
 import psycopg2
 
 # Connect to EC2
 conn = psycopg2.connect(
-    host=os.environ.get('EC2_HOST', '43.208.201.191'),
+    host=os.environ.get('EC2_HOST', os.environ.get('POSTGRES_HOST', 'localhost')),
     port=5432,
     user='postgres',
-    password='P@ssw0rd123!',
+    password=os.environ.get('POSTGRES_PASSWORD', ''),
     database='munbon_dev'
 )
 cur = conn.cursor()
@@ -43,10 +44,10 @@ conn.close()
 
 # Check sensor_data
 conn = psycopg2.connect(
-    host=os.environ.get('EC2_HOST', '43.208.201.191'),
+    host=os.environ.get('EC2_HOST', os.environ.get('POSTGRES_HOST', 'localhost')),
     port=5432,
     user='postgres',
-    password='P@ssw0rd123!',
+    password=os.environ.get('POSTGRES_PASSWORD', ''),
     database='sensor_data'
 )
 cur = conn.cursor()
