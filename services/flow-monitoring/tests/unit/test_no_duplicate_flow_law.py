@@ -15,7 +15,10 @@ SRC = Path(__file__).resolve().parents[2] / "src"
 
 # The F-01 defect signature: Cs derived from a raw *opening* raised to k2.
 # The canonical law instead uses (Hs / Go) ** k2, which has no bare `opening` token.
-INVERTED_LAW = re.compile(r"(?:gate_opening|opening_ratio|opening)\s*\*\*\s*[\w.]*k2\b")
+# Match any `opening…` identifier (opening, opening_m, opening_ratio, gate_opening_m, …)
+# raised to k2/K2 — the codebase's own variable is `opening_m`, which the narrower prior
+# pattern missed. Still does NOT match the canonical `(Hs / Go) ** k2` (no `opening` token).
+INVERTED_LAW = re.compile(r"(?:gate_)?opening\w*\s*\*\*\s*[\w.]*[kK]2\b")
 
 
 def test_canonical_flow_law_is_present():
@@ -39,3 +42,11 @@ def test_deleted_duplicate_impls_stay_deleted():
         "water_gate_controller_v2.py",
     ):
         assert not (SRC / name).exists(), f"{name} was re-added; it duplicates core/gate_flow"
+
+
+def test_guard_regex_catches_the_codebases_own_opening_variable():
+    # `opening_m` is the codebase's own variable (hydraulic_service uses it); the guard MUST
+    # catch it and other opening… forms, while sparing the canonical `(Hs / Go) ** k2`.
+    assert INVERTED_LAW.search("Cs = k1 * (opening_m ** calibration.k2)")
+    assert INVERTED_LAW.search("cs = calibration.k1 * (gate_opening ** calibration.K2)")
+    assert not INVERTED_LAW.search("cs = k1 * (Hs / Go) ** k2")
