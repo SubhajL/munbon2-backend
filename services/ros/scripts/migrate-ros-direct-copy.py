@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import os
 import psycopg2
 import sys
 from datetime import datetime
@@ -15,11 +16,11 @@ LOCAL_CONFIG = {
 
 # EC2 database
 EC2_CONFIG = {
-    'host': os.environ.get('EC2_HOST', '43.208.201.191'),
+    'host': os.environ.get('EC2_HOST', os.environ.get('POSTGRES_HOST', 'localhost')),
     'port': 5432,
     'database': 'munbon_dev',
     'user': 'postgres',
-    'password': 'P@ssw0rd123!'
+    'password': os.environ.get('POSTGRES_PASSWORD', '')
 }
 
 def migrate_ros_tables():
