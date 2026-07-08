@@ -12,12 +12,14 @@ from core.network_topology import (
     NetworkTopologyError,
     assert_connected,
     children_of,
+    edges_from_names,
     is_spanning_tree,
     load_validated_network,
     nodes_of,
     reachable_from,
     topological_order,
 )
+from core.network_topology import _normalize_gate_id, _parse_gate_id
 
 # A tiny valid tree rooted at S:  S -> A -> {B, C};  C -> D
 GOOD = [("S", "A"), ("A", "B"), ("A", "C"), ("C", "D")]
@@ -111,6 +113,96 @@ class TestTopologicalOrder:
         cyclic = [("S", "A"), ("A", "B"), ("B", "A")]
         with pytest.raises(NetworkTopologyError):
             topological_order(cyclic)
+
+
+GEOMETRY = Path(__file__).resolve().parents[4] / "canal_sections_6zones_final.json"
+
+
+class TestParseAndNormalizeGateId:
+    def test_parses_single_tuple(self):
+        assert _parse_gate_id("M(0,0)") == [(0, 0)]
+
+    def test_parses_multi_tuple_ignoring_spacing(self):
+        # the canonical file uses irregular spacing; both must parse identically.
+        assert _parse_gate_id("M (0,1; 1,0)") == [(0, 1), (1, 0)]
+        assert _parse_gate_id("M(0,1;1,0)") == [(0, 1), (1, 0)]
+
+    def test_normalize_collapses_spacing(self):
+        assert _normalize_gate_id("M (0,1; 1,0)") == _normalize_gate_id("M(0,1;1,0)")
+        assert " " not in _normalize_gate_id("M (0,1; 1,0)")
+
+
+class TestEdgesFromNamesRules:
+    # A self-contained lateral: LMC head + 2 serial LMC valves + a branch with 2 serial valves.
+    VALID = ["M(0,0)", "M(0,1)", "M(0,2)", "M(0,1;1,0)", "M(0,1;1,1)"]
+
+    def _map(self):
+        return {c: p for p, c in edges_from_names(self.VALID)}
+
+    def test_head_gate_attaches_to_source_root(self):
+        assert self._map()["M(0,0)"] == "S"
+
+    def test_serial_valve_parent_is_previous_on_same_canal(self):
+        m = self._map()
+        assert m["M(0,1)"] == "M(0,0)"
+        assert m["M(0,2)"] == "M(0,1)"          # NOT M(0,0) -> this is the star bug being fixed
+        assert m["M(0,1;1,1)"] == "M(0,1;1,0)"  # serial along the branch
+
+    def test_branch_first_valve_attaches_to_parent_canal(self):
+        assert self._map()["M(0,1;1,0)"] == "M(0,1)"  # junction: drop last tuple
+
+    def test_result_is_a_spanning_tree(self):
+        edges = edges_from_names(self.VALID)
+        assert len(edges) == len(self.VALID)
+        assert is_spanning_tree(edges, "S")
+
+    def test_preserves_exact_input_strings_including_spacing(self):
+        spaced = ["M(0,0)", "M(0,1)", "M (0,1; 1,0)", "M (0,1; 1,1)"]
+        edges = edges_from_names(spaced)
+        assert ("M (0,1; 1,0)", "M (0,1; 1,1)") in edges  # exact spaced strings, not reformatted
+
+    def test_rejects_missing_intermediate_parent(self):
+        # M(0,2) needs M(0,1); absent -> fail closed, do not silently drop the reach.
+        with pytest.raises(NetworkTopologyError):
+            edges_from_names(["M(0,0)", "M(0,2)"])
+
+    def test_rejects_ids_that_collide_when_normalized(self):
+        with pytest.raises(NetworkTopologyError):
+            edges_from_names(["M(0,1;1,0)", "M (0,1; 1,0)"])
+
+
+class TestEdgesFromNamesRealNetwork:
+    def _gate_ids(self):
+        return list(json.loads(CANONICAL.read_text())["gates"].keys())
+
+    def test_derives_a_full_spanning_tree_over_all_59_gates(self):
+        edges = edges_from_names(self._gate_ids())
+        assert len(edges) == 59
+        assert is_spanning_tree(edges, "S")
+        assert len(reachable_from(edges, "S")) == 60  # 59 gates + S
+
+    def test_reproduces_the_surveyed_geometry_chain(self):
+        # Independent oracle: the SCADA survey (canal_sections_6zones_final.json) lists the
+        # real serial reaches; every one must appear in the name-derived topology.
+        import re
+
+        def norm(x):
+            return re.sub(r"\s+", "", x)
+
+        survey = json.loads(GEOMETRY.read_text())["canal_sections"]
+        derived = {(norm(u), norm(v)) for u, v in edges_from_names(self._gate_ids())}
+        survey_edges = {(norm(s["from_node"]), norm(s["to_node"])) for s in survey}
+        assert survey_edges <= derived, survey_edges - derived  # 37/37 reproduced
+
+
+class TestRegeneratedNetworkFileIsConsistent:
+    def test_committed_edges_equal_names_derivation(self):
+        # Locks the regeneration: network.json's edges must be exactly what the naming
+        # grammar derives from its own gate keys (no hand-edited drift, no star relics).
+        data = json.loads(CANONICAL.read_text())
+        committed = [tuple(e) for e in data["edges"]]
+        derived = edges_from_names(list(data["gates"].keys()))
+        assert set(committed) == set(derived)
 
 
 def test_load_validated_network_rejects_malformed_file(tmp_path):

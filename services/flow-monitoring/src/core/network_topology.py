@@ -12,6 +12,7 @@ fast so hydraulics never run on a fragmented graph.
 from __future__ import annotations
 
 import json
+import re
 from collections import defaultdict, deque
 
 ROOT = "S"
@@ -121,3 +122,69 @@ def topological_order(edges) -> list:
     if len(order) != len(nodes):
         raise NetworkTopologyError("graph contains a cycle; no topological order exists")
     return order
+
+
+def _parse_gate_id(gate_id: str) -> list[tuple[int, int]]:
+    """Parse ``M(0,1; 1,0)`` (any spacing) into ``[(0, 1), (1, 0)]``."""
+    s = re.sub(r"\s+", "", gate_id)
+    if not (s.startswith("M(") and s.endswith(")")):
+        raise NetworkTopologyError(f"malformed gate id {gate_id!r}")
+    pairs = []
+    for pair in s[2:-1].split(";"):
+        parts = pair.split(",")
+        if len(parts) != 2 or not all(p.lstrip("-").isdigit() for p in parts):
+            raise NetworkTopologyError(f"malformed gate id {gate_id!r}")
+        pairs.append((int(parts[0]), int(parts[1])))
+    return pairs
+
+
+def _fmt_tuples(tuples) -> str:
+    return "M(" + ";".join(f"{b},{p}" for b, p in tuples) + ")"
+
+
+def _normalize_gate_id(gate_id: str) -> str:
+    """Canonical, space-free form of a gate id, e.g. ``M(0,1;1,0)`` (for matching)."""
+    return _fmt_tuples(_parse_gate_id(gate_id))
+
+
+def _derived_parent(gate_id: str):
+    """Normalized parent id per the naming grammar, or None for the root head ``M(0,0)``."""
+    tuples = _parse_gate_id(gate_id)
+    branch, pos = tuples[-1]
+    if pos > 0:
+        return _fmt_tuples(tuples[:-1] + [(branch, pos - 1)])  # serial predecessor
+    if len(tuples) == 1:
+        return None  # single tuple (x, 0) -> source root
+    return _fmt_tuples(tuples[:-1])  # junction: drop the last tuple
+
+
+def edges_from_names(gate_ids, root: str = ROOT) -> list[tuple[str, str]]:
+    """Derive the serial-chain topology purely from the gate-id naming grammar (F-11b).
+
+    Each id ``M(i,j; ...; a,p)`` encodes the path from the source to that valve. The
+    parent is: the serial predecessor ``(a, p-1)`` when ``p > 0``; the valve on the parent
+    canal (drop the last tuple) when ``p == 0``; the ``root`` for the single-tuple head
+    ``M(0,0)``. Emits the EXACT input id strings (irregular spacing preserved) so the edges
+    stay consistent with the gates dict. Raises ``NetworkTopologyError`` on a derived parent
+    that is not among ``gate_ids`` or on two ids that normalize to the same node.
+    """
+    exact: dict = {}
+    for gate_id in gate_ids:
+        key = _normalize_gate_id(gate_id)
+        if key in exact:
+            raise NetworkTopologyError(
+                f"gate ids collide when normalized: {exact[key]!r} and {gate_id!r}"
+            )
+        exact[key] = gate_id
+    edges = []
+    for gate_id in gate_ids:
+        parent = _derived_parent(gate_id)
+        if parent is None:
+            edges.append((root, gate_id))
+        elif parent in exact:
+            edges.append((exact[parent], gate_id))
+        else:
+            raise NetworkTopologyError(
+                f"gate {gate_id!r}: derived parent {parent!r} is not among the gates"
+            )
+    return edges
