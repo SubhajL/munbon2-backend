@@ -42,8 +42,10 @@ class TestSpanningTree:
         assert is_spanning_tree(GOOD, "S") is True
 
     def test_multi_parent_is_not_tree(self):
-        # B has two parents -> not a tree.
-        assert is_spanning_tree(GOOD + [("C", "B")], "S") is False
+        # |E| = |V|-1 (3 edges, 4 nodes) so the edge-count guard passes; B has two parents
+        # (A and C) -> this actually exercises the multi-parent branch, not the count guard.
+        multi_parent = [("S", "A"), ("A", "B"), ("C", "B")]
+        assert is_spanning_tree(multi_parent, "S") is False
 
 
 class TestAssertConnectedGuard:
@@ -80,3 +82,11 @@ class TestCanonicalNetworkFile:
         gate_ids = set(data["gates"].keys())
         reached = reachable_from([tuple(e) for e in data["edges"]], "S")
         assert gate_ids <= reached  # every gate is reachable from the source
+
+
+def test_load_validated_network_rejects_malformed_file(tmp_path):
+    # A structurally broken network file must raise NetworkTopologyError, not a raw KeyError.
+    bad = tmp_path / "no_edges.json"
+    bad.write_text('{"nodes": []}')
+    with pytest.raises(NetworkTopologyError):
+        load_validated_network(str(bad))
