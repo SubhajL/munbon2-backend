@@ -16,10 +16,10 @@ from contextlib import asynccontextmanager
 import urllib.parse
 
 # Configuration
-POSTGRES_HOST = os.getenv("POSTGRES_HOST", os.environ.get('EC2_HOST', '43.208.201.191'))
+POSTGRES_HOST = os.getenv("POSTGRES_HOST", os.environ.get('EC2_HOST', os.environ.get('POSTGRES_HOST', 'localhost')))
 POSTGRES_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
 POSTGRES_USER = os.getenv("POSTGRES_USER", "postgres")
-POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "__ROTATED_DB_PASSWORD__")
+POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", os.environ.get('POSTGRES_PASSWORD', ''))
 POSTGRES_DB = os.getenv("POSTGRES_DB", "munbon_dev")
 
 # Redis configuration
