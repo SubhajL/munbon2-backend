@@ -24,6 +24,8 @@ class NetworkTopologyError(ValueError):
 def load_edges(path: str) -> list[tuple[str, str]]:
     with open(path, encoding="utf-8") as f:
         data = json.load(f)
+    if not isinstance(data, dict) or "edges" not in data:
+        raise NetworkTopologyError(f"{path}: network JSON has no 'edges' key")
     return [tuple(e) for e in data["edges"]]
 
 
