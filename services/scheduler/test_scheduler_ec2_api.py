@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """Test Scheduler API with EC2 Database"""
 
+import os
 import psycopg2
 import json
 from datetime import datetime, timedelta
 
 # EC2 connection details
-EC2_HOST = os.environ.get('EC2_HOST', '43.208.201.191')
+EC2_HOST = os.environ.get('EC2_HOST', os.environ.get('POSTGRES_HOST', 'localhost'))
 EC2_PORT = "5432"
 EC2_USER = "postgres"
-EC2_PASSWORD = "P@ssw0rd123!"
+EC2_PASSWORD = os.environ.get('POSTGRES_PASSWORD', '')
 EC2_DB = "munbon_dev"
 
 def test_scheduler_operations():
