@@ -271,3 +271,9 @@ docs/claude-sessions/
 !docs/claude-sessions/README.md
 # Local UI scratch files
 frontend-test.html
+
+# Track hand-authored flow-monitoring remediation docs (exception to docs/ ignore above)
+!services/flow-monitoring/docs/
+services/flow-monitoring/docs/*
+!services/flow-monitoring/docs/remediation/
+!services/flow-monitoring/docs/remediation/**

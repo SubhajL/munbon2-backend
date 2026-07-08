@@ -1,0 +1,874 @@
+<title>Munbon Backend — System Trace & Findings</title>
+<style>
+  :root{
+    --ground:#eef2f2; --surface:#ffffff; --surface-2:#f6f9f9;
+    --ink:#12201f; --ink-soft:#43555a; --muted:#6c7c80;
+    --hairline:#d4dddd; --hairline-strong:#bcc8c8;
+    --accent:#0c7880; --accent-ink:#0a5a60; --accent-fill:rgba(12,120,128,.10);
+    --crit:#c0392b; --crit-fill:rgba(192,57,43,.10);
+    --high:#b06d12; --high-fill:rgba(176,109,18,.10);
+    --med:#6f7d33; --med-fill:rgba(111,125,51,.12);
+    --ok:#227a53; --ok-fill:rgba(34,122,83,.10);
+    --shadow:0 1px 2px rgba(16,32,31,.04),0 8px 30px rgba(16,32,31,.06);
+    --mono:ui-monospace,"SF Mono","Cascadia Code",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --ground:#0c1515; --surface:#101e1d; --surface-2:#132322;
+      --ink:#e7efee; --ink-soft:#a6b5b3; --muted:#7f918f;
+      --hairline:#213130; --hairline-strong:#2c403e;
+      --accent:#39cec0; --accent-ink:#7ee1d7; --accent-fill:rgba(57,206,192,.11);
+      --crit:#ef7361; --crit-fill:rgba(239,115,97,.13);
+      --high:#e2a63d; --high-fill:rgba(226,166,61,.13);
+      --med:#b7c86a; --med-fill:rgba(183,200,106,.13);
+      --ok:#4cbd87; --ok-fill:rgba(76,189,135,.13);
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 34px rgba(0,0,0,.34);
+    }
+  }
+  :root[data-theme="light"]{
+    --ground:#eef2f2; --surface:#ffffff; --surface-2:#f6f9f9;
+    --ink:#12201f; --ink-soft:#43555a; --muted:#6c7c80;
+    --hairline:#d4dddd; --hairline-strong:#bcc8c8;
+    --accent:#0c7880; --accent-ink:#0a5a60; --accent-fill:rgba(12,120,128,.10);
+    --crit:#c0392b; --crit-fill:rgba(192,57,43,.10);
+    --high:#b06d12; --high-fill:rgba(176,109,18,.10);
+    --med:#6f7d33; --med-fill:rgba(111,125,51,.12);
+    --ok:#227a53; --ok-fill:rgba(34,122,83,.10);
+    --shadow:0 1px 2px rgba(16,32,31,.04),0 8px 30px rgba(16,32,31,.06);
+  }
+  :root[data-theme="dark"]{
+    --ground:#0c1515; --surface:#101e1d; --surface-2:#132322;
+    --ink:#e7efee; --ink-soft:#a6b5b3; --muted:#7f918f;
+    --hairline:#213130; --hairline-strong:#2c403e;
+    --accent:#39cec0; --accent-ink:#7ee1d7; --accent-fill:rgba(57,206,192,.11);
+    --crit:#ef7361; --crit-fill:rgba(239,115,97,.13);
+    --high:#e2a63d; --high-fill:rgba(226,166,61,.13);
+    --med:#b7c86a; --med-fill:rgba(183,200,106,.13);
+    --ok:#4cbd87; --ok-fill:rgba(76,189,135,.13);
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 34px rgba(0,0,0,.34);
+  }
+
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0; background:var(--ground); color:var(--ink);
+    font-family:var(--sans); font-size:17px; line-height:1.62;
+    -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+  }
+  .wrap{max-width:1120px; margin:0 auto; padding:0 24px}
+  .measure{max-width:68ch}
+  h1,h2,h3{text-wrap:balance; line-height:1.12; letter-spacing:-.012em; margin:0}
+  p{margin:0}
+  a{color:var(--accent-ink)}
+  code,.mono{font-family:var(--mono); font-variant-ligatures:none}
+  .tnum{font-variant-numeric:tabular-nums}
+
+  .eyebrow{
+    font-family:var(--mono); font-size:.72rem; text-transform:uppercase;
+    letter-spacing:.16em; color:var(--muted); font-weight:600;
+  }
+
+  /* ---------- masthead ---------- */
+  .mast{border-bottom:1px solid var(--hairline); background:
+    linear-gradient(180deg,var(--surface-2),var(--ground));
+  }
+  .mast-inner{padding:52px 0 30px}
+  .mast h1{font-size:clamp(2rem,4.6vw,3.05rem); font-weight:750; margin:.5rem 0 .1rem}
+  .mast .sub{color:var(--ink-soft); font-size:1.04rem; margin-top:.55rem; max-width:60ch}
+  .meta-row{
+    display:flex; flex-wrap:wrap; gap:8px 10px; margin-top:22px;
+    font-family:var(--mono); font-size:.76rem;
+  }
+  .chip{
+    display:inline-flex; align-items:center; gap:7px;
+    border:1px solid var(--hairline-strong); border-radius:999px;
+    padding:5px 11px; color:var(--ink-soft); background:var(--surface);
+  }
+  .chip b{color:var(--ink); font-weight:600}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--accent);flex:none}
+
+  .tally{
+    display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-top:26px;
+  }
+  .tally .cell{
+    border:1px solid var(--hairline); border-radius:14px; background:var(--surface);
+    padding:16px 16px 14px; box-shadow:var(--shadow); position:relative; overflow:hidden;
+  }
+  .tally .cell::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--sev,var(--accent))}
+  .tally .n{font-family:var(--mono); font-size:2rem; font-weight:600; line-height:1; letter-spacing:-.02em}
+  .tally .lbl{font-family:var(--mono);font-size:.7rem;text-transform:uppercase;letter-spacing:.13em;color:var(--muted);margin-top:8px}
+  .sev-crit{--sev:var(--crit)} .sev-high{--sev:var(--high)} .sev-med{--sev:var(--med)} .sev-ok{--sev:var(--ok)}
+  .tally .cell.sev-crit .n{color:var(--crit)} .tally .cell.sev-high .n{color:var(--high)}
+  .tally .cell.sev-med .n{color:var(--med)} .tally .cell.sev-ok .n{color:var(--ok)}
+
+  /* ---------- section scaffolding ---------- */
+  section{padding:46px 0}
+  section+section{border-top:1px solid var(--hairline)}
+  .sec-head{display:flex; align-items:baseline; gap:14px; margin-bottom:22px}
+  .sec-head .idx{font-family:var(--mono); font-size:.82rem; color:var(--accent); font-weight:600; flex:none}
+  .sec-head h2{font-size:clamp(1.35rem,2.7vw,1.85rem); font-weight:700}
+  .lead{color:var(--ink-soft); font-size:1.06rem}
+
+  /* ---------- flow spine ---------- */
+  .flowscroll{overflow-x:auto; padding:6px 2px 14px; margin:0 -4px}
+  .flow{display:flex; align-items:stretch; gap:0; min-width:940px}
+  .stage{
+    flex:1 1 0; min-width:150px; background:var(--surface); border:1px solid var(--hairline);
+    border-top:3px solid var(--st,var(--accent)); border-radius:12px; padding:14px 14px 15px;
+    box-shadow:var(--shadow); display:flex; flex-direction:column; gap:6px;
+  }
+  .stage .k{font-family:var(--mono); font-size:.66rem; letter-spacing:.12em; text-transform:uppercase; color:var(--muted)}
+  .stage .t{font-weight:650; font-size:.95rem; line-height:1.2}
+  .stage .d{font-size:.8rem; color:var(--ink-soft); line-height:1.4}
+  .stage .badge{font-family:var(--mono); font-size:.66rem; margin-top:2px; color:var(--st); font-weight:600}
+  .st-ok{--st:var(--ok)} .st-warn{--st:var(--high)} .st-bad{--st:var(--crit)} .st-neutral{--st:var(--accent)}
+  .link{flex:0 0 46px; align-self:center; position:relative; height:26px; display:flex; align-items:center; justify-content:center}
+  .link .line{height:3px; width:100%; border-radius:2px; background:var(--hairline-strong); position:relative; overflow:hidden}
+  .link.flow-ok .line{background:linear-gradient(90deg,var(--accent),var(--accent))}
+  .link.flow-ok .line::after{
+    content:"";position:absolute;inset:0;
+    background:repeating-linear-gradient(90deg,transparent 0 6px,rgba(255,255,255,.55) 6px 12px);
+    animation:flow 1.1s linear infinite;
+  }
+  .link.flow-partial .line{background:repeating-linear-gradient(90deg,var(--high) 0 7px,transparent 7px 13px)}
+  .link.flow-broken .line{background:transparent;border-top:3px dashed var(--crit);height:0}
+  .link.flow-broken::after{content:"✕";position:absolute;font-family:var(--mono);font-weight:700;color:var(--crit);font-size:.9rem;top:-2px}
+  @keyframes flow{to{transform:translateX(12px)}}
+  @media (prefers-reduced-motion:reduce){.link.flow-ok .line::after{animation:none}}
+  .flow-legend{display:flex;flex-wrap:wrap;gap:14px 20px;margin-top:14px;font-family:var(--mono);font-size:.72rem;color:var(--ink-soft)}
+  .flow-legend span{display:inline-flex;align-items:center;gap:8px}
+  .leg{width:22px;height:3px;border-radius:2px;flex:none}
+  .leg.ok{background:var(--accent)} .leg.partial{background:repeating-linear-gradient(90deg,var(--high) 0 5px,transparent 5px 9px)} .leg.broken{border-top:3px dashed var(--crit);height:0}
+
+  /* ---------- finding cards ---------- */
+  .finds{display:flex; flex-direction:column; gap:16px}
+  .find{
+    background:var(--surface); border:1px solid var(--hairline); border-radius:14px;
+    box-shadow:var(--shadow); overflow:hidden; display:grid; grid-template-columns:6px 1fr;
+  }
+  .find .rail{background:var(--sc,var(--accent))}
+  .find .body{padding:18px 20px}
+  .find.c-crit{--sc:var(--crit)} .find.c-high{--sc:var(--high)} .find.c-med{--sc:var(--med)} .find.c-low{--sc:var(--accent)}
+  .find .top{display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-bottom:9px}
+  .sevtag{
+    font-family:var(--mono); font-size:.66rem; font-weight:700; letter-spacing:.1em; text-transform:uppercase;
+    padding:3px 9px; border-radius:6px; color:var(--sc); background:var(--scf,var(--accent-fill)); border:1px solid var(--sc);
+  }
+  .find.c-crit .sevtag{--scf:var(--crit-fill)} .find.c-high .sevtag{--scf:var(--high-fill)}
+  .find.c-med .sevtag{--scf:var(--med-fill)} .find.c-low .sevtag{--scf:var(--accent-fill)}
+  .find .fid{font-family:var(--mono);font-size:.72rem;color:var(--muted)}
+  .find h3{font-size:1.1rem; font-weight:670; margin-left:auto; flex:1 1 100%; order:5; margin-top:2px}
+  .find .body>p{color:var(--ink-soft); font-size:.97rem; margin:.35rem 0}
+  .ev{
+    font-family:var(--mono); font-size:.79rem; color:var(--ink); background:var(--surface-2);
+    border:1px solid var(--hairline); border-radius:8px; padding:8px 11px; margin-top:11px;
+    display:flex; flex-wrap:wrap; gap:4px 10px; align-items:baseline; overflow-x:auto;
+  }
+  .ev .path{color:var(--accent-ink); white-space:nowrap}
+  .ev .note{color:var(--muted)}
+  .impact{margin-top:11px; font-size:.9rem; color:var(--ink-soft)}
+  .impact b{color:var(--ink); font-weight:640}
+
+  /* ---------- tables ---------- */
+  .tblwrap{overflow-x:auto; border:1px solid var(--hairline); border-radius:12px; box-shadow:var(--shadow); background:var(--surface)}
+  table{border-collapse:collapse; width:100%; font-size:.9rem; min-width:520px}
+  th,td{text-align:left; padding:11px 14px; border-bottom:1px solid var(--hairline)}
+  thead th{
+    font-family:var(--mono); font-size:.68rem; text-transform:uppercase; letter-spacing:.1em;
+    color:var(--muted); font-weight:600; background:var(--surface-2); position:sticky; top:0;
+  }
+  tbody tr:last-child td{border-bottom:none}
+  td.num{font-family:var(--mono); text-align:right}
+  .flag{font-family:var(--mono);font-size:.7rem;font-weight:700;padding:2px 7px;border-radius:5px;white-space:nowrap}
+  .flag.bad{color:var(--crit);background:var(--crit-fill)} .flag.good{color:var(--ok);background:var(--ok-fill)}
+  .flag.warn{color:var(--high);background:var(--high-fill)}
+  caption{caption-side:top; text-align:left; font-family:var(--mono); font-size:.72rem; color:var(--muted); padding:12px 14px 4px; letter-spacing:.04em}
+
+  /* ---------- callout / readout ---------- */
+  .readout{
+    background:var(--surface); border:1px solid var(--hairline); border-left:4px solid var(--crit);
+    border-radius:12px; padding:20px 22px; box-shadow:var(--shadow);
+  }
+  .readout .rl{font-family:var(--mono); font-size:.72rem; letter-spacing:.12em; text-transform:uppercase; color:var(--crit); font-weight:700}
+  .eq{font-family:var(--mono); font-size:.9rem; background:var(--surface-2); border:1px solid var(--hairline); border-radius:8px; padding:9px 12px; margin:12px 0; overflow-x:auto; white-space:nowrap}
+
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+  .card{background:var(--surface); border:1px solid var(--hairline); border-radius:14px; padding:18px 20px; box-shadow:var(--shadow)}
+  .card h3{font-size:1rem; font-weight:660; margin-bottom:6px}
+  .card .k{font-family:var(--mono); font-size:.68rem; text-transform:uppercase; letter-spacing:.12em; color:var(--muted)}
+  .card p{color:var(--ink-soft); font-size:.92rem; margin-top:6px}
+  .src-tag{display:inline-block;font-family:var(--mono);font-size:.68rem;font-weight:700;padding:2px 8px;border-radius:5px;margin-bottom:8px}
+  .src-a{color:var(--ok);background:var(--ok-fill)} .src-b{color:var(--high);background:var(--high-fill)}
+
+  ul.tight{margin:.4rem 0 0; padding-left:1.1rem; color:var(--ink-soft); font-size:.95rem}
+  ul.tight li{margin:.28rem 0}
+  ul.tight li::marker{color:var(--accent)}
+
+  .kv{display:flex;flex-wrap:wrap;gap:6px 8px;margin-top:10px}
+  .kv span{font-family:var(--mono);font-size:.72rem;border:1px solid var(--hairline);border-radius:6px;padding:3px 8px;color:var(--ink-soft)}
+  .kv b{color:var(--ink);font-weight:600}
+
+  footer{padding:34px 0 60px; color:var(--muted); font-family:var(--mono); font-size:.74rem; border-top:1px solid var(--hairline)}
+  footer .measure{max-width:74ch}
+
+  :focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:4px}
+
+  @media (max-width:760px){
+    body{font-size:16px}
+    .tally{grid-template-columns:repeat(2,1fr)}
+    .grid2{grid-template-columns:1fr}
+    .find h3{order:0; flex:1 1 100%}
+  }
+</style>
+
+<header class="mast">
+  <div class="wrap mast-inner">
+    <div class="eyebrow">System Trace &amp; Code Audit · Munbon Irrigation Backend</div>
+    <h1>Water demand &amp; gate control: what actually runs</h1>
+    <p class="sub">An end-to-end read of the live code path — from crop water demand, through the nightly scheduler, into the gate hydraulics and the SCADA actuator. One lineage is operational; the rest is fragmented, stubbed, or disconnected.</p>
+    <div class="meta-row">
+      <span class="chip"><span class="dot"></span><b>repo</b>&nbsp;munbon2-backend</span>
+      <span class="chip"><b>branches</b>&nbsp;main · feat/scada-gate-control</span>
+      <span class="chip"><b>traced</b>&nbsp;2026-07-08</span>
+      <span class="chip"><b>method</b>&nbsp;source read + numeric repro</span>
+    </div>
+    <div class="tally" role="list" aria-label="Findings by severity">
+      <div class="cell sev-crit" role="listitem"><div class="n tnum">3</div><div class="lbl">Critical</div></div>
+      <div class="cell sev-high" role="listitem"><div class="n tnum">3</div><div class="lbl">High</div></div>
+      <div class="cell sev-med" role="listitem"><div class="n tnum">3</div><div class="lbl">Medium</div></div>
+      <div class="cell sev-ok" role="listitem"><div class="n tnum">1</div><div class="lbl">Operational path</div></div>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- EXEC SUMMARY -->
+  <section id="summary">
+    <div class="sec-head"><span class="idx">00</span><h2>The one-paragraph version</h2></div>
+    <div class="measure">
+      <p class="lead">Only a single demand lineage is wired end-to-end: the <b>ROS / Excel</b> engine, computed weekly and combined by a 2&nbsp;AM cron. A second demand source — RID-Plan / AquaCrop, delivered as GeoPackage — is ingested and queryable but reaches nothing downstream; the cron is even configured to <em>prefer</em> it, yet the table it reads is never populated, so it silently falls back to ROS.</p>
+      <p style="margin-top:14px">On the control side, the hydraulic model is a detailed prototype rather than a running loop: automatic demand&nbsp;→&nbsp;opening is stubbed, only 10 of 59 gates are field-calibrated, the physical canal-section limit is a hardcoded constant, and the wired opening formula is <b>numerically inverted</b> — it makes flow fall as a gate opens and returns 287&nbsp;m³/s for a gate rated 11. Even a correct result couldn't be actuated: the SCADA service accepts only 4 discrete gate levels and has <b>no link</b> to the hydraulic computation.</p>
+    </div>
+  </section>
+
+  <!-- FLOW SPINE -->
+  <section id="pipeline">
+    <div class="sec-head"><span class="idx">01</span><h2>The pipeline, and where flow stops</h2></div>
+    <p class="lead measure" style="margin-bottom:20px">Each stage is a real service. The connectors encode truth: animated where data actually moves, dashed where a link is partial or stubbed, and severed where nothing bridges the gap.</p>
+    <div class="flowscroll">
+      <div class="flow">
+        <div class="stage st-ok">
+          <span class="k">Source A</span><span class="t">ROS / Excel engine</span>
+          <span class="d">Weekly ETo×Kc + percolation − rain, water-level adjusted</span>
+          <span class="badge">operational</span>
+        </div>
+        <div class="link flow-partial" aria-label="partial link"><span class="line"></span></div>
+        <div class="stage st-warn">
+          <span class="k">Source B</span><span class="t">RID-Plan / AquaCrop</span>
+          <span class="d">season_irri_m3_per_rai from GeoPackage → agricultural_plots</span>
+          <span class="badge">read-only / compare</span>
+        </div>
+        <div class="link flow-partial" aria-label="partial link"><span class="line"></span></div>
+        <div class="stage st-warn">
+          <span class="k">02:00 cron</span><span class="t">daily_demand_scheduler</span>
+          <span class="d">aiocron 0 2 * * * · combines A+B · aquacrop_priority</span>
+          <span class="badge">B empty → ROS fallback</span>
+        </div>
+        <div class="link flow-ok" aria-label="active link"><span class="line"></span></div>
+        <div class="stage st-neutral">
+          <span class="k">Store</span><span class="t">ros_gis daily/weekly</span>
+          <span class="d">daily_demands + aggregations · Redis events</span>
+          <span class="badge">wired</span>
+        </div>
+        <div class="link flow-ok" aria-label="active link"><span class="line"></span></div>
+        <div class="stage st-bad">
+          <span class="k">Control</span><span class="t">flow-monitoring hydraulics</span>
+          <span class="d">K1/K2 gate model · Newton-Raphson opening</span>
+          <span class="badge">stubbed + inverted bug</span>
+        </div>
+        <div class="link flow-broken" aria-label="broken link"><span class="line"></span></div>
+        <div class="stage st-ok">
+          <span class="k">Actuate</span><span class="t">scada-gate-control</span>
+          <span class="d">Discrete level 1–4 · Modbus HR108 + Coil17</span>
+          <span class="badge">works, standalone</span>
+        </div>
+      </div>
+    </div>
+    <div class="flow-legend">
+      <span><i class="leg ok"></i> data flows (wired)</span>
+      <span><i class="leg partial"></i> partial / stubbed input</span>
+      <span><i class="leg broken"></i> no bridge — abstraction gap</span>
+    </div>
+  </section>
+
+  <!-- DEMAND SOURCES -->
+  <section id="demand">
+    <div class="sec-head"><span class="idx">02</span><h2>Two demand sources, one lineage</h2></div>
+    <div class="grid2">
+      <div class="card">
+        <span class="src-tag src-a">SOURCE A · OPERATIONAL</span>
+        <h3>ROS / Excel engine</h3>
+        <p>Computed in-house in <code>services/ros</code>, a faithful port of the RID workbook <span class="mono">คบ.มูลบน_ROS_ฤดูฝน(2568).xlsm</span>. Per plot, per crop-week.</p>
+        <div class="eq" style="margin-top:12px">demand = (ETo⁄4 × Kc + 14) × rai × 1.6 − effRain, ×WL-factor</div>
+        <div class="kv">
+          <span><b>DB</b> munbon_ros · schema ros</span>
+          <span><b>table</b> water_demand_calculations</span>
+          <span><b>feeds</b> scheduler ✓</span>
+        </div>
+      </div>
+      <div class="card">
+        <span class="src-tag src-b">SOURCE B · READ-ONLY</span>
+        <h3>RID-Plan / AquaCrop</h3>
+        <p>Pre-computed <em>externally by RID</em> (AquaCrop), delivered as GeoPackage. A 30-second PM2 poller lands it in a JSONB blob; seasonal, converted to weekly by a flat ÷16.</p>
+        <div class="eq" style="margin-top:12px">agricultural_plots.properties.ridAttributes.seasonIrrM3PerRai</div>
+        <div class="kv">
+          <span><b>ingest</b> geopackage-processor-worker.js</span>
+          <span><b>read by</b> /rid-plan · /demands/comparison</span>
+          <span><b>feeds control</b> ✕</span>
+        </div>
+      </div>
+    </div>
+    <p class="lead measure" style="margin-top:18px">A third RID representation, <code>gis.crop_registry</code>, is read by one <em>untracked</em> backfill script and written by <b>nothing in the repo</b> — a hand-loaded shapefile import against a production DB (with hardcoded credentials in the script). RID parcel/demand data thus lives in three parallel tables, loaded four different ways; only one automated path is in-repo.</p>
+  </section>
+
+  <!-- GATE CONTROL -->
+  <section id="gates">
+    <div class="sec-head"><span class="idx">03</span><h2>Gate control: 59 valves, 10 calibrated</h2></div>
+    <p class="lead measure" style="margin-bottom:18px">Control is nominally computed for all <b>59 gates</b> in the network — including farm turnouts (2 tagged FTO, 33 gates carry an irrigated command area). The rating model is a submerged-orifice curve, but only field-measured gates get real coefficients.</p>
+    <div class="tblwrap">
+      <table>
+        <caption>src/munbon_network_final.json · config/gate_calibrations.json (SCADA Excel V1.0, 2025-08-23)</caption>
+        <thead><tr><th>Property</th><th>Value</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr><td>Gates in network</td><td class="num">59</td><td><span class="flag good">complete</span></td></tr>
+          <tr><td>Field-calibrated K1/K2</td><td class="num">10 / 59</td><td><span class="flag warn">49 use size defaults</span></td></tr>
+          <tr><td>Farm turnouts (FTO) included</td><td class="num">2 + 31</td><td><span class="flag good">yes, to leaf level</span></td></tr>
+          <tr><td>Default-vs-measured flow error</td><td class="num">−27% … +110%</td><td><span class="flag bad">large</span></td></tr>
+          <tr><td>Rating equation</td><td class="mono">Q = Cs·L·Hs·√(2g·ΔH)</td><td><span class="flag good">appropriate form</span></td></tr>
+          <tr><td>Discharge coeff.</td><td class="mono">Cs = K1·(Hs/Go)^K2</td><td><span class="flag warn">implemented 2 ways</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- THE BUG -->
+  <section id="bug">
+    <div class="sec-head"><span class="idx">04</span><h2>The reproduced bug: flow runs backwards</h2></div>
+    <div class="readout">
+      <div class="rl">Critical · verified by numeric repro</div>
+      <p style="margin-top:8px; color:var(--ink-soft)">The wired required-opening solver expresses <code>Cs = k1·opening^k2</code> with <code>opening</code> as a 0–1 <em>fraction</em> — putting gate travel in the numerator where the correct rating curve has <code>Hs/Go</code> (travel in the <em>denominator</em>). With K2&nbsp;&lt;&nbsp;0 the exponent's effect flips, and the physical <code>Cs</code> clamp (0.3–1.0) present in the sibling module is omitted.</p>
+      <div class="eq">services/flow-monitoring/src/services/hydraulic_service.py · _calculate_required_opening()</div>
+      <div class="tblwrap" style="margin-top:6px">
+        <table>
+          <caption>Gate M(0,0) · K1=1.0693 K2=−1.229 · width 4.0 m — wired model vs. correct RID form</caption>
+          <thead><tr><th>Gate opening</th><th>Wired Cs</th><th>Wired Q (m³/s)</th><th>Correct Q (m³/s)</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">10% open</td><td class="num">18.12</td><td class="num" style="color:var(--crit);font-weight:700">287.1</td><td class="num">—</td></tr>
+            <tr><td class="mono">25% open</td><td class="num">5.88</td><td class="num">93.1</td><td class="num">—</td></tr>
+            <tr><td class="mono">50% open</td><td class="num">2.51</td><td class="num">39.7</td><td class="num">3.6</td></tr>
+            <tr><td class="mono">75% open</td><td class="num">1.52</td><td class="num">24.1</td><td class="num">7.7</td></tr>
+            <tr><td class="mono">100% open</td><td class="num">1.07</td><td class="num" style="font-weight:700">16.9</td><td class="num" style="color:var(--ok);font-weight:700">11.9</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="impact"><b>Effect:</b> flow <em>decreases</em> as the gate opens; a gate rated 11 m³/s reports 287 at 10% open. Newton-Raphson can never reach a realistic target (&lt;~17 m³/s at full open) and pegs the opening at a boundary. Sharpest framing: the module with the <b>correct equation</b> (uses <code>Hs/Go</code> + clamp) carries <b>fake calibration data</b>; the module with <b>real K1/K2</b> carries the <b>wrong equation</b>. Neither is correct at once.</p>
+    </div>
+  </section>
+
+  <!-- SCADA DISCONNECT -->
+  <section id="scada">
+    <div class="sec-head"><span class="idx">05</span><h2>The actuator can't take the answer</h2></div>
+    <div class="grid2">
+      <div class="card" style="border-left:4px solid var(--accent)">
+        <span class="k">Computes</span>
+        <h3>flow-monitoring</h3>
+        <p>Continuous gate opening — metres / percent (e.g. 0.73 m, 47%), from a hydraulic solve over the canal network.</p>
+      </div>
+      <div class="card" style="border-left:4px solid var(--ok)">
+        <span class="k">Actuates</span>
+        <h3>scada-gate-control</h3>
+        <p>Discrete levels only: <span class="mono">1</span> Closed · <span class="mono">2</span> · <span class="mono">3</span> · <span class="mono">4</span> Fully open. Modbus write HR&nbsp;108 + Coil&nbsp;17. No hydraulics, no flow input.</p>
+      </div>
+    </div>
+    <p class="lead measure" style="margin-top:18px">The API accepts <code>POST /gates/:id/command-level {targetValue}</code> — a level, not a flow. There is <b>no quantizer</b> from continuous opening to a discrete level, and <b>no reference</b> between the two services in either direction. The field gates are 4-position; the model outputs are continuous; nothing connects them. The operator picks a level by hand.</p>
+  </section>
+
+  <!-- REAL vs SCAFFOLDED -->
+  <section id="matrix">
+    <div class="sec-head"><span class="idx">06</span><h2>Real vs. scaffolded</h2></div>
+    <div class="tblwrap">
+      <table>
+        <thead><tr><th>Capability</th><th>State in live code</th><th>Verdict</th></tr></thead>
+        <tbody>
+          <tr><td>ROS/Excel weekly demand → scheduler</td><td>Computed, stored, event-published nightly</td><td><span class="flag good">operational</span></td></tr>
+          <tr><td>RID-Plan/AquaCrop demand ingest</td><td>PM2 poller → JSONB; queryable via API</td><td><span class="flag warn">read-only</span></td></tr>
+          <tr><td>AquaCrop into daily combine</td><td><span class="mono">ros_gis.aquacrop_results</span> written by mock only</td><td><span class="flag bad">unpopulated</span></td></tr>
+          <tr><td>Automatic demand → gate opening</td><td>demand = 25.0, openings = 50% (hardcoded)</td><td><span class="flag bad">stubbed</span></td></tr>
+          <tr><td>Required-opening from flow</td><td>Newton-Raphson on inverted, unclamped curve</td><td><span class="flag bad">incorrect</span></td></tr>
+          <tr><td>Canal-section max-flow limit</td><td><span class="mono">_get_canal_capacity()</span> returns 15.0 for all</td><td><span class="flag bad">not enforced</span></td></tr>
+          <tr><td>Gate discrete-level actuation (Modbus)</td><td>Auth, RBAC, mutex, audit, confirm bit</td><td><span class="flag good">solid</span></td></tr>
+          <tr><td>Hydraulics ↔ SCADA bridge</td><td>No references either direction</td><td><span class="flag bad">absent</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- FINDINGS REGISTER -->
+  <section id="register">
+    <div class="sec-head"><span class="idx">07</span><h2>Findings register</h2></div>
+    <div class="finds">
+
+      <article class="find c-crit">
+        <div class="rail"></div>
+        <div class="body">
+          <div class="top"><span class="sevtag">Critical</span><span class="fid">F-01</span>
+            <h3>Required-opening formula is inverted and unclamped</h3></div>
+          <p>Flow decreases as the gate opens; yields 287 m³/s for an 11 m³/s gate. Newton-Raphson cannot converge to realistic targets.</p>
+          <div class="ev"><span class="path">flow-monitoring/src/services/hydraulic_service.py</span><span class="note">_calculate_required_opening — Cs = k1·opening^k2, no Cs clamp, fixed depth/head</span></div>
+          <div class="impact"><b>Fix:</b> use <code>Cs = K1·(Hs/Go)^K2</code> with real levels and the 0.3–1.0 clamp; add a monotonicity property test.</div>
+        </div>
+      </article>
+
+      <article class="find c-crit">
+        <div class="rail"></div>
+        <div class="body">
+          <div class="top"><span class="sevtag">Critical</span><span class="fid">F-02</span>
+            <h3>Hydraulic control and SCADA actuator are disconnected</h3></div>
+          <p>Continuous opening (m/%) vs. discrete level 1–4, with no quantizer and no cross-service reference. Computed setpoints cannot reach the gates.</p>
+          <div class="ev"><span class="path">scada-gate-control/src/domain/gate-level.ts</span><span class="note">4 levels; API command-level {targetValue}; zero hydraulic refs</span></div>
+          <div class="impact"><b>Fix:</b> define a flow→level mapping (per-gate rating to nearest safe level) and a command bridge; treat level granularity as a control constraint upstream.</div>
+        </div>
+      </article>
+
+      <article class="find c-crit">
+        <div class="rail"></div>
+        <div class="body">
+          <div class="top"><span class="sevtag">Critical</span><span class="fid">F-11</span>
+            <h3>Wired network topology is ~76% wrong; six conflicting versions</h3></div>
+          <p>The gate IDs encode a 59-edge connected tree, but the loaded file has 42 edges with only 14 correct — leaving just 2 of 59 nodes reachable from the source (<code>M(0,0)→M(0,1)</code> is missing). Correct files exist but aren’t used.</p>
+          <div class="ev"><span class="path">flow-monitoring/src/munbon_network_final.json</span><span class="note">14/59 edges vs canonical · updated.json &amp; complete.json are correct</span></div>
+          <div class="impact"><b>Fix:</b> adopt <code>munbon_network_updated.json</code> (or regenerate from the gate-ID hierarchy); delete the stale variants; then graph-descendant aggregation resolves A1–A3.</div>
+        </div>
+      </article>
+
+      <article class="find c-high">
+        <div class="rail"></div>
+        <div class="body">
+          <div class="top"><span class="sevtag">High</span><span class="fid">F-03</span>
+            <h3>Automatic gate control is stubbed</h3></div>
+          <p>The wired dual-mode controller returns a hardcoded system demand of 25 m³/s and a flat 50% opening for every gate.</p>
+          <div class="ev"><span class="path">flow-monitoring/src/controllers/dual_mode_gate_controller.py</span><span class="note">_get_system_demand → 25.0; _solve_optimal_gate_settings → 50%</span></div>
+          <div class="impact"><b>Impact:</b> no real closed loop exists in the wired path today.</div>
+        </div>
+      </article>
+
+      <article class="find c-high">
+        <div class="rail"></div>
+        <div class="body">
+          <div class="top"><span class="sevtag">High</span><span class="fid">F-04</span>
+            <h3>Canal-section physical max flow is not enforced</h3></div>
+          <p>Per-section <code>design_discharge</code> exists in geometry, but the capacity check compares against a uniform hardcoded 15 m³/s.</p>
+          <div class="ev"><span class="path">flow-monitoring/src/services/hydraulic_service.py</span><span class="note">_get_canal_capacity() → return 15.0</span></div>
+          <div class="impact"><b>Fix:</b> read design_discharge per canal_id from canal_geometry_template.json.</div>
+        </div>
+      </article>
+
+      <article class="find c-high">
+        <div class="rail"></div>
+        <div class="body">
+          <div class="top"><span class="sevtag">High</span><span class="fid">F-05</span>
+            <h3>Only 10 of 59 gates are field-calibrated</h3></div>
+          <p>The remaining 49 use size-based default K1/K2; docs show default-vs-measured flow diverging by −27% to +110%, including most turnouts.</p>
+          <div class="ev"><span class="path">flow-monitoring/config/gate_calibrations.json</span><span class="note">from SCADA Excel V1.0 · 10 gates measured</span></div>
+          <div class="impact"><b>Impact:</b> most delivery points are computed on uncalibrated coefficients.</div>
+        </div>
+      </article>
+
+      <article class="find c-med">
+        <div class="rail"></div>
+        <div class="body">
+          <div class="top"><span class="sevtag">Medium</span><span class="fid">F-06</span>
+            <h3>AquaCrop demand is preferred but never populated</h3></div>
+          <p>The 2 AM combine defaults to <code>aquacrop_priority</code>, but <code>ros_gis.aquacrop_results</code> is written only by the mock server — so it silently falls back to ROS.</p>
+          <div class="ev"><span class="path">bff-water-planning/src/services/daily_demand_calculator.py</span><span class="note">reads aquacrop_results; real RID demand lives in agricultural_plots, unread here</span></div>
+          <div class="impact"><b>Fix:</b> route RID <code>seasonIrrM3PerRai</code> into aquacrop_results, or repoint the reader.</div>
+        </div>
+      </article>
+
+      <article class="find c-med">
+        <div class="rail"></div>
+        <div class="body">
+          <div class="top"><span class="sevtag">Medium</span><span class="fid">F-07</span>
+            <h3>gis.crop_registry has no in-repo loader</h3></div>
+          <p>Read by a single untracked backfill script (with hardcoded production DB credentials); created out-of-band by a shapefile import. No migration, service, or job maintains it.</p>
+          <div class="ev"><span class="path">bff-water-planning/scripts/populate_weekly_demands_with_events.py</span><span class="note">untracked · FROM gis.crop_registry · creds inline</span></div>
+          <div class="impact"><b>Action:</b> move credentials to secrets; document/automate the load or retire the table.</div>
+        </div>
+      </article>
+
+      <article class="find c-med">
+        <div class="rail"></div>
+        <div class="body">
+          <div class="top"><span class="sevtag">Medium</span><span class="fid">F-08</span>
+            <h3>RID-MS in-service cron module is missing</h3></div>
+          <p>The service imports <code>./jobs/job-scheduler</code> (daily shapefile check + water-demand refresh), but the module is absent and untracked — the service would fail to start as committed.</p>
+          <div class="ev"><span class="path">rid-ms/src/index.js</span><span class="note">require("./jobs/job-scheduler") · file not in tree</span></div>
+          <div class="impact"><b>Action:</b> restore the module or remove the dead wiring.</div>
+        </div>
+      </article>
+
+      <article class="find c-low">
+        <div class="rail"></div>
+        <div class="body">
+          <div class="top"><span class="sevtag">Low</span><span class="fid">F-09</span>
+            <h3>Three divergent demand formulas; no single source of truth</h3></div>
+          <p>ROS (percolation + rain + WL), RID-MS calculator (efficiency-based, no percolation), and the BFF weekly script (no percolation) compute “water demand” differently for the same land.</p>
+          <div class="ev"><span class="note">ros/water-demand.service · rid-ms/water-demand-calculator.service · bff populate script</span></div>
+          <div class="impact"><b>Action:</b> converge on one library; treat the rest as views.</div>
+        </div>
+      </article>
+
+      <article class="find c-low">
+        <div class="rail"></div>
+        <div class="body">
+          <div class="top"><span class="sevtag">Low</span><span class="fid">F-10</span>
+            <h3>Competing hydraulic implementations; the calibrated one is unwired</h3></div>
+          <p>Four gate-flow implementations coexist. The real-K1/K2 model (<code>calibrated_flow_model_v2</code>) is imported by nobody in the live path; the controller uses a fake-calibration flow readout.</p>
+          <div class="ev"><span class="note">gate_hydraulics · calibrated_gate_flow · calibrated_flow_model_v2 · gate_opening_calculator</span></div>
+          <div class="impact"><b>Action:</b> pick one, delete the rest, wire it to the API.</div>
+        </div>
+      </article>
+
+    </div>
+  </section>
+
+  <!-- NETWORK TOPOLOGY -->
+  <section id="topology">
+    <div class="sec-head"><span class="idx">08</span><h2>Network topology integrity</h2></div>
+    <p class="lead measure" style="margin-bottom:14px">The <span class="mono">M(i,j,k)</span> gate IDs encode the canal tree, so the <b>true topology is recoverable exactly</b> — a 59-edge connected tree with every gate reachable from the source. Measured against it, the file the wired solver loads is <b>~76% wrong</b>, and the repo ships six conflicting versions.</p>
+    <div class="tblwrap">
+      <table>
+        <caption>Edge-set diff vs. the canonical tree derived from the gate-ID hierarchy (59 edges, fully connected)</caption>
+        <thead><tr><th>Network file</th><th>Edges</th><th>Correct</th><th>Missing</th><th>State</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">munbon_network_final.json&nbsp;·&nbsp;<b>wired</b></td><td class="num">42</td><td class="num">14</td><td class="num">45</td><td><span class="flag bad">76% wrong</span></td></tr>
+          <tr><td class="mono">munbon_network_structure.json</td><td class="num">30</td><td class="num">14</td><td class="num">45</td><td><span class="flag bad">broken</span></td></tr>
+          <tr><td class="mono">network_simple.json</td><td class="num">41</td><td class="num">13</td><td class="num">46</td><td><span class="flag bad">broken</span></td></tr>
+          <tr><td class="mono">network_structure_updated.json</td><td class="num">69</td><td class="num">32</td><td class="num">27</td><td><span class="flag warn">+37 spurious</span></td></tr>
+          <tr><td class="mono">munbon_network_complete.json</td><td class="num">58</td><td class="num">58</td><td class="num">1</td><td><span class="flag good">correct</span></td></tr>
+          <tr><td class="mono">munbon_network_updated.json</td><td class="num">59</td><td class="num">58</td><td class="num">1</td><td><span class="flag good">correct</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="lead measure" style="margin-top:16px;font-size:.98rem">On the wired file, only <b>2 of 59 nodes are reachable from the source</b>, so any graph traversal, level propagation, or downstream-demand sum collapses. A correct topology (<span class="mono">updated</span> / <span class="mono">complete</span>) exists but isn’t the one loaded, and the ground truth regenerates directly from the gate IDs. The single 1-edge delta on the correct files is only the source-node convention.</p>
+    <div class="card" style="margin-top:16px;border-left:4px solid var(--accent)">
+      <span class="k">Does using the real graph fix the demand-aggregation defects?</span>
+      <ul class="tight">
+        <li><b>A1 · coverage</b> — ✅ once a single <em>connected</em> graph is adopted (traversal reaches every node; no more silent zeros)</li>
+        <li><b>A2 · namespace</b> — ✅ real <span class="mono">M(i,j,k)</span> IDs already match the gate keys</li>
+        <li><b>A3 · use the graph</b> — ✅ that is the fix (repair/consolidate topology first)</li>
+        <li><b>A4 · section/FTO granularity</b> — ❌ needs more than topology: per-node demand attached + a <span class="mono">section_id → node</span> map. 20 of 33 delivery nodes are <em>interior</em>, so aggregation must be a post-order descendants sum, not a leaf sum.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- MODELING LADDER -->
+  <style>
+    .ladder{display:flex;flex-direction:column;gap:10px}
+    .rung{display:grid;grid-template-columns:46px 1fr auto;gap:16px;align-items:center;
+      background:var(--surface);border:1px solid var(--hairline);border-left:4px solid var(--rc,var(--accent));
+      border-radius:12px;padding:13px 16px;box-shadow:var(--shadow);position:relative}
+    .rung .lv{font-family:var(--mono);font-size:1.15rem;font-weight:600;color:var(--rc,var(--accent));text-align:center;line-height:1}
+    .rung .lv small{display:block;font-size:.56rem;letter-spacing:.1em;color:var(--muted);margin-top:5px}
+    .rung .nm{font-weight:660;font-size:1rem}
+    .rung .cap{font-size:.86rem;color:var(--ink-soft);margin-top:2px}
+    .rung .dt{font-family:var(--mono);font-size:.71rem;color:var(--muted);margin-top:5px}
+    .rung .st{font-family:var(--mono);font-size:.64rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;
+      padding:4px 10px;border-radius:6px;white-space:nowrap;color:var(--rc);border:1px solid var(--rc);background:var(--rcf,transparent)}
+    .herebadge{position:absolute;top:-9px;left:52px;font-family:var(--mono);font-size:.6rem;font-weight:700;letter-spacing:.1em;
+      text-transform:uppercase;color:#fff;background:var(--high);padding:2px 8px;border-radius:5px}
+    :root[data-theme="dark"] .herebadge, .herebadge{color:#1a1200}
+    .phase{display:grid;grid-template-columns:34px 1fr;gap:14px;padding:12px 0;border-bottom:1px solid var(--hairline)}
+    .phase:last-child{border-bottom:none}
+    .phase .p{font-family:var(--mono);font-weight:700;color:var(--accent);font-size:.82rem}
+    .phase .pt{font-weight:640;font-size:.95rem}
+    .phase .pd{color:var(--ink-soft);font-size:.88rem;margin-top:3px}
+    .phase .pn{font-family:var(--mono);font-size:.68rem;color:var(--muted);margin-top:5px}
+    @media (max-width:640px){.rung{grid-template-columns:40px 1fr}.rung .st{grid-column:2;justify-self:start;margin-top:6px}.herebadge{left:48px}}
+  </style>
+  <section id="ladder">
+    <div class="sec-head"><span class="idx">09</span><h2>The hydraulic modeling ladder</h2></div>
+    <p class="lead measure" style="margin-bottom:22px">Open-channel models form a ladder of rising fidelity and rising data cost. The build sits low on it; the API <em>advertises</em> the top rung but backs it with a stub. The right next step is the one the current data can actually feed.</p>
+    <div class="ladder">
+
+      <div class="rung" style="--rc:var(--ok);--rcf:var(--ok-fill)">
+        <div class="lv">L1<small>SIMPLE</small></div>
+        <div>
+          <div class="nm">Travel-time offset (kinematic lag)</div>
+          <div class="cap">Fixed “open N min before, close N min before.” No profile, no attenuation.</div>
+          <div class="dt">needs: reach length, assumed velocity · in repo: temporal_irrigation_scheduler (demo)</div>
+        </div>
+        <div class="st">built · demo</div>
+      </div>
+
+      <div class="rung" style="--rc:var(--high);--rcf:var(--high-fill)">
+        <span class="herebadge">you are here</span>
+        <div class="lv">L2<small>&nbsp;</small></div>
+        <div>
+          <div class="nm">Steady Manning + storage relaxation</div>
+          <div class="cap">Uniform-flow reaches + lumped continuity iterated to steady state. Mass-balanced, but time-invariant.</div>
+          <div class="dt">needs: cross-section, n, bed slope · in repo: enhanced_hydraulic_solver.solve_steady_state()</div>
+        </div>
+        <div class="st">partial</div>
+      </div>
+
+      <div class="rung" style="--rc:var(--muted);--rcf:transparent">
+        <div class="lv">L3<small>&nbsp;</small></div>
+        <div>
+          <div class="nm">Kinematic wave (Muskingum)</div>
+          <div class="cap">Advective routing with flow-dependent travel time. Still no backwater.</div>
+          <div class="dt">needs: + celerity c = dQ/dA · in repo: none</div>
+        </div>
+        <div class="st">not built</div>
+      </div>
+
+      <div class="rung" style="--rc:var(--accent);--rcf:var(--accent-fill)">
+        <span class="herebadge" style="background:var(--accent);color:#fff">recommended next</span>
+        <div class="lv">L4<small>&nbsp;</small></div>
+        <div>
+          <div class="nm">Diffusive wave (Muskingum–Cunge)</div>
+          <div class="cap">Adds peak attenuation and approximate backwater — drops only the inertia terms. Reach-by-reach; no global matrix.</div>
+          <div class="dt">needs: + a few stage sensors at zone heads · reuses everything L2 has</div>
+        </div>
+        <div class="st">target</div>
+      </div>
+
+      <div class="rung" style="--rc:var(--crit);--rcf:var(--crit-fill)">
+        <div class="lv">L5<small>COMPLEX</small></div>
+        <div>
+          <div class="nm">Dynamic wave · full Saint-Venant</div>
+          <div class="cap">Full momentum: surges, backwater, sub/supercritical transitions. Implicit Preissmann over the branched network.</div>
+          <div class="dt">needs: dense stage + flow time-series for BC &amp; validation · in repo: API enum + hardcoded stub only</div>
+        </div>
+        <div class="st">stub · advertised</div>
+      </div>
+
+    </div>
+    <p class="lead measure" style="margin-top:18px;font-size:.98rem">The jump from L2 to L5 is large in both effort and data. L4 is the cheap, high-value rung: it captures the two things L2 misses that operations actually feel — <b>variable travel time</b> and <b>peak attenuation</b> down the long reaches (e.g. LMC_03 at 5.26 km) — while reusing the geometry, roughness and gate curves already in the tree.</p>
+  </section>
+
+  <!-- DIFFUSIVE-WAVE MVP -->
+  <section id="mvp">
+    <div class="sec-head"><span class="idx">10</span><h2>Minimum-viable diffusive-wave upgrade</h2></div>
+    <p class="lead measure" style="margin-bottom:20px">A Muskingum–Cunge router per canal reach — the diffusive-wave scheme that reuses Manning and reach geometry, needs no global solve, and degrades gracefully to the current travel-time model when sensors are absent.</p>
+
+    <div class="grid2">
+      <div class="card">
+        <span class="k">Governing form</span>
+        <h3>Drop inertia, keep pressure + friction</h3>
+        <div class="eq">∂A/∂t + ∂Q/∂x = q_lateral</div>
+        <div class="eq">S_f = S₀ − ∂h/∂x&nbsp;&nbsp;(local &amp; convective inertia ≈ 0)</div>
+        <div class="eq">K = Δx / c&nbsp;·&nbsp;X = ½(1 − Q ⁄ (B·c·S₀·Δx))</div>
+        <p style="margin-top:8px">Celerity <code>c ≈ (5/3)·V</code> from Manning, recomputed per timestep → travel time and attenuation both become flow-dependent.</p>
+      </div>
+      <div class="card">
+        <span class="k">Internal boundaries</span>
+        <h3>Gates couple the reaches</h3>
+        <p>Each gate stays a stage–discharge link between two routed reaches, using the corrected rating curve <code>Cs = K1·(Hs/Go)^K2</code>. Fixing that equation (F-01) is a hard prerequisite — a router on top of an inverted gate law just moves the error downstream.</p>
+        <div class="kv" style="margin-top:10px">
+          <span><b>couples</b> reach ↔ reach</span>
+          <span><b>regimes</b> free · submerged · closed</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid2" style="margin-top:16px">
+      <div class="card" style="border-left:4px solid var(--ok)">
+        <span class="k">Already in the repo (reuse)</span>
+        <ul class="tight">
+          <li>Trapezoidal reach geometry → A(h), B(h), R(h)</li>
+          <li>Manning n (0.014 concrete / 0.035 earth)</li>
+          <li>Bed slope + computed canal inverts</li>
+          <li>Network topology (tree, 59 gates) &amp; reach lengths</li>
+          <li>Gate rating curves (10/59 field-calibrated)</li>
+          <li>numpy + scipy — enough to host the router</li>
+        </ul>
+      </div>
+      <div class="card" style="border-left:4px solid var(--high)">
+        <span class="k">New data needed (modest)</span>
+        <ul class="tight">
+          <li>Stage sensors at each zone head — upstream BC + validation</li>
+          <li>Complete per-reach geometry for all ~58 reaches (template has 5)</li>
+          <li>Real per-section <span class="mono">design_discharge</span> wired as the capacity limit</li>
+          <li>A short mobile-sensor gauging campaign to calibrate n / celerity</li>
+        </ul>
+      </div>
+    </div>
+
+    <h3 style="font-size:1.05rem;margin:26px 0 4px">Phased path</h3>
+    <div class="card" style="padding:6px 20px">
+      <div class="phase"><div class="p">P0</div><div><div class="pt">Correct the foundation</div><div class="pd">Fix the inverted/unclamped gate equation (F-01); load real reach geometry and per-section <span class="mono">design_discharge</span>; enforce canal capacity (F-04).</div><div class="pn">no new hardware · unblocks everything</div></div></div>
+      <div class="phase"><div class="p">P1</div><div><div class="pt">Offline Muskingum–Cunge router</div><div class="pd">Route each reach with flow-dependent K, X; gates as internal BCs. Replaces the fixed 15-min lag with computed travel time + attenuation. Validate against any mobile-sensor traces.</div><div class="pn">software only · reuses existing geometry</div></div></div>
+      <div class="phase"><div class="p">P2</div><div><div class="pt">Instrument &amp; close the loop</div><div class="pd">Add zone-head stage sensors for live upstream BCs; feed routed arrival times into the open/close scheduler so lead times are flow-aware.</div><div class="pn">needs sensor rollout</div></div></div>
+      <div class="phase"><div class="p">P3</div><div><div class="pt">Only then weigh full Saint-Venant</div><div class="pd">Revisit L5 solely if dense stage <em>and</em> flow time-series exist to drive boundaries and validate wave timing. Until then it cannot be calibrated here.</div><div class="pn">gated on instrumentation maturity</div></div></div>
+    </div>
+
+    <p class="lead measure" style="margin-top:18px;font-size:.98rem">Net: L4 buys the operationally-meaningful physics — <b>when</b> water arrives and <b>how much peak survives</b> the long reaches — at a fraction of Saint-Venant’s data and engineering cost, and it is buildable on today’s geometry once the gate equation is fixed.</p>
+  </section>
+
+  <!-- REMEDIATION BLUEPRINT -->
+  <style>
+    .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+    @media (max-width:820px){.grid3{grid-template-columns:1fr}}
+    .seq{display:flex;flex-direction:column}
+    .seq .step{display:grid;grid-template-columns:26px 1fr;gap:14px;padding:11px 0;border-bottom:1px solid var(--hairline)}
+    .seq .step:last-child{border-bottom:none}
+    .seq .n{font-family:var(--mono);color:var(--accent);font-weight:700;font-size:.82rem}
+    .seq .s{font-size:.93rem;color:var(--ink-soft)}
+    .seq .s b{color:var(--ink);font-weight:650}
+    .seq .s code{font-size:.82rem}
+  </style>
+  <section id="fix">
+    <div class="sec-head"><span class="idx">11</span><h2>Remediation blueprint</h2></div>
+    <p class="lead measure" style="margin-bottom:22px">The corrected demand→gate pipeline — curing B5/B6/B7/B8 on top of a repaired connected graph and a fixed gate equation. A full reference spec (schema, code, tests) accompanies this report.</p>
+    <div class="grid3">
+      <div class="card" style="border-left:4px solid var(--accent)">
+        <span class="k">B5 · conveyance loss</span>
+        <h3>Seepage flux by lining</h3>
+        <div class="eq" style="font-size:.82rem">Q_seep = s·P·L + λ·Q</div>
+        <p>Seepage velocity <span class="mono">s</span> (concrete 3e-7, earth 1.5e-6 m/s) × wetted perimeter × length, + ~5% operational. Route demand up-tree adding loss so the head gate carries <em>more</em> than Σ field demand.</p>
+        <div class="kv"><span><b>data</b> lining + geometry — present</span><span><b>calibrate</b> inflow−outflow</span></div>
+      </div>
+      <div class="card" style="border-left:4px solid var(--accent)">
+        <span class="k">B6 + B7 · rotation</span>
+        <h3>Capacity as a hard resource</h3>
+        <div class="eq" style="font-size:.78rem">Σ_active q·(1+λ) ≤ Q_cap ∀ reach,t</div>
+        <p>Greedy capacity-aware scheduler: start the highest-priority delivery only if it fits every reach on its path; free capacity as deliveries finish. Only concurrent demand is summed; infeasible sums defer to later slots.</p>
+        <div class="kv"><span><b>cap</b> real design_discharge</span><span><b>upgrade</b> CP-SAT RCPSP</span></div>
+      </div>
+      <div class="card" style="border-left:4px solid var(--accent)">
+        <span class="k">B8 · branch split</span>
+        <h3>Forward physics + inverse</h3>
+        <p><span class="mono">solve_network</span> already resolves the split via continuity — keep it. Replace the crude optimizer with a head→tail coordinated inverse (corrected <span class="mono">Cs=K1(Hs/Go)^K2</span>, capacity-clamped), run per rotation block, then verify forward.</p>
+        <div class="kv"><span><b>forward</b> ✓ works today</span><span><b>inverse</b> rewrite</span></div>
+      </div>
+    </div>
+
+    <h3 style="font-size:1.05rem;margin:28px 0 6px">Corrected sequence</h3>
+    <div class="card" style="padding:8px 20px">
+      <div class="seq">
+        <div class="step"><div class="n">1</div><div class="s"><b>Attach demand</b> — ROS section demand → network node via <code>section_node_map</code> (includes the 20 interior delivery nodes)</div></div>
+        <div class="step"><div class="n">2</div><div class="s"><b>Aggregate up the connected tree</b> — post-order descendants sum + B5 loss uplift → required flow per reach</div></div>
+        <div class="step"><div class="n">3</div><div class="s"><b>Check capacity</b> — flag any reach over <code>design_discharge</code>; defer overflow to rotation</div></div>
+        <div class="step"><div class="n">4</div><div class="s"><b>Schedule rotation</b> — capacity + concurrency + travel-time offsets → time-varying reach targets</div></div>
+        <div class="step"><div class="n">5</div><div class="s"><b>Inverse per block</b> — coordinated head→tail openings; <code>solve_network</code> verifies the branch split</div></div>
+        <div class="step"><div class="n">6</div><div class="s"><b>Quantize + command</b> — snap to a discrete gate level within capacity → SCADA <code>command-level</code> (the bridge missing today)</div></div>
+        <div class="step"><div class="n">7</div><div class="s"><b>Close loop</b> — integrate delivered volume; close when met; re-solve the active set</div></div>
+      </div>
+    </div>
+    <p class="lead measure" style="margin-top:18px;font-size:.96rem"><b>Preconditions</b> (land first): F-11 single connected graph · F-01 corrected gate equation · F-04 real per-section capacity. With those, steps 1–3 are mechanical; 4–7 are the new build.</p>
+  </section>
+
+  <!-- ROADMAP -->
+  <style>
+    .road{display:flex;flex-direction:column;gap:12px}
+    .lane{display:grid;grid-template-columns:78px 1fr;gap:16px;align-items:start;background:var(--surface);
+      border:1px solid var(--hairline);border-left:4px solid var(--pc,var(--accent));border-radius:12px;
+      padding:14px 16px;box-shadow:var(--shadow)}
+    .lane .ph{font-family:var(--mono);font-weight:700;font-size:1.05rem;color:var(--pc,var(--accent));line-height:1}
+    .lane .ph small{display:block;font-size:.58rem;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin-top:6px;font-weight:600}
+    .lane .cap{font-family:var(--mono);font-size:.72rem;letter-spacing:.03em;color:var(--muted);margin-bottom:9px}
+    .lane .items{display:flex;flex-wrap:wrap;gap:6px}
+    .tagf{font-family:var(--mono);font-size:.7rem;border:1px solid var(--hairline-strong);border-radius:6px;padding:3px 8px;color:var(--ink-soft);white-space:nowrap}
+    .tagf b{color:var(--ink);font-weight:600}
+    .spine{font-family:var(--mono);font-size:.8rem;color:var(--ink-soft);background:var(--surface-2);
+      border:1px solid var(--hairline);border-radius:10px;padding:12px 15px;margin-top:16px;overflow-x:auto}
+    .spine b{color:var(--accent-ink)}
+  </style>
+  <section id="roadmap">
+    <div class="sec-head"><span class="idx">12</span><h2>Remediation roadmap</h2></div>
+    <p class="lead measure" style="margin-bottom:22px">Dependency-ordered. P0 is the foundation — nothing correct is possible until the gate law, the connected graph, and real capacity land. Each phase is gated by what it needs: code, then a scheduler, then sensors.</p>
+    <div class="road">
+
+      <div class="lane" style="--pc:var(--crit)">
+        <div class="ph">P0<small>no hardware</small></div>
+        <div>
+          <div class="cap">Foundation — correctness prerequisites</div>
+          <div class="items">
+            <span class="tagf"><b>F-01</b> gate law</span>
+            <span class="tagf"><b>F-11</b> connected topology</span>
+            <span class="tagf"><b>F-04</b> real capacity</span>
+            <span class="tagf"><b>C10</b> delete duplicates</span>
+            <span class="tagf"><b>F-07/F-08</b> demand plumbing</span>
+            <span class="tagf"><b>SEC</b> rotate creds</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="lane" style="--pc:var(--high)">
+        <div class="ph">P1<small>software</small></div>
+        <div>
+          <div class="cap">Control plane — offline plan + verify</div>
+          <div class="items">
+            <span class="tagf"><b>C9</b> wire controller</span>
+            <span class="tagf"><b>A1–A4</b> aggregation</span>
+            <span class="tagf"><b>B5</b> conveyance loss</span>
+            <span class="tagf"><b>B8</b> inverse/split</span>
+            <span class="tagf"><b>C12</b> demand contract</span>
+            <span class="tagf"><b>F-06/F-09</b> demand reconcile</span>
+            <span class="tagf"><b>SV</b> remove façade</span>
+            <span class="tagf"><b>F-05</b> similar-gate calib</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="lane" style="--pc:var(--accent)">
+        <div class="ph">P2<small>shadow mode</small></div>
+        <div>
+          <div class="cap">Scheduling + actuation — advise, don’t actuate</div>
+          <div class="items">
+            <span class="tagf"><b>B6/B7</b> rotation + capacity</span>
+            <span class="tagf"><b>D13</b> travel-time timing</span>
+            <span class="tagf"><b>F-02</b> SCADA bridge</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="lane" style="--pc:var(--med)">
+        <div class="ph">P3<small>sensors</small></div>
+        <div>
+          <div class="cap">Closed loop — needs instrumentation</div>
+          <div class="items">
+            <span class="tagf">zone-head stage sensors</span>
+            <span class="tagf">closure loop live</span>
+            <span class="tagf"><b>B5</b> Tier-3 seepage cal.</span>
+            <span class="tagf"><b>CONF</b> residual-based CI</span>
+            <span class="tagf">expand field calibration</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="lane" style="--pc:var(--muted)">
+        <div class="ph">P4<small>optional</small></div>
+        <div>
+          <div class="cap">Advanced physics — gated on sensor maturity</div>
+          <div class="items">
+            <span class="tagf">diffusive-wave (Muskingum–Cunge) routing</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+    <div class="spine"><b>Dependency spine:</b>&nbsp; F-01 + F-11 + F-04 &nbsp;→&nbsp; aggregation &nbsp;→&nbsp; inverse / split &nbsp;→&nbsp; scheduling &nbsp;→&nbsp; SCADA bridge &nbsp;→&nbsp; closed loop</div>
+  </section>
+
+</main>
+
+<footer class="wrap">
+  <div class="measure">
+    <p>Compiled from a source-level trace of the Munbon irrigation backend across the <span class="mono">main</span> and <span class="mono">feat/scada-gate-control</span> working copies. Every finding cites the file it was read from; the F-01 flow figures were reproduced by replicating the exact wired arithmetic. Line-level references were current at trace time (2026-07-08) and should be re-confirmed before remediation.</p>
+    <p style="margin-top:12px; color:var(--ink-soft)">Overall read: a thoughtfully-scoped hydraulic design sitting on top of a mostly-scaffolded control loop — one operational demand lineage (Excel/ROS), a preferred-but-empty second source, a numerically inverted opening solver, and an unbridged gap to a discrete actuator.</p>
+  </div>
+</footer>
