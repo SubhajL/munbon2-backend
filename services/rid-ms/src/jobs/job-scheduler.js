@@ -13,10 +13,13 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.JobScheduler = void 0;
 
-// Cron schedules (Asia/Bangkok is configured at the app level).
-const DAILY_SHAPEFILE_CHECK = "0 6 * * *";      // 06:00 daily
-const DAILY_WATER_DEMAND_REFRESH = "0 7 * * *"; // 07:00 daily
-const WEEKLY_CLEANUP = "0 3 * * 0";             // 03:00 Sundays
+// Cron schedules. node-cron fires in the process TZ unless a timezone is passed; rid-ms sets
+// no TZ (so container-local == UTC on EC2, ~7h off Bangkok), so pass the timezone explicitly.
+const TIMEZONE = "Asia/Bangkok";
+const CRON_OPTIONS = { timezone: TIMEZONE };
+const DAILY_SHAPEFILE_CHECK = "0 6 * * *";      // 06:00 Asia/Bangkok daily
+const DAILY_WATER_DEMAND_REFRESH = "0 7 * * *"; // 07:00 Asia/Bangkok daily
+const WEEKLY_CLEANUP = "0 3 * * 0";             // 03:00 Asia/Bangkok Sundays
 
 function log(level, msg, err) {
     try {
@@ -47,18 +50,24 @@ class JobScheduler {
         }
         const cron = require("node-cron");
         this.tasks.push(
-            cron.schedule(DAILY_SHAPEFILE_CHECK, () =>
-                this._run("daily shapefile check", () => this._checkShapefiles())
+            cron.schedule(
+                DAILY_SHAPEFILE_CHECK,
+                () => this._run("daily shapefile check", () => this._checkShapefiles()),
+                CRON_OPTIONS
             )
         );
         this.tasks.push(
-            cron.schedule(DAILY_WATER_DEMAND_REFRESH, () =>
-                this._run("water demand refresh", () => this._refreshWaterDemands())
+            cron.schedule(
+                DAILY_WATER_DEMAND_REFRESH,
+                () => this._run("water demand refresh", () => this._refreshWaterDemands()),
+                CRON_OPTIONS
             )
         );
         this.tasks.push(
-            cron.schedule(WEEKLY_CLEANUP, () =>
-                this._run("weekly cleanup", () => this._cleanupOldFiles())
+            cron.schedule(
+                WEEKLY_CLEANUP,
+                () => this._run("weekly cleanup", () => this._cleanupOldFiles()),
+                CRON_OPTIONS
             )
         );
         this.started = true;
