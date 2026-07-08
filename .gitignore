@@ -277,3 +277,7 @@ frontend-test.html
 services/flow-monitoring/docs/*
 !services/flow-monitoring/docs/remediation/
 !services/flow-monitoring/docs/remediation/**
+
+# Track the flow-monitoring test suite (exception to the blanket tests/ ignore above)
+!services/flow-monitoring/tests/
+!services/flow-monitoring/tests/**
