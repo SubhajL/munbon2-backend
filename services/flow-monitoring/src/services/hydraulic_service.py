@@ -4,6 +4,7 @@ Provides hydraulic modeling and verification capabilities
 """
 
 import asyncio
+import json
 import os
 from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime, timedelta
@@ -21,11 +22,14 @@ from db.timescale_client import TimescaleClient
 from core.metrics import hydraulic_solver_iterations, hydraulic_verification_duration
 from core.gate_flow import build_gate_flow_calibration, gate_flow_m3s, required_opening_m
 from core.network_topology import load_validated_network
+from core.canal_capacity import build_capacity_index, reach_capacity
 
 # P0 (F-01) fallback water levels: used ONLY when real sensor/solver levels are
 # unavailable. Real levels are threaded in P1 (see docs/remediation/FIX_F01_GATE_FLOW_LAW_SPEC.md §7).
 DEFAULT_UPSTREAM_DEPTH_M = 2.0  # assumed head over sill (m)
 DEFAULT_HEAD_DIFF_M = 0.2       # assumed driving head (m)
+# F-04: fallback canal capacity when a reach has no rated q_max in the network (logged, never silent).
+DEFAULT_CANAL_CAPACITY_M3S = 15.0
 
 logger = structlog.get_logger()
 
@@ -631,9 +635,31 @@ class HydraulicService:
 
 
     def _get_canal_capacity(self, canal_id: str) -> float:
-        """Get canal flow capacity"""
-        # Based on canal geometry
-        return 15.0  # m³/s
+        """Rated capacity (m3/s) of a canal reach, from the downstream gate's q_max in the
+        canonical network (F-04). Falls back to a documented default (logged) when unknown."""
+        capacity, from_data = reach_capacity(
+            self._canal_capacity_index(), canal_id, DEFAULT_CANAL_CAPACITY_M3S
+        )
+        if not from_data:
+            logger.warning(
+                "canal %s: no rated capacity in network; using default %.1f m3/s",
+                canal_id, DEFAULT_CANAL_CAPACITY_M3S,
+            )
+        return capacity
+
+    def _canal_capacity_index(self) -> dict:
+        """Lazily load & cache gate q_max capacities from the canonical network.json."""
+        cache = getattr(self, "_canal_cap_index_cache", None)
+        if cache is None:
+            path = os.path.join(os.path.dirname(__file__), "..", "config", "network.json")
+            try:
+                with open(path, encoding="utf-8") as f:
+                    cache = build_capacity_index(json.load(f))
+            except Exception as exc:
+                logger.error("failed to load canal capacity index: %s", exc)
+                cache = {}
+            self._canal_cap_index_cache = cache
+        return cache
     
     def _calculate_required_opening(
         self,
