@@ -1,409 +1,219 @@
-# WARP.md
+# Munbon Irrigation Control System — Backend
 
-This file provides guidance to WARP.ai when working with code in this repository.
+## Overview
+- **Type**: Polyglot microservices **monorepo** (each service is standalone; there is **no** root workspace, no Turborepo, no pnpm workspace).
+- **Stack**: Node.js/TypeScript (~18 services) + Python/FastAPI (~9 services). No Go services are currently implemented despite historical planning docs.
+- **Domain**: Automated water control for Thailand's Munbon Irrigation Project — demand planning → scheduling → gate hydraulics → SCADA/Modbus actuation, plus IoT sensor ingestion.
+- **Orchestration**: PM2 (`infra/pm2/ecosystem-irrigation.config.js` + per-service `ecosystem*.config.js`); per-service Dockerfiles; deploy to EC2. Databases run as separate containers.
+- **Shared code**: `shared/{nodejs,python,typescript-common}`.
 
+**This CLAUDE.md is the authoritative, repo-wide source of development rules.** Active services carry their own `services/<name>/CLAUDE.md` that **extend** these rules with service-specific detail. When a service file and this file disagree, the service file wins *for that service only*.
 
-# WARP Guidelines by Sabrina Ramonov
-
-## Implementation Best Practices
-
-### 0 — Purpose  
-
-These rules ensure maintainability, safety, and developer velocity. 
-**MUST** rules are enforced by CI; **SHOULD** rules are strongly recommended.
-
----
-
-### 1 — Before Coding
-
-- **BP-1 (MUST)** Ask the user clarifying questions.
-- **BP-2 (SHOULD)** Draft and confirm an approach for complex work.  
-- **BP-3 (SHOULD)** If ≥ 2 approaches exist, list clear pros and cons.
+> Note: the sibling root `AGENTS.md` historically held a generic imported template. Treat **this file** as canonical; `AGENTS.md` should be kept in sync (or reduced to a pointer to this file).
 
 ---
 
-### 2 — While Coding
+## Universal Development Rules
 
-- **C-1 (MUST)** Follow TDD: scaffold stub -> write failing test -> implement.
-- **C-2 (MUST)** Name functions with existing domain vocabulary for consistency.  
-- **C-3 (SHOULD NOT)** Introduce classes when small testable functions suffice.  
-- **C-4 (SHOULD)** Prefer simple, composable, testable functions.
-- **C-5 (MUST)** Prefer branded `type`s for IDs
-  ```ts
-  type UserId = Brand<string, 'UserId'>   // ✅ Good
-  type UserId = string                    // ❌ Bad
-  ```  
-- **C-6 (MUST)** Use `import type { … }` for type-only imports.
-- **C-7 (SHOULD NOT)** Add comments except for critical caveats; rely on self‑explanatory code.
-- **C-8 (SHOULD)** Default to `type`; use `interface` only when more readable or interface merging is required. 
-- **C-9 (SHOULD NOT)** Extract a new function unless it will be reused elsewhere, is the only way to unit-test otherwise untestable logic, or drastically improves readability of an opaque block.
+### Code Quality (MUST)
+- **MUST** follow TDD: scaffold stub → write a failing test → implement (C-1).
+- **MUST** name functions/vars with existing domain vocabulary for consistency (C-2).
+- **MUST NOT** commit secrets, API keys, DB passwords, tokens, or production hostnames (see Security).
+- **MUST** use Conventional Commits (GH-1): `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`, …
+- **MUST** make the language's type/lint/test gate pass before opening a PR (see Quality Gates).
 
----
+### Best Practices (SHOULD)
+- **SHOULD** prefer small, composable, testable functions over classes when they suffice (C-3, C-4).
+- **SHOULD NOT** add comments except for critical caveats; rely on self-explanatory code (C-7).
+- **SHOULD NOT** extract a new function unless it is reused, is the only way to unit-test otherwise-untestable logic, or drastically improves readability (C-9).
+- **SHOULD** prefer integration tests over heavy mocking (T-4); unit-test complex algorithms thoroughly (T-5).
 
-### 3 — Testing
+### Language-specific
+- **TypeScript/Node**: strict mode; `import type { … }` for type-only imports (C-6); prefer branded `type`s for IDs (C-5); default to `type` over `interface` (C-8). Gate: `tsc --noEmit` + `eslint` + `prettier --check` + tests.
+- **Python/FastAPI**: type hints on public functions; keep pure hydraulic/domain logic in `core/` free of I/O so it is unit-testable; DB/network access lives in `services/`/`repository/`. Gate: `pytest` (+ `ruff`/`flake8` where configured).
 
-- **T-1 (MUST)** For a simple function, colocate unit tests in `*.spec.ts` in same directory as source file.
-- **T-2 (MUST)** For any API change, add/extend integration tests in `packages/api/test/*.spec.ts`.
-- **T-3 (MUST)** ALWAYS separate pure-logic unit tests from DB-touching integration tests.
-- **T-4 (SHOULD)** Prefer integration tests over heavy mocking.  
-- **T-5 (SHOULD)** Unit-test complex algorithms thoroughly.
-- **T-6 (SHOULD)** Test the entire structure in one assertion if possible
-  ```ts
-  expect(result).toBe([value]) // Good
-
-  expect(result).toHaveLength(1); // Bad
-  expect(result[0]).toBe(value); // Bad
-  ```
+### Anti-Patterns (MUST NOT)
+- **MUST NOT** push directly to `main` — branch, PR, admin-merge (see Git Workflow).
+- **MUST NOT** introduce a second copy of an existing algorithm (this repo already suffers from divergent duplicate implementations — consolidate, don't fork).
+- **MUST NOT** silently hardcode operational constants (levels, capacities, credentials) where real data exists — fail closed and log instead.
 
 ---
 
-### 4 — Database
+## Core Commands
 
-- **D-1 (MUST)** Type DB helpers as `KyselyDatabase | Transaction<Database>`, so it works for both transactions and DB instances.  
-- **D-2 (SHOULD)** Override incorrect generated types in `packages/shared/src/db-types.override.ts`. e.g. autogenerated types show incorrect BigInt value – so we override to `string` manually.
+There is **no** root build. Operate **per service** from its own directory.
+
+### Node/TypeScript services (npm)
+```bash
+npm install
+npm run dev          # ts-node / nodemon (varies per service)
+npm run build        # tsc -> dist/
+npm start            # node dist/index.js (or dist/cmd/server/main.js)
+npm test             # vitest run  OR  jest  (varies)
+npm run lint         # eslint
+npx tsc --noEmit     # typecheck (some services expose `npm run typecheck`)
+npx prettier --check "src/**/*.ts"
+```
+
+### Python services (venv + pytest)
+```bash
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+pytest -v                      # tests (usually tests/unit/test_*.py)
+uvicorn src.main:app --reload  # FastAPI dev (path varies per service)
+```
+
+### Orchestration / deploy
+```bash
+pm2 start ecosystem.config.js            # run a service's PM2 config
+pm2 start infra/pm2/ecosystem-irrigation.config.js
+docker build -t <svc> services/<svc>     # per-service Dockerfile (not all services have one)
+```
+CI: `.github/workflows/build-and-deploy.yml` is **manual** (`workflow_dispatch`) — it builds/pushes only changed `services/*` to EC2. Most other workflows are `.disabled`.
+
+### Quality Gates (run before every PR, from the service dir)
+- **Node**: `npx tsc --noEmit && npm run lint && npm test`
+- **Python**: `pytest`
 
 ---
 
-### 5 — Code Organization
+## Project Structure
 
-- **O-1 (MUST)** Place code in `packages/shared` only if used by ≥ 2 packages.
+```
+munbon2-backend/
+├── services/                      # 48 microservices (each standalone)
+│   ├── flow-monitoring/           # Python/FastAPI — gate hydraulics, demand→gate control  → services/flow-monitoring/CLAUDE.md
+│   ├── scada-gate-control/        # TS/Express — Modbus TCP gate actuation + audit         → services/scada-gate-control/CLAUDE.md
+│   ├── scada-gate-control-web/    # Next.js 16 — SCADA operator UI                          → services/scada-gate-control-web/CLAUDE.md
+│   ├── sensor-data/               # TS — IoT ingestion (SQS→TimescaleDB) + chart APIs       → services/sensor-data/CLAUDE.md
+│   ├── daily-chart-notifier/      # TS — scheduled screenshot + notification                → services/daily-chart-notifier/CLAUDE.md
+│   ├── bff-water-planning/        # Python — water-planning BFF                              → services/bff-water-planning/CLAUDE.md
+│   ├── ros-gis-integration/       # Python — ROS/Excel demand → ros_gis pipeline            → services/ros-gis-integration/CLAUDE.md
+│   └── … (41 more, older/less active)
+├── shared/{nodejs,python,typescript-common}/   # shared libs
+├── infra/pm2/                     # PM2 ecosystem configs
+├── .github/workflows/             # CI (mostly manual/disabled)
+├── docs/                          # documentation (git-ignored by a blanket docs/ rule — see .gitignore)
+└── CLAUDE.md                      # this file
+```
+
+**Active services** (recent commits; have their own CLAUDE.md): flow-monitoring, scada-gate-control(-web), sensor-data, daily-chart-notifier, bff-water-planning, ros-gis-integration. The remaining ~41 are dormant/experimental — verify before relying on them.
 
 ---
 
-### 6 — Tooling Gates
-
-- **G-1 (MUST)** `prettier --check` passes.  
-- **G-2 (MUST)** `turbo typecheck lint` passes.  
+## Quick Find
+```bash
+# A service's entry point
+ls services/<svc>/src/index.ts services/<svc>/src/cmd/server/main.ts services/<svc>/src/main.py 2>/dev/null
+# Node endpoints
+rg -n "router\.(get|post|put|delete)|app\.(get|post)" services/<svc>/src
+# FastAPI endpoints
+rg -n "@(app|router)\.(get|post|put|delete)" services/<svc>/src
+# Find duplicate/divergent implementations before adding a new one
+rg -n "def <name>|function <name>|class <Name>" services/<svc>
+```
 
 ---
 
-### 7 - Git
+## Security & Secrets (MUST)
+This repo has a **history of committed production credentials** (the README documents a credential-cleaning event and mandates re-clone + `.env` rotation). Known live issues include hardcoded DB passwords / hosts / API keys in `services/bff-water-planning/scripts/` and `services/sensor-data/` committed files.
 
-- **GH-1 (MUST**) Use Conventional Commits format when writing commit messages: https://www.conventionalcommits.org/en/v1.0.0
+- **MUST NOT** commit credentials, tokens, production hostnames/IPs. Use `.env` (git-ignored) from each service's `.env.example`.
+- **MUST** move any discovered hardcoded secret to env/secret-manager and flag it for rotation — do not just relocate it.
+- **SHOULD** treat any credential ever committed as compromised → rotate.
+- Before committing, scan the diff for secrets (a secret-scanning CI gate is a P0 remediation item).
+
+---
+
+## Git Workflow
+- These local folders are **git worktrees of one repo** (`github.com/SubhajL/munbon2-backend`). `main` is the canonical branch.
+- Branch from `main`: `fix/<id>-<slug>`, `feat/<slug>`, `docs/<slug>`.
+- **Conventional Commits** (GH-1). One logical change per PR; keep PRs atomic and reviewable.
+- Flow: **branch → push → open PR → admin merges to `origin/main` → land local `main` (`git switch main && git pull --ff-only`)**.
+- **MUST NOT** `git push origin main` directly or force-push shared branches without explicit approval.
+- Never `git reset --hard` a worktree that holds uncommitted work.
+
+---
+
+## Testing (MANDATORY — from project principles)
+1. **No skipped tests, no "simpler"/"more flexible" substitute tests.** Implement the agreed test plan exactly.
+2. **No mock data for integration paths.** Use real data/connections; if a dependency must be set up manually (DB, creds, fixtures), **stop and ask the user to provide it** — do not fabricate.
+3. **Auto-fix → re-test loop** until the plan passes, without violating (1) and (2).
+
+Pyramid: ~70% unit, ~20% integration, ~10% e2e. Write tests first for critical logic. Prefer real containers (Testcontainers) / real DBs over mocks. See the **Writing Tests Best Practices** checklist below.
+
+---
+
+## Available Tools & Permissions
+- Standard bash (`rg`, `git`, `gh`, `node`/`npm`, `python`/`pytest`, `pm2`, `docker`).
+- MCP servers configured this environment: Auggie (semantic code search), Codex (planning/review), Ref, Exa, others. **Note:** external AI aids (Auggie, Codex) may hit quota/usage limits — have a local fallback (the QCHECK checklists below, `/code-review`).
+- ✅ Read/write code, run tests/linters/typecheckers. ❌ Edit `.env`/secrets, force-push, drop DBs, `git push origin main` — **ask first**.
+
+---
+
+## Specialized Context (subdirectory CLAUDE.md)
+When working inside a service, read its file first:
+- [services/flow-monitoring/CLAUDE.md](services/flow-monitoring/CLAUDE.md) — Python hydraulics / gate-flow / P0 remediation
+- [services/scada-gate-control/CLAUDE.md](services/scada-gate-control/CLAUDE.md) — Modbus TCP actuation
+- [services/scada-gate-control-web/CLAUDE.md](services/scada-gate-control-web/CLAUDE.md) — Next.js 16 operator UI
+- [services/sensor-data/CLAUDE.md](services/sensor-data/CLAUDE.md) — IoT ingestion + chart APIs
+- [services/daily-chart-notifier/CLAUDE.md](services/daily-chart-notifier/CLAUDE.md) — scheduled notifier
+- [services/bff-water-planning/CLAUDE.md](services/bff-water-planning/CLAUDE.md) — water-planning BFF
+- [services/ros-gis-integration/CLAUDE.md](services/ros-gis-integration/CLAUDE.md) — demand pipeline
 
 ---
 
 ## Writing Functions Best Practices
+When evaluating whether a function is good, use this checklist:
+1. Can you *honestly* follow what it does on one read? If yes, stop.
+2. Is cyclomatic complexity high (many nested branches)? Then it's probably sketchy.
+3. Would a standard data structure/algorithm (parser, tree, stack/queue) make it simpler and more robust?
+4. Any unused parameters?
+5. Any unnecessary type casts that could move to the arguments?
+6. Is it testable without mocking core infra (DB/redis/network)? If not, can it be covered by an integration test?
+7. Any hidden untested dependencies that could be factored into arguments?
+8. Brainstorm 3 better names; is the current one the best and consistent with the codebase?
 
-When evaluating whether a function you implemented is good or not, use this checklist:
-
-1. Can you read the function and HONESTLY easily follow what it's doing? If yes, then stop here.
-2. Does the function have very high cyclomatic complexity? (number of independent paths, or, in a lot of cases, number of nesting if if-else as a proxy). If it does, then it's probably sketchy.
-3. Are there any common data structures and algorithms that would make this function much easier to follow and more robust? Parsers, trees, stacks / queues, etc.
-4. Are there any unused parameters in the function?
-5. Are there any unnecessary type casts that can be moved to function arguments?
-6. Is the function easily testable without mocking core features (e.g. sql queries, redis, etc.)? If not, can this function be tested as part of an integration test?
-7. Does it have any hidden untested dependencies or any values that can be factored out into the arguments instead? Only care about non-trivial dependencies that can actually change or affect the function.
-8. Brainstorm 3 better function names and see if the current name is the best, consistent with rest of codebase.
-
-IMPORTANT: you SHOULD NOT refactor out a separate function unless there is a compelling need, such as:
-  - the refactored function is used in more than one place
-  - the refactored function is easily unit testable while the original function is not AND you can't test it any other way
-  - the original function is extremely hard to follow and you resort to putting comments everywhere just to explain it
+Do NOT extract a function unless: it's reused, it's the only way to unit-test otherwise-untestable logic, or the original is extremely hard to follow.
 
 ## Writing Tests Best Practices
+1. Parameterize inputs; never embed unexplained literals like `42`/`"foo"`.
+2. No test that can't fail for a real defect; no trivial asserts (`expect(2).toBe(2)`).
+3. Test description must state exactly what the final `expect` verifies.
+4. Compare to independent, pre-computed expectations or domain properties — never to the function's own output as oracle.
+5. Follow the same lint/type/style rules as prod code.
+6. Express invariants/axioms (commutativity, idempotence, round-trip) where practical.
+7. Group unit tests under the function name.
+8. Use `expect.any(...)` for variable ids.
+9. Strong assertions over weak (`toEqual(1)` not `toBeGreaterThanOrEqual(1)`).
+10. Test edge cases, realistic input, unexpected input, and boundaries.
+11. Don't test conditions already caught by the type checker.
 
-When evaluating whether a test you've implemented is good or not, use this checklist:
+---
 
-1. SHOULD parameterize inputs; never embed unexplained literals such as 42 or "foo" directly in the test.
-2. SHOULD NOT add a test unless it can fail for a real defect. Trivial asserts (e.g., expect(2).toBe(2)) are forbidden.
-3. SHOULD ensure the test description states exactly what the final expect verifies. If the wording and assert don’t align, rename or rewrite.
-4. SHOULD compare results to independent, pre-computed expectations or to properties of the domain, never to the function’s output re-used as the oracle.
-5. SHOULD follow the same lint, type-safety, and style rules as prod code (prettier, ESLint, strict types).
-6. SHOULD express invariants or axioms (e.g., commutativity, idempotence, round-trip) rather than single hard-coded cases whenever practical. Use `fast-check` library e.g.
-```
-import fc from 'fast-check';
-import { describe, expect, test } from 'vitest';
-import { getCharacterCount } from './string';
-
-describe('properties', () => {
-  test('concatenation functoriality', () => {
-    fc.assert(
-      fc.property(
-        fc.string(),
-        fc.string(),
-        (a, b) =>
-          getCharacterCount(a + b) ===
-          getCharacterCount(a) + getCharacterCount(b)
-      )
-    );
-  });
-});
-```
-
-7. Unit tests for a function should be grouped under `describe(functionName, () => ...`.
-8. Use `expect.any(...)` when testing for parameters that can be anything (e.g. variable ids).
-9. ALWAYS use strong assertions over weaker ones e.g. `expect(x).toEqual(1)` instead of `expect(x).toBeGreaterThanOrEqual(1)`.
-10. SHOULD test edge cases, realistic input, unexpected input, and value boundaries.
-11. SHOULD NOT test conditions that are caught by the type checker.
-
-## Code Organization
-
-- `packages/api` - Fastify API server
-  - `packages/api/src/publisher/*.ts` - Specific implementations of publishing to social media platforms
-- `packages/web` - Next.js 15 app with App Router
-- `packages/shared` - Shared types and utilities
-  - `packages/shared/social.ts` - Character size and media validations for social media platforms
-- `packages/api-schema` - API contract schemas using TypeBox
-
-## Remember Shortcuts
-
-Remember the following shortcuts which the user may invoke at any time.
+## Shortcuts
+Invoke by typing the keyword.
 
 ### QNEW
-
-When I type "qnew", this means:
-
-```
-Understand all BEST PRACTICES listed in WARP.md.
-Your code SHOULD ALWAYS follow these best practices.
-Understand and strictly follow the architecture in CONTEXT.md 
-```
+> Understand all BEST PRACTICES in CLAUDE.md. Your code SHOULD ALWAYS follow them. Understand and follow the service's CLAUDE.md architecture.
 
 ### QPLAN
-When I type "qplan", this means:
-```
-Analyze similar parts of the codebase and determine whether your plan:
-- is consistent with rest of codebase
-- introduces minimal changes
-- reuses existing code
-```
+> Analyze similar parts of the codebase and check your plan is consistent with it, introduces minimal changes, and reuses existing code.
 
-## QCODE
-
-When I type "qcode", this means:
-
-```
-Implement your plan and make sure your new tests pass.
-Always run tests to make sure you didn't break anything else.
-Always run `prettier` on the newly created files to ensure standard formatting.
-Always run `turbo typecheck lint` to make sure type checking and linting passes.
-```
+### QCODE
+> Implement your plan and make new tests pass. Run the full test suite. Run the formatter and the type/lint gate.
 
 ### QCHECK
-
-When I type "qcheck", this means:
-
-```
-You are a SKEPTICAL senior software engineer.
-Perform this analysis for every MAJOR code change you introduced (skip minor changes):
-
-1. WARP.md checklist Writing Functions Best Practices.
-2. WARP.md checklist Writing Tests Best Practices.
-3. WARP.md checklist Implementation Best Practices.
-```
+> You are a SKEPTICAL senior engineer. For every MAJOR change, run: (1) Writing Functions Best Practices, (2) Writing Tests Best Practices, (3) Implementation Best Practices. *(This is Codex-independent — run it directly.)*
 
 ### QCHECKF
-
-When I type "qcheckf", this means:
-
-```
-You are a SKEPTICAL senior software engineer.
-Perform this analysis for every MAJOR function you added or edited (skip minor changes):
-
-1. WARP.md checklist Writing Functions Best Practices.
-```
+> Skeptical review of every MAJOR function added/edited against Writing Functions Best Practices.
 
 ### QCHECKT
-
-When I type "qcheckt", this means:
-
-```
-You are a SKEPTICAL senior software engineer.
-Perform this analysis for every MAJOR test you added or edited (skip minor changes):
-
-1. WARP.md checklist Writing Tests Best Practices.
-```
+> Skeptical review of every MAJOR test added/edited against Writing Tests Best Practices.
 
 ### QUX
-
-When I type "qux", this means:
-
-```
-Imagine you are a human UX tester of the feature you implemented. 
-Output a comprehensive list of scenarios you would test, sorted by highest priority.
-```
+> As a human UX tester, output a prioritized list of scenarios to test for the feature you implemented.
 
 ### QGIT
-
-When I type "qgit", this means:
-
-```
-Add all changes to staging, create a commit, and push to remote.
-
-Follow this checklist for writing your commit message:
-- SHOULD use Conventional Commits format: https://www.conventionalcommits.org/en/v1.0.0
-- SHOULD structure commit message as follows:
-<type>[optional scope]: <description>
-[optional body]
-[optional footer(s)]
-- commit SHOULD contain the following structural elements to communicate intent: 
-fix: a commit of the type fix patches a bug in your codebase (this correlates with PATCH in Semantic Versioning).
-feat: a commit of the type feat introduces a new feature to the codebase (this correlates with MINOR in Semantic Versioning).
-BREAKING CHANGE: a commit that has a footer BREAKING CHANGE:, or appends a ! after the type/scope, introduces a breaking API change (correlating with MAJOR in Semantic Versioning). A BREAKING CHANGE can be part of commits of any type.
-types other than fix: and feat: are allowed, for example @commitlint/config-conventional (based on the Angular convention) recommends build:, chore:, ci:, docs:, style:, refactor:, perf:, test:, and others.
-footers other than BREAKING CHANGE: <description> may be provided and follow a convention similar to git trailer format.
-```
-
-#Additional Guidance:
-
-guidance to WARP.ai when working with code in this repository.
-
-## Testing Principles (MANDATORY)
-
-1. **No skip test, No more flexible test, No simpler test. Stick to the test plan above only**
-   - All tests must be implemented exactly as specified
-   - No test modifications or simplifications allowed
-   - No skipping of any test cases
-
-2. **No mock data. Let me know what I have to fix, create, modify manually. I will do them**
-   - Use real data and actual service connections
-   - Request manual setup for test dependencies
-   - No artificial test data generation
-
-3. **Work in YOLO mode, auto-fixing -> re-test loop until test plan is completed. Stick to 1. and 2. principles**
-   - Continuous test-fix-retest cycles
-   - Automatic fixing of failures
-   - Complete all tests without exceptions
-
-### Additional Testing Guidelines (from PROGRAMMING_PRINCIPLES)
-
-**Test Pyramid Strategy:**
-- 70% unit tests
-- 20% integration tests  
-- 10% end-to-end tests
-
-**Test-Driven Development:**
-- Write tests first, especially for critical functionality
-- Tests must validate actual behavior, not mocked responses
-- Integration tests should use real containers (Testcontainers)
-- Contract testing for service-to-service communication
-
-## Project Overview
-Munbon Irrigation Control System Backend - A microservice-based solution for automated water control and management in Thailand's Munbon Irrigation Project.
-
-## Current Project Status
-- **Phase**: Initial setup - no code implemented yet
-- **Tasks**: 36 tasks defined via TaskMaster (0% complete)
-- **Architecture**: Microservice with BFF pattern planned
-
-## System Architecture
-
-### Core Microservices (10 services)
-1. **Authentication & Authorization Service** - OAuth 2.0, Thai Digital ID, JWT
-2. **GIS Data Service** - PostGIS spatial operations, vector tiles
-3. **SCADA Integration Service** - GE iFix OPC UA communication
-4. **AI Model Service** - TensorFlow serving, model versioning
-5. **Sensor Data Service** - MQTT, time-series data ingestion
-6. **Water Distribution Control Service** - Multi-objective optimization
-7. **User Management Service** - User profiles, roles, permissions
-8. **Weather Integration Service** - Thai Meteorological Department API
-9. **Crop Management Service** - AquaCrop model integration
-10. **Scheduling Service** - Irrigation/maintenance scheduling
-
-### Supporting Services
-- **BFF Service** - Frontend aggregation layer with GraphQL
-- **Notification Service** - Multi-channel alerts
-- **Alert Management Service** - Alert rules engine
-- **Configuration Service** - Centralized config management
-- **Analytics Service** - Data analysis and insights
-- **Maintenance Service** - Equipment maintenance tracking
-- **Data Integration Service** - ETL operations
-- **File Processing Service** - Large file handling
-- **Reporting Service** - Report generation
-- **System Monitoring Service** - Health checks, metrics
-
-## Technology Stack
-
-### Databases (Each in separate container)
-- **PostgreSQL + PostGIS** (port 5432) - Spatial data
-- **TimescaleDB** (port 5433) - Time-series sensor data
-- **MongoDB** (port 27017) - Document storage
-- **Redis** (port 6379) - Caching and sessions
-- **InfluxDB** (port 8086) - Metrics
-
-### Infrastructure
-- **Container Orchestration**: Kubernetes
-- **API Gateway**: Kong or Traefik
-- **Message Broker**: Apache Kafka
-- **Container Runtime**: Docker
-
-### Programming Languages by Service
-
-#### Node.js with TypeScript (13 services)
-- API Gateway - Express/Fastify
-- Authentication & Authorization Service - Passport.js, JWT
-- GIS Data Service - PostGIS queries, Turf.js
-- User Management Service - CRUD operations
-- Weather Integration Service - External API calls
-- Notification Service - Multi-channel messaging
-- Alert Management Service - Event-driven alerts
-- Configuration Service - Dynamic config management
-- BFF Service - GraphQL with Apollo Server
-- WebSocket Service - Socket.IO real-time
-- Reporting Service - PDF generation
-- File Processing Service - Stream processing
-- Maintenance Service - CRUD with scheduling
-
-#### Python with FastAPI (4 services)
-- AI Model Service - TensorFlow/PyTorch serving
-- Analytics Service - Pandas, NumPy analysis
-- Data Integration Service - ETL pipelines
-- Crop Management Service - AquaCrop integration
-
-#### Go (3 services)
-- Sensor Data Service - High-throughput ingestion
-- SCADA Integration Service - OPC UA client
-- System Monitoring Service - Prometheus metrics
-
-#### Java Spring Boot (1 service)
-- Water Distribution Control Service - Complex optimization algorithms
-
-## TaskMaster Integration
-This project uses TaskMaster via MCP. To interact with tasks:
-- View tasks: "Show me all tasks" or "List pending tasks"
-- Get next task: "What's the next task?"
-- Update status: "Mark task X as in-progress/done"
-- View details: "Show me task X"
-- Expand tasks: "Expand task X into subtasks"
-
-## Key Integration Points
-1. **SCADA**: GE iFix via OPC UA protocol
-2. **Thai Government**: OAuth 2.0 with Thai Digital ID
-3. **Weather**: Thai Meteorological Department API
-4. **Agriculture**: FAO AquaCrop model
-5. **Messaging**: LINE integration for notifications
-
-## Development Workflow
-1. Check available tasks using TaskMaster
-2. Tasks are ordered by dependencies
-3. Start with infrastructure tasks (1-3)
-4. Database setup tasks (5, 7, 11, 14, 16, 36)
-5. Implement core services following dependencies
-6. Each service should be in its own directory under `/services/`
-7. Use Docker Compose for local development
-8. Deploy to Kubernetes for production
-
-## Project Structure (Planned)
-```
-/munbon2-backend/
-├── /services/           # Microservices
-│   ├── /auth/          # Authentication service
-│   ├── /gis/           # GIS data service
-│   ├── /scada/         # SCADA integration
-│   └── ...             # Other services
-├── /shared/            # Shared libraries
-├── /k8s/               # Kubernetes manifests
-├── docker-compose.yml  # Local development
-└── /tasks/             # TaskMaster tasks
-```
-
-## Important Constraints
-- Must support 10,000+ concurrent connections
-- Sub-second API response times required
-- 99.9% uptime SLA
-- Thai government security compliance required
-- Limited sensor infrastructure (mobile sensors, no flow meters at most gates)
-
-## Programming Principles
-- Read, Understand, and Follows PROGRAMMING_PRINCIPLES for specific languages: 
+> Stage all changes, commit with a Conventional Commits message, and push. (Do NOT push to `main`; open a PR.)
