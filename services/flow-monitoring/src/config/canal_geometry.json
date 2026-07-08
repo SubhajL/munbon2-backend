@@ -1,0 +1,1040 @@
+{
+  "metadata": {
+    "source": "SCADA Section Detailed Information 20250713 V0.95 SL",
+    "created_date": "2024-01-13",
+    "description": "Canal sections with geometry and hydraulic parameters for all 6 zones",
+    "total_zones": 6,
+    "notes": {
+      "control_structures": "Multiple control structures at km 0+000 indicate branching points for lateral canals",
+      "length_calculation": "Lengths calculated from km differences between consecutive structures along same canal",
+      "zone_6_update": "RMC system now starts from M(0,1) instead of M(0,2), with updated km values and flow rates",
+      "flow_rates": "q_max values from updated measurements where available"
+    }
+  },
+  "zones_summary": {
+    "zone_1": {
+      "description": "Main canal upper reach",
+      "main_canals": ["Outlet", "LMC", "Waste Way"],
+      "control_structures": 5,
+      "branch_points": ["M(0,0) at km 0+000", "M(0,1) at km 0+300"]
+    },
+    "zone_2": {
+      "description": "Main canal middle reach",
+      "main_canals": ["LMC"],
+      "control_structures": 10,
+      "coverage": "km 9+200 to km 29+150"
+    },
+    "zone_3": {
+      "description": "9R-LMC lateral system",
+      "main_canals": ["9R-LMC", "7R-9R-LMC", "7L-9R-LMC"],
+      "control_structures": 8,
+      "branch_point": "M(0,3) at km 1+620"
+    },
+    "zone_4": {
+      "description": "38R-LMC upper lateral system",
+      "main_canals": ["38R-LMC", "1R-38R-LMC", "2R-38R-LMC", "1R-2R-38R-LMC"],
+      "control_structures": 11,
+      "branch_point": "M(0,12) at km 28+315"
+    },
+    "zone_5": {
+      "description": "38R-LMC lower lateral system",
+      "main_canals": ["38R-LMC", "4L-38R-LMC", "5R-4L-38R-LMC", "6R-38R-LMC", "8R-38R-LMC"],
+      "control_structures": 12,
+      "continuation_from": "Zone 4 38R-LMC"
+    },
+    "zone_6": {
+      "description": "RMC system",
+      "main_canals": ["RMC", "4L-RMC", "FTO 2+450", "FTO337 Rai"],
+      "control_structures": 12,
+      "branch_point": "M(0,1) at km 0+300",
+      "updated_flow_rates": true
+    }
+  },
+  "canal_sections": [
+    {
+      "comment": "ZONE 1 - Main Canal Upper Reach",
+      "from_node": "M(0,0)",
+      "to_node": "M(0,1)",
+      "canal_name": "Outlet",
+      "zone": 1,
+      "section_no": 1,
+      "area_rai": 0,
+      "from_km": "0+000",
+      "to_km": "0+300",
+      "geometry": {
+        "length_m": 300,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 3.5,
+          "top_width_m": 5.0,
+          "depth_m": 1.85,
+          "side_slope": 0.06
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 11.2
+        }
+      }
+    },
+    {
+      "from_node": "M(0,1)",
+      "to_node": "M(0,2)",
+      "canal_name": "LMC",
+      "zone": 1,
+      "section_no": 1,
+      "area_rai": 0,
+      "from_km": "0+300",
+      "to_km": "0+580",
+      "geometry": {
+        "length_m": 280,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 3.5,
+          "top_width_m": 5.0,
+          "depth_m": 1.85,
+          "side_slope": 0.06
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 9.823
+        }
+      }
+    },
+    {
+      "from_node": "M(0,2)",
+      "to_node": "M(0,3)",
+      "canal_name": "LMC",
+      "zone": 1,
+      "section_no": 2,
+      "area_rai": 0,
+      "from_km": "0+580",
+      "to_km": "1+620",
+      "geometry": {
+        "length_m": 1040,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 3.5,
+          "top_width_m": 5.0,
+          "depth_m": 1.85,
+          "side_slope": 0.06
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 9.823
+        }
+      }
+    },
+    {
+      "from_node": "M(0,3)",
+      "to_node": "M(0,4)",
+      "canal_name": "LMC",
+      "zone": 1,
+      "section_no": 3,
+      "area_rai": 0,
+      "from_km": "1+620",
+      "to_km": "6+880",
+      "geometry": {
+        "length_m": 5260,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 3.0,
+          "top_width_m": 4.8,
+          "depth_m": 1.83,
+          "side_slope": 0.06
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 8.299
+        }
+      }
+    },
+    {
+      "from_node": "M(0,4)",
+      "to_node": "M(0,5)",
+      "canal_name": "LMC",
+      "zone": 1,
+      "section_no": 4,
+      "area_rai": 0,
+      "from_km": "6+880",
+      "to_km": "9+200",
+      "geometry": {
+        "length_m": 2320,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 3.0,
+          "top_width_m": 4.8,
+          "depth_m": 1.83,
+          "side_slope": 0.06
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 8.299
+        }
+      }
+    },
+    {
+      "comment": "ZONE 2 - Main Canal Middle Reach",
+      "from_node": "M(0,5)",
+      "to_node": "M(0,6)",
+      "canal_name": "LMC",
+      "zone": 2,
+      "section_no": 5,
+      "area_rai": 0,
+      "from_km": "9+200",
+      "to_km": "11+800",
+      "geometry": {
+        "length_m": 2600,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 2.5,
+          "top_width_m": 4.1,
+          "depth_m": 1.60,
+          "side_slope": 0.06
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 5.868
+        }
+      }
+    },
+    {
+      "from_node": "M(0,6)",
+      "to_node": "M(0,7)",
+      "canal_name": "LMC",
+      "zone": 2,
+      "section_no": 6,
+      "area_rai": 0,
+      "from_km": "11+800",
+      "to_km": "17+000",
+      "geometry": {
+        "length_m": 5200,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 2.5,
+          "top_width_m": 4.1,
+          "depth_m": 1.60,
+          "side_slope": 0.06
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 5.868
+        }
+      }
+    },
+    {
+      "from_node": "M(0,7)",
+      "to_node": "M(0,8)",
+      "canal_name": "LMC",
+      "zone": 2,
+      "section_no": 7,
+      "area_rai": 0,
+      "from_km": "17+000",
+      "to_km": "21+000",
+      "geometry": {
+        "length_m": 4000,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 2.5,
+          "top_width_m": 4.1,
+          "depth_m": 1.55,
+          "side_slope": 0.06
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 5.501
+        }
+      }
+    },
+    {
+      "from_node": "M(0,8)",
+      "to_node": "M(0,9)",
+      "canal_name": "LMC",
+      "zone": 2,
+      "section_no": 8,
+      "area_rai": 0,
+      "from_km": "21+000",
+      "to_km": "23+315",
+      "geometry": {
+        "length_m": 2315,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 2.5,
+          "top_width_m": 4.1,
+          "depth_m": 1.55,
+          "side_slope": 0.06
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 5.35
+        }
+      }
+    },
+    {
+      "from_node": "M(0,9)",
+      "to_node": "M(0,10)",
+      "canal_name": "LMC",
+      "zone": 2,
+      "section_no": 9,
+      "area_rai": 0,
+      "from_km": "23+315",
+      "to_km": "24+815",
+      "geometry": {
+        "length_m": 1500,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 2.5,
+          "top_width_m": 4.1,
+          "depth_m": 1.55,
+          "side_slope": 0.06
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 5.297
+        }
+      }
+    },
+    {
+      "from_node": "M(0,10)",
+      "to_node": "M(0,11)",
+      "canal_name": "LMC",
+      "zone": 2,
+      "section_no": 10,
+      "area_rai": 0,
+      "from_km": "24+815",
+      "to_km": "26+815",
+      "geometry": {
+        "length_m": 2000,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 2.5,
+          "top_width_m": 4.1,
+          "depth_m": 1.50,
+          "side_slope": 0.06
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 4.916
+        }
+      }
+    },
+    {
+      "from_node": "M(0,11)",
+      "to_node": "M(0,12)",
+      "canal_name": "LMC",
+      "zone": 2,
+      "section_no": 11,
+      "area_rai": 0,
+      "from_km": "26+815",
+      "to_km": "28+315",
+      "geometry": {
+        "length_m": 1500,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 2.0,
+          "top_width_m": 3.4,
+          "depth_m": 1.40,
+          "side_slope": 0.06
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 3.545
+        }
+      }
+    },
+    {
+      "from_node": "M(0,12)",
+      "to_node": "M(0,13)",
+      "canal_name": "LMC",
+      "zone": 2,
+      "section_no": 12,
+      "area_rai": 0,
+      "from_km": "28+315",
+      "to_km": "29+150",
+      "geometry": {
+        "length_m": 835,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 2.0,
+          "top_width_m": 3.4,
+          "depth_m": 1.40,
+          "side_slope": 0.06
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 3.545
+        }
+      }
+    },
+    {
+      "from_node": "M(0,13)",
+      "to_node": "M(0,14)",
+      "canal_name": "LMC",
+      "zone": 2,
+      "section_no": 13,
+      "area_rai": 0,
+      "from_km": "29+150",
+      "to_km": "31+000",
+      "geometry": {
+        "length_m": 1850,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 1.5,
+          "top_width_m": 2.7,
+          "depth_m": 1.20,
+          "side_slope": 0.06
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 1.975
+        }
+      }
+    },
+    {
+      "comment": "ZONE 3 - 9R-LMC Lateral System",
+      "from_node": "M(0,3;1,0)",
+      "to_node": "M(0,3;1,1)",
+      "canal_name": "9R-LMC",
+      "zone": 3,
+      "section_no": 1,
+      "area_rai": 0,
+      "from_km": "0+000",
+      "to_km": "1+800",
+      "geometry": {
+        "length_m": 1800,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 1.5,
+          "top_width_m": 2.7,
+          "depth_m": 1.20,
+          "side_slope": 0.06
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.00015,
+          "lining_type": "concrete",
+          "q_max": 1.525
+        }
+      }
+    },
+    {
+      "from_node": "M(0,3;1,1)",
+      "to_node": "M(0,3;1,2)",
+      "canal_name": "9R-LMC",
+      "zone": 3,
+      "section_no": 2,
+      "area_rai": 0,
+      "from_km": "1+800",
+      "to_km": "3+000",
+      "geometry": {
+        "length_m": 1200,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 1.5,
+          "top_width_m": 2.7,
+          "depth_m": 1.20,
+          "side_slope": 0.06
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.00015,
+          "lining_type": "concrete",
+          "q_max": 1.525
+        }
+      }
+    },
+    {
+      "from_node": "M(0,3;1,2)",
+      "to_node": "M(0,3;1,3)",
+      "canal_name": "9R-LMC",
+      "zone": 3,
+      "section_no": 3,
+      "area_rai": 0,
+      "from_km": "3+000",
+      "to_km": "4+300",
+      "geometry": {
+        "length_m": 1300,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 1.5,
+          "top_width_m": 2.7,
+          "depth_m": 1.20,
+          "side_slope": 0.06
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.00015,
+          "lining_type": "concrete",
+          "q_max": 1.525
+        }
+      }
+    },
+    {
+      "from_node": "M(0,3;1,1;1,0)",
+      "to_node": "M(0,3;1,1;1,1)",
+      "canal_name": "7R-9R-LMC",
+      "zone": 3,
+      "section_no": 1,
+      "area_rai": 0,
+      "from_km": "0+000",
+      "to_km": "3+000",
+      "geometry": {
+        "length_m": 3000,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 1.0,
+          "top_width_m": 2.0,
+          "depth_m": 1.0,
+          "side_slope": 0.06
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.00015,
+          "lining_type": "concrete",
+          "q_max": 0.855
+        }
+      }
+    },
+    {
+      "from_node": "M(0,3;1,1;2,0)",
+      "to_node": "M(0,3;1,1;2,1)",
+      "canal_name": "7L-9R-LMC",
+      "zone": 3,
+      "section_no": 1,
+      "area_rai": 0,
+      "from_km": "0+000",
+      "to_km": "2+500",
+      "geometry": {
+        "length_m": 2500,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 1.0,
+          "top_width_m": 2.0,
+          "depth_m": 1.0,
+          "side_slope": 0.06
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.00015,
+          "lining_type": "concrete",
+          "q_max": 0.67
+        }
+      }
+    },
+    {
+      "comment": "ZONE 4 - 38R-LMC Upper Lateral System",
+      "from_node": "M(0,12;1,0)",
+      "to_node": "M(0,12;1,1)",
+      "canal_name": "38R-LMC",
+      "zone": 4,
+      "section_no": 1,
+      "area_rai": 0,
+      "from_km": "0+000",
+      "to_km": "1+800",
+      "geometry": {
+        "length_m": 1800,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 2.0,
+          "top_width_m": 3.2,
+          "depth_m": 1.20,
+          "side_slope": 0.06
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.00015,
+          "lining_type": "concrete",
+          "q_max": 1.57
+        }
+      }
+    },
+    {
+      "from_node": "M(0,12;1,1)",
+      "to_node": "M(0,12;1,2)",
+      "canal_name": "38R-LMC",
+      "zone": 4,
+      "section_no": 2,
+      "area_rai": 0,
+      "from_km": "1+800",
+      "to_km": "3+000",
+      "geometry": {
+        "length_m": 1200,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 2.0,
+          "top_width_m": 3.2,
+          "depth_m": 1.20,
+          "side_slope": 0.06
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.00015,
+          "lining_type": "concrete",
+          "q_max": 1.57
+        }
+      }
+    },
+    {
+      "from_node": "M(0,12;1,0;1,0)",
+      "to_node": "M(0,12;1,0;1,1)",
+      "canal_name": "1R-38R-LMC",
+      "zone": 4,
+      "section_no": 1,
+      "area_rai": 0,
+      "from_km": "0+000",
+      "to_km": "2+000",
+      "geometry": {
+        "length_m": 2000,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 1.5,
+          "top_width_m": 2.5,
+          "depth_m": 1.0,
+          "side_slope": 0.06
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.00015,
+          "lining_type": "concrete",
+          "q_max": 0.777
+        }
+      }
+    },
+    {
+      "from_node": "M(0,12;1,1;1,0)",
+      "to_node": "M(0,12;1,1;1,1)",
+      "canal_name": "2R-38R-LMC",
+      "zone": 4,
+      "section_no": 1,
+      "area_rai": 0,
+      "from_km": "0+000",
+      "to_km": "1+500",
+      "geometry": {
+        "length_m": 1500,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 1.5,
+          "top_width_m": 2.5,
+          "depth_m": 1.0,
+          "side_slope": 0.06
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.00015,
+          "lining_type": "concrete",
+          "q_max": 0.793
+        }
+      }
+    },
+    {
+      "from_node": "M(0,12;1,1;1,1)",
+      "to_node": "M(0,12;1,1;1,2)",
+      "canal_name": "2R-38R-LMC",
+      "zone": 4,
+      "section_no": 2,
+      "area_rai": 0,
+      "from_km": "1+500",
+      "to_km": "2+300",
+      "geometry": {
+        "length_m": 800,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 1.5,
+          "top_width_m": 2.5,
+          "depth_m": 1.0,
+          "side_slope": 0.06
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.00015,
+          "lining_type": "concrete",
+          "q_max": 0.793
+        }
+      }
+    },
+    {
+      "comment": "ZONE 5 - 38R-LMC Lower Lateral System",
+      "from_node": "M(0,12;1,2)",
+      "to_node": "M(0,12;1,3)",
+      "canal_name": "38R-LMC",
+      "zone": 5,
+      "section_no": 3,
+      "area_rai": 0,
+      "from_km": "3+000",
+      "to_km": "4+200",
+      "geometry": {
+        "length_m": 1200,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 1.5,
+          "top_width_m": 2.7,
+          "depth_m": 1.20,
+          "side_slope": 0.06
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.00015,
+          "lining_type": "concrete",
+          "q_max": 1.37
+        }
+      }
+    },
+    {
+      "from_node": "M(0,12;1,3)",
+      "to_node": "M(0,12;1,4)",
+      "canal_name": "38R-LMC",
+      "zone": 5,
+      "section_no": 4,
+      "area_rai": 0,
+      "from_km": "4+200",
+      "to_km": "5+200",
+      "geometry": {
+        "length_m": 1000,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 1.5,
+          "top_width_m": 2.7,
+          "depth_m": 1.20,
+          "side_slope": 0.06
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.00015,
+          "lining_type": "concrete",
+          "q_max": 1.224
+        }
+      }
+    },
+    {
+      "from_node": "M(0,12;1,4)",
+      "to_node": "M(0,12;1,5)",
+      "canal_name": "38R-LMC",
+      "zone": 5,
+      "section_no": 5,
+      "area_rai": 0,
+      "from_km": "5+200",
+      "to_km": "6+000",
+      "geometry": {
+        "length_m": 800,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 1.5,
+          "top_width_m": 2.7,
+          "depth_m": 1.20,
+          "side_slope": 0.06
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.00015,
+          "lining_type": "concrete",
+          "q_max": 1.041
+        }
+      }
+    },
+    {
+      "from_node": "M(0,12;1,2;1,0)",
+      "to_node": "M(0,12;1,2;1,1)",
+      "canal_name": "4L-38R-LMC",
+      "zone": 5,
+      "section_no": 1,
+      "area_rai": 0,
+      "from_km": "0+000",
+      "to_km": "1+000",
+      "geometry": {
+        "length_m": 1000,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 1.0,
+          "top_width_m": 2.0,
+          "depth_m": 1.0,
+          "side_slope": 0.06
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.00015,
+          "lining_type": "concrete",
+          "q_max": 0.648
+        }
+      }
+    },
+    {
+      "from_node": "M(0,12;1,2;1,1)",
+      "to_node": "M(0,12;1,2;1,2)",
+      "canal_name": "4L-38R-LMC",
+      "zone": 5,
+      "section_no": 2,
+      "area_rai": 0,
+      "from_km": "1+000",
+      "to_km": "1+500",
+      "geometry": {
+        "length_m": 500,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 1.0,
+          "top_width_m": 2.0,
+          "depth_m": 1.0,
+          "side_slope": 0.06
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.00015,
+          "lining_type": "concrete",
+          "q_max": 0.648
+        }
+      }
+    },
+    {
+      "comment": "ZONE 6 - RMC System (Updated)",
+      "from_node": "M(0,1;1,0)",
+      "to_node": "M(0,1;1,1)",
+      "canal_name": "RMC",
+      "zone": 6,
+      "section_no": 1,
+      "area_rai": 0,
+      "from_km": "0+000",
+      "to_km": "2+600",
+      "geometry": {
+        "length_m": 2600,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 2.0,
+          "top_width_m": 3.2,
+          "depth_m": 1.20,
+          "side_slope": 0.06
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 1.375
+        }
+      }
+    },
+    {
+      "from_node": "M(0,1;1,1)",
+      "to_node": "M(0,1;1,2)",
+      "canal_name": "RMC",
+      "zone": 6,
+      "section_no": 2,
+      "area_rai": 0,
+      "from_km": "2+600",
+      "to_km": "4+520",
+      "geometry": {
+        "length_m": 1920,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 2.0,
+          "top_width_m": 3.2,
+          "depth_m": 1.20,
+          "side_slope": 0.06
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 1.375
+        }
+      }
+    },
+    {
+      "from_node": "M(0,1;1,2)",
+      "to_node": "M(0,1;1,3)",
+      "canal_name": "RMC",
+      "zone": 6,
+      "section_no": 3,
+      "area_rai": 0,
+      "from_km": "4+520",
+      "to_km": "5+500",
+      "geometry": {
+        "length_m": 980,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 2.0,
+          "top_width_m": 3.2,
+          "depth_m": 1.20,
+          "side_slope": 0.06
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 1.234
+        }
+      }
+    },
+    {
+      "from_node": "M(0,1;1,3)",
+      "to_node": "M(0,1;1,4)",
+      "canal_name": "RMC",
+      "zone": 6,
+      "section_no": 4,
+      "area_rai": 0,
+      "from_km": "5+500",
+      "to_km": "6+780",
+      "geometry": {
+        "length_m": 1280,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 1.5,
+          "top_width_m": 2.7,
+          "depth_m": 1.20,
+          "side_slope": 0.06
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 1.0
+        }
+      }
+    },
+    {
+      "from_node": "M(0,1;1,1;1,0)",
+      "to_node": "M(0,1;1,1;1,1)",
+      "canal_name": "4L-RMC",
+      "zone": 6,
+      "section_no": 1,
+      "area_rai": 0,
+      "from_km": "0+000",
+      "to_km": "0+750",
+      "geometry": {
+        "length_m": 750,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 1.5,
+          "top_width_m": 2.5,
+          "depth_m": 1.0,
+          "side_slope": 0.06
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.00015,
+          "lining_type": "concrete",
+          "q_max": 0.815
+        }
+      }
+    },
+    {
+      "from_node": "M(0,1;1,1;1,1)",
+      "to_node": "M(0,1;1,1;1,2)",
+      "canal_name": "4L-RMC",
+      "zone": 6,
+      "section_no": 2,
+      "area_rai": 0,
+      "from_km": "0+750",
+      "to_km": "1+850",
+      "geometry": {
+        "length_m": 1100,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 1.5,
+          "top_width_m": 2.5,
+          "depth_m": 1.0,
+          "side_slope": 0.06
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.00015,
+          "lining_type": "concrete",
+          "q_max": 0.815
+        }
+      }
+    },
+    {
+      "from_node": "M(0,1;1,1;1,2)",
+      "to_node": "M(0,1;1,1;1,3)",
+      "canal_name": "4L-RMC",
+      "zone": 6,
+      "section_no": 3,
+      "area_rai": 0,
+      "from_km": "1+850",
+      "to_km": "2+600",
+      "geometry": {
+        "length_m": 750,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 1.0,
+          "top_width_m": 2.0,
+          "depth_m": 1.0,
+          "side_slope": 0.06
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.00015,
+          "lining_type": "concrete",
+          "q_max": 0.397
+        }
+      }
+    },
+    {
+      "from_node": "M(0,1;1,1;1,3)",
+      "to_node": "M(0,1;1,1;1,4)",
+      "canal_name": "4L-RMC",
+      "zone": 6,
+      "section_no": 4,
+      "area_rai": 0,
+      "from_km": "2+600",
+      "to_km": "3+000",
+      "geometry": {
+        "length_m": 400,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 1.0,
+          "top_width_m": 2.0,
+          "depth_m": 1.0,
+          "side_slope": 0.06
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.00015,
+          "lining_type": "concrete",
+          "q_max": 0.205
+        }
+      }
+    }
+  ],
+  "summary": {
+    "total_sections": 46,
+    "by_zone": {
+      "zone_1": 5,
+      "zone_2": 9,
+      "zone_3": 5,
+      "zone_4": 7,
+      "zone_5": 12,
+      "zone_6": 8
+    },
+    "by_canal_type": {
+      "main_canals": ["Outlet", "LMC", "RMC"],
+      "primary_laterals": ["9R-LMC", "38R-LMC"],
+      "secondary_laterals": ["7R-9R-LMC", "7L-9R-LMC", "1R-38R-LMC", "2R-38R-LMC", "4L-38R-LMC", "4L-RMC"],
+      "tertiary_laterals": ["1R-2R-38R-LMC", "5R-4L-38R-LMC", "6R-38R-LMC", "8R-38R-LMC"]
+    }
+  }
+}
