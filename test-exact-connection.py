@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
+import os
 import psycopg2
 
 print("Testing exact connection that user is using...")
 conn = psycopg2.connect(
-    host=os.environ.get('EC2_HOST', '43.208.201.191'),
+    host=os.environ.get('EC2_HOST', os.environ.get('POSTGRES_HOST', 'localhost')),
     port=5432,
     user='postgres',
-    password='__ROTATED_DB_PASSWORD__',
+    password=os.environ.get('POSTGRES_PASSWORD', ''),
     database='sensor_data'
 )
 

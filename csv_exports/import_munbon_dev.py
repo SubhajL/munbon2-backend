@@ -8,10 +8,10 @@ from datetime import datetime
 
 # EC2 Database connection
 EC2_CONFIG = {
-    'host': os.environ.get('EC2_HOST', '43.208.201.191'),
+    'host': os.environ.get('EC2_HOST', os.environ.get('POSTGRES_HOST', 'localhost')),
     'port': 5432,
     'user': 'postgres',
-    'password': '__ROTATED_DB_PASSWORD__',
+    'password': os.environ.get('POSTGRES_PASSWORD', ''),
     'database': 'munbon_dev'
 }
 
