@@ -18,6 +18,12 @@ from db.connections import DatabaseManager
 from db.influxdb_client import InfluxDBClient
 from db.timescale_client import TimescaleClient
 from core.metrics import hydraulic_solver_iterations, hydraulic_verification_duration
+from core.gate_flow import build_gate_flow_calibration, gate_flow_m3s, required_opening_m
+
+# P0 (F-01) fallback water levels: used ONLY when real sensor/solver levels are
+# unavailable. Real levels are threaded in P1 (see docs/remediation/FIX_F01_GATE_FLOW_LAW_SPEC.md §7).
+DEFAULT_UPSTREAM_DEPTH_M = 2.0  # assumed head over sill (m)
+DEFAULT_HEAD_DIFF_M = 0.2       # assumed driving head (m)
 
 logger = structlog.get_logger()
 
@@ -609,94 +615,84 @@ class HydraulicService:
         return 30.0  # m³/s
     
     def _get_gate_capacity(self, gate_id: str) -> float:
-        """Get gate flow capacity using calibrated K1/K2 values"""
-        # Use calibrated flow model to calculate maximum capacity
-        # Assume maximum opening (100%) and typical head difference
+        """Max flow the gate can pass at full opening, via the corrected flow law (F-01)."""
         calibration = self.calibrated_flow_model.calibration_loader.get_calibration(gate_id)
-        
-        if calibration:
-            # Calculate maximum flow using calibrated K1/K2
-            # Q = Cs × L × H × √(2g × ΔH)
-            # where Cs = K1 × (H/H_max)^K2
-            
-            # Typical values for maximum capacity calculation
-            gate_opening = 1.0  # 100% open
-            upstream_depth = 2.0  # m (typical canal depth)
-            head_diff = 0.2  # m (typical operating head difference)
-            
-            # Get gate dimensions
-            gate_width = calibration.width_m or 2.0  # Default 2m if not specified
-            gate_height = calibration.height_m or 1.5  # Default 1.5m if not specified
-            
-            # Calculate discharge coefficient
-            Cs = calibration.k1 * (gate_opening ** calibration.k2)
-            
-            # Calculate flow
-            flow = Cs * gate_width * upstream_depth * np.sqrt(2 * 9.81 * head_diff)
-            
-            return flow
-        else:
-            # Default capacity based on typical gate size
-            return 10.0  # m³/s
-    
+        if not calibration:
+            return 10.0  # m³/s — no calibration available; conservative default
+        cal = self._build_gate_flow_cal(gate_id, calibration)
+        upstream_level, downstream_level = self._resolve_gate_levels(gate_id, cal)
+        return gate_flow_m3s(cal, upstream_level, downstream_level, cal.max_opening_m)
+
+
     def _get_canal_capacity(self, canal_id: str) -> float:
         """Get canal flow capacity"""
         # Based on canal geometry
         return 15.0  # m³/s
     
-    def _calculate_required_opening(self, gate_id: str, required_flow: float) -> float:
-        """Calculate required gate opening percentage using calibrated K1/K2 model"""
+    def _calculate_required_opening(
+        self,
+        gate_id: str,
+        required_flow: float,
+        upstream_level: Optional[float] = None,
+        downstream_level: Optional[float] = None,
+    ) -> float:
+        """Gate opening (percent of full) to pass required_flow, via the corrected flow
+        law (F-01): a bisection inverse on real levels. Falls back to a documented, logged
+        level assumption when sensor/solver levels are unavailable (real levels land in P1)."""
         calibration = self.calibrated_flow_model.calibration_loader.get_calibration(gate_id)
-        
-        if calibration:
-            # Use Newton-Raphson method to find required opening
-            # Q = Cs × L × H × √(2g × ΔH) where Cs = K1 × (opening)^K2
-            
-            # Typical operating conditions
-            upstream_depth = 2.0  # m
-            head_diff = 0.2  # m
-            gate_width = calibration.width_m or 2.0
-            
-            # Base flow equation coefficient
-            base_coeff = gate_width * upstream_depth * np.sqrt(2 * 9.81 * head_diff)
-            
-            # Newton-Raphson iteration to find opening
-            opening = 0.5  # Initial guess 50%
-            max_iterations = 20
-            tolerance = 0.001
-            
-            for i in range(max_iterations):
-                # Calculate flow at current opening
-                Cs = calibration.k1 * (opening ** calibration.k2)
-                calculated_flow = Cs * base_coeff
-                
-                # Calculate error
-                error = calculated_flow - required_flow
-                
-                if abs(error) < tolerance:
-                    break
-                
-                # Calculate derivative
-                dCs_dopening = calibration.k1 * calibration.k2 * (opening ** (calibration.k2 - 1))
-                dflow_dopening = dCs_dopening * base_coeff
-                
-                # Update opening
-                if abs(dflow_dopening) > 0.0001:
-                    opening = opening - error / dflow_dopening
-                    opening = max(0.0, min(1.0, opening))  # Constrain to [0, 1]
-                else:
-                    # Fallback to bisection if derivative too small
-                    if calculated_flow < required_flow:
-                        opening = min(1.0, opening * 1.1)
-                    else:
-                        opening = max(0.0, opening * 0.9)
-            
-            return opening * 100.0  # Convert to percentage
-        else:
-            # Fallback to simple linear approximation
+        if not calibration:
             capacity = self._get_gate_capacity(gate_id)
-            return min(100.0, (required_flow / capacity) * 100)
-    
+            return min(100.0, (required_flow / capacity) * 100) if capacity > 0 else 100.0
+        cal = self._build_gate_flow_cal(gate_id, calibration)
+        u_level, d_level = self._resolve_gate_levels(gate_id, cal, upstream_level, downstream_level)
+        opening_m, info = required_opening_m(cal, u_level, d_level, required_flow)
+        if not info.get("feasible", True):
+            logger.warning(
+                "gate %s: required flow %.3f m3/s exceeds achievable %.3f at current head",
+                gate_id, required_flow, info.get("achievable", 0.0),
+            )
+        return min(100.0, (opening_m / cal.max_opening_m) * 100.0)
+
+    def _build_gate_flow_cal(self, gate_id: str, calibration):
+        """Assemble a GateFlowCalibration from calibration + rated capacity + geometry.
+        Sill/opening geometry sourcing is deferred to P1; build_gate_flow_calibration
+        applies documented defaults and lowers confidence when geometry is absent."""
+        return build_gate_flow_calibration(
+            k1=calibration.k1,
+            k2=calibration.k2,
+            confidence=calibration.confidence,
+            q_max_m3s=self._gate_rated_capacity(gate_id),
+            width_m=calibration.width_m,
+        )
+
+    def _gate_rated_capacity(self, gate_id: str) -> Optional[float]:
+        """Rated q_max (m3/s) for a gate from the calibration table, if present."""
+        loader = self.calibrated_flow_model.calibration_loader
+        excel_id = loader.gate_id_mapping.get(gate_id, gate_id)
+        raw = loader.calibrations.get(excel_id) or loader.calibrations.get(gate_id) or {}
+        return raw.get("q_max_m3s")
+
+    def _resolve_gate_levels(
+        self,
+        gate_id: str,
+        cal,
+        upstream_level: Optional[float] = None,
+        downstream_level: Optional[float] = None,
+    ) -> Tuple[float, float]:
+        """Upstream/downstream water levels (m MSL) for the flow law. Uses provided levels
+        when available; otherwise a documented P0 fallback (sill + typical depth / head
+        difference), logged. Real sensor/solver levels are wired in P1 (spec §7)."""
+        if upstream_level is not None and downstream_level is not None:
+            return upstream_level, downstream_level
+        u = cal.sill_m + DEFAULT_UPSTREAM_DEPTH_M
+        d = u - DEFAULT_HEAD_DIFF_M
+        logger.debug(
+            "gate %s: no real levels; assuming upstream=%.2f downstream=%.2f (P0 fallback)",
+            gate_id, u, d,
+        )
+        return u, d
+
+
     def _aggregate_canal_flows(self, paths: Dict[str, Any]) -> Dict[str, float]:
         """Aggregate flows by canal"""
         canal_flows = {}
