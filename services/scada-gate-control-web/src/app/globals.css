@@ -1,0 +1,59 @@
+@import 'tailwindcss';
+
+/* Industrial SCADA Interface design system (generated via Stitch, screen
+   de596536547b43f58b09f1cfa23c36c2). Dark-first, status-first colour logic. */
+@theme {
+  --color-bg: #0f1416;
+  --color-surface: #1b2022;
+  --color-surface-high: #252b2d;
+  --color-surface-low: #171c1e;
+  --color-border: #3d494d;
+  --color-fg: #dee3e6;
+  --color-fg-muted: #bcc9cd;
+
+  --color-primary: #56d6f8;
+  --color-primary-strong: #2bb8d9;
+  --color-primary-fg: #003642;
+
+  /* Semantic status (always paired with an icon/shape — never colour alone). */
+  --color-online: #4edea3;
+  --color-stale: #ffb95f;
+  --color-offline: #ffb4ab;
+
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --radius-panel: 1rem;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  font-feature-settings: 'tnum' 1; /* tabular numbers for all data */
+}
+
+/* Dark glass styling for MapLibre popups (overrides the library default white). */
+.maplibregl-popup-content {
+  background: color-mix(in srgb, var(--color-surface) 92%, transparent);
+  color: var(--color-fg);
+  border: 1px solid var(--color-border);
+  border-radius: 0.75rem;
+  padding: 12px;
+  backdrop-filter: blur(8px);
+}
+.maplibregl-popup-anchor-bottom .maplibregl-popup-tip {
+  border-top-color: var(--color-surface);
+}
+.maplibregl-popup-close-button {
+  color: var(--color-fg-muted);
+  font-size: 16px;
+  padding: 0 6px;
+}
