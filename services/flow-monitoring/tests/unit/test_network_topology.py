@@ -11,10 +11,12 @@ import pytest
 from core.network_topology import (
     NetworkTopologyError,
     assert_connected,
+    children_of,
     is_spanning_tree,
     load_validated_network,
     nodes_of,
     reachable_from,
+    topological_order,
 )
 
 # A tiny valid tree rooted at S:  S -> A -> {B, C};  C -> D
@@ -82,6 +84,33 @@ class TestCanonicalNetworkFile:
         gate_ids = set(data["gates"].keys())
         reached = reachable_from([tuple(e) for e in data["edges"]], "S")
         assert gate_ids <= reached  # every gate is reachable from the source
+
+
+class TestChildrenOf:
+    def test_maps_each_parent_to_its_children(self):
+        assert children_of(GOOD) == {"S": ["A"], "A": ["B", "C"], "C": ["D"]}
+
+    def test_leaf_and_absent_nodes_have_no_children(self):
+        adj = children_of(GOOD)
+        assert adj.get("B", []) == []
+        assert adj.get("D", []) == []
+
+
+class TestTopologicalOrder:
+    def test_every_parent_precedes_each_child(self):
+        order = topological_order(GOOD)
+        pos = {n: i for i, n in enumerate(order)}
+        assert set(order) == {"S", "A", "B", "C", "D"}
+        for parent, child in GOOD:
+            assert pos[parent] < pos[child]
+
+    def test_root_is_first(self):
+        assert topological_order(GOOD)[0] == "S"
+
+    def test_raises_on_cycle(self):
+        cyclic = [("S", "A"), ("A", "B"), ("B", "A")]
+        with pytest.raises(NetworkTopologyError):
+            topological_order(cyclic)
 
 
 def test_load_validated_network_rejects_malformed_file(tmp_path):
