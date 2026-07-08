@@ -89,3 +89,35 @@ def load_validated_network(path: str, root: str = ROOT) -> list[tuple[str, str]]
     edges = load_edges(path)
     assert_connected(edges, root)
     return edges
+
+
+def children_of(edges) -> dict:
+    """Adjacency map parent -> list of children, preserving edge order."""
+    adj: dict = defaultdict(list)
+    for parent, child in edges:
+        adj[parent].append(child)
+    return dict(adj)
+
+
+def topological_order(edges) -> list:
+    """Nodes ordered so every parent precedes its children (Kahn's algorithm).
+
+    Raises `NetworkTopologyError` if the graph contains a cycle (no valid order).
+    """
+    adj = children_of(edges)
+    nodes = nodes_of(edges)
+    indegree = {n: 0 for n in nodes}
+    for _, child in edges:
+        indegree[child] += 1
+    queue = deque(sorted(n for n in nodes if indegree[n] == 0))
+    order: list = []
+    while queue:
+        node = queue.popleft()
+        order.append(node)
+        for child in adj.get(node, []):
+            indegree[child] -= 1
+            if indegree[child] == 0:
+                queue.append(child)
+    if len(order) != len(nodes):
+        raise NetworkTopologyError("graph contains a cycle; no topological order exists")
+    return order
