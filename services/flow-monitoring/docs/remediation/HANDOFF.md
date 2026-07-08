@@ -1,8 +1,50 @@
-# Munbon — Session Handoff (2026-07-08)
+# Munbon — Session Handoff
 
-Read this first in a new session. It captures repo/merge state, the audit findings,
-decisions locked, deliverables, and exactly where to start. **Nothing has been committed
-or pushed. No merge has been executed.** All work is docs/specs + one artifact.
+> ## ✅ CURRENT STATUS (2026-07-08, later session) — supersedes §1, §5, §6 below
+>
+> **The merge is done and ALL 7 P0 items are complete and merged to `origin/main` (HEAD `96abea5`).**
+> Work was delivered TDD, item-by-item, one PR each, via the lifecycle
+> plan → code → q-check → PR → admin-merge → land. (§2 audit findings, §3 decisions,
+> §4 spec set remain the accurate reference; the merge-plan / where-to-start / open-items
+> sections are historical.)
+>
+> **Consolidation merged:** PR #6 rewrote the root/ per-service `CLAUDE.md` hierarchy;
+> the two feature branches (scada-gate-control, daily-chart-notifier) + the remediation
+> docs are on `main`.
+>
+> **P0 — all merged (PRs #7–#13):**
+> - **F-01** (#7) `flow-monitoring/src/core/gate_flow.py` — clamped bisection gate-flow law; killed the 287 m³/s bug; repointed `hydraulic_service`. 28 tests.
+> - **F-11** (#8) `core/network_topology.py` connectivity guard + canonical `src/config/network.json` (adopted `munbon_network_updated.json`). Guard rejects the old 76%-wrong topology. 12 tests.
+> - **F-04** (#9) `core/canal_capacity.py` — real per-reach q_max (NaN-safe, e.g. M(0,1)); replaced hardcoded 15.0. 9 tests.
+> - **C10** (#10) deleted 5 orphan duplicate impls + anti-regression grep-guard. 3 tests.
+> - **F-08** (#11) restored missing `rid-ms/src/jobs/job-scheduler.js` (service boots again) + jest smoke test.
+> - **SEC** (#12) tracked service creds → env + `.github/workflows/secret-scan.yml` diff gate + `.env.example`.
+> - **F-07** (#13) `bff-water-planning` crop_registry schema migration `009` + env CSV loader (fail-closed) + 8 tests.
+>
+> **🔴 Carry-forward — EXTERNAL actions (could NOT be done here; flagged in PRs):**
+> 1. **ROTATE** the leaked DB password `__ROTATED_DB_PASSWORD__` — still in ~137 tracked files (docs/`.sql`/`.sh`) + git history; needs a source scrub + `git filter-repo` purge. This is the real security fix.
+> 2. crop_registry population needs the upstream **GIS shapefile export** (set `CROP_REGISTRY_SOURCE`); recommend retiring it for `gis.agricultural_plots` (F-06).
+> 3. Real sensor/solver **water levels = P1** — F-01 uses a documented, *logged* fallback now.
+>
+> **Where a new session starts:** **P1** (controller wiring/C9, A1–A4 aggregation, B5 seepage,
+> B8 inverse, C12 demand contract, F-06/F-09 demand reconciliation, SV-façade removal, F-05
+> similar-gate calibration) — see `REMEDIATION_MASTER.md §8`. OR do the credential rotation + history purge first (only urgent external item).
+>
+> **Non-P0 follow-ups:** tangled duplicate impls still present (`calibrated_flow_model*`,
+> `calibrated_gate_flow`, `water_gate_controller_{integrated,enhanced,fixed}`) entangled with
+> the solver + viz scripts; rid-ms `src/` (compiled JS) vs `src_typescript_backup/` disarray.
+>
+> **Dev notes:** flow-monitoring P0 tests run isolated — `PYTHONPATH=src <venv>/bin/pytest
+> --noconftest -o addopts="" tests/unit/test_X.py` (the shared `conftest.py` pulls heavy DB
+> deps). The repo has aggressive blanket `.gitignore`s (`docs/`, `tests/`, `scripts/`,
+> `.claude/`, `.github/`, `*.sql`) with grandfathered tracked files → new files there need
+> `git add -f` or a scoped negation.
+
+---
+
+> _The sections below are the ORIGINAL 2026-07-08 audit handoff. §2–§4 (findings, decisions,
+> spec set) are still the reference; §1 merge-plan, §5 where-to-start, §6 open-items are
+> HISTORICAL — see the status block above for what actually happened._
 
 ---
 
