@@ -138,3 +138,27 @@ class TestCanonicalNetwork:
         assert "Zone2" not in nodes_of(edges)
         with pytest.raises(ValueError):
             required_flow_per_reach(edges, {"Zone2": 10.0})
+
+    def test_lateral_demand_flows_through_every_serial_reach(self):
+        # F-11b regression guard: on the corrected serial-chain topology, demand at the tail
+        # of the M(0,1) lateral must flow through EVERY reach from the lateral head down to it.
+        # On the old star topology (offtakes hung directly off M(0,1)) the head reach would
+        # carry 0 and the intra-lateral reaches would not exist -> this fails.
+        import re
+
+        edges, gates = _canonical_edges_and_gates()
+
+        def norm(x):
+            return re.sub(r"\s+", "", x)
+
+        chain = sorted(
+            (g for g in gates if re.fullmatch(r"M\(0,1;1,\d+\)", norm(g))),
+            key=lambda g: int(re.fullmatch(r"M\(0,1;1,(\d+)\)", norm(g)).group(1)),
+        )
+        head = next(g for g in gates if norm(g) == "M(0,1)")
+        assert len(chain) >= 3  # the real M(0,1) lateral has several serial gates
+
+        flow = required_flow_per_reach(edges, {chain[-1]: 5.0})  # water only at the tail
+        assert flow[(head, chain[0])] == pytest.approx(5.0)
+        for upstream, downstream in zip(chain, chain[1:]):
+            assert flow[(upstream, downstream)] == pytest.approx(5.0)
