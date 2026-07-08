@@ -13,6 +13,16 @@ from core.network_topology import NetworkTopologyError
 from core.network_flow_controller import NetworkFlowController
 
 CANONICAL = Path(__file__).resolve().parents[2] / "src" / "config" / "network.json"
+GEOMETRY_CFG = Path(__file__).resolve().parents[2] / "src" / "config" / "canal_geometry.json"
+
+
+def _area_demand():
+    gates = json.loads(CANONICAL.read_text())["gates"]
+    return {
+        g: float(m["area"])
+        for g, m in gates.items()
+        if isinstance(m.get("area"), (int, float)) and m["area"] > 0
+    }
 
 
 class TestConstruction:
@@ -51,3 +61,34 @@ class TestRequiredFlowPerReach:
         ctrl = NetworkFlowController(str(CANONICAL))
         with pytest.raises(ValueError):
             ctrl.required_flow_per_reach({"Zone2": 10.0})
+
+
+class TestConveyanceLossWiring:
+    def test_no_geometry_path_has_no_sections(self):
+        ctrl = NetworkFlowController(str(CANONICAL))
+        assert ctrl.sections == {}
+
+    def test_geometry_load_flags_reaches_without_survey_data(self):
+        ctrl = NetworkFlowController(str(CANONICAL), geometry_path=str(GEOMETRY_CFG))
+        assert len(ctrl.sections) == 37
+        assert len(ctrl.reaches_missing_geometry) == 22  # 59 edges - 37 surveyed
+
+    def test_apply_losses_lifts_head_flow_above_lossless(self):
+        ctrl = NetworkFlowController(str(CANONICAL), geometry_path=str(GEOMETRY_CFG))
+        demand = _area_demand()
+        head_lossy = sum(
+            q for (u, _), q in ctrl.required_flow_per_reach(demand, apply_losses=True).items()
+            if u == "S"
+        )
+        head_lossless = sum(
+            q for (u, _), q in ctrl.required_flow_per_reach(demand, apply_losses=False).items()
+            if u == "S"
+        )
+        assert head_lossy > head_lossless
+
+    def test_apply_losses_false_is_the_lossless_a1_a3_result(self):
+        ctrl = NetworkFlowController(str(CANONICAL), geometry_path=str(GEOMETRY_CFG))
+        demand = _area_demand()
+        assert ctrl.required_flow_per_reach(demand, apply_losses=False) == (
+            ctrl.required_flow_per_reach(demand)
+        )
