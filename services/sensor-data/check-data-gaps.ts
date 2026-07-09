@@ -14,7 +14,7 @@ async function checkDataGaps() {
     port: 5432,
     database: 'sensor_data',
     user: 'postgres',
-    password: 'P@ssw0rd123!'
+    password: process.env.EC2_DB_PASSWORD || (() => { throw new Error('EC2_DB_PASSWORD env var is required (hardcoded default removed; SEC remediation)'); })()
   });
 
   try {

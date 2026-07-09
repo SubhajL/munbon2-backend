@@ -2,22 +2,15 @@ const { Client } = require('pg');
 
 async function testEC2Connection() {
     const configs = [
-        { 
+        {
             name: 'Config from .env.local',
             host: process.env.EC2_HOST || '43.208.201.191',
             port: 5432,
             database: 'sensor_data',
             user: 'postgres',
-            password: 'P@ssw0rd123!'
-        },
-        {
-            name: 'Alternative password',
-            host: process.env.EC2_HOST || '43.208.201.191',
-            port: 5432,
-            database: 'sensor_data',
-            user: 'postgres',
-            password: 'postgres123'
+            password: process.env.DB_PASSWORD || (() => { throw new Error('DB_PASSWORD env var is required (hardcoded default removed; SEC remediation)'); })()
         }
+        // ("Alternative password" probe removed: no hardcoded credential attempts.)
     ];
 
     for (const config of configs) {

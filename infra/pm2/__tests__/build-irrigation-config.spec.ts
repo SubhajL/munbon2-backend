@@ -1,6 +1,53 @@
 import { buildProcessConfig, getIrrigationProcesses } from '../build-irrigation-config';
 
+// Credentials are no longer hardcoded in the config (SEC remediation): the builder
+// requires these from the host environment and fails closed otherwise.
+const REQUIRED_ENV: Record<string, string> = {
+  POSTGRES_URL: 'postgresql://user:pw@test-host:5432/munbon_dev',
+  TIMESCALE_URL: 'postgresql://user:pw@test-host:5432/sensor_data',
+  GIS_DATABASE_URL: 'postgresql://user:pw@test-host:5432/munbon_gis',
+  TIMESCALE_PASSWORD: 'test-timescale-pw',
+  POSTGRES_PASSWORD: 'test-postgres-pw',
+};
+
 describe('build-irrigation-config', () => {
+  const saved: Record<string, string | undefined> = {};
+
+  beforeAll(() => {
+    for (const [key, value] of Object.entries(REQUIRED_ENV)) {
+      saved[key] = process.env[key];
+      process.env[key] = value;
+    }
+  });
+
+  afterAll(() => {
+    for (const key of Object.keys(REQUIRED_ENV)) {
+      if (saved[key] === undefined) delete process.env[key];
+      else process.env[key] = saved[key];
+    }
+  });
+
+  describe('fail-closed credentials', () => {
+    it('throws when a credential env var is missing (no hardcoded default)', () => {
+      const prev = process.env.POSTGRES_URL;
+      delete process.env.POSTGRES_URL;
+      try {
+        expect(() => getIrrigationProcesses()).toThrow(/POSTGRES_URL must be set/);
+      } finally {
+        process.env.POSTGRES_URL = prev;
+      }
+    });
+
+    it('passes host env credential values through to service env blocks', () => {
+      const processes = getIrrigationProcesses();
+      const flow = processes.find(p => p.name === 'flow-monitoring');
+      expect(flow?.env?.POSTGRES_URL).toBe(REQUIRED_ENV.POSTGRES_URL);
+      const awd = processes.find(p => p.name === 'awd-control');
+      expect(awd?.env?.POSTGRES_PASSWORD).toBe(REQUIRED_ENV.POSTGRES_PASSWORD);
+      expect(awd?.env?.TIMESCALE_PASSWORD).toBe(REQUIRED_ENV.TIMESCALE_PASSWORD);
+    });
+  });
+
   describe('getIrrigationProcesses', () => {
     it('returns 7 irrigation services', () => {
       const processes = getIrrigationProcesses();

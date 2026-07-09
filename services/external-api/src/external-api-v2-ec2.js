@@ -11,7 +11,7 @@ const dbPool = new Pool({
   port: parseInt(process.env.DB_PORT || '5432'),
   database: process.env.DB_NAME || 'sensor_data',
   user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || 'P@ssw0rd123!',
+  password: process.env.DB_PASSWORD || (() => { throw new Error('DB_PASSWORD env var is required (hardcoded default removed; SEC remediation)'); })(),
   max: 10
 });
 

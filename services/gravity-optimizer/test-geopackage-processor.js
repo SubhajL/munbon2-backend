@@ -23,7 +23,7 @@ const TEST_CONFIG = {
     port: 5432,
     database: 'munbon_dev',
     user: 'postgres',
-    password: 'P@ssw0rd123!',
+    password: process.env.POSTGRES_PASSWORD || (() => { throw new Error('POSTGRES_PASSWORD env var is required (hardcoded default removed; SEC remediation)'); })(),
   },
   paths: {
     testData: path.join(__dirname, 'test-data'),

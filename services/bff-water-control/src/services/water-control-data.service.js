@@ -10,7 +10,7 @@ class WaterControlDataService {
       port: process.env.PG_PORT || 5432,
       database: process.env.PG_DATABASE || 'munbon_dev',
       user: process.env.PG_USER || 'postgres',
-      password: process.env.PG_PASSWORD || 'P@ssw0rd123!'
+      password: process.env.PG_PASSWORD || (() => { throw new Error('PG_PASSWORD env var is required (hardcoded default removed; SEC remediation)'); })()
     };
   }
 
