@@ -19,9 +19,11 @@ from core.gate_flow import (
     CS_MAX,
     CS_MIN,
     GateFlowCalibration,
+    GateFlowError,
     build_gate_flow_calibration,
     discharge_coeff,
     gate_flow_m3s,
+    min_deliverable_flow_m3s,
     required_opening_m,
 )
 
@@ -161,6 +163,112 @@ class TestRequiredOpening:
         cal = make_cal(confidence=0.80)
         _, info = required_opening_m(cal, SUB_UP, SUB_DOWN, q_target=5.0)
         assert info["confidence"] == 0.80
+
+
+# --- the Cs-floor discharge minimum (2026-07-09 review, MED) --------------------
+#
+# The rating law carries the opening only inside the clamped Cs, so flow is
+# discontinuous at Go=0: at the SUB point any positive opening delivers at least
+# CS_MIN*width*Hs*sqrt(2g*dH) ~= 3.09 m3/s. The inverse used to return an ~0
+# opening with feasible=True for targets below that floor — a 3-15x overdelivery
+# reported as success, with no caller checking `achievable`.
+
+class TestMinDeliverableFloor:
+    def test_min_deliverable_matches_tiny_opening_flow(self):
+        cal = make_cal()
+        q_floor = min_deliverable_flow_m3s(cal, SUB_UP, SUB_DOWN)
+        q_tiny = gate_flow_m3s(cal, SUB_UP, SUB_DOWN, Go=1e-6)
+        assert q_floor == pytest.approx(q_tiny)
+        assert q_floor > 1.0  # the floor is far from negligible at this head
+
+    def test_dry_gate_min_deliverable_is_zero(self):
+        cal = make_cal()
+        assert min_deliverable_flow_m3s(cal, 217.5, 217.0) == 0.0
+
+    @pytest.mark.parametrize("q_target", [0.2, 1.0, 2.5])
+    def test_below_floor_target_is_infeasible_and_gate_stays_shut(self, q_target):
+        cal = make_cal()
+        opening, info = required_opening_m(cal, SUB_UP, SUB_DOWN, q_target)
+        assert info["feasible"] is False
+        assert opening == 0.0  # fail closed: shut beats a 3-15x overdelivery
+        assert info["achievable"] == 0.0
+        assert info["min_deliverable"] > q_target
+        assert "minimum deliverable" in info["reason"]
+
+    def test_floor_is_reported_on_feasible_solutions_too(self):
+        cal = make_cal()
+        _, info = required_opening_m(cal, SUB_UP, SUB_DOWN, q_target=5.0)
+        assert info["feasible"] is True
+        assert 0.0 < info["min_deliverable"] < 5.0
+
+    @pytest.mark.parametrize("q_target", [3.2, 5.0, 8.0, 10.0])
+    def test_at_or_above_floor_targets_converge(self, q_target):
+        cal = make_cal()
+        opening, info = required_opening_m(cal, SUB_UP, SUB_DOWN, q_target)
+        assert info["feasible"] is True
+        assert info["achievable"] == pytest.approx(q_target, abs=1e-2)
+
+
+class TestCapacityAndFloorBoundaries:
+    def test_target_exactly_at_capacity_is_feasible_full_open(self):
+        cal = make_cal()
+        q_hi = gate_flow_m3s(cal, SUB_UP, SUB_DOWN, cal.max_opening_m)
+        opening, info = required_opening_m(cal, SUB_UP, SUB_DOWN, q_target=q_hi)
+        assert info["feasible"] is True
+        assert opening == cal.max_opening_m
+        assert info["achievable"] == pytest.approx(q_hi)
+
+    def test_target_just_over_capacity_is_infeasible(self):
+        cal = make_cal()
+        q_hi = gate_flow_m3s(cal, SUB_UP, SUB_DOWN, cal.max_opening_m)
+        opening, info = required_opening_m(cal, SUB_UP, SUB_DOWN, q_target=q_hi + 0.01)
+        assert info["feasible"] is False
+        assert opening == cal.max_opening_m
+        assert info["reason"] == "exceeds gate capacity at current head"
+
+    def test_constant_cs_floor_equals_capacity_exact_target_is_feasible(self):
+        # k2=0 -> Cs constant -> every positive opening delivers the same flow, so the
+        # floor EQUALS capacity; the exact target must be feasible, not "over capacity".
+        cal = make_cal(k2=0.0)
+        q_hi = gate_flow_m3s(cal, SUB_UP, SUB_DOWN, cal.max_opening_m)
+        assert min_deliverable_flow_m3s(cal, SUB_UP, SUB_DOWN) == pytest.approx(q_hi)
+        opening, info = required_opening_m(cal, SUB_UP, SUB_DOWN, q_target=q_hi)
+        assert info["feasible"] is True
+        assert info["achievable"] == pytest.approx(q_hi)
+
+    @pytest.mark.parametrize("offset", [-5e-4, 0.0, 5e-4])
+    def test_floor_band_target_is_feasible_at_the_minimal_opening(self, offset):
+        # Inside the tolerance band the target is honored at the floor with the
+        # SMALLEST legal opening (not an arbitrary bisection point), not rejected.
+        cal = make_cal()
+        q_floor = min_deliverable_flow_m3s(cal, SUB_UP, SUB_DOWN)
+        opening, info = required_opening_m(cal, SUB_UP, SUB_DOWN, q_target=q_floor + offset)
+        assert info["feasible"] is True
+        assert 0.0 < opening <= 1e-5  # minimal positive opening for a min_opening_m=0 gate
+        assert info["achievable"] == pytest.approx(q_floor, abs=2e-3)
+
+    def test_floor_band_target_respects_a_positive_min_opening(self):
+        cal = make_cal(min_opening_m=0.5)
+        q_floor = min_deliverable_flow_m3s(cal, SUB_UP, SUB_DOWN)
+        opening, info = required_opening_m(cal, SUB_UP, SUB_DOWN, q_target=q_floor)
+        assert info["feasible"] is True
+        assert opening == 0.5  # never commands below the gate's legal minimum
+
+    def test_min_opening_gate_probes_floor_at_its_legal_minimum(self):
+        cal = make_cal(min_opening_m=0.5)
+        q_floor = min_deliverable_flow_m3s(cal, SUB_UP, SUB_DOWN)
+        assert q_floor == pytest.approx(gate_flow_m3s(cal, SUB_UP, SUB_DOWN, Go=0.5))
+
+
+class TestCalibrationValidation:
+    def test_positive_k2_is_rejected(self):
+        # k2>0 inverts monotonicity (flow would DROP as the gate opens), silently
+        # breaking the bisection inverse — fail at construction, not mid-solve.
+        with pytest.raises(GateFlowError, match="k2"):
+            make_cal(k2=0.5)
+
+    def test_zero_k2_is_allowed(self):
+        make_cal(k2=0.0)  # constant Cs: degenerate but monotone — no exception
 
 
 # --- build_gate_flow_calibration: 3-source assembly + documented defaults ------
