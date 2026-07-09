@@ -343,7 +343,9 @@ class WaterGateControllerEnhanced(WaterGateControllerFixed):
             gate_type = gate.gate_type.value
             specs['summary']['gate_types'][gate_type] = \
                 specs['summary']['gate_types'].get(gate_type, 0) + 1
-            specs['summary']['total_capacity'] += gate_info.get('q_max', 0)
+            q_max = gate_info.get('q_max')
+            if isinstance(q_max, (int, float)) and not isinstance(q_max, bool) and np.isfinite(q_max):
+                specs['summary']['total_capacity'] += q_max
         
         return specs
 
