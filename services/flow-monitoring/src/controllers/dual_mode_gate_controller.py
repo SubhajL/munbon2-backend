@@ -510,12 +510,24 @@ class DualModeGateController:
             return False
     
     async def _get_system_demand(self) -> Dict[str, float]:
-        """Get current system water demand"""
-        # In real implementation, aggregate from irrigation schedules
-        return {"total_demand": 25.0}  # m³/s
-    
+        """Get current system water demand.
+
+        Fail-closed (F-03/C9): the fabricated ``25.0`` m³/s constant is retired. Real
+        per-node demand aggregation is served by ``NetworkFlowController`` via
+        ``POST /api/v1/control/plan`` (see ``api/control.py``); this demo path no longer
+        invents demand.
+        """
+        raise RuntimeError(
+            "no demand source wired — POST node demand to /api/v1/control/plan"
+        )
+
     async def _solve_optimal_gate_settings(self, demand: Dict[str, float]) -> Dict[str, Dict[str, float]]:
-        """Solve for optimal gate settings given demand"""
+        """Solve for optimal gate settings given demand.
+
+        NOTE (F-03/C9): this demo returns dummy 50% openings and is unreached at runtime.
+        The real demand->required-flow computation lives in ``NetworkFlowController``
+        (``api/control.py``); the coordinated inverse (B8) is the next item.
+        """
         # Use hydraulic solver
         # For now, return dummy settings
         settings = {}

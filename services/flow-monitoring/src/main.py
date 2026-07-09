@@ -8,8 +8,10 @@ from prometheus_client import make_asgi_app
 from config import settings
 from api import router as api_router
 from api import gates as gates_api
+from api import control as control_api
 from core.logging import setup_logging
 from core.metrics import setup_metrics
+from core.network_flow_controller import NetworkFlowController
 from db.connections import DatabaseManager
 # Kafka consumer is optional; import lazily when configured
 from controllers.dual_mode_gate_controller import DualModeGateController
@@ -44,6 +46,15 @@ async def lifespan(app: FastAPI):
         gate_controller = DualModeGateController(db_manager, network_file, geometry_file)
         gates_api.gate_controller = gate_controller
         logger.info("Gate controller initialized")
+
+        # Wire the canonical demand->flow engine (A1-A3 / F-11b / B5) for /api/v1/control/plan.
+        # NOTE: the legacy DualModeGateController above still uses the stale
+        # munbon_network_final.json + template geometry (out of scope here); the corrected
+        # serial-chain topology + surveyed geometry live in src/config/.
+        control_api.flow_controller = NetworkFlowController(
+            "src/config/network.json", "src/config/canal_geometry.json"
+        )
+        logger.info("Flow controller (demand->reach aggregation) initialized")
         
         # Start Kafka consumer only if configured
         if settings.kafka_brokers:

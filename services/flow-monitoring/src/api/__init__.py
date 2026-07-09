@@ -7,6 +7,7 @@ from .analytics import router as analytics_router
 from .hydraulics import router as hydraulics_router
 from .gates import router as gates_router
 from .gate_config import router as gate_config_router
+from .control import router as control_router
 
 # Create main API router
 router = APIRouter()
@@ -20,5 +21,6 @@ router.include_router(analytics_router, prefix="/analytics", tags=["Analytics"])
 router.include_router(hydraulics_router, prefix="/hydraulics", tags=["Hydraulic Modeling"])
 router.include_router(gates_router, prefix="/gates", tags=["Gate Control"])
 router.include_router(gate_config_router, tags=["Gate Configuration"])
+router.include_router(control_router, prefix="/control", tags=["Flow Control"])
 
 __all__ = ["router"]
