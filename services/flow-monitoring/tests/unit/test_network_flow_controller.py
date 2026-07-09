@@ -120,7 +120,9 @@ class TestConveyanceLossWiring:
         ctrl = NetworkFlowController(str(CANONICAL), geometry_path=str(GEOMETRY_CFG))
         tail = next(g for g in json.loads(CANONICAL.read_text())["gates"]
                     if re.sub(r"\s+", "", g) == "M(0,12)")
-        # M(0,12) is the only demand node -> flow (and seepage) only on the LMC mainstem path.
+        # M(0,12) is the only demand node, and dry reaches take no loss (D1), so seepage
+        # accrues ONLY on the S->M(0,12) mainstem supply path — numerator and the LMC-km
+        # denominator now measure the same canal (the pre-D1 hybrid overstated this ~68).
         flow = ctrl.required_flow_per_reach({tail: 8.737}, apply_losses=True)
         seepage_l_s = (sum(q for (u, _), q in flow.items() if u == "S") - 8.737) * 1000.0
         lmc_km = sum(
@@ -129,3 +131,76 @@ class TestConveyanceLossWiring:
         ) / 1000.0
         per_km = seepage_l_s / lmc_km
         assert 20.0 < per_km < 120.0, f"{per_km:.1f} L/s/km outside aged-concrete field range"
+
+
+class TestDryReachSemantics:
+    # D1 (PROGRAM_REVIEW_2026-07-09 §2.0): a plan charges seepage only on reaches in
+    # service for that plan. Pre-D1, an empty plan demanded ~2.46 m3/s at the head.
+    def _ctrl(self):
+        return NetworkFlowController(str(CANONICAL), geometry_path=str(GEOMETRY_CFG))
+
+    def _head(self, flow):
+        return sum(q for (u, _), q in flow.items() if u == "S")
+
+    def test_zero_demand_with_losses_has_zero_head_flow(self):
+        flow = self._ctrl().required_flow_per_reach({}, apply_losses=True)
+        assert self._head(flow) == 0.0
+        assert all(q == 0.0 for q in flow.values())
+
+    def test_single_tail_demand_charges_only_its_supply_path(self):
+        ctrl = self._ctrl()
+        tail = next(g for g in json.loads(CANONICAL.read_text())["gates"]
+                    if re.sub(r"\s+", "", g) == "M(0,12)")
+        flow = ctrl.required_flow_per_reach({tail: 1.0}, apply_losses=True)
+        parent = {c: p for p, c in ctrl.edges}
+        path, node = set(), tail
+        while node in parent:
+            path.add((parent[node], node))
+            node = parent[node]
+        flowing = {edge for edge, q in flow.items() if q > 0.0}
+        assert flowing == path  # nothing off the supply path is charged
+
+    def test_charge_dry_reaches_restores_whole_network_seepage(self):
+        from core.conveyance_loss import reach_seepage_m3s
+
+        ctrl = self._ctrl()
+        flow = ctrl.required_flow_per_reach(
+            {}, apply_losses=True, charge_dry_reaches=True
+        )
+        expected = sum(reach_seepage_m3s(s) for s in ctrl.sections.values())
+        assert self._head(flow) == pytest.approx(expected)
+        assert self._head(flow) > 2.0  # the legacy all-network figure (~2.46 m3/s)
+
+    def test_always_wet_reach_stays_charged_in_an_empty_plan(self):
+        from core.conveyance_loss import normalize_edge, reach_seepage_m3s
+
+        ctrl = self._ctrl()
+        edge = next(e for e in ctrl.edges
+                    if normalize_edge(*e) == ("M(0,0)", "M(0,1)"))
+        flow = ctrl.required_flow_per_reach(
+            {}, apply_losses=True, always_wet=[list(edge)]
+        )
+        assert self._head(flow) == pytest.approx(
+            reach_seepage_m3s(ctrl.sections[normalize_edge(*edge)])
+        )
+
+    def test_unknown_always_wet_reach_is_rejected(self):
+        with pytest.raises(ValueError, match="always_wet"):
+            self._ctrl().required_flow_per_reach(
+                {}, apply_losses=True, always_wet=[["M(0,0)", "M(9,9)"]]
+            )
+
+    def test_always_wet_reach_without_geometry_is_rejected(self):
+        # "Keep this reach charged" is unfulfillable without surveyed geometry — the loss
+        # would silently be 0; the source edge S->M(0,0) is a real edge with no section.
+        with pytest.raises(ValueError, match="no surveyed geometry"):
+            self._ctrl().required_flow_per_reach(
+                {}, apply_losses=True, always_wet=[["S", "M(0,0)"]]
+            )
+
+    def test_loss_knobs_without_apply_losses_are_rejected(self):
+        ctrl = self._ctrl()
+        with pytest.raises(ValueError, match="apply_losses"):
+            ctrl.required_flow_per_reach({}, charge_dry_reaches=True)
+        with pytest.raises(ValueError, match="apply_losses"):
+            ctrl.required_flow_per_reach({}, always_wet=[["M(0,0)", "M(0,1)"]])

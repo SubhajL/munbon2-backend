@@ -19,6 +19,22 @@ class PlanRequest(BaseModel):
         default=False,
         description="Add B5 conveyance (seepage + operational) loss to each reach.",
     )
+    charge_dry_reaches: bool = Field(
+        default=False,
+        description=(
+            "Charge fixed-depth seepage on ALL surveyed reaches regardless of planned "
+            "flow (legacy steady whole-network mode). Default (D1): only reaches that "
+            "carry flow for this plan are charged. Requires apply_losses=true."
+        ),
+    )
+    always_wet: list[tuple[str, str]] = Field(
+        default_factory=list,
+        description=(
+            "Reaches [upstream, downstream] kept charged with seepage even when this "
+            "plan sends them no flow (trunk canals that never drain). Ids accept any "
+            "spacing; unknown reaches are rejected. Requires apply_losses=true."
+        ),
+    )
 
 
 class ReachFlow(BaseModel):
@@ -33,4 +49,5 @@ class PlanResponse(BaseModel):
     reaches: list[ReachFlow]
     head_flow_m3s: float
     apply_losses: bool
+    charge_dry_reaches: bool = False
     reaches_missing_geometry: list[list[str]] = Field(default_factory=list)

@@ -129,6 +129,68 @@ class TestMakeReachLoss:
         assert make_reach_loss(self._sections())("S", "M(0,0)", 8.0) == 0.0
 
 
+class TestDryReachGating:
+    # D1 (PROGRAM_REVIEW_2026-07-09 §2.0): seepage is charged only on reaches that carry
+    # flow for THIS plan; `always_wet` keeps named trunk reaches charged; the legacy
+    # charge-everything behavior stays behind an explicit flag.
+    EDGE = ("M(0,1)", "M(0,2)")
+    SECTIONS = {EDGE: _section(1.0e-5, op=0.0)}
+    SEEP = reach_seepage_m3s(_section(1.0e-5, op=0.0))
+
+    def test_dry_reach_takes_no_loss_by_default(self):
+        rl = make_reach_loss(self.SECTIONS)
+        assert rl("M(0,1)", "M(0,2)", 0.0) == 0.0
+
+    def test_flowing_reach_is_still_charged(self):
+        rl = make_reach_loss(self.SECTIONS)
+        assert rl("M(0,1)", "M(0,2)", 1.0) == pytest.approx(self.SEEP)
+
+    def test_charge_dry_reaches_restores_fixed_depth_seepage(self):
+        rl = make_reach_loss(self.SECTIONS, charge_dry_reaches=True)
+        assert rl("M(0,1)", "M(0,2)", 0.0) == pytest.approx(self.SEEP)
+
+    def test_always_wet_reach_is_charged_when_dry(self):
+        rl = make_reach_loss(self.SECTIONS, always_wet=frozenset({self.EDGE}))
+        assert rl("M(0,1)", "M(0,2)", 0.0) == pytest.approx(self.SEEP)
+
+    def test_always_wet_matches_by_normalized_id_despite_spacing(self):
+        rl = make_reach_loss(self.SECTIONS, always_wet=frozenset({self.EDGE}))
+        assert rl("M (0,1)", "M (0, 2)", 0.0) == pytest.approx(self.SEEP)
+
+    def test_zero_demand_aggregation_charges_nothing(self):
+        edges = [("S", "M(0,1)"), ("M(0,1)", "M(0,2)")]
+        sections = {("S", "M(0,1)"): _section(1.0e-5, op=0.0), self.EDGE: _section(1.0e-5, op=0.0)}
+        flow = required_flow_per_reach(edges, {}, reach_loss=make_reach_loss(sections))
+        assert all(q == 0.0 for q in flow.values())
+
+    # Branched fixture: S -> M(0,0) -> M(0,1) -> {M(0,2) wet, M(0,1;1,0) dry sibling}.
+    BRANCH_EDGES = [("S", "M(0,0)"), ("M(0,0)", "M(0,1)"),
+                    ("M(0,1)", "M(0,2)"), ("M(0,1)", "M(0,1;1,0)")]
+    WET = ("M(0,1)", "M(0,2)")
+
+    def _branch_sections(self, op=0.0):
+        return {("M(0,0)", "M(0,1)"): _section(1.0e-5, op=op),
+                ("M(0,1)", "M(0,2)"): _section(1.0e-5, op=op),
+                ("M(0,1)", "M(0,1;1,0)"): _section(1.0e-5, op=op)}
+
+    def test_always_wet_charges_ancestors_but_not_the_dry_sibling(self):
+        rl = make_reach_loss(self._branch_sections(), always_wet=frozenset({self.WET}))
+        flow = required_flow_per_reach(self.BRANCH_EDGES, {}, reach_loss=rl)
+        assert flow[self.WET] == pytest.approx(self.SEEP)          # its own seepage
+        assert flow[("M(0,1)", "M(0,1;1,0)")] == 0.0               # dry sibling untouched
+        # the ancestor now carries the wet reach's seepage AND, being in service, its own.
+        assert flow[("M(0,0)", "M(0,1)")] == pytest.approx(2 * self.SEEP)
+        assert flow[("S", "M(0,0)")] == pytest.approx(2 * self.SEEP)  # no geometry on S edge
+
+    def test_always_wet_with_operational_fraction_charges_only_flowing_reaches(self):
+        rl = make_reach_loss(self._branch_sections(op=0.05), always_wet=frozenset({self.WET}))
+        flow = required_flow_per_reach(self.BRANCH_EDGES, {}, reach_loss=rl)
+        assert flow[self.WET] == pytest.approx(self.SEEP)  # op term is 0.05 * 0 on the wet reach
+        # ancestor: through=SEEP, uplift = SEEP + 0.05*SEEP -> total 2.05*SEEP.
+        assert flow[("M(0,0)", "M(0,1)")] == pytest.approx(2.05 * self.SEEP)
+        assert flow[("M(0,1)", "M(0,1;1,0)")] == 0.0
+
+
 class TestAggregationWithLoss:
     # Serial chain S -> M(0,0) -> M(0,1) -> M(0,2); geometry on both M-reaches.
     EDGES = [("S", "M(0,0)"), ("M(0,0)", "M(0,1)"), ("M(0,1)", "M(0,2)")]
