@@ -1,0 +1,76 @@
+# flow-monitoring CI gate (roadmap Wave 0, PR 0.1 — PROGRAM_REVIEW_2026-07-09).
+#
+# Runs the ISOLATED unit suites: pure core physics/topology + the DB-free control API
+# and settings tests. The suite list is explicit because the default `pytest` run is
+# currently unusable (legacy suites are broken and pytest.ini's --cov-fail-under=80
+# can't pass against the dead-code mass) — widening to bare `pytest` is roadmap
+# Wave 1.9 after the dead-code purge. Do NOT add DB-coupled suites here.
+name: flow-monitoring-tests
+
+on:
+  pull_request:
+    paths:
+      - "services/flow-monitoring/**"
+      - ".github/workflows/flow-monitoring-tests.yml"
+      # repo-root survey oracle read by test_network_topology's SCADA-geometry check
+      - "canal_sections_6zones_final.json"
+  push:
+    branches: [main]
+    paths:
+      - "services/flow-monitoring/**"
+      - ".github/workflows/flow-monitoring-tests.yml"
+      - "canal_sections_6zones_final.json"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: flow-monitoring-tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  isolated-unit-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/flow-monitoring
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: services/flow-monitoring/requirements.txt
+
+      - name: Install pinned dependencies
+        run: pip install -r requirements.txt
+
+      - name: Isolated unit suites (pure core + control API + settings; DB-free)
+        env:
+          PYTHONPATH: src
+          # config/settings.py instantiates Settings() at import time with required DB
+          # fields; locally a git-ignored .env masks this. CI provides clearly-dummy
+          # values — the suites never open a connection (stubs only).
+          INFLUXDB_URL: http://ci-dummy:8086
+          INFLUXDB_TOKEN: ci-dummy-token
+          INFLUXDB_ORG: ci-dummy-org
+          INFLUXDB_BUCKET: ci-dummy-bucket
+          TIMESCALE_URL: postgresql://ci:ci@ci-dummy:5432/sensor_data
+          POSTGRES_URL: postgresql://ci:ci@ci-dummy:5432/postgres
+          REDIS_URL: redis://ci-dummy:6379/0
+        run: >
+          pytest --noconftest -o addopts="" -q
+          tests/unit/test_gate_flow.py
+          tests/unit/test_network_topology.py
+          tests/unit/test_demand_aggregation.py
+          tests/unit/test_conveyance_loss.py
+          tests/unit/test_canal_capacity.py
+          tests/unit/test_network_flow_controller.py
+          tests/unit/test_control_api.py
+          tests/unit/test_no_duplicate_flow_law.py
+          tests/unit/test_settings.py
+          tests/unit/test_settings_config.py
+          tests/unit/test_influx_connect.py
+          tests/unit/test_timescale_client.py
+          tests/unit/test_ci_suite_manifest.py
