@@ -175,6 +175,24 @@ class TestEdgesFromNamesRules:
         with pytest.raises(NetworkTopologyError):
             edges_from_names(["M(0,1;1,0)", "M (0,1; 1,0)"])
 
+    def test_rejects_non_head_single_tuple_attaching_to_root(self):
+        # M(1,0) parses fine, but only M(0,0) may hang off the source: accepting it
+        # creates a second root-attached chain that still passes is_spanning_tree.
+        with pytest.raises(NetworkTopologyError, match=r"only M\(0,0\) may attach"):
+            edges_from_names(["M(0,0)", "M(1,0)"])
+
+    @pytest.mark.parametrize("lone_head", ["M(1,0)", "M(3,0)", "M (2, 0)", "M(10,0)"])
+    def test_rejects_lone_non_head_single_tuple(self, lone_head):
+        with pytest.raises(NetworkTopologyError, match=r"only M\(0,0\) may attach"):
+            edges_from_names([lone_head])
+
+    @pytest.mark.parametrize("alias", ["M(00,00)", "M(0,00)", "M(000,0)"])
+    def test_rejects_leading_zero_aliases_of_the_root(self, alias):
+        # These parse to (0,0) but are textual aliases: accepting them would attach
+        # a non-canonical root spelling that exact-string consumers can't resolve.
+        with pytest.raises(NetworkTopologyError, match="leading zero"):
+            edges_from_names([alias])
+
 
 class TestEdgesFromNamesRealNetwork:
     def _gate_ids(self):

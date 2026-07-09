@@ -135,6 +135,10 @@ def _parse_gate_id(gate_id: str) -> list[tuple[int, int]]:
         # non-negative integers only: negative branch/position is a malformed id.
         if len(parts) != 2 or not all(p.isdigit() for p in parts):
             raise NetworkTopologyError(f"malformed gate id {gate_id!r}")
+        # leading zeros (M(00,00), M(0,00)) are textual aliases of another node:
+        # they normalize to the same tuples but break exact-string consumers.
+        if any(len(p) > 1 and p[0] == "0" for p in parts):
+            raise NetworkTopologyError(f"malformed gate id {gate_id!r} (leading zero)")
         pairs.append((int(parts[0]), int(parts[1])))
     return pairs
 
@@ -155,7 +159,13 @@ def _derived_parent(gate_id: str):
     if pos > 0:
         return _fmt_tuples(tuples[:-1] + [(branch, pos - 1)])  # serial predecessor
     if len(tuples) == 1:
-        return None  # single tuple (x, 0) -> source root
+        # Only the head gate M(0,0) hangs off the source; any other single tuple
+        # (e.g. M(1,0)) would silently start a second root-attached chain.
+        if tuples[0] == (0, 0):
+            return None
+        raise NetworkTopologyError(
+            f"gate {gate_id!r}: only M(0,0) may attach to the source root"
+        )
     return _fmt_tuples(tuples[:-1])  # junction: drop the last tuple
 
 
