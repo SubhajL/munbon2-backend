@@ -3,7 +3,13 @@ from pydantic import BaseModel, Field
 
 
 class PlanRequest(BaseModel):
-    """A per-node water demand to turn into a per-reach flow plan."""
+    """A per-node water demand to turn into a per-reach flow plan.
+
+    Non-finite values (NaN/Inf, e.g. a `1e400` overflow) are rejected in the handler by the
+    engine's `_validate` (400 with a string message) rather than by a schema `allow_inf_nan`
+    constraint: pydantic's 422 error echoes the raw inf float, which then fails JSON
+    serialization ("Out of range float values are not JSON compliant") and returns 500.
+    """
 
     demands: dict[str, float] = Field(
         default_factory=dict,

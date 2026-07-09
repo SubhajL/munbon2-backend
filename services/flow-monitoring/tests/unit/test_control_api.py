@@ -87,6 +87,38 @@ class TestPlanEndpoint:
         resp = client.post("/api/v1/control/plan", json={"demands": {"S": 1.0}})
         assert resp.status_code == 400
 
+    def test_non_finite_demand_is_rejected_not_500(self, client):
+        # 1e400 is valid JSON that parses to +inf; it must be rejected as a client error (422),
+        # never reach the engine and crash serialization with a 500.
+        resp = client.post(
+            "/api/v1/control/plan",
+            content='{"demands": {"M(0,2)": 1e400}}',
+            headers={"content-type": "application/json"},
+        )
+        assert resp.status_code == 400  # handler _validate path, not a schema-level 422
+        assert "not finite" in resp.json()["detail"]
+
+
+class TestErrorMapping:
+    def test_topology_error_maps_to_503_not_400(self):
+        # NetworkTopologyError subclasses ValueError; a server/config topology error must
+        # surface as 503, not be mis-reported as a 400 client error.
+        from core.network_topology import NetworkTopologyError
+
+        control = _load_control()
+
+        class _BadController:
+            reaches_missing_geometry = set()
+
+            def required_flow_per_reach(self, demands, apply_losses=False):
+                raise NetworkTopologyError("network is not a spanning tree")
+
+        control.flow_controller = _BadController()
+        app = FastAPI()
+        app.include_router(control.router, prefix="/api/v1/control")
+        resp = TestClient(app).post("/api/v1/control/plan", json={"demands": {"M(0,2)": 1.0}})
+        assert resp.status_code == 503
+
 
 class TestFailClosed:
     def test_503_when_controller_not_initialized(self):
@@ -103,3 +135,16 @@ class TestFailClosed:
         src = (SERVICE_ROOT / "src" / "controllers" / "dual_mode_gate_controller.py").read_text()
         assert 'return {"total_demand": 25.0}' not in src
         assert "no demand source wired" in src
+
+    def test_manual_instructions_surface_unavailable_demand(self):
+        # Retiring the 25.0 stub must NOT make generate_manual_instructions silently return []
+        # (its live route would report "no instructions" instead of "demand unavailable").
+        import asyncio
+
+        # lazy import so this file's other tests don't depend on the DB/settings import chain
+        from controllers.dual_mode_gate_controller import DualModeGateController
+
+        controller = DualModeGateController.__new__(DualModeGateController)  # skip heavy __init__
+        controller.gate_states = {}
+        with pytest.raises(RuntimeError, match="no demand source"):
+            asyncio.run(controller.generate_manual_instructions())

@@ -193,6 +193,10 @@ async def get_manual_instructions(
             "instructions": instructions,
             "priority_gates": [inst["gate_id"] for inst in instructions if inst.get("priority", False)]
         }
+    except RuntimeError as e:
+        # Demand source not wired (F-03/C9): report unavailable, not a fake empty success.
+        logger.error("Manual instructions unavailable", error=str(e))
+        raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
         logger.error("Failed to generate manual instructions", error=str(e))
         raise HTTPException(status_code=500, detail=f"Failed to generate instructions: {str(e)}")
