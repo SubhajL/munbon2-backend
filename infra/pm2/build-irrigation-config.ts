@@ -28,6 +28,17 @@ export interface PM2ProcessConfig {
 const REPO_ROOT = path.resolve(__dirname, '../../..');
 const LOGS_DIR = path.join(REPO_ROOT, 'logs');
 
+// Credentials are NEVER defaulted here (SEC remediation: the previous hardcoded
+// password leaked and must be rotated). Export the real values on the PM2 host
+// before building this config; a missing value fails the build, loudly.
+function requiredEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`${name} must be set in the environment to build the irrigation PM2 config (hardcoded default removed)`);
+  }
+  return value;
+}
+
 export function buildProcessConfig(spec: ServiceSpec): PM2ProcessConfig {
   const servicePath = path.join(REPO_ROOT, 'services', spec.name);
 
@@ -69,8 +80,8 @@ export function getIrrigationProcesses(): PM2ProcessConfig[] {
       env: {
         PORT: '3011',
         LOG_LEVEL: 'INFO',
-        POSTGRES_URL: 'postgresql://postgres:__ROTATED_DB_PASSWORD__@43.208.201.191:5432/munbon_dev',
-        TIMESCALE_URL: 'postgresql://postgres:__ROTATED_DB_PASSWORD__@43.208.201.191:5432/sensor_data',
+        POSTGRES_URL: requiredEnv('POSTGRES_URL'),
+        TIMESCALE_URL: requiredEnv('TIMESCALE_URL'),
         REDIS_URL: 'redis://localhost:6379/3',
         KAFKA_BROKERS: 'localhost:9092',
         KAFKA_TOPIC_SENSORS: 'sensor-data',
@@ -90,13 +101,14 @@ export function getIrrigationProcesses(): PM2ProcessConfig[] {
       env: {
         PORT: '3012',
         LOG_LEVEL: 'INFO',
-        POSTGRES_URL: 'postgresql://postgres:__ROTATED_DB_PASSWORD__@43.208.201.191:5432/munbon_dev',
+        POSTGRES_URL: requiredEnv('POSTGRES_URL'),
         REDIS_URL: 'redis://localhost:6379/4',
         WEATHER_API_URL: 'http://localhost:3006',
         SMS_GATEWAY_URL: 'http://localhost:3050',
         FLOW_MONITORING_URL: 'http://localhost:3011',
         ROS_GIS_URL: 'http://localhost:3047',
-        DATABASE_URL: 'postgresql+asyncpg://postgres:__ROTATED_DB_PASSWORD__@43.208.201.191:5432/munbon_dev',
+        // (dead DATABASE_URL injection removed: the scheduler's settings consume
+        // POSTGRES_URL; its EC2 entrypoint builds its own URL from POSTGRES_* parts)
         ROS_SERVICE_URL: 'http://localhost:3047',
         GIS_SERVICE_URL: 'http://localhost:3007',
         WEATHER_SERVICE_URL: 'http://localhost:3006',
@@ -114,9 +126,9 @@ export function getIrrigationProcesses(): PM2ProcessConfig[] {
         HOST: '0.0.0.0',
         ENVIRONMENT: 'production',
         LOG_LEVEL: 'INFO',
-        POSTGRES_URL: 'postgresql://postgres:__ROTATED_DB_PASSWORD__@43.208.201.191:5432/munbon_dev',
-        GIS_DATABASE_URL: 'postgresql://postgres:__ROTATED_DB_PASSWORD__@43.208.201.191:5432/munbon_gis',
-        TIMESCALE_URL: 'postgresql://postgres:__ROTATED_DB_PASSWORD__@43.208.201.191:5432/sensor_data',
+        POSTGRES_URL: requiredEnv('POSTGRES_URL'),
+        GIS_DATABASE_URL: requiredEnv('GIS_DATABASE_URL'),
+        TIMESCALE_URL: requiredEnv('TIMESCALE_URL'),
         REDIS_URL: 'redis://localhost:6379/2',
         ROS_SERVICE_URL: 'http://localhost:3047',
         GIS_SERVICE_URL: 'http://localhost:3007',
@@ -138,8 +150,8 @@ export function getIrrigationProcesses(): PM2ProcessConfig[] {
       env: {
         PORT: '3047',
         LOG_LEVEL: 'INFO',
-        POSTGRES_URL: 'postgresql://postgres:__ROTATED_DB_PASSWORD__@43.208.201.191:5432/munbon_dev',
-        GIS_DATABASE_URL: 'postgresql://postgres:__ROTATED_DB_PASSWORD__@43.208.201.191:5432/munbon_gis',
+        POSTGRES_URL: requiredEnv('POSTGRES_URL'),
+        GIS_DATABASE_URL: requiredEnv('GIS_DATABASE_URL'),
         REDIS_URL: 'redis://localhost:6379/5',
         FLOW_MONITORING_URL: 'http://localhost:3011',
         SCHEDULER_URL: 'http://localhost:3021',
@@ -157,12 +169,12 @@ export function getIrrigationProcesses(): PM2ProcessConfig[] {
       env: {
         PORT: '3010',
         LOG_LEVEL: 'info',
-        POSTGRES_URL: 'postgresql://postgres:__ROTATED_DB_PASSWORD__@43.208.201.191:5432/munbon_dev',
-        TIMESCALE_URL: 'postgresql://postgres:__ROTATED_DB_PASSWORD__@43.208.201.191:5432/sensor_data',
+        POSTGRES_URL: requiredEnv('POSTGRES_URL'),
+        TIMESCALE_URL: requiredEnv('TIMESCALE_URL'),
         TIMESCALE_HOST: '43.208.201.191',
         TIMESCALE_PORT: '5432',
         TIMESCALE_USER: 'postgres',
-        TIMESCALE_PASSWORD: '__ROTATED_DB_PASSWORD__',
+        TIMESCALE_PASSWORD: requiredEnv('TIMESCALE_PASSWORD'),
         TIMESCALE_DB: 'sensor_data',
         REDIS_URL: 'redis://localhost:6379/6',
         KAFKA_BROKERS: 'localhost:9092',
@@ -170,7 +182,7 @@ export function getIrrigationProcesses(): PM2ProcessConfig[] {
         POSTGRES_PORT: '5432',
         POSTGRES_DB: 'munbon_dev',
         POSTGRES_USER: 'postgres',
-        POSTGRES_PASSWORD: '__ROTATED_DB_PASSWORD__',
+        POSTGRES_PASSWORD: requiredEnv('POSTGRES_PASSWORD'),
       },
     },
     {
@@ -183,8 +195,8 @@ export function getIrrigationProcesses(): PM2ProcessConfig[] {
         PORT: '3007',
         LOG_LEVEL: 'info',
         ENVIRONMENT: 'production',
-        DATABASE_URL: 'postgresql://postgres:__ROTATED_DB_PASSWORD__@43.208.201.191:5432/munbon_gis',
-        POSTGRES_URL: 'postgresql://postgres:__ROTATED_DB_PASSWORD__@43.208.201.191:5432/munbon_dev',
+        DATABASE_URL: requiredEnv('GIS_DATABASE_URL'),
+        POSTGRES_URL: requiredEnv('POSTGRES_URL'),
         REDIS_URL: 'redis://localhost:6379/7',
         SRID: '32647',
         GEOMETRY_COLUMN: 'geom',
@@ -208,9 +220,9 @@ export function getIrrigationProcesses(): PM2ProcessConfig[] {
         PORT: '3020',
         LOG_LEVEL: 'INFO',
         ENVIRONMENT: 'production',
-        POSTGRES_URL: 'postgresql://postgres:__ROTATED_DB_PASSWORD__@43.208.201.191:5432/munbon_dev',
+        POSTGRES_URL: requiredEnv('POSTGRES_URL'),
         REDIS_URL: 'redis://localhost:6379/8',
-        TIMESCALE_URL: 'postgresql://postgres:__ROTATED_DB_PASSWORD__@43.208.201.191:5432/sensor_data',
+        TIMESCALE_URL: requiredEnv('TIMESCALE_URL'),
         FLOW_MONITORING_URL: 'http://localhost:3014',
         GIS_SERVICE_URL: 'http://localhost:3007',
         WATER_LEVEL_URL: 'http://localhost:3008',

@@ -25,7 +25,7 @@ const config = {
     port: 5432,
     database: 'munbon_dev',
     user: 'postgres',
-    password: '__ROTATED_DB_PASSWORD__', // PostgreSQL password from container
+    password: process.env.POSTGRES_PASSWORD || (() => { throw new Error('POSTGRES_PASSWORD env var is required (hardcoded default removed; SEC remediation)'); })(),
     max: 10,
     idleTimeoutMillis: 30000
   },

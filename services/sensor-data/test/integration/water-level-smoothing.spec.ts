@@ -9,7 +9,7 @@ const dbConfig = {
   port: parseInt(process.env.TIMESCALE_PORT || '5432'),
   database: process.env.TIMESCALE_DB || 'sensor_data',
   user: process.env.TIMESCALE_USER || 'postgres',
-  password: process.env.TIMESCALE_PASSWORD || '__ROTATED_DB_PASSWORD__',
+  password: process.env.TIMESCALE_PASSWORD || (() => { throw new Error('TIMESCALE_PASSWORD env var is required (hardcoded default removed; SEC remediation)'); })(),
 };
 
 describe('Water Level Smoothing Integration Tests', () => {

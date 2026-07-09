@@ -12,7 +12,7 @@ module.exports = {
     log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
     env: {
       NODE_ENV: 'production',
-      POSTGRES_PASSWORD: '__ROTATED_DB_PASSWORD__',
+      POSTGRES_PASSWORD: process.env.POSTGRES_PASSWORD || (() => { throw new Error('POSTGRES_PASSWORD env var is required (hardcoded default removed; SEC remediation)'); })(),
       UPLOAD_DIR: '/home/ubuntu/geopackage-uploads',
       TEMP_DIR: '/tmp/geopackage-processing',
       PROCESSED_DIR: '/home/ubuntu/geopackage-processed',

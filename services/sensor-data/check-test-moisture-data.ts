@@ -5,7 +5,7 @@ const ec2Pool = new Pool({
   port: 5432,
   database: 'sensor_data',
   user: 'postgres',
-  password: '__ROTATED_DB_PASSWORD__',
+  password: process.env.EC2_DB_PASSWORD || (() => { throw new Error('EC2_DB_PASSWORD env var is required (hardcoded default removed; SEC remediation)'); })(),
   connectionTimeoutMillis: 5000,
 });
 

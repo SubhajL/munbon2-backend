@@ -1,3 +1,14 @@
+// Credentials are NEVER defaulted here (SEC remediation: the previous hardcoded
+// password leaked and must be rotated). Export the real values in the PM2 host's
+// environment before `pm2 start`; missing values fail the config load, loudly.
+const requiredEnv = (name) => {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`${name} must be set in the environment to start this PM2 config (hardcoded default removed)`);
+  }
+  return value;
+};
+
 module.exports = {
   apps: [
     {
@@ -12,10 +23,10 @@ module.exports = {
         HOST: '0.0.0.0',
         ENVIRONMENT: 'production',
         LOG_LEVEL: 'INFO',
-        // Database URLs - update these with your actual values
-        POSTGRES_URL: 'postgresql://postgres:__ROTATED_DB_PASSWORD__@43.208.201.191:5432/munbon_dev',
-        GIS_DATABASE_URL: 'postgresql://postgres:__ROTATED_DB_PASSWORD__@43.208.201.191:5432/munbon_gis',
-        TIMESCALE_URL: 'postgresql://postgres:__ROTATED_DB_PASSWORD__@43.208.201.191:5432/sensor_data',
+        // Database URLs carry credentials -> required from the host environment.
+        POSTGRES_URL: requiredEnv('POSTGRES_URL'),
+        GIS_DATABASE_URL: requiredEnv('GIS_DATABASE_URL'),
+        TIMESCALE_URL: requiredEnv('TIMESCALE_URL'),
         // Redis
         REDIS_URL: 'redis://localhost:6379/2',
         // External Services
@@ -50,13 +61,13 @@ module.exports = {
         TIMESCALE_HOST: '43.208.201.191',
         TIMESCALE_PORT: '5432',
         TIMESCALE_USER: 'postgres',
-        TIMESCALE_PASSWORD: '__ROTATED_DB_PASSWORD__',
+        TIMESCALE_PASSWORD: requiredEnv('TIMESCALE_PASSWORD'),
         TIMESCALE_DB: 'sensor_data',
         // MSSQL (SCADA)
         MSSQL_HOST: '43.208.201.191',
         MSSQL_PORT: '1433',
         MSSQL_USER: 'sa',
-        MSSQL_PASSWORD: '__ROTATED_DB_PASSWORD__',
+        MSSQL_PASSWORD: requiredEnv('MSSQL_PASSWORD'),
         MSSQL_DB: 'db_scada',
         MSSQL_TABLE: 'tb_valve_command_v2',
         // ROS Integration

@@ -37,7 +37,7 @@ export class ScadaGateControlService {
       port: parseInt(process.env.SCADA_DB_PORT || '5432'),
       database: process.env.SCADA_DB_NAME || 'db_scada',
       user: process.env.SCADA_DB_USER || 'postgres',
-      password: process.env.SCADA_DB_PASSWORD || '__ROTATED_DB_PASSWORD__',
+      password: process.env.SCADA_DB_PASSWORD || (() => { throw new Error('SCADA_DB_PASSWORD env var is required (hardcoded default removed; SEC remediation)'); })(),
       max: 10,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 2000,

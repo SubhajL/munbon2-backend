@@ -6,7 +6,7 @@ async function testConnection() {
     port: 5432,
     database: 'postgres',
     user: 'postgres',
-    password: '__ROTATED_DB_PASSWORD__',
+    password: process.env.TIMESCALE_PASSWORD || (() => { throw new Error('TIMESCALE_PASSWORD env var is required (hardcoded default removed; SEC remediation)'); })(),
     ssl: false
   });
 

@@ -12,7 +12,7 @@ async function checkEC2Constraints() {
     port: parseInt(process.env.EC2_DB_PORT || '5432'),
     database: process.env.EC2_DB_NAME || 'sensor_data',
     user: process.env.EC2_DB_USER || 'postgres',
-    password: process.env.EC2_DB_PASSWORD || '__ROTATED_DB_PASSWORD__'
+    password: process.env.EC2_DB_PASSWORD || (() => { throw new Error('EC2_DB_PASSWORD env var is required (hardcoded default removed; SEC remediation)'); })()
   });
 
   try {
