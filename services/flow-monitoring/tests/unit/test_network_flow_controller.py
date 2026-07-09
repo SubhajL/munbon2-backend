@@ -5,6 +5,7 @@ loaded against the real canonical network. Pure/stdlib; run in isolation:
     pytest --noconftest tests/unit/test_network_flow_controller.py
 """
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -92,3 +93,21 @@ class TestConveyanceLossWiring:
         assert ctrl.required_flow_per_reach(demand, apply_losses=False) == (
             ctrl.required_flow_per_reach(demand)
         )
+
+    def test_lmc_seepage_per_km_is_in_the_aged_concrete_field_range(self):
+        # Physical-plausibility guard on the calibrated seepage_rate: delivering design flow
+        # to the LMC tail loses seepage at a per-km rate within the verified aged-concrete
+        # field range (new concrete ~10 L/s/km; aged Menemen main ~108 L/s/km). Rejects both
+        # the too-low new-concrete standard (~2 L/s/km) and an implausibly high rate.
+        ctrl = NetworkFlowController(str(CANONICAL), geometry_path=str(GEOMETRY_CFG))
+        tail = next(g for g in json.loads(CANONICAL.read_text())["gates"]
+                    if re.sub(r"\s+", "", g) == "M(0,12)")
+        # M(0,12) is the only demand node -> flow (and seepage) only on the LMC mainstem path.
+        flow = ctrl.required_flow_per_reach({tail: 8.737}, apply_losses=True)
+        seepage_l_s = (sum(q for (u, _), q in flow.items() if u == "S") - 8.737) * 1000.0
+        lmc_km = sum(
+            s["length_m"] for (u, v), s in ctrl.sections.items()
+            if re.fullmatch(r"M\(0,\d+\)", u) and re.fullmatch(r"M\(0,\d+\)", v)
+        ) / 1000.0
+        per_km = seepage_l_s / lmc_km
+        assert 20.0 < per_km < 120.0, f"{per_km:.1f} L/s/km outside aged-concrete field range"
