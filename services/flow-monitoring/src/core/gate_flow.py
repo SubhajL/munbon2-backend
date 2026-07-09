@@ -63,6 +63,11 @@ class GateFlowCalibration:
             )
         if self.q_max_m3s <= 0:
             raise GateFlowError(f"q_max_m3s must be > 0, got {self.q_max_m3s}")
+        if self.k2 > 0:
+            # k2>0 makes Cs (and so flow) DECREASE as the gate opens — the bisection
+            # inverse assumes a non-decreasing forward law. All field/default
+            # calibrations have k2<=0; a positive one is a data error, not physics.
+            raise GateFlowError(f"k2 must be <= 0 (flow must not decrease as the gate opens), got {self.k2}")
 
 
 def discharge_coeff(k1: float, k2: float, Hs: float, Go: float) -> float:
@@ -105,6 +110,26 @@ def gate_flow_m3s(
     return min(q, cal.q_max_m3s)
 
 
+# Smallest opening used to probe the discharge floor (the law is discontinuous at Go=0).
+_TINY_OPENING_M = 1e-6
+
+
+def min_deliverable_flow_m3s(
+    cal: GateFlowCalibration,
+    upstream_level: float,
+    downstream_level: float,
+) -> float:
+    """Smallest positive flow the gate can pass at these levels (the Cs-floor discharge).
+
+    The rating law carries the opening only inside the clamped Cs, so flow is
+    DISCONTINUOUS at Go=0: any positive opening delivers at least this floor
+    (~CS_MIN*width*Hs*sqrt(2g*dH)). Targets below it are physically unreachable —
+    `required_opening_m` fails closed on them. Returns 0 for a dry/no-head gate.
+    """
+    go = max(cal.min_opening_m, _TINY_OPENING_M)
+    return gate_flow_m3s(cal, upstream_level, downstream_level, go)
+
+
 def required_opening_m(
     cal: GateFlowCalibration,
     upstream_level: float,
@@ -116,7 +141,9 @@ def required_opening_m(
 
     The forward law is monotone non-decreasing in Go, so bisection is used (it cannot
     diverge or oscillate the way the old Newton loop could). Returns (opening_m, info)
-    where info carries feasibility, the achievable flow, and the calibration confidence.
+    where info carries feasibility, the achievable flow, the deliverable floor
+    (`min_deliverable`), and the calibration confidence. Targets below the Cs-floor
+    discharge fail CLOSED (opening 0.0): opening at all would overdeliver several-fold.
     """
     Hu, _ = _heads(upstream_level, downstream_level, cal.sill_m)
     if Hu <= 0:
@@ -127,9 +154,26 @@ def required_opening_m(
 
     lo, hi = cal.min_opening_m, cal.max_opening_m
     q_hi = gate_flow_m3s(cal, upstream_level, downstream_level, hi)
-    if q_target >= q_hi:
-        return hi, {"feasible": False, "achievable": q_hi, "confidence": cal.confidence,
+    q_floor = min_deliverable_flow_m3s(cal, upstream_level, downstream_level)
+    if q_target > q_hi + tol:
+        return hi, {"feasible": False, "achievable": q_hi, "min_deliverable": q_floor,
+                    "confidence": cal.confidence,
                     "reason": "exceeds gate capacity at current head"}
+    if q_target >= q_hi - tol:
+        # At capacity within tolerance: full open delivers the target (also covers the
+        # constant-Cs case where the floor equals capacity and bisection cannot split).
+        return hi, {"feasible": True, "achievable": q_hi, "min_deliverable": q_floor,
+                    "confidence": cal.confidence}
+    if q_target < q_floor - tol:
+        return 0.0, {"feasible": False, "achievable": 0.0, "min_deliverable": q_floor,
+                     "confidence": cal.confidence,
+                     "reason": "below minimum deliverable flow at current head (Cs floor)"}
+    if q_target <= q_floor + tol:
+        # Floor-band target: the smallest legal opening already delivers it — return
+        # that, not an arbitrary bisection point (minimizes actuator travel).
+        go_min = max(cal.min_opening_m, _TINY_OPENING_M)
+        return go_min, {"feasible": True, "achievable": q_floor, "min_deliverable": q_floor,
+                        "confidence": cal.confidence}
 
     q = q_hi
     mid = hi
@@ -142,7 +186,8 @@ def required_opening_m(
             lo = mid
         else:
             hi = mid
-    return mid, {"feasible": True, "achievable": q, "confidence": cal.confidence}
+    return mid, {"feasible": True, "achievable": q, "min_deliverable": q_floor,
+                 "confidence": cal.confidence}
 
 
 def build_gate_flow_calibration(

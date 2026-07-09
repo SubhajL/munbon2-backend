@@ -282,9 +282,18 @@ class HydraulicService:
                             })
                         
                         # Calculate required opening
-                        required_opening = self._calculate_required_opening(
+                        required_opening, opening_info = self._calculate_required_opening(
                             gate_id, path_flow
                         )
+                        if not opening_info.get("feasible", True):
+                            violations.append({
+                                "type": "gate_flow_infeasible",
+                                "gate_id": gate_id,
+                                "required_flow": path_flow,
+                                "reason": opening_info.get("reason", "unknown"),
+                                "achievable": opening_info.get("achievable", 0.0),
+                                "min_deliverable": opening_info.get("min_deliverable"),
+                            })
                         gate_settings[gate_id] = max(
                             gate_settings.get(gate_id, 0),
                             required_opening
@@ -667,23 +676,29 @@ class HydraulicService:
         required_flow: float,
         upstream_level: Optional[float] = None,
         downstream_level: Optional[float] = None,
-    ) -> float:
+    ) -> Tuple[float, Dict[str, Any]]:
         """Gate opening (percent of full) to pass required_flow, via the corrected flow
         law (F-01): a bisection inverse on real levels. Falls back to a documented, logged
-        level assumption when sensor/solver levels are unavailable (real levels land in P1)."""
+        level assumption when sensor/solver levels are unavailable (real levels land in P1).
+        Returns (opening_percent, info); info carries feasible/achievable/min_deliverable
+        so callers can surface infeasibility instead of trusting the opening alone."""
         calibration = self.calibrated_flow_model.calibration_loader.get_calibration(gate_id)
         if not calibration:
             capacity = self._get_gate_capacity(gate_id)
-            return min(100.0, (required_flow / capacity) * 100) if capacity > 0 else 100.0
+            pct = min(100.0, (required_flow / capacity) * 100) if capacity > 0 else 100.0
+            return pct, {"feasible": True, "reason": "no calibration; capacity-ratio fallback"}
         cal = self._build_gate_flow_cal(gate_id, calibration)
         u_level, d_level = self._resolve_gate_levels(gate_id, cal, upstream_level, downstream_level)
         opening_m, info = required_opening_m(cal, u_level, d_level, required_flow)
+        pct = min(100.0, (opening_m / cal.max_opening_m) * 100.0)
         if not info.get("feasible", True):
             logger.warning(
-                "gate %s: required flow %.3f m3/s exceeds achievable %.3f at current head",
-                gate_id, required_flow, info.get("achievable", 0.0),
+                "gate %s: required flow %.3f m3/s infeasible (%s): achievable %.3f, "
+                "min_deliverable %.3f — returning %.1f%% opening",
+                gate_id, required_flow, info.get("reason", "unknown"),
+                info.get("achievable", 0.0), info.get("min_deliverable", 0.0), pct,
             )
-        return min(100.0, (opening_m / cal.max_opening_m) * 100.0)
+        return pct, info
 
     def _build_gate_flow_cal(self, gate_id: str, calibration):
         """Assemble a GateFlowCalibration from calibration + rated capacity + geometry.
@@ -718,7 +733,7 @@ class HydraulicService:
             return upstream_level, downstream_level
         u = cal.sill_m + DEFAULT_UPSTREAM_DEPTH_M
         d = u - DEFAULT_HEAD_DIFF_M
-        logger.debug(
+        logger.warning(
             "gate %s: no real levels; assuming upstream=%.2f downstream=%.2f (P0 fallback)",
             gate_id, u, d,
         )
