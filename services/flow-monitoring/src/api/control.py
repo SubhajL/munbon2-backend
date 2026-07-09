@@ -16,6 +16,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException
 
 from core.network_flow_controller import NetworkFlowController
+from core.network_topology import NetworkTopologyError
 from schemas.control import PlanRequest, PlanResponse, ReachFlow
 
 logger = structlog.get_logger()
@@ -42,7 +43,9 @@ async def plan(
         reach_flow = controller.required_flow_per_reach(
             request.demands, apply_losses=request.apply_losses
         )
-    except ValueError as exc:  # unknown / negative / source-node demand -> client error
+    except NetworkTopologyError as exc:  # server/config error (subclass of ValueError) -> 503
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:  # unknown / negative / non-finite / source demand -> client error
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     head_flow = sum(flow for (upstream, _), flow in reach_flow.items() if upstream == "S")

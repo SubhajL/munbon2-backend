@@ -22,7 +22,11 @@ from .conveyance_loss import (
     sections_by_edge_from_geometry,
 )
 from .demand_aggregation import required_flow_per_reach
-from .network_topology import load_validated_network
+from .network_topology import (
+    NetworkTopologyError,
+    is_spanning_tree,
+    load_validated_network,
+)
 
 
 class NetworkFlowController:
@@ -37,10 +41,23 @@ class NetworkFlowController:
 
     def __init__(self, network_path: str, geometry_path: str | None = None):
         self.edges = load_validated_network(network_path)
+        # load_validated_network only guards connectivity; the subtree-per-reach aggregation
+        # also needs a proper spanning tree (no node with two parents) — enforce it here so a
+        # malformed network fails at startup, not on every /plan request.
+        if not is_spanning_tree(self.edges):
+            raise NetworkTopologyError(
+                f"{network_path}: network is connected but not a spanning tree "
+                "(a node has multiple parents); aggregation would double-count it"
+            )
         self.sections: dict = {}
         if geometry_path is not None:
             with open(geometry_path, encoding="utf-8") as f:
                 self.sections = sections_by_edge_from_geometry(json.load(f))
+            if not self.sections:
+                # geometry supplied but unusable -> losses would silently be zero; fail closed.
+                raise ValueError(
+                    f"{geometry_path}: geometry file has no usable canal_sections"
+                )
         self.reaches_missing_geometry = {
             edge for edge in self.edges
             if not reach_has_geometry(self.sections, edge[0], edge[1])

@@ -365,7 +365,11 @@ class DualModeGateController:
             
             logger.info(f"Generated {len(instructions)} manual instructions")
             return instructions
-            
+
+        except RuntimeError:
+            # Demand source unavailable (F-03/C9): surface it instead of a fake empty success,
+            # so the route reports "unavailable" rather than "no instructions needed".
+            raise
         except Exception as e:
             logger.error(f"Failed to generate manual instructions: {e}")
             return []

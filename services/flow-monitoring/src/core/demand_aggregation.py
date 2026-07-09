@@ -16,6 +16,7 @@ callable returning the extra flow a reach must carry; until then it defaults to 
 """
 from __future__ import annotations
 
+import math
 from typing import Callable, Optional
 
 from .network_topology import (
@@ -51,6 +52,10 @@ def _validate(edges, node_demand: dict, root: str) -> None:
             raise ValueError(f"demand for unknown node {node!r} (not in the network)")
         if node == root:
             raise ValueError(f"source node {root!r} cannot carry demand")
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"demand for {node!r} is not a number: {value!r}")
+        if not math.isfinite(value):
+            raise ValueError(f"demand for {node!r} is not finite: {value}")
         if value < 0:
             raise ValueError(f"demand for {node!r} is negative: {value}")
 

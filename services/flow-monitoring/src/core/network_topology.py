@@ -132,7 +132,8 @@ def _parse_gate_id(gate_id: str) -> list[tuple[int, int]]:
     pairs = []
     for pair in s[2:-1].split(";"):
         parts = pair.split(",")
-        if len(parts) != 2 or not all(p.lstrip("-").isdigit() for p in parts):
+        # non-negative integers only: negative branch/position is a malformed id.
+        if len(parts) != 2 or not all(p.isdigit() for p in parts):
             raise NetworkTopologyError(f"malformed gate id {gate_id!r}")
         pairs.append((int(parts[0]), int(parts[1])))
     return pairs
