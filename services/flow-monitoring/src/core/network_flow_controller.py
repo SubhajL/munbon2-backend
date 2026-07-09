@@ -18,6 +18,7 @@ import json
 
 from .conveyance_loss import (
     make_reach_loss,
+    normalize_edge,
     reach_has_geometry,
     sections_by_edge_from_geometry,
 )
@@ -62,12 +63,54 @@ class NetworkFlowController:
             edge for edge in self.edges
             if not reach_has_geometry(self.sections, edge[0], edge[1])
         }
+        self._normalized_edges = {normalize_edge(u, v) for u, v in self.edges}
 
-    def required_flow_per_reach(self, node_demand: dict, apply_losses: bool = False) -> dict:
+    def required_flow_per_reach(
+        self,
+        node_demand: dict,
+        apply_losses: bool = False,
+        charge_dry_reaches: bool = False,
+        always_wet=(),
+    ) -> dict:
         """Flow each reach must carry to serve `node_demand`, keyed by (upstream, downstream).
 
         With `apply_losses=True` and geometry loaded, each reach also carries its conveyance
         (seepage + operational) loss (B5); otherwise the result is the lossless A1–A3 sum.
+        Dry-reach semantics (D1): reaches with no flow in this plan take no loss unless
+        listed in `always_wet` ([upstream, downstream] pairs, any id spacing — must be real
+        network reaches, fail-closed) or `charge_dry_reaches=True` (legacy whole-network
+        steady mode). Both knobs require `apply_losses=True`.
         """
-        reach_loss = make_reach_loss(self.sections) if apply_losses else None
+        if not apply_losses and (charge_dry_reaches or always_wet):
+            raise ValueError(
+                "charge_dry_reaches/always_wet only make sense with apply_losses=True"
+            )
+        reach_loss = None
+        if apply_losses:
+            wet = set()
+            unknown = []
+            no_geometry = []
+            for pair in always_wet:
+                upstream, downstream = pair
+                key = normalize_edge(upstream, downstream)
+                if key not in self._normalized_edges:
+                    unknown.append([upstream, downstream])
+                elif key not in self.sections:
+                    # "keep this reach charged" is unfulfillable without surveyed geometry
+                    # (loss would silently be 0) -> fail closed, don't feign coverage.
+                    no_geometry.append([upstream, downstream])
+                else:
+                    wet.add(key)
+            if unknown:
+                raise ValueError(f"always_wet contains unknown reaches: {unknown}")
+            if no_geometry:
+                raise ValueError(
+                    "always_wet reaches have no surveyed geometry (their seepage cannot "
+                    f"be charged): {no_geometry}"
+                )
+            reach_loss = make_reach_loss(
+                self.sections,
+                charge_dry_reaches=charge_dry_reaches,
+                always_wet=frozenset(wet),
+            )
         return required_flow_per_reach(self.edges, node_demand, reach_loss=reach_loss)
