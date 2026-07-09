@@ -87,6 +87,14 @@ class TestCanonicalNetworkFile:
         reached = reachable_from([tuple(e) for e in data["edges"]], "S")
         assert gate_ids <= reached  # every gate is reachable from the source
 
+    def test_canonical_network_is_strict_json(self):
+        # Bare NaN/Infinity is a Python-only extension: jq / JS / strict parsers
+        # reject it. Missing numeric fields must be null (Wave 0.5).
+        def _reject(constant):
+            raise AssertionError(f"non-strict JSON constant {constant!r} in network.json")
+
+        json.loads(CANONICAL.read_text(), parse_constant=_reject)
+
 
 class TestChildrenOf:
     def test_maps_each_parent_to_its_children(self):

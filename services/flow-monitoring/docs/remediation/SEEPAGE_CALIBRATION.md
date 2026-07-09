@@ -33,10 +33,18 @@ flat **5% per-reach** operational loss. Two problems surfaced:
 
 ## Sanity check (encoded as a test)
 With the calibrated `1e-5 m/s`, delivering the LMC design flow (8.737 m³/s) to the tail
-`M(0,12)` loses **~2.46 m³/s ≈ 68 L/s/km ≈ 22–28%** over the ~36 km LMC — inside the aged-field
-band (new ~10 → aged Menemen ~108 L/s/km). Guarded by
+`M(0,12)` loses **~1.41 m³/s ≈ 45 L/s/km ≈ 16%** over the **31.0 km** surveyed LMC mainstem —
+inside the aged-field band (new ~10 → aged Menemen ~108 L/s/km). Guarded by
 `test_lmc_seepage_per_km_is_in_the_aged_concrete_field_range` (asserts 20–120 L/s/km, so it
 rejects both the too-low new-concrete rate and an implausibly high one).
+
+> **Correction (2026-07-09, Wave 0.5):** this section originally reported *"~2.46 m³/s ≈
+> 68 L/s/km ≈ 22–28% over ~36 km"*. That figure was a **mislabeled hybrid** — pre-D1 the
+> model charged fixed-depth seepage on *all 37 surveyed reaches* regardless of flow, so the
+> numerator was whole-network seepage while the denominator was LMC-only km, and the km used
+> (36) exceeded the surveyed mainstem (31.0). Since D1 (dry reaches take no loss, PR #27)
+> the test's numerator genuinely measures the S→M(0,12) supply path, and the figures above
+> are the honest LMC-only numbers.
 
 ## Caveats
 - **Provisional.** These are literature values for *comparable aged systems*, not Munbon

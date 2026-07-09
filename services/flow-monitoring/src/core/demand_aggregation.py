@@ -6,7 +6,8 @@ Replaces the hardcoded 3-zone path table / synthetic node IDs / per-zone granula
 (`core.network_topology`): the flow that must cross reach ``(u, v)`` equals the total
 water demand of the subtree rooted at ``v`` — ``v``'s own demand plus every descendant.
 Every node with irrigated area contributes, and interior delivery nodes contribute
-their OWN demand too (A4 rationale; 20 of 33 demand nodes are interior).
+their OWN demand too (A4 rationale; on the corrected serial-chain topology, F-11b,
+32 of the 33 demand nodes are interior — the star-era figure was 20/33).
 
 Pure (stdlib only), I/O-free — the network is loaded elsewhere and passed in as edges.
 Reach keys are ``(upstream, downstream)`` tuples.

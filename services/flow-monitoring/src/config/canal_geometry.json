@@ -1021,13 +1021,13 @@
     }
   ],
   "summary": {
-    "total_sections": 46,
+    "total_sections": 37,
     "by_zone": {
       "zone_1": 5,
       "zone_2": 9,
       "zone_3": 5,
-      "zone_4": 7,
-      "zone_5": 12,
+      "zone_4": 5,
+      "zone_5": 5,
       "zone_6": 8
     },
     "by_canal_type": {

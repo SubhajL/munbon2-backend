@@ -73,4 +73,5 @@ jobs:
           tests/unit/test_settings_config.py
           tests/unit/test_influx_connect.py
           tests/unit/test_timescale_client.py
+          tests/unit/test_strict_null_consumers.py
           tests/unit/test_ci_suite_manifest.py

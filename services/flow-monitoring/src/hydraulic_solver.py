@@ -98,7 +98,10 @@ class HydraulicSolver:
             # Get capacity from network
             parent_info = self.controller.gates.get(upstream, {})
             q_max = parent_info.get('q_max', 5.0)
-            if np.isnan(q_max):
+            # Strict-JSON network files use null (-> None) for missing q_max; treat it
+            # like NaN/inf/non-positive and fall back to the documented default.
+            if (not isinstance(q_max, (int, float)) or isinstance(q_max, bool)
+                    or not np.isfinite(q_max) or q_max <= 0):
                 q_max = 5.0
             
             # Estimate gate properties
