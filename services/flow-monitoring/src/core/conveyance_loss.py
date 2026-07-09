@@ -12,10 +12,21 @@ throughflow (spill/check leakage):
 Because seepage is evaluated at a FIXED depth (not flow-dependent) and the operational term
 is linear, a single leaves->root aggregation pass is exact — no relaxation needed.
 
-`seepage_rate_m_s` is PROVISIONAL: literature defaults by lining, pending a Tier-3
-inflow/outflow calibration. Geometry comes from `src/config/canal_geometry.json` (surveyed
+`seepage_rate_m_s` is PROVISIONAL (literature field values, pending a Tier-3 Munbon
+inflow/outflow calibration). Geometry comes from `src/config/canal_geometry.json` (surveyed
 sections); reaches with no section get zero loss and are flagged by the caller, never a
 fabricated seepage number.
+
+Seepage rates are AGED/deteriorated FIELD values, not new-lining design standards, because
+the Munbon canals are ~50 years old. Sources (see docs/remediation/SEEPAGE_CALIBRATION.md):
+  - NEW concrete standard: USBR (1975) 0.00024 L/s/m2 = 2.4e-7 m/s; FAO/Kraatz (1977) ~3e-7.
+  - AGED concrete field (Turkey, ~30-60 yr): 0.0026-0.0754 L/s/m2 = 2.6e-6..7.5e-5 m/s
+    (Bekifloglu 1993; Menemen ~1.4e-5, Ahmetli main 6.7e-5; Akkuzu et al.). Central ~1e-5.
+  - FAO conveyance efficiency: lined 95% (~5% loss), "bad maintenance may lower ... by as
+    much as 50%" -> aged lined mains realistically 70-90% efficient.
+Operational loss defaults to 0: seepage is the dominant physical loss (Akkuzu 2011), and a
+flat per-reach fraction is discretization-dependent (more gate nodes -> more modeled loss),
+so it is not used by default; it stays a per-section knob if a calibrated value is supplied.
 
 Pure (stdlib only). Reach keys join to the network by NORMALIZED gate id
 (`core.network_topology._normalize_gate_id`), since geometry uses compact ids and the
@@ -28,9 +39,10 @@ from typing import Callable, Optional
 
 from .network_topology import NetworkTopologyError, _normalize_gate_id
 
-# Literature seepage flux by lining (m/s), replaced by Tier-3 calibration later.
-SEEPAGE_RATE_BY_LINING = {"concrete": 3.0e-7, "earth": 1.5e-6, "unknown": 1.0e-6}
-DEFAULT_OPERATIONAL_LOSS_FRAC = 0.05
+# Aged/deteriorated field seepage flux by lining (m/s), PROVISIONAL pending Tier-3
+# calibration. Ordering earth > unknown > concrete is preserved. See module docstring.
+SEEPAGE_RATE_BY_LINING = {"concrete": 1.0e-5, "earth": 2.0e-5, "unknown": 1.5e-5}
+DEFAULT_OPERATIONAL_LOSS_FRAC = 0.0
 OPERATING_DEPTH_FRAC = 0.7
 
 ReachLoss = Callable[[str, str, float], float]

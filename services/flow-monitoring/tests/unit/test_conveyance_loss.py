@@ -40,8 +40,10 @@ def _section(rate, length=1000.0, op=0.05, cs=CS):
 
 class TestSeepageRateForLining:
     def test_known_linings(self):
-        assert seepage_rate_for_lining("concrete") == 3.0e-7
-        assert seepage_rate_for_lining("earth") == 1.5e-6
+        # Aged/deteriorated ~50-yr field values (Turkey field studies); NOT the new-concrete
+        # USBR standard (2.4e-7). See docs/remediation/SEEPAGE_CALIBRATION.md.
+        assert seepage_rate_for_lining("concrete") == 1.0e-5
+        assert seepage_rate_for_lining("earth") == 2.0e-5
 
     def test_unknown_and_missing_default_to_unknown_rate(self):
         assert seepage_rate_for_lining("steel") == SEEPAGE_RATE_BY_LINING["unknown"]
@@ -100,7 +102,7 @@ class TestSectionsByEdgeFromGeometry:
         # First LMC reach runs M(0,0) -> M(0,1), concrete lining, 300 m (serial chain).
         s = sections[("M(0,0)", "M(0,1)")]
         assert s["length_m"] == 300
-        assert s["seepage_rate_m_s"] == 3.0e-7  # enriched from lining_type=concrete
+        assert s["seepage_rate_m_s"] == 1.0e-5  # enriched from lining_type=concrete (aged)
         assert "cross_section" in s
 
 
