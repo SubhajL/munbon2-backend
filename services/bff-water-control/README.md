@@ -35,6 +35,20 @@ The Water Control BFF Service acts as the central orchestrator for water control
 - Water Level Service (port 3008)
 - Alert Management Service (port 3032)
 
+## Environment
+
+`water-control-data.service.js` reads its PostgreSQL connection from `PG_*` env vars.
+**`PG_PASSWORD` has no default** (SEC remediation: the previous hardcoded credential
+leaked and was removed) — the service fails closed at construction without it.
+
+```bash
+PG_HOST=localhost        # default: 43.208.201.191
+PG_PORT=5432             # default: 5432
+PG_DATABASE=munbon_dev   # default: munbon_dev
+PG_USER=postgres         # default: postgres
+PG_PASSWORD=<required — no default>
+```
+
 ## Gate Configuration
 
 Automatic gates are configured in `/src/config/gate-levels.json`:
