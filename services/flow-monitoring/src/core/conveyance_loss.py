@@ -92,6 +92,18 @@ def sections_by_edge_from_geometry(geometry: dict) -> dict:
     return sections
 
 
+def normalize_edge(upstream: str, downstream: str) -> tuple:
+    """A reach key with gate ids normalized; non-gate endpoints (the source ``S``) pass
+    through unchanged, so unknown junk simply fails membership checks downstream."""
+    def norm(node: str) -> str:
+        try:
+            return _normalize_gate_id(node)
+        except NetworkTopologyError:
+            return node
+
+    return (norm(upstream), norm(downstream))
+
+
 def _lookup_section(sections_by_edge: dict, upstream: str, downstream: str) -> Optional[dict]:
     """The section for a reach, matched by normalized id; None if the edge has none or an
     endpoint is not a gate id (e.g. the source ``S``)."""
@@ -102,13 +114,34 @@ def _lookup_section(sections_by_edge: dict, upstream: str, downstream: str) -> O
     return sections_by_edge.get(key)
 
 
-def make_reach_loss(sections_by_edge: dict) -> ReachLoss:
+def make_reach_loss(
+    sections_by_edge: dict,
+    *,
+    charge_dry_reaches: bool = False,
+    always_wet: frozenset = frozenset(),
+) -> ReachLoss:
     """A ``reach_loss(u, v, throughflow)`` for ``demand_aggregation.required_flow_per_reach``:
     the conveyance uplift where the reach has geometry, ``0.0`` where it does not (never a
-    fabricated seepage)."""
+    fabricated seepage).
+
+    Dry-reach semantics (decision D1, PROGRAM_REVIEW_2026-07-09 §2.0): a reach carrying no
+    flow for THIS plan is out of service and takes NO loss — fixed-depth seepage otherwise
+    charges the whole surveyed network against every plan (~2.46 m3/s at zero demand).
+    ``always_wet`` (normalized (u, v) reach keys) marks trunk canals that never drain and
+    stay charged regardless; ``charge_dry_reaches=True`` restores the legacy
+    everything-charged behavior for steady whole-network operation.
+    """
     def reach_loss(upstream: str, downstream: str, throughflow: float) -> float:
         section = _lookup_section(sections_by_edge, upstream, downstream)
-        return reach_loss_uplift(section, throughflow) if section is not None else 0.0
+        if section is None:
+            return 0.0
+        if (
+            throughflow <= 0.0
+            and not charge_dry_reaches
+            and normalize_edge(upstream, downstream) not in always_wet
+        ):
+            return 0.0
+        return reach_loss_uplift(section, throughflow)
 
     return reach_loss
 

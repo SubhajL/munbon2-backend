@@ -41,7 +41,10 @@ async def plan(
     """Required flow on every reach to serve `request.demands` (fail-closed on bad demand)."""
     try:
         reach_flow = controller.required_flow_per_reach(
-            request.demands, apply_losses=request.apply_losses
+            request.demands,
+            apply_losses=request.apply_losses,
+            charge_dry_reaches=request.charge_dry_reaches,
+            always_wet=request.always_wet,
         )
     except NetworkTopologyError as exc:  # server/config error (subclass of ValueError) -> 503
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -61,5 +64,6 @@ async def plan(
         ],
         head_flow_m3s=head_flow,
         apply_losses=request.apply_losses,
+        charge_dry_reaches=request.charge_dry_reaches,
         reaches_missing_geometry=missing,
     )

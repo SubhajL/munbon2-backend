@@ -79,6 +79,56 @@ class TestPlanEndpoint:
         resp = client.post("/api/v1/control/plan", json={"demands": {"Zone2": 5.0}})
         assert resp.status_code == 400
 
+    def test_zero_demand_with_losses_has_zero_head_flow(self, client):
+        # D1: dry reaches take no seepage — an empty plan demands nothing at the head
+        # (pre-D1 this returned ~2.46 m3/s of phantom whole-network seepage).
+        resp = client.post(
+            "/api/v1/control/plan", json={"demands": {}, "apply_losses": True}
+        )
+        assert resp.status_code == 200
+        assert resp.json()["head_flow_m3s"] == 0.0
+
+    def test_charge_dry_reaches_restores_legacy_whole_network_mode(self, client):
+        resp = client.post(
+            "/api/v1/control/plan",
+            json={"demands": {}, "apply_losses": True, "charge_dry_reaches": True},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["head_flow_m3s"] > 2.0  # all-surveyed-reach seepage (~2.46)
+        assert resp.json()["charge_dry_reaches"] is True
+
+    def test_always_wet_keeps_named_trunk_charged(self, client):
+        resp = client.post(
+            "/api/v1/control/plan",
+            json={"demands": {}, "apply_losses": True,
+                  "always_wet": [["M(0,0)", "M(0,1)"]]},
+        )
+        assert resp.status_code == 200
+        assert 0.0 < resp.json()["head_flow_m3s"] < 1.0  # one reach's seepage only
+
+    def test_unknown_always_wet_reach_is_rejected_400(self, client):
+        resp = client.post(
+            "/api/v1/control/plan",
+            json={"demands": {}, "apply_losses": True,
+                  "always_wet": [["M(0,0)", "M(9,9)"]]},
+        )
+        assert resp.status_code == 400
+
+    def test_always_wet_reach_without_geometry_is_rejected_400(self, client):
+        resp = client.post(
+            "/api/v1/control/plan",
+            json={"demands": {}, "apply_losses": True,
+                  "always_wet": [["S", "M(0,0)"]]},
+        )
+        assert resp.status_code == 400
+        assert "no surveyed geometry" in resp.json()["detail"]
+
+    def test_loss_knobs_without_apply_losses_are_rejected_400(self, client):
+        resp = client.post(
+            "/api/v1/control/plan", json={"demands": {}, "charge_dry_reaches": True}
+        )
+        assert resp.status_code == 400
+
     def test_negative_demand_is_rejected_400(self, client):
         resp = client.post("/api/v1/control/plan", json={"demands": {"M(0,2)": -1.0}})
         assert resp.status_code == 400
@@ -110,7 +160,7 @@ class TestErrorMapping:
         class _BadController:
             reaches_missing_geometry = set()
 
-            def required_flow_per_reach(self, demands, apply_losses=False):
+            def required_flow_per_reach(self, demands, **kwargs):
                 raise NetworkTopologyError("network is not a spanning tree")
 
         control.flow_controller = _BadController()
