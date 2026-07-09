@@ -94,6 +94,27 @@ class TestReachLossUplift:
         )
 
 
+class TestGeometryFileConsistency:
+    def test_summary_matches_the_actual_section_list(self):
+        # The summary block previously claimed 46 sections (wrong per-zone counts too)
+        # while the list held 37 — code must never trust a hand-written summary, and
+        # the file must not lie to human readers (Wave 0.5).
+        geometry = json.loads(GEOMETRY_CFG.read_text())
+        sections = geometry["canal_sections"]
+        summary = geometry["summary"]
+        assert summary["total_sections"] == len(sections)
+        by_zone = {}
+        for s in sections:
+            by_zone[f"zone_{s['zone']}"] = by_zone.get(f"zone_{s['zone']}", 0) + 1
+        assert summary["by_zone"] == by_zone
+
+    def test_geometry_is_strict_json(self):
+        def _reject(constant):
+            raise AssertionError(f"non-strict JSON constant {constant!r} in canal_geometry.json")
+
+        json.loads(GEOMETRY_CFG.read_text(), parse_constant=_reject)
+
+
 class TestSectionsByEdgeFromGeometry:
     def test_parses_all_survey_sections_keyed_by_normalized_edge(self):
         geo = json.loads(GEOMETRY_CFG.read_text())
