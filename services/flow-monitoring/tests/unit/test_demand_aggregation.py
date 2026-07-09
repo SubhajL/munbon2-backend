@@ -101,6 +101,20 @@ class TestValidation:
         with pytest.raises(ValueError):
             required_flow_per_reach(TREE, {"B": -1.0})
 
+    def test_nan_demand_is_rejected(self):
+        # nan < 0 is False, so nan must be caught explicitly or it yields nan flows.
+        with pytest.raises(ValueError):
+            required_flow_per_reach(TREE, {"B": float("nan")})
+
+    def test_infinite_demand_is_rejected(self):
+        with pytest.raises(ValueError):
+            required_flow_per_reach(TREE, {"B": float("inf")})
+
+    def test_non_numeric_demand_is_rejected_cleanly(self):
+        # a string must fail closed with ValueError, not leak a raw TypeError from `< 0`/isfinite.
+        with pytest.raises(ValueError):
+            required_flow_per_reach(TREE, {"B": "abc"})
+
     def test_demand_on_source_root_is_rejected(self):
         # the source has no upstream reach to carry demand -> reject rather than lose it.
         with pytest.raises(ValueError):

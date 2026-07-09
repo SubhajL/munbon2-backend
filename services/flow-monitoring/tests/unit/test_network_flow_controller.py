@@ -42,6 +42,24 @@ class TestConstruction:
         with pytest.raises(NetworkTopologyError):
             NetworkFlowController(str(bad))
 
+    def test_rejects_connected_but_non_tree_network(self, tmp_path):
+        # A diamond is fully reachable from S but not a spanning tree (C has two parents);
+        # aggregation would double-count it, so it must fail at construction, not per-request.
+        diamond = tmp_path / "diamond.json"
+        diamond.write_text(json.dumps({
+            "gates": {"A": {}, "B": {}, "C": {}},
+            "edges": [["S", "A"], ["S", "B"], ["A", "C"], ["B", "C"]],
+        }))
+        with pytest.raises(NetworkTopologyError):
+            NetworkFlowController(str(diamond))
+
+    def test_rejects_geometry_file_with_no_usable_sections(self, tmp_path):
+        # Geometry given but empty -> losses would silently be zero; fail closed instead.
+        empty = tmp_path / "geo.json"
+        empty.write_text(json.dumps({"canal_sections": []}))
+        with pytest.raises(ValueError):
+            NetworkFlowController(str(CANONICAL), geometry_path=str(empty))
+
 
 class TestRequiredFlowPerReach:
     def test_aggregates_real_network_demand_with_conservation(self):

@@ -30,7 +30,7 @@ gate_controller = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager"""
-    global gate_controller
+    global gate_controller, kafka_consumer
     
     logger.info("Starting Flow Monitoring Service", port=settings.port)
     

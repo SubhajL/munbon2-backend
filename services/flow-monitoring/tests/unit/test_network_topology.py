@@ -131,6 +131,11 @@ class TestParseAndNormalizeGateId:
         assert _normalize_gate_id("M (0,1; 1,0)") == _normalize_gate_id("M(0,1;1,0)")
         assert " " not in _normalize_gate_id("M (0,1; 1,0)")
 
+    def test_rejects_negative_index(self):
+        # A negative branch/position is a malformed id -> fail closed, not a silent root.
+        with pytest.raises(NetworkTopologyError):
+            _parse_gate_id("M(0,-1)")
+
 
 class TestEdgesFromNamesRules:
     # A self-contained lateral: LMC head + 2 serial LMC valves + a branch with 2 serial valves.
