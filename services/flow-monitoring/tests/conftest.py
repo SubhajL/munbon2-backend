@@ -15,9 +15,22 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from core.gate_registry import GateRegistry, ControlMode, AutomatedGate, ManualGate
-from core.calibrated_gate_hydraulics import CalibratedGateHydraulics, GateProperties, GateCalibration
-from core.enhanced_hydraulic_solver import EnhancedHydraulicSolver, NetworkNode, NetworkNodeType
 from db.connections import DatabaseManager
+
+# Wave 1.6 deleted the legacy hydraulics modules these fixtures were built around
+# (calibrated_gate_hydraulics, enhanced_hydraulic_solver). The legacy suites that
+# consumed them are quarantined (test_ci_suite_manifest.QUARANTINED, Wave-1.9
+# cleanup); keep bare-pytest COLLECTION working instead of dying on the import.
+try:
+    from core.calibrated_gate_hydraulics import (
+        CalibratedGateHydraulics, GateProperties, GateCalibration,
+    )
+    from core.enhanced_hydraulic_solver import (
+        EnhancedHydraulicSolver, NetworkNode, NetworkNodeType,
+    )
+    LEGACY_HYDRAULICS_AVAILABLE = True
+except ImportError:
+    LEGACY_HYDRAULICS_AVAILABLE = False
 
 
 @pytest.fixture(scope="session")
@@ -123,6 +136,8 @@ def gate_registry():
 @pytest.fixture
 def calibrated_hydraulics():
     """Create calibrated gate hydraulics instance"""
+    if not LEGACY_HYDRAULICS_AVAILABLE:
+        pytest.skip("legacy calibrated_gate_hydraulics deleted (Wave 1.6)")
     gate_properties = {
         "G_RES_J1": GateProperties(
             gate_id="G_RES_J1",

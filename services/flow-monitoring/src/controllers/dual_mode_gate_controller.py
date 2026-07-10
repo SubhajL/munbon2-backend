@@ -8,7 +8,6 @@ from typing import Dict, List, Optional, Tuple, Any
 from datetime import datetime, timedelta
 from enum import Enum
 import structlog
-import numpy as np
 
 from schemas.gate_control import (
     GateMode, GateType, ControlStatus, GateState, GateStateResponse,
@@ -16,7 +15,7 @@ from schemas.gate_control import (
 )
 from hydraulic_solver import HydraulicSolver
 from gate_hydraulics import GateType as SolverGateType
-from calibrated_gate_flow import CalibratedGateFlow
+from core.gate_flow import build_gate_flow_calibration, gate_flow_m3s
 from db.connections import DatabaseManager
 from utils.gate_calibration_loader import GateCalibrationLoader
 from db.influxdb_client import InfluxDBClient
@@ -52,7 +51,6 @@ class DualModeGateController:
         """Initialize dual-mode controller"""
         self.db_manager = db_manager
         self.hydraulic_solver = HydraulicSolver(network_file, geometry_file)
-        self.gate_flow_calculator = CalibratedGateFlow()
         # Wave 1.5: gate metadata comes from the real calibration table (normalized
         # ids), not attributes the solver's GateProperties never had.
         self._calibration_loader = GateCalibrationLoader()
@@ -83,6 +81,22 @@ class DualModeGateController:
                 # gate — and its calibration — is the downstream valve.
                 downstream_node = self.hydraulic_solver.gates[gate_id][1]
                 calibration = self._calibration_loader.get_calibration(downstream_node)
+                # Built ONCE with the solver's real geometry: sill_m reduces absolute
+                # MSL levels to head-over-sill (omitting it re-manifests B3 — the flow
+                # saturates at the q_max clamp for every opening), and max_opening_m
+                # bounds the law's search domain.
+                flow_cal = build_gate_flow_calibration(
+                    k1=calibration.k1,
+                    k2=calibration.k2,
+                    confidence=calibration.confidence,
+                    q_max_m3s=self._calibration_loader.rated_q_max(downstream_node),
+                    # width only from the CALIBRATION table: when absent, the law's
+                    # documented default + confidence downgrade applies — never a
+                    # silently-trusted solver estimate.
+                    width_m=calibration.width_m,
+                    sill_m=props.sill_elevation_m,
+                    max_opening_m=props.max_opening_m,
+                )
                 self.gate_properties[gate_id] = {
                     "type": SCHEMA_GATE_TYPE.get(props.gate_type, GateType.UNDERSHOT),
                     "width": props.width_m,
@@ -91,6 +105,7 @@ class DualModeGateController:
                         "K1": calibration.k1,
                         "K2": calibration.k2
                     },
+                    "flow_cal": flow_cal,
                     "location": {
                         "upstream_node": self.hydraulic_solver.gates[gate_id][0],
                         "downstream_node": self.hydraulic_solver.gates[gate_id][1]
@@ -175,6 +190,23 @@ class DualModeGateController:
             operational_constraints=await self._get_operational_constraints(gate_id)
         )
     
+    def _flow_at_opening(
+        self,
+        gate_id: str,
+        opening_percentage: float,
+        upstream_level: float,
+        downstream_level: float,
+    ) -> float:
+        """Flow (m3/s) through a gate at the given opening, via core.gate_flow (F-01),
+        using the calibration built once at load with the gate's real geometry.
+
+        The percent scale reads over the gate's actual travel (cal.max_opening_m),
+        so 100% means fully open — never past the law's clamp.
+        """
+        cal = self.gate_properties[gate_id]["flow_cal"]
+        opening_m = opening_percentage / 100.0 * cal.max_opening_m
+        return gate_flow_m3s(cal, upstream_level, downstream_level, opening_m)
+
     async def update_manual_gate_state(
         self, 
         gate_id: str, 
@@ -198,17 +230,16 @@ class DualModeGateController:
             state.last_updated = datetime.utcnow()
             state.last_command_time = datetime.utcnow()
             
-            # Calculate flow with new opening
+            # Calculate flow with new opening via the single canonical law
+            # (Wave 1.6 — the old call named a method that never existed).
             measurements = await self._get_gate_measurements(gate_id)
             if measurements.get("upstream_level") and measurements.get("downstream_level"):
-                flow = self.gate_flow_calculator.calculate_gate_flow(
-                    gate_id=gate_id,
-                    gate_properties=self.gate_properties[gate_id],
-                    upstream_level=measurements["upstream_level"],
-                    downstream_level=measurements["downstream_level"],
-                    gate_opening=opening_percentage / 100.0 * self.gate_properties[gate_id]["height"]
+                state.flow_rate = self._flow_at_opening(
+                    gate_id,
+                    opening_percentage,
+                    measurements["upstream_level"],
+                    measurements["downstream_level"],
                 )
-                state.flow_rate = flow
             
             # Store update in database
             await self._store_gate_update(

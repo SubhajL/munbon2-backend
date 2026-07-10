@@ -18,8 +18,6 @@ WORKFLOW = UNIT_DIR.parents[3] / ".github" / "workflows" / "flow-monitoring-test
 # Wave-1.9 purge — do NOT add new files here without a roadmap-recorded reason.
 QUARANTINED = {
     "test_api_endpoints.py",
-    "test_calibrated_gate_hydraulics.py",
-    "test_enhanced_hydraulic_solver.py",
     "test_gate_registry.py",
     "test_gradual_transition_controller.py",
 }
