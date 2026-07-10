@@ -51,6 +51,14 @@ Regression test: `q(10% open) ≤ q_max`; monotone in `Go`.
 ### 1.2 Network topology (F-11)
 The gate IDs encode the tree; regenerate the canonical 59-edge connected graph and make
 it the only one.
+> **SUPERSEDED (Wave 1.10 banner).** The parent rule sketched below — and its
+> "verify vs updated.json" oracle — encode the F-11 STAR wiring that F-11b later
+> proved wrong for lateral canals (29/59 edges corrected, PR #20). The canonical
+> derivation is `core.network_topology.edges_from_names` (serial-chain grammar:
+> `p>0` → serial predecessor `(a,p-1)`; `p==0` → drop the last tuple; only
+> `M(0,0)` roots at S), and `src/config/network.json` is locked to it by test.
+> The stale variants named below were deleted (Waves 1.6–1.8). Kept for history.
+
 ```python
 def build_canonical_network(gate_ids):
     """Parent = ID with last ';a,b' segment dropped; M(0,k)→M(0,k-1); M(0,0)→S."""
@@ -76,7 +84,7 @@ def build_canonical_network(gate_ids):
 - Surface each gate's calibration source + confidence on every command (§1.4).
 
 ### 1.4 Confidence — from residuals, not labels (CONF)
-Today `confidence` is a hardcoded `0.95 / 0.80 / 0.30`.
+Today `confidence` is a hardcoded `0.95 / 0.80 / 0.60` (the shipped ladder; an earlier draft said 0.30).
 - On calibration, compute `confidence = f(R², n_points, flow-range coverage)` from the
   rating fit residuals; store CI half-width, not a scalar label.
 - Propagate to command output as a real uncertainty band; **never** assert "90 % correct".

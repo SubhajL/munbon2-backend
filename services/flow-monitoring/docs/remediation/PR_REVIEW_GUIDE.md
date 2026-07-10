@@ -10,7 +10,7 @@ grouped P0 (audit fixes) and P1 (control-plane build-out), each with *what to sc
   (`REMEDIATION_MASTER.md`, `GATE_CONTROL_REMEDIATION_SPEC.md`, `HYDRAULIC_REMEDIATION_SPEC.md`,
   `TOPOLOGY_RECONCILIATION.md`, `SEEPAGE_CALIBRATION.md`, `HANDOFF.md`).
 - Flow-monitoring core logic is **pure/stdlib in `src/core/`**; tests run isolated:
-  `PYTHONPATH=src venv/bin/pytest --noconftest -o addopts="" tests/unit/test_X.py`.
+  `pytest  # bare, from the service root (Wave 1.9); add a path for a single suite
 
 ## Status snapshot
 - **P0: all 7 items merged** (#7–#13) + 4 QCHECK follow-ups (#15–#18) + a docs refresh (#14).
@@ -201,7 +201,7 @@ grouped P0 (audit fixes) and P1 (control-plane build-out), each with *what to sc
 - **B6/B7** rotation scheduler + capacity enforcement (P2). **F-02/§9** SCADA discrete-level bridge (P2).
 - **C12** stored demand contract + **the real demand producer (ros-gis)**; **A4** `section_node_map`
   (blocked on an unwired ros-gis spatial layer). **F-06/F-09** demand-source reconciliation.
-- **SV** Saint-Venant/Manning façades still return hardcoded literals.
+- **SV** Saint-Venant/Manning façades returned (until Wave 1.4 deleted them; those routes now answer 501) hardcoded literals.
 - Repoint/retire the **legacy `DualModeGateController`** off the stale `munbon_network_final.json`.
 - Geometry for the **22 uncovered reaches**; **Tier-3 seepage calibration**; expand gate calibration
   beyond 10/59.

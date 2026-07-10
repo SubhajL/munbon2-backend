@@ -121,6 +121,8 @@ as current in the older docs.
 4. **SCADA V1.0 Excel — DECIDED (commit it):** source file provided at
    `munbon2-backend-integration/SCADA Section Detailed Information 2025-08-23 V1.0 SL.xlsx`
    (198 KB); to be committed to the repo as the config generator's input (E3 resolved).
+   *(Correction, Wave 1.10: the V1.0 workbook was ALREADY tracked at the repo root
+   since `c0fb7bd` — E3 needed no data PR.)*
 
 ### 2.1 External actions (not PRs — schedule now)
 

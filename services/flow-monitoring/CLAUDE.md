@@ -11,7 +11,7 @@ python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt          # numpy, pytest, pytest-asyncio, pytest-cov, hypothesis
 pytest -v                                # tests live in tests/unit/test_*.py
 pytest tests/unit/test_gate_flow.py -v   # (P0) the F-01 regression/invariant suite
-uvicorn src.main:app --reload            # dev server (port from settings)
+python src/main.py                       # dev server (uvicorn src.main:app CANNOT boot: config imports are src-rooted)
 ```
 Gate before PR: `pytest`.
 
@@ -32,6 +32,6 @@ Gate before PR: `pytest`.
 - **Divergent duplicate flow laws** exist and diverge: `core/calibrated_flow_model.py`, `_v2.py`, `calibrated_gate_flow.py`, `gate_opening_calculator.py`, a 2nd `_calculate_required_opening` in `enhanced_flow_monitoring_integration.py`, and `gate_hydraulics.py`. **Do not add another** — consolidate to `core/gate_flow.py` (C10).
 - **F-01**: the wired gate flow law is inverted/unclamped (`Cs = k1*(opening**k2)`, hardcoded `upstream_depth=2.0`/`head_diff=0.2`) → returns ~287 m³/s at 10% open. Fix per `docs/remediation/FIX_F01_GATE_FLOW_LAW_SPEC.md`.
 - **F-04**: `_get_canal_capacity` returns a hardcoded `15.0`; real per-reach `design_discharge` is unused.
-- **F-11**: 6 conflicting `munbon_network_*.json` topology files; `munbon_network_updated.json` is the correct one — regenerate one canonical `network.json` + a loader connectivity guard.
-- `saint-venant`/`manning` API options return **hardcoded literals** (façade) — not real solvers.
-- Many script-style `test_*.py` in `src/` are NOT pytest tests — real tests are in `tests/unit/`.
+- **F-11/F-11b**: the canonical topology is `src/config/network.json`, REGENERATED from the gate-id naming grammar (`core.network_topology.edges_from_names`) and locked by test. The historical variants (incl. `munbon_network_updated.json`, whose star wiring was wrong on laterals) are deleted — never resurrect them.
+- The saint-venant/manning/rating model façades were DELETED (Wave 1.4); their routes answer 501. Real modeling arrives with the scheduler/SCADA waves.
+- All tests live under `tests/`; bare `pytest` from the service root is the gate (script-style src tests were purged in Waves 1.8–1.9).

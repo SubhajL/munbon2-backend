@@ -3,6 +3,14 @@
 Target service: `services/flow-monitoring`. Suggested repo path for this file:
 `services/flow-monitoring/docs/HYDRAULIC_REMEDIATION_SPEC.md`.
 
+> **PARTLY SUPERSEDED (Wave 1.10 banner).** The prerequisite below names
+> `munbon_network_updated.json` — replaced by the grammar-derived
+> `src/config/network.json` (F-11b, PR #20; the star wiring was wrong on laterals).
+> B5 shipped (#21/#22/#27) with AGED-CONCRETE seepage rates (concrete 1e-5 m/s,
+> earth 2e-5, unknown 1.5e-5; operational fraction 0) — the NEW-concrete numbers
+> further down this spec are the superseded originals; see SEEPAGE_CALIBRATION.md.
+> B6/B7 (rotation scheduler) and B8 (branch-split inverse) are Wave 2/3 roadmap items.
+
 Scope: fixes for the demand→gate-flow pipeline defects **B5** (conveyance loss),
 **B6/B7** (concurrency + capacity via rotation), and **B8** (branch-split coupling),
 plus the schema and wiring they depend on. Prerequisite: a single **connected**
