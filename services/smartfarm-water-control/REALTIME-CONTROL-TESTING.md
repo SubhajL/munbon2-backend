@@ -110,7 +110,7 @@ This script will:
 Connect to database directly:
 
 ```bash
-PGPASSWORD='P@ssw0rd123!' psql -h 43.208.201.191 -p 5432 -U postgres -d sensor_data
+PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.208.201.191 -p 5432 -U postgres -d sensor_data
 ```
 
 Insert a low moisture reading (should trigger TURN_ON):

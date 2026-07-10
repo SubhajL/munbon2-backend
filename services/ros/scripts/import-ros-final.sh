@@ -51,7 +51,7 @@ echo -e "\nStep 2: Importing to EC2..."
 EC2_HOST="${EC2_HOST:-43.208.201.191}"
 EC2_PORT="5432"
 EC2_USER="postgres"
-EC2_PASSWORD="P@ssw0rd123!"
+EC2_PASSWORD="__ROTATED_DB_PASSWORD__"
 
 PGPASSWORD=$EC2_PASSWORD psql -h $EC2_HOST -p $EC2_PORT -U $EC2_USER -d munbon_dev < /tmp/ros_export.sql
 

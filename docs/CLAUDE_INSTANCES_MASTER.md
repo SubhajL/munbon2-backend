@@ -20686,7 +20686,7 @@ Tool result: /Users/subhajlimanond/dev/munbon2-backend/.claude/settings.local.js
 /Users/subhajlimanond/dev/munbon2-backend/services/scada-integration/README.md-152-# Run container
 /Users/subhajlimanond/dev/munbon2-backend/services/scada-integration/README.md-153-docker run -p 3015:3015 \
 /Users/subhajlimanond/dev/munbon2-backend/services/scada-integration/README.md:154:  -e SCADA_DB_HOST=moonup.hopto.org \
-/Users/subhajlimanond/dev/munbon2-backend/services/scada-integration/README.md-155-  -e SCADA_DB_PASSWORD=P@ssw0rd123! \
+/Users/subhajlimanond/dev/munbon2-backend/services/scada-integration/README.md-155-  -e SCADA_DB_PASSWORD=__ROTATED_DB_PASSWORD__ \
 /Users/subhajlimanond/dev/munbon2-backend/services/scada-integration/README.md-156-  scada-integration-service
 --
 /Users/subhajlimanond/dev/munbon2-backend/services/sensor-data/render.yaml-37-      # MSSQL settings (external)
@@ -20839,23 +20839,23 @@ Tool result: /Users/subhajlimanond/dev/munbon2-backend/SETUP_GUIDE.md-202-DB_USE
 /Users/subhajlimanond/dev/munbon2-backend/SETUP_GUIDE.md-204-
 --
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.debug.yml-55-      POSTGRES_USER: postgres
-/Users/subhajlimanond/dev/munbon2-backend/docker-compose.debug.yml:56:      POSTGRES_PASSWORD: P@ssw0rd123!
+/Users/subhajlimanond/dev/munbon2-backend/docker-compose.debug.yml:56:      POSTGRES_PASSWORD: __ROTATED_DB_PASSWORD__
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.debug.yml-57-      # Redis
 --
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.debug.yml-93-      LOG_LEVEL: debug
-/Users/subhajlimanond/dev/munbon2-backend/docker-compose.debug.yml:94:      DATABASE_URL: postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev?schema=auth
+/Users/subhajlimanond/dev/munbon2-backend/docker-compose.debug.yml:94:      DATABASE_URL: postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev?schema=auth
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.debug.yml-95-      REDIS_URL: redis://redis:6379
 --
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.debug.yml-138-      TIMESCALE_USER: postgres
-/Users/subhajlimanond/dev/munbon2-backend/docker-compose.debug.yml:139:      TIMESCALE_PASSWORD: P@ssw0rd123!
+/Users/subhajlimanond/dev/munbon2-backend/docker-compose.debug.yml:139:      TIMESCALE_PASSWORD: __ROTATED_DB_PASSWORD__
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.debug.yml-140-      # Redis
 --
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.debug.yml-182-      POSTGRES_USER: postgres
-/Users/subhajlimanond/dev/munbon2-backend/docker-compose.debug.yml:183:      POSTGRES_PASSWORD: P@ssw0rd123!
+/Users/subhajlimanond/dev/munbon2-backend/docker-compose.debug.yml:183:      POSTGRES_PASSWORD: __ROTATED_DB_PASSWORD__
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.debug.yml-184-      GIS_SCHEMA: gis
 --
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.debug.yml-223-      DB_USER: postgres
-/Users/subhajlimanond/dev/munbon2-backend/docker-compose.debug.yml:224:      DB_PASSWORD: P@ssw0rd123!
+/Users/subhajlimanond/dev/munbon2-backend/docker-compose.debug.yml:224:      DB_PASSWORD: __ROTATED_DB_PASSWORD__
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.debug.yml-225-      CORS_ORIGIN: "*"
 --
 /Users/subhajlimanond/dev/munbon2-backend/CLAUDE_INSTANCE_2_WATER_LEVEL.md-50-TIMESCALE_USER=postgres
@@ -20863,87 +20863,87 @@ Tool result: /Users/subhajlimanond/dev/munbon2-backend/SETUP_GUIDE.md-202-DB_USE
 /Users/subhajlimanond/dev/munbon2-backend/CLAUDE_INSTANCE_2_WATER_LEVEL.md-52-
 --
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml-43-      TIMESCALE_USER: postgres
-/Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml:44:      TIMESCALE_PASSWORD: P@ssw0rd123!
+/Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml:44:      TIMESCALE_PASSWORD: __ROTATED_DB_PASSWORD__
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml-45-      REDIS_URL: redis://redis:6379
 --
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml-77-      DB_USER: postgres
-/Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml:78:      DB_PASSWORD: P@ssw0rd123!
+/Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml:78:      DB_PASSWORD: __ROTATED_DB_PASSWORD__
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml-79-    command: sh -c "npm install --production --no-save && npm start || npm run dev"
 --
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml-104-      NODE_ENV: production
-/Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml:105:      DATABASE_URL: postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev?schema=auth
+/Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml:105:      DATABASE_URL: postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev?schema=auth
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml-106-      REDIS_URL: redis://redis:6379
 --
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml-137-      POSTGRES_USER: postgres
-/Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml:138:      POSTGRES_PASSWORD: P@ssw0rd123!
+/Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml:138:      POSTGRES_PASSWORD: __ROTATED_DB_PASSWORD__
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml-139-      GIS_SCHEMA: gis
 --
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml-170-      POSTGRES_USER: postgres
-/Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml:171:      POSTGRES_PASSWORD: P@ssw0rd123!
+/Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml:171:      POSTGRES_PASSWORD: __ROTATED_DB_PASSWORD__
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml-172-      TIMESCALE_HOST: 43.209.22.250
 --
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml-175-      TIMESCALE_USER: postgres
-/Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml:176:      TIMESCALE_PASSWORD: P@ssw0rd123!
+/Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml:176:      TIMESCALE_PASSWORD: __ROTATED_DB_PASSWORD__
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml-177-    command: sh -c "npm install --production --no-save && npm start || npm run dev"
 --
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml-202-      PORT: 3011
-/Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml:203:      DATABASE_URL: postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev
+/Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml:203:      DATABASE_URL: postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml-204-      REDIS_URL: redis://redis:6379
 --
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml-233-      PORT: 3015
-/Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml:234:      DATABASE_URL: postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev?schema=water_accounting
+/Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml:234:      DATABASE_URL: postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev?schema=water_accounting
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml-235-      PYTHONUNBUFFERED: 1
 --
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml-260-      PORT: 3017
-/Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml:261:      DATABASE_URL: postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev?schema=scheduler
+/Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml:261:      DATABASE_URL: postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev?schema=scheduler
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml-262-      PYTHONUNBUFFERED: 1
 --
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml-292-      NODE_ENV: production
-/Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml:293:      DATABASE_URL: postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/sensor_data
+/Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml:293:      DATABASE_URL: postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/sensor_data
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml-294-      TIMESCALE_HOST: 43.209.22.250
 --
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml-297-      TIMESCALE_USER: postgres
-/Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml:298:      TIMESCALE_PASSWORD: P@ssw0rd123!
+/Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml:298:      TIMESCALE_PASSWORD: __ROTATED_DB_PASSWORD__
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml-299-    command: sh -c "npm install --production --no-save && npm start || npm run dev"
 --
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml-325-      TIMESCALE_USER: postgres
-/Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml:326:      TIMESCALE_PASSWORD: P@ssw0rd123!
+/Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml:326:      TIMESCALE_PASSWORD: __ROTATED_DB_PASSWORD__
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.final.yml-327-    command: sh -c "npm install --production --no-save && npm start || npm run dev"
 --
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.essential.yml-26-      NODE_ENV: development
-/Users/subhajlimanond/dev/munbon2-backend/docker-compose.essential.yml:27:      DATABASE_URL: postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev?schema=auth
+/Users/subhajlimanond/dev/munbon2-backend/docker-compose.essential.yml:27:      DATABASE_URL: postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev?schema=auth
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.essential.yml-28-      REDIS_URL: redis://redis:6379
 --
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.essential.yml-49-      TIMESCALE_USER: postgres
-/Users/subhajlimanond/dev/munbon2-backend/docker-compose.essential.yml:50:      TIMESCALE_PASSWORD: P@ssw0rd123!
+/Users/subhajlimanond/dev/munbon2-backend/docker-compose.essential.yml:50:      TIMESCALE_PASSWORD: __ROTATED_DB_PASSWORD__
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.essential.yml-51-      REDIS_URL: redis://redis:6379
 --
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.essential.yml-72-      POSTGRES_USER: postgres
-/Users/subhajlimanond/dev/munbon2-backend/docker-compose.essential.yml:73:      POSTGRES_PASSWORD: P@ssw0rd123!
+/Users/subhajlimanond/dev/munbon2-backend/docker-compose.essential.yml:73:      POSTGRES_PASSWORD: __ROTATED_DB_PASSWORD__
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.essential.yml-74-      GIS_SCHEMA: gis
 --
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.essential.yml-95-      DB_USER: postgres
-/Users/subhajlimanond/dev/munbon2-backend/docker-compose.essential.yml:96:      DB_PASSWORD: P@ssw0rd123!
+/Users/subhajlimanond/dev/munbon2-backend/docker-compose.essential.yml:96:      DB_PASSWORD: __ROTATED_DB_PASSWORD__
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.essential.yml-97-    command: sh -c "npm install && npm run dev"
 --
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.essential.yml-111-      PORT: 3011
-/Users/subhajlimanond/dev/munbon2-backend/docker-compose.essential.yml:112:      DATABASE_URL: postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev
+/Users/subhajlimanond/dev/munbon2-backend/docker-compose.essential.yml:112:      DATABASE_URL: postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.essential.yml-113-      REDIS_URL: redis://redis:6379
 --
 /Users/subhajlimanond/dev/munbon2-backend/DATA_INGESTION_DATABASE_ANALYSIS.md-34-   EC2_DB_USER=postgres
-/Users/subhajlimanond/dev/munbon2-backend/DATA_INGESTION_DATABASE_ANALYSIS.md:35:   EC2_DB_PASSWORD=P@ssw0rd123!
+/Users/subhajlimanond/dev/munbon2-backend/DATA_INGESTION_DATABASE_ANALYSIS.md:35:   EC2_DB_PASSWORD=__ROTATED_DB_PASSWORD__
 /Users/subhajlimanond/dev/munbon2-backend/DATA_INGESTION_DATABASE_ANALYSIS.md-36-   ```
 --
 /Users/subhajlimanond/dev/munbon2-backend/DATA_INGESTION_DATABASE_ANALYSIS.md-53-   ```
-/Users/subhajlimanond/dev/munbon2-backend/DATA_INGESTION_DATABASE_ANALYSIS.md:54:   DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev?schema=gis
+/Users/subhajlimanond/dev/munbon2-backend/DATA_INGESTION_DATABASE_ANALYSIS.md:54:   DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev?schema=gis
 /Users/subhajlimanond/dev/munbon2-backend/DATA_INGESTION_DATABASE_ANALYSIS.md-55-   ```
 --
 /Users/subhajlimanond/dev/munbon2-backend/test-direct-connection.sh-13-    echo "=== Testing munbon_dev database ==="
-/Users/subhajlimanond/dev/munbon2-backend/test-direct-connection.sh:14:    PGPASSWORD='P@ssw0rd123!' psql -h 43.209.22.250 -p 5432 -U postgres -d munbon_dev -c "SELECT 'gis.canal_network' as table_name, COUNT(*) FROM gis.canal_network;"
+/Users/subhajlimanond/dev/munbon2-backend/test-direct-connection.sh:14:    PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.209.22.250 -p 5432 -U postgres -d munbon_dev -c "SELECT 'gis.canal_network' as table_name, COUNT(*) FROM gis.canal_network;"
 /Users/subhajlimanond/dev/munbon2-backend/test-direct-connection.sh-15-    
 --
 /Users/subhajlimanond/dev/munbon2-backend/test-direct-connection.sh-18-    echo "=== Testing sensor_data database ==="
-/Users/subhajlimanond/dev/munbon2-backend/test-direct-connection.sh:19:    PGPASSWORD='P@ssw0rd123!' psql -h 43.209.22.250 -p 5432 -U postgres -d sensor_data -c "SELECT 'public.sensor_readings' as table_name, COUNT(*) FROM public.sensor_readings;"
+/Users/subhajlimanond/dev/munbon2-backend/test-direct-connection.sh:19:    PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.209.22.250 -p 5432 -U postgres -d sensor_data -c "SELECT 'public.sensor_readings' as table_name, COUNT(*) FROM public.sensor_readings;"
 /Users/subhajlimanond/dev/munbon2-backend/test-direct-connection.sh-20-else
 --
 /Users/subhajlimanond/dev/munbon2-backend/K3S_DOCKER_DEPLOYMENT_GUIDE.md-66-        - name: DATABASE_URL
@@ -20959,72 +20959,72 @@ Tool result: /Users/subhajlimanond/dev/munbon2-backend/SETUP_GUIDE.md-202-DB_USE
 /Users/subhajlimanond/dev/munbon2-backend/CLAUDE_INSTANCE_1_AOS_WEATHER.md-49-
 --
 /Users/subhajlimanond/dev/munbon2-backend/test-new-db-connection.sh-10-DB_USER="postgres"
-/Users/subhajlimanond/dev/munbon2-backend/test-new-db-connection.sh:11:DB_PASSWORD="P@ssw0rd123!"
+/Users/subhajlimanond/dev/munbon2-backend/test-new-db-connection.sh:11:DB_PASSWORD="__ROTATED_DB_PASSWORD__"
 /Users/subhajlimanond/dev/munbon2-backend/test-new-db-connection.sh-12-
 --
 /Users/subhajlimanond/dev/munbon2-backend/EC2_IP_UPDATE_COMPLETE.md-31-```bash
-/Users/subhajlimanond/dev/munbon2-backend/EC2_IP_UPDATE_COMPLETE.md:32:PGPASSWORD='P@ssw0rd123!' psql -h 43.209.22.250 -U postgres -d sensor_data -c "SELECT version();"
+/Users/subhajlimanond/dev/munbon2-backend/EC2_IP_UPDATE_COMPLETE.md:32:PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.209.22.250 -U postgres -d sensor_data -c "SELECT version();"
 /Users/subhajlimanond/dev/munbon2-backend/EC2_IP_UPDATE_COMPLETE.md-33-```
 --
 /Users/subhajlimanond/dev/munbon2-backend/csv_exports/import_to_ec2.sh-8-EC2_USER="postgres"
-/Users/subhajlimanond/dev/munbon2-backend/csv_exports/import_to_ec2.sh:9:EC2_PASSWORD="P@ssw0rd123!"
+/Users/subhajlimanond/dev/munbon2-backend/csv_exports/import_to_ec2.sh:9:EC2_PASSWORD="__ROTATED_DB_PASSWORD__"
 /Users/subhajlimanond/dev/munbon2-backend/csv_exports/import_to_ec2.sh-10-
 --
 /Users/subhajlimanond/dev/munbon2-backend/EC2_TESTING_GUIDE.md-100-# Test connection
-/Users/subhajlimanond/dev/munbon2-backend/EC2_TESTING_GUIDE.md:101:PGPASSWORD="P@ssw0rd123!" psql -h 43.209.22.250 -p 5432 -U postgres -l
+/Users/subhajlimanond/dev/munbon2-backend/EC2_TESTING_GUIDE.md:101:PGPASSWORD="__ROTATED_DB_PASSWORD__" psql -h 43.209.22.250 -p 5432 -U postgres -l
 /Users/subhajlimanond/dev/munbon2-backend/EC2_TESTING_GUIDE.md-102-```
 --
 /Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md-38-# To:
-/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:39:DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev?schema=auth
+/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:39:DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev?schema=auth
 /Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md-40-```
 --
 /Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md-47-# To:
-/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:48:DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev?schema=gis
+/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:48:DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev?schema=gis
 /Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md-49-```
 --
 /Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md-96-# To:
-/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:97:DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/sensor_data
+/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:97:DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/sensor_data
 /Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md-98-```
 --
 /Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md-105-# To:
-/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:106:TIMESCALE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/sensor_data
+/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:106:TIMESCALE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/sensor_data
 /Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md-107-```
 --
 /Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md-149-# To:
-/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:150:DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev
-/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:151:TIMESCALE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/sensor_data
+/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:150:DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev
+/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:151:TIMESCALE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/sensor_data
 /Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md-152-```
 --
 /Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md-176-  POSTGRES_USER: postgres
-/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:177:  POSTGRES_PASSWORD: P@ssw0rd123!
+/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:177:  POSTGRES_PASSWORD: __ROTATED_DB_PASSWORD__
 /Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md-178-  
 --
 /Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md-182-  TIMESCALE_USER: postgres
-/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:183:  TIMESCALE_PASSWORD: P@ssw0rd123!
+/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:183:  TIMESCALE_PASSWORD: __ROTATED_DB_PASSWORD__
 /Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md-184-```
 --
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.ec2-services.yml-30-      TIMESCALE_USER: postgres
-/Users/subhajlimanond/dev/munbon2-backend/docker-compose.ec2-services.yml:31:      TIMESCALE_PASSWORD: P@ssw0rd123!
+/Users/subhajlimanond/dev/munbon2-backend/docker-compose.ec2-services.yml:31:      TIMESCALE_PASSWORD: __ROTATED_DB_PASSWORD__
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.ec2-services.yml-32-      REDIS_URL: redis://redis:6379
 --
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.ec2-services.yml-49-      NODE_ENV: development
-/Users/subhajlimanond/dev/munbon2-backend/docker-compose.ec2-services.yml:50:      DATABASE_URL: postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev?schema=auth
+/Users/subhajlimanond/dev/munbon2-backend/docker-compose.ec2-services.yml:50:      DATABASE_URL: postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev?schema=auth
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.ec2-services.yml-51-      REDIS_URL: redis://redis:6379
 --
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.ec2-services.yml-72-      POSTGRES_USER: postgres
-/Users/subhajlimanond/dev/munbon2-backend/docker-compose.ec2-services.yml:73:      POSTGRES_PASSWORD: P@ssw0rd123!
+/Users/subhajlimanond/dev/munbon2-backend/docker-compose.ec2-services.yml:73:      POSTGRES_PASSWORD: __ROTATED_DB_PASSWORD__
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.ec2-services.yml-74-      GIS_SCHEMA: gis
 --
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.ec2-services.yml-95-      DB_USER: postgres
-/Users/subhajlimanond/dev/munbon2-backend/docker-compose.ec2-services.yml:96:      DB_PASSWORD: P@ssw0rd123!
+/Users/subhajlimanond/dev/munbon2-backend/docker-compose.ec2-services.yml:96:      DB_PASSWORD: __ROTATED_DB_PASSWORD__
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.ec2-services.yml-97-    command: sh -c "npm install && npm run dev"
 --
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.ec2-services.yml-111-      PORT: 3011
-/Users/subhajlimanond/dev/munbon2-backend/docker-compose.ec2-services.yml:112:      DATABASE_URL: postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev
+/Users/subhajlimanond/dev/munbon2-backend/docker-compose.ec2-services.yml:112:      DATABASE_URL: postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.ec2-services.yml-113-      REDIS_URL: redis://redis:6379
 --
 /Users/subhajlimanond/dev/munbon2-backend/DOCKER_SERVICES_STATUS.md-70-- Port: 5432 (consolidated PostgreSQL with TimescaleDB)
-/Users/subhajlimanond/dev/munbon2-backend/DOCKER_SERVICES_STATUS.md:71:- Password: P@ssw0rd123!
+/Users/subhajlimanond/dev/munbon2-backend/DOCKER_SERVICES_STATUS.md:71:- Password: __ROTATED_DB_PASSWORD__
 /Users/subhajlimanond/dev/munbon2-backend/DOCKER_SERVICES_STATUS.md-72-- Schemas: auth, gis, ros, awd, sensor_data, etc.
 --
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.ec2-native-db.yml-16-  POSTGRES_USER: postgres
@@ -21032,23 +21032,23 @@ Tool result: /Users/subhajlimanond/dev/munbon2-backend/SETUP_GUIDE.md-202-DB_USE
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.ec2-native-db.yml-18-  POSTGRES_DB: munbon
 --
 /Users/subhajlimanond/dev/munbon2-backend/csv_exports/fix_timescale_import.sh-8-EC2_USER="postgres"
-/Users/subhajlimanond/dev/munbon2-backend/csv_exports/fix_timescale_import.sh:9:EC2_PASSWORD="P@ssw0rd123!"
+/Users/subhajlimanond/dev/munbon2-backend/csv_exports/fix_timescale_import.sh:9:EC2_PASSWORD="__ROTATED_DB_PASSWORD__"
 /Users/subhajlimanond/dev/munbon2-backend/csv_exports/fix_timescale_import.sh-10-
 --
 /Users/subhajlimanond/dev/munbon2-backend/EC2_DEPLOYMENT_QUICKSTART.md-45-    environment:
-/Users/subhajlimanond/dev/munbon2-backend/EC2_DEPLOYMENT_QUICKSTART.md:46:      POSTGRES_PASSWORD: P@ssw0rd123!
+/Users/subhajlimanond/dev/munbon2-backend/EC2_DEPLOYMENT_QUICKSTART.md:46:      POSTGRES_PASSWORD: __ROTATED_DB_PASSWORD__
 /Users/subhajlimanond/dev/munbon2-backend/EC2_DEPLOYMENT_QUICKSTART.md-47-      POSTGRES_DB: munbon_dev
 --
 /Users/subhajlimanond/dev/munbon2-backend/EC2_DEPLOYMENT_QUICKSTART.md-73-      TIMESCALE_USER: postgres
-/Users/subhajlimanond/dev/munbon2-backend/EC2_DEPLOYMENT_QUICKSTART.md:74:      TIMESCALE_PASSWORD: P@ssw0rd123!
+/Users/subhajlimanond/dev/munbon2-backend/EC2_DEPLOYMENT_QUICKSTART.md:74:      TIMESCALE_PASSWORD: __ROTATED_DB_PASSWORD__
 /Users/subhajlimanond/dev/munbon2-backend/EC2_DEPLOYMENT_QUICKSTART.md-75-      REDIS_HOST: redis
 --
 /Users/subhajlimanond/dev/munbon2-backend/EC2_DEPLOYMENT_QUICKSTART.md-97-      TIMESCALE_USER: postgres
-/Users/subhajlimanond/dev/munbon2-backend/EC2_DEPLOYMENT_QUICKSTART.md:98:      TIMESCALE_PASSWORD: P@ssw0rd123!
+/Users/subhajlimanond/dev/munbon2-backend/EC2_DEPLOYMENT_QUICKSTART.md:98:      TIMESCALE_PASSWORD: __ROTATED_DB_PASSWORD__
 /Users/subhajlimanond/dev/munbon2-backend/EC2_DEPLOYMENT_QUICKSTART.md-99-      AWS_REGION: ap-southeast-1
 --
 /Users/subhajlimanond/dev/munbon2-backend/csv_exports/import_via_temp_table.sh-8-EC2_USER="postgres"
-/Users/subhajlimanond/dev/munbon2-backend/csv_exports/import_via_temp_table.sh:9:EC2_PASSWORD="P@ssw0rd123!"
+/Users/subhajlimanond/dev/munbon2-backend/csv_exports/import_via_temp_table.sh:9:EC2_PASSWORD="__ROTATED_DB_PASSWORD__"
 /Users/subhajlimanond/dev/munbon2-backend/csv_exports/import_via_temp_table.sh-10-
 --
 /Users/subhajlimanond/dev/munbon2-backend/.claude/settings.local.json-151-      "Bash(timeout 30s npx ts-node --transpile-only src/workers/shapefile-queue-processor.ts)",
@@ -21078,13 +21078,13 @@ Based on the search results, I found the database credentials. Here's a summary 
 - **Port**: 5432 (PostgreSQL) or 1433 (MSSQL)
 - **Database**: db_scada
 - **Username**: sa (for MSSQL) or postgres (for PostgreSQL)
-- **Password**: P@ssw0rd123!
+- **Password**: __ROTATED_DB_PASSWORD__
 
 ### For EC2 PostgreSQL Database:
 - **Host**: 43.209.22.250
 - **Port**: 5432
 - **Username**: postgres
-- **Password**: P@ssw0rd123!
+- **Password**: __ROTATED_DB_PASSWORD__
 
 ### For Local Development:
 - **Username**: postgres
@@ -21120,7 +21120,7 @@ You're right, I apologize. Looking back at my search results, I did find the pas
 - **Port**: 1433 (SQL Server)
 - **Database**: db_scada
 - **Username**: sa
-- **Password**: P@ssw0rd123!
+- **Password**: __ROTATED_DB_PASSWORD__
 
 This is the MSSQL/SQL Server database used for SCADA integration in the Munbon project.
 
@@ -22565,7 +22565,7 @@ I've created a comprehensive security response plan for your exposed credentials
 
 ### 1. **Identified Exposed Credentials** (`EXPOSED_CREDENTIALS_LIST.md`)
 - AWS Access Keys
-- Database passwords (P@ssw0rd123!, bangkok1234, etc.)
+- Database passwords (__ROTATED_DB_PASSWORD__, bangkok1234, etc.)
 - SSH private key (th-lab01.pem)
 - Various service tokens and secrets
 
@@ -23890,7 +23890,7 @@ I've successfully helped you:
    ```
 
 3. **Change Database Passwords**:
-   - EC2 PostgreSQL: `P@ssw0rd123!`
+   - EC2 PostgreSQL: `__ROTATED_DB_PASSWORD__`
    - MSSQL: `bangkok1234`
 
 4. **Alert Your Team**:
@@ -24181,7 +24181,7 @@ I've successfully:
 
 ### 1. **Change Your Database Passwords NOW**
 These are still exposed and need immediate attention:
-- **PostgreSQL on EC2**: `P@ssw0rd123!`
+- **PostgreSQL on EC2**: `__ROTATED_DB_PASSWORD__`
 - **MSSQL on moonup.hopto.org**: `bangkok1234`
 
 ### 2. **Alert Your Team**
@@ -24217,7 +24217,7 @@ Tool result:      1→# Environment variables for Docker Compose with EC2 Databa
      4→POSTGRES_HOST=43.209.22.250
      5→POSTGRES_PORT=5432
      6→POSTGRES_USER=postgres
-     7→POSTGRES_PASSWORD=P@ssw0rd123!
+     7→POSTGRES_PASSWORD=__ROTATED_DB_PASSWORD__
      8→POSTGRES_DB=munbon_dev
      9→
     10→# JWT Secret
@@ -24259,14 +24259,14 @@ Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/.env has been up
      9→POSTGRES_HOST=${EC2_HOST}
     10→POSTGRES_PORT=5432
     11→POSTGRES_USER=postgres
-    12→POSTGRES_PASSWORD=P@ssw0rd123!
+    12→POSTGRES_PASSWORD=__ROTATED_DB_PASSWORD__
     13→POSTGRES_DB=munbon_dev
     14→
     15→# TimescaleDB Configuration (on same EC2)
     16→TIMESCALE_HOST=${EC2_HOST}
     17→TIMESCALE_PORT=5432
     18→TIMESCALE_USER=postgres
-    19→TIMESCALE_PASSWORD=P@ssw0rd123!
+    19→TIMESCALE_PASSWORD=__ROTATED_DB_PASSWORD__
     20→TIMESCALE_DB=sensor_data
     21→
     22→# Database URLs (for convenience)
@@ -24672,7 +24672,7 @@ source ./load-ec2-config.sh
 This makes managing EC2 IP changes much easier - no more searching through hundreds of files!
 
 ### Assistant
-Oh no! GitGuardian detected PostgreSQL credentials in your recent push. This is happening because we committed files with the database password `P@ssw0rd123!` still in them. Even though we cleaned the git history, the new commits contain the password!
+Oh no! GitGuardian detected PostgreSQL credentials in your recent push. This is happening because we committed files with the database password `__ROTATED_DB_PASSWORD__` still in them. Even though we cleaned the git history, the new commits contain the password!
 
 ## IMMEDIATE ACTIONS REQUIRED:
 
@@ -24861,7 +24861,7 @@ For production, consider:
 - Environment variables from CI/CD
 - Never hardcode passwords again!
 
-The exposed password `P@ssw0rd123!` is now public on the internet. **Change it immediately** before someone uses it to access your database!
+The exposed password `__ROTATED_DB_PASSWORD__` is now public on the internet. **Change it immediately** before someone uses it to access your database!
 
 ### User
 Wow. We are not going anywhere. Just send the last 2-3 hours fixing errors. Be more careful next time. Otherwise any gains from using AI for coding will be lost in trying to fix stupid things.
@@ -29739,7 +29739,7 @@ Summary:
 
 4. **Errors and Fixes:**
    - **Critical Error: Exposed credentials in commits**
-     - I committed files containing actual passwords (P@ssw0rd123!)
+     - I committed files containing actual passwords (__ROTATED_DB_PASSWORD__)
      - Fix: Created emergency-remove-passwords.sh to remove all .env files
      - User feedback: "We are not going anywhere. Just send the last 2-3 hours fixing errors. Be more careful next time."
    
@@ -35225,7 +35225,7 @@ Tool result:      1→# Docker Services Status Report
     68→All 17 services have been configured with proper EC2 database connections:
     69→- Host: 43.209.22.250
     70→- Port: 5432 (consolidated PostgreSQL with TimescaleDB)
-    71→- Password: P@ssw0rd123!
+    71→- Password: __ROTATED_DB_PASSWORD__
     72→- Schemas: auth, gis, ros, awd, sensor_data, etc.
     73→
     74→## Next Steps
@@ -35399,12 +35399,12 @@ Tool result:      1→#!/bin/bash
      7→export TIMESCALE_PORT=5432
      8→export TIMESCALE_DB=sensor_data
      9→export TIMESCALE_USER=postgres
-    10→export TIMESCALE_PASSWORD=P@ssw0rd123!
+    10→export TIMESCALE_PASSWORD=__ROTATED_DB_PASSWORD__
     11→export EC2_DB_HOST=${EC2_HOST:-43.208.201.191}
     12→export EC2_DB_PORT=5432
     13→export EC2_DB_NAME=sensor_data
     14→export EC2_DB_USER=postgres
-    15→export EC2_DB_PASSWORD=P@ssw0rd123!
+    15→export EC2_DB_PASSWORD=__ROTATED_DB_PASSWORD__
     16→export AWS_REGION=ap-southeast-1
     17→export SQS_QUEUE_URL=https://sqs.ap-southeast-1.amazonaws.com/108728974441/munbon-sensor-ingestion-dev-queue
     18→
@@ -36734,7 +36734,7 @@ Summary:
         port: parseInt(process.env.DB_PORT || '5432'),
         database: process.env.DB_NAME || 'sensor_data',
         user: process.env.DB_USER || 'postgres',
-        password: process.env.DB_PASSWORD || 'P@ssw0rd123!',
+        password: process.env.DB_PASSWORD || '__ROTATED_DB_PASSWORD__',
         max: 10
       });
       ```
@@ -43262,8 +43262,8 @@ Tool result: /Users/subhajlimanond/dev/munbon2-backend/services/rid-ms/src/confi
 /Users/subhajlimanond/dev/munbon2-backend/.claude/settings.local.json:158:      "Bash(PGHOST=localhost PGPORT=5434 PGUSER=postgres PGPASSWORD=postgres PGDATABASE=munbon_dev psql -c \"SELECT COUNT(*) as total_parcels FROM gis.agricultural_plots;\")",
 /Users/subhajlimanond/dev/munbon2-backend/.claude/settings.local.json:252:      "Bash(export DB_PORT=\"5434\")",
 /Users/subhajlimanond/dev/munbon2-backend/.claude/settings.local.json:277:      "Bash(PGHOST=43.209.22.250 PGPORT=5432 PGUSER=postgres PGPASSWORD=postgres123 PGDATABASE=munbon_dev psql -c \"SELECT version();\")",
-/Users/subhajlimanond/dev/munbon2-backend/.claude/settings.local.json:278:      "Bash(PGHOST=43.209.22.250 PGPORT=5432 PGUSER=postgres PGPASSWORD='P@ssw0rd123!' PGDATABASE=munbon_dev psql -f /tmp/gis_schema_dump.sql)",
-/Users/subhajlimanond/dev/munbon2-backend/.claude/settings.local.json:280:      "Bash(PGHOST=43.209.22.250 PGPORT=5432 PGUSER=postgres PGPASSWORD='P@ssw0rd123!' psql:*)",
+/Users/subhajlimanond/dev/munbon2-backend/.claude/settings.local.json:278:      "Bash(PGHOST=43.209.22.250 PGPORT=5432 PGUSER=postgres PGPASSWORD='__ROTATED_DB_PASSWORD__' PGDATABASE=munbon_dev psql -f /tmp/gis_schema_dump.sql)",
+/Users/subhajlimanond/dev/munbon2-backend/.claude/settings.local.json:280:      "Bash(PGHOST=43.209.22.250 PGPORT=5432 PGUSER=postgres PGPASSWORD='__ROTATED_DB_PASSWORD__' psql:*)",
 /Users/subhajlimanond/dev/munbon2-backend/.claude/settings.local.json:306:      "Bash(VALID_TOKENS=\"munbon-m2m-moisture:Moisture Sensor\" PORT=3003 TIMESCALE_HOST=localhost TIMESCALE_PORT=5433 TIMESCALE_DB=munbon_timescale TIMESCALE_USER=postgres TIMESCALE_PASSWORD=postgres node dist/cmd/server/main.js)",
 /Users/subhajlimanond/dev/munbon2-backend/.claude/settings.local.json:328:      "Bash(SQS_QUEUE_URL=https://sqs.ap-southeast-1.amazonaws.com/108728974441/munbon-sensor-ingestion-dev-queue AWS_REGION=ap-southeast-1 TIMESCALE_HOST=localhost TIMESCALE_PORT=5433 TIMESCALE_DB=munbon_timescale TIMESCALE_USER=postgres TIMESCALE_PASSWORD=postgres npm run consumer)",
 /Users/subhajlimanond/dev/munbon2-backend/temp_shapefile_check/test_ec2_connection.js:8:            port: 5432,
@@ -44507,12 +44507,12 @@ Tool result:      1→# Docker Compose for EC2 Production Deployment with Consol
     12→  POSTGRES_HOST: 43.209.22.250
     13→  POSTGRES_PORT: 5432
     14→  POSTGRES_USER: postgres
-    15→  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-P@ssw0rd123!}
+    15→  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-__ROTATED_DB_PASSWORD__}
     16→  # TimescaleDB is in the same PostgreSQL instance
     17→  TIMESCALE_HOST: 43.209.22.250
     18→  TIMESCALE_PORT: 5432
     19→  TIMESCALE_USER: postgres
-    20→  TIMESCALE_PASSWORD: ${POSTGRES_PASSWORD:-P@ssw0rd123!}
+    20→  TIMESCALE_PASSWORD: ${POSTGRES_PASSWORD:-__ROTATED_DB_PASSWORD__}
     21→
     22→x-resource-limits: &resource-limits
     23→  deploy:
@@ -45382,7 +45382,7 @@ Tool result:      1→import { Pool } from 'pg';
     37→      port: parseInt(process.env.SCADA_DB_PORT || '5432'),
     38→      database: process.env.SCADA_DB_NAME || 'db_scada',
     39→      user: process.env.SCADA_DB_USER || 'postgres',
-    40→      password: process.env.SCADA_DB_PASSWORD || 'P@ssw0rd123!',
+    40→      password: process.env.SCADA_DB_PASSWORD || '__ROTATED_DB_PASSWORD__',
     41→      max: 10,
     42→      idleTimeoutMillis: 30000,
     43→      connectionTimeoutMillis: 2000,
@@ -47440,7 +47440,7 @@ Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/docker-compose.e
    272→      SCADA_DB_PORT: 5432
    273→      SCADA_DB_NAME: db_scada
    274→      SCADA_DB_USER: ${SCADA_DB_USER:-postgres}
-   275→      SCADA_DB_PASSWORD: ${SCADA_DB_PASSWORD:-P@ssw0rd123!}
+   275→      SCADA_DB_PASSWORD: ${SCADA_DB_PASSWORD:-__ROTATED_DB_PASSWORD__}
    276→    ports:
    277→      - "3015:3015"
    278→    depends_on:
@@ -47658,7 +47658,7 @@ Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/pm2-ecosystem.co
    286→        SCADA_DB_PORT: 5432,
    287→        SCADA_DB_NAME: 'db_scada',
    288→        SCADA_DB_USER: 'postgres',
-   289→        SCADA_DB_PASSWORD: 'P@ssw0rd123!'
+   289→        SCADA_DB_PASSWORD: '__ROTATED_DB_PASSWORD__'
    290→      },
    291→      error_file: './logs/scada-integration-error.log',
    292→      out_file: './logs/scada-integration-out.log'

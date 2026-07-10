@@ -15,7 +15,7 @@ NC='\033[0m'
 # EC2 Configuration
 export POSTGRES_HOST="${EC2_HOST:-43.208.201.191}"
 export POSTGRES_PORT="5432"
-export POSTGRES_PASSWORD="P@ssw0rd123!"
+export POSTGRES_PASSWORD="__ROTATED_DB_PASSWORD__"
 
 # Service URLs
 SENSOR_DATA_URL="http://localhost:3003"

@@ -16,7 +16,7 @@ NC='\033[0m'
 TARGET_HOST="${EC2_HOST:-43.208.201.191}"
 TARGET_PORT="5432"
 TARGET_USER="postgres"
-TARGET_PASSWORD="${TARGET_PASSWORD:-P@ssw0rd123!}"  # Can be overridden by environment variable
+TARGET_PASSWORD="${TARGET_PASSWORD:-__ROTATED_DB_PASSWORD__}"  # Can be overridden by environment variable
 
 echo -e "${BLUE}=== Local Database Consolidation ===${NC}"
 echo -e "${YELLOW}Target: $TARGET_HOST:$TARGET_PORT${NC}"

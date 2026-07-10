@@ -15224,7 +15224,7 @@ Tool result:      1→import { Pool } from 'pg';
      5→  port: 5432,
      6→  database: 'sensor_data',
      7→  user: 'postgres',
-     8→  password: 'P@ssw0rd123!',
+     8→  password: '__ROTATED_DB_PASSWORD__',
      9→  connectionTimeoutMillis: 5000,
     10→});
     11→

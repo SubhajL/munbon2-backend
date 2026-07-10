@@ -11,12 +11,12 @@ if command -v psql &> /dev/null; then
     
     # Test munbon_dev
     echo "=== Testing munbon_dev database ==="
-    PGPASSWORD='P@ssw0rd123!' psql -h ${EC2_HOST:-43.208.201.191} -p 5432 -U postgres -d munbon_dev -c "SELECT 'gis.canal_network' as table_name, COUNT(*) FROM gis.canal_network;"
+    PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h ${EC2_HOST:-43.208.201.191} -p 5432 -U postgres -d munbon_dev -c "SELECT 'gis.canal_network' as table_name, COUNT(*) FROM gis.canal_network;"
     
     # Test sensor_data
     echo ""
     echo "=== Testing sensor_data database ==="
-    PGPASSWORD='P@ssw0rd123!' psql -h ${EC2_HOST:-43.208.201.191} -p 5432 -U postgres -d sensor_data -c "SELECT 'public.sensor_readings' as table_name, COUNT(*) FROM public.sensor_readings;"
+    PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h ${EC2_HOST:-43.208.201.191} -p 5432 -U postgres -d sensor_data -c "SELECT 'public.sensor_readings' as table_name, COUNT(*) FROM public.sensor_readings;"
 else
     echo "psql not found, using Python..."
     python3 check-ec2-status.py

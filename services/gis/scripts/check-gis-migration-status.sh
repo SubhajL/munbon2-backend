@@ -8,7 +8,7 @@ echo ""
 LOCAL_DB="postgresql://postgres:postgres@localhost:5434/munbon_dev"
 
 # EC2 database connection (you'll need to update the password)
-EC2_DB="postgresql://postgres:P@ssw0rd123!@${EC2_HOST:-43.208.201.191}:5432/munbon_dev"
+EC2_DB="postgresql://postgres:__ROTATED_DB_PASSWORD__@${EC2_HOST:-43.208.201.191}:5432/munbon_dev"
 
 echo "1. Checking local GIS tables and row counts:"
 echo "----------------------------------------"
@@ -25,7 +25,7 @@ echo ""
 echo "2. Checking if GIS schema exists on EC2:"
 echo "----------------------------------------"
 # This will fail if password is wrong, but shows what needs to be checked
-PGPASSWORD='P@ssw0rd123!' psql -h ${EC2_HOST:-43.208.201.191} -p 5432 -U postgres -d munbon_dev -c "\dn" 2>&1 | grep -E "gis|error"
+PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h ${EC2_HOST:-43.208.201.191} -p 5432 -U postgres -d munbon_dev -c "\dn" 2>&1 | grep -E "gis|error"
 
 echo ""
 echo "3. Shape file uploads status:"

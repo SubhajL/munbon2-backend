@@ -7,7 +7,7 @@ echo "Setting up scheduler schema on EC2 PostgreSQL..."
 EC2_HOST="${EC2_HOST:-43.208.201.191}"
 EC2_PORT="5432"
 EC2_USER="postgres"
-EC2_PASSWORD='P@ssw0rd123!'
+EC2_PASSWORD='__ROTATED_DB_PASSWORD__'
 EC2_DB="munbon_dev"
 
 # Export password for psql

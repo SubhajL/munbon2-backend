@@ -43,9 +43,11 @@ as current in the older docs.
 
 ### 1.2 New defects found by this review
 
-1. **HIGH — leaked password in runtime code.** `P@ssw0rd123!` in 27 tracked `.js`/`.ts`
+1. **HIGH — leaked password in runtime code.** *(Historical finding; the literal is
+   redacted repo-wide as `__ROTATED_DB_PASSWORD__` since Wave 1.11 — runtime `.js`/`.ts`
+   fallbacks were removed in #29, and rotation E1 remains outstanding.)* It was in 27 tracked `.js`/`.ts`
    (8 runtime service sources: sensor-data, awd-control, external-api, scada-integration,
-   sensor-location-mapping, bff-water-control) as `process.env.X || 'P@ssw0rd123!'` fallbacks —
+   sensor-location-mapping, bff-water-control) as `process.env.X || '__ROTATED_DB_PASSWORD__'` fallbacks —
    services silently run on the leaked credential when env is unset. Also in flow-monitoring's
    live `.env`; prod IP `43.208.201.191` in 179 tracked files. **Rotation still outstanding.**
 2. **HIGH (Codex) — `edges_from_names` accepts wrong roots.** Any single-tuple id with
@@ -126,7 +128,7 @@ as current in the older docs.
 
 ### 2.1 External actions (not PRs — schedule now)
 
-- **E1: rotate `P@ssw0rd123!`** (all DBs using it) — overdue; nothing else neutralizes it.
+- **E1: rotate the leaked DB credential** (old value redacted as `__ROTATED_DB_PASSWORD__`; all DBs using it) — overdue; nothing else neutralizes it.
 - **E2: `git filter-repo` history purge + team re-clone** — after E1 and after PR 0.6 lands.
 - **E3:** provide the SCADA V1.0 Excel (decision 4). **E4:** GIS shapefile export for
   crop_registry. **E5:** RID's authoritative auto-gate list (needed for F-02 quantizer scope).
@@ -145,7 +147,7 @@ Codex adversary (non-skippable) → open PR → **user admin-merges**.
 | 0.3 | Reject invalid topology roots | `edges_from_names`: only `M(0,0)` attaches to S; other single-tuple ids → `NetworkTopologyError` | S | — |
 | 0.4 | Dry-reach seepage semantics | `conveyance_loss.py`/`demand_aggregation.py`: loss only where flow>0 (+ optional `always_wet` set + legacy flag); tests: zero-demand plan ⇒ zero head flow | M | Decision 1 |
 | 0.5 | Config/data/doc strictness | Regenerate `network.json` strict JSON (no `NaN`); fix `canal_geometry.json` summary (46→37) + side-slope reconciliation note; SEEPAGE_CALIBRATION metric correction (~48 LMC / ~39 network); stale docstrings | M | 0.3 |
-| 0.6 | Remove runtime credential fallbacks | Strip `\|\| 'P@ssw0rd123!'` from the 27 tracked `.js`/`.ts` (fail closed on missing env); move hardcoded prod IP to env in runtime files | M/L | — (pairs with E1) |
+| 0.6 | Remove runtime credential fallbacks | Strip `\|\| '__ROTATED_DB_PASSWORD__'` from the 27 tracked `.js`/`.ts` (fail closed on missing env); move hardcoded prod IP to env in runtime files | M/L | — (pairs with E1) |
 | 0.7 | Harden secret-scan | Scan full push range (`event.before..after`), include renames + workflow files (inline allowlist, not self-exclusion), add IP/conn-string patterns | S/M | 0.6 |
 
 **Wave 1 — one truth at runtime (kill the dual stack)**

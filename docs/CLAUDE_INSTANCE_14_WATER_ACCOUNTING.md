@@ -17775,7 +17775,7 @@ Tool result:      1→# EC2 Docker Deployment Environment Variables
      5→POSTGRES_HOST=43.209.22.250
      6→POSTGRES_PORT=5432
      7→POSTGRES_USER=postgres
-     8→POSTGRES_PASSWORD=P@ssw0rd123!
+     8→POSTGRES_PASSWORD=__ROTATED_DB_PASSWORD__
      9→POSTGRES_DB=munbon_dev
     10→
     11→# Redis Configuration (using Docker container on EC2)

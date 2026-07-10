@@ -117,7 +117,7 @@ docker exec munbon-flow-monitoring python -c "
 import asyncpg
 import asyncio
 async def test():
-    conn = await asyncpg.connect('postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev')
+    conn = await asyncpg.connect('postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev')
     print('Connected!')
     await conn.close()
 asyncio.run(test())

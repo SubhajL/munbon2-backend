@@ -10,7 +10,7 @@ I have successfully connected the scheduler service to the EC2 PostgreSQL databa
 - **Port**: 5432
 - **Database**: munbon_dev
 - **User**: postgres
-- **Password**: P@ssw0rd123!
+- **Password**: __ROTATED_DB_PASSWORD__
 - **Connection String**: `postgresql://postgres:P%40ssw0rd123%21@43.209.22.250:5432/munbon_dev`
 
 ### Important: Password Encoding
@@ -40,7 +40,7 @@ The password contains special characters that must be URL-encoded in connection 
 POSTGRES_HOST=43.209.22.250
 POSTGRES_PORT=5432
 POSTGRES_USER=postgres
-POSTGRES_PASSWORD=P@ssw0rd123!
+POSTGRES_PASSWORD=__ROTATED_DB_PASSWORD__
 POSTGRES_DB=munbon_dev
 POSTGRES_URL=postgresql://postgres:P%40ssw0rd123%21@43.209.22.250:5432/munbon_dev
 ```

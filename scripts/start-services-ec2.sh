@@ -19,10 +19,10 @@ echo "=================================="
 export POSTGRES_HOST="${EC2_HOST:-43.208.201.191}"
 export POSTGRES_PORT="5432"
 export POSTGRES_USER="postgres"
-export POSTGRES_PASSWORD="P@ssw0rd123!"
+export POSTGRES_PASSWORD="__ROTATED_DB_PASSWORD__"
 export TIMESCALE_HOST="${EC2_HOST:-43.208.201.191}"
 export TIMESCALE_PORT="5432"  # Same as PostgreSQL
-export TIMESCALE_PASSWORD="P@ssw0rd123!"
+export TIMESCALE_PASSWORD="__ROTATED_DB_PASSWORD__"
 
 # Stop existing services first
 echo -e "\n${YELLOW}Stopping existing services...${NC}"
@@ -35,7 +35,7 @@ echo -e "\n${BLUE}Starting core services...${NC}"
 echo "Starting Auth Service..."
 cd /Users/subhajlimanond/dev/munbon2-backend/services/auth
 PORT=3001 \
-DATABASE_URL="postgresql://postgres:P@ssw0rd123!@${EC2_HOST:-43.208.201.191}:5432/munbon_dev?schema=auth" \
+DATABASE_URL="postgresql://postgres:__ROTATED_DB_PASSWORD__@${EC2_HOST:-43.208.201.191}:5432/munbon_dev?schema=auth" \
 REDIS_URL="redis://localhost:6379" \
 JWT_SECRET="local-dev-secret" \
 npm run dev > /tmp/auth-service.log 2>&1 &
@@ -49,7 +49,7 @@ POSTGRES_HOST="${EC2_HOST:-43.208.201.191}" \
 POSTGRES_PORT="5432" \
 POSTGRES_DB="munbon_dev" \
 POSTGRES_USER="postgres" \
-POSTGRES_PASSWORD="P@ssw0rd123!" \
+POSTGRES_PASSWORD="__ROTATED_DB_PASSWORD__" \
 npm run dev > /tmp/gis-service.log 2>&1 &
 echo -e "${GREEN}✓ GIS Service started on port 3007${NC}"
 
@@ -62,7 +62,7 @@ DB_PORT="5432" \
 DB_NAME="munbon_dev" \
 DB_SCHEMA="ros" \
 DB_USER="postgres" \
-DB_PASSWORD="P@ssw0rd123!" \
+DB_PASSWORD="__ROTATED_DB_PASSWORD__" \
 npm run dev > /tmp/ros-service.log 2>&1 &
 echo -e "${GREEN}✓ ROS Service started on port 3047${NC}"
 
@@ -70,7 +70,7 @@ echo -e "${GREEN}✓ ROS Service started on port 3047${NC}"
 echo "Starting Flow Monitoring Service..."
 cd /Users/subhajlimanond/dev/munbon2-backend/services/flow-monitoring
 PORT=3011 \
-DATABASE_URL="postgresql://postgres:P@ssw0rd123!@${EC2_HOST:-43.208.201.191}:5432/munbon_dev" \
+DATABASE_URL="postgresql://postgres:__ROTATED_DB_PASSWORD__@${EC2_HOST:-43.208.201.191}:5432/munbon_dev" \
 REDIS_URL="redis://localhost:6379" \
 python -m uvicorn src.main:app --host 0.0.0.0 --port 3011 > /tmp/flow-monitoring.log 2>&1 &
 echo -e "${GREEN}✓ Flow Monitoring Service started on port 3011${NC}"
@@ -79,12 +79,12 @@ echo -e "${GREEN}✓ Flow Monitoring Service started on port 3011${NC}"
 echo "Starting Weather Monitoring Service..."
 cd /Users/subhajlimanond/dev/munbon2-backend/services/weather-monitoring
 PORT=3006 \
-DATABASE_URL="postgresql://postgres:P@ssw0rd123!@${EC2_HOST:-43.208.201.191}:5432/sensor_data" \
+DATABASE_URL="postgresql://postgres:__ROTATED_DB_PASSWORD__@${EC2_HOST:-43.208.201.191}:5432/sensor_data" \
 TIMESCALE_HOST="${EC2_HOST:-43.208.201.191}" \
 TIMESCALE_PORT="5432" \
 TIMESCALE_DB="sensor_data" \
 TIMESCALE_USER="postgres" \
-TIMESCALE_PASSWORD="P@ssw0rd123!" \
+TIMESCALE_PASSWORD="__ROTATED_DB_PASSWORD__" \
 npm run dev > /tmp/weather-monitoring.log 2>&1 &
 echo -e "${GREEN}✓ Weather Monitoring Service started on port 3006${NC}"
 
@@ -92,7 +92,7 @@ echo -e "${GREEN}✓ Weather Monitoring Service started on port 3006${NC}"
 echo "Starting Water Level Monitoring Service..."
 cd /Users/subhajlimanond/dev/munbon2-backend/services/water-level-monitoring
 PORT=3008 \
-TIMESCALE_URL="postgresql://postgres:P@ssw0rd123!@${EC2_HOST:-43.208.201.191}:5432/sensor_data" \
+TIMESCALE_URL="postgresql://postgres:__ROTATED_DB_PASSWORD__@${EC2_HOST:-43.208.201.191}:5432/sensor_data" \
 npm run dev > /tmp/water-level-monitoring.log 2>&1 &
 echo -e "${GREEN}✓ Water Level Monitoring Service started on port 3008${NC}"
 
@@ -105,12 +105,12 @@ POSTGRES_PORT="5432" \
 POSTGRES_DB="munbon_dev" \
 POSTGRES_SCHEMA="awd" \
 POSTGRES_USER="postgres" \
-POSTGRES_PASSWORD="P@ssw0rd123!" \
+POSTGRES_PASSWORD="__ROTATED_DB_PASSWORD__" \
 TIMESCALE_HOST="${EC2_HOST:-43.208.201.191}" \
 TIMESCALE_PORT="5432" \
 TIMESCALE_DB="sensor_data" \
 TIMESCALE_USER="postgres" \
-TIMESCALE_PASSWORD="P@ssw0rd123!" \
+TIMESCALE_PASSWORD="__ROTATED_DB_PASSWORD__" \
 npm run dev > /tmp/awd-control.log 2>&1 &
 echo -e "${GREEN}✓ AWD Control Service started on port 3010${NC}"
 
@@ -122,12 +122,12 @@ POSTGRES_HOST="${EC2_HOST:-43.208.201.191}" \
 POSTGRES_PORT="5432" \
 POSTGRES_DB="munbon_dev" \
 POSTGRES_USER="postgres" \
-POSTGRES_PASSWORD="P@ssw0rd123!" \
+POSTGRES_PASSWORD="__ROTATED_DB_PASSWORD__" \
 TIMESCALE_HOST="${EC2_HOST:-43.208.201.191}" \
 TIMESCALE_PORT="5432" \
 TIMESCALE_DB="sensor_data" \
 TIMESCALE_USER="postgres" \
-TIMESCALE_PASSWORD="P@ssw0rd123!" \
+TIMESCALE_PASSWORD="__ROTATED_DB_PASSWORD__" \
 node src/unified-api.js > /tmp/unified-api.log 2>&1 &
 echo -e "${GREEN}✓ Unified API started on port 3000${NC}"
 

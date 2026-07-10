@@ -2033,7 +2033,7 @@ Tool result:      1→NODE_ENV=production
      5→DB_NAME=munbon_dev
      6→DB_SCHEMA=ros
      7→DB_USER=postgres
-     8→DB_PASSWORD=P@ssw0rd123!
+     8→DB_PASSWORD=__ROTATED_DB_PASSWORD__
      9→REDIS_URL=redis://redis:6379
     10→
 
@@ -2114,7 +2114,7 @@ Based on my investigation, here's the answer:
 - Database: `munbon_dev` on port **5432** 
 - IP: **43.209.12.182**
 - Schema: `ros.plot_water_demand_weekly`
-- Connection: `postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/munbon_dev`
+- Connection: `postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/munbon_dev`
 
 The ROS service `.env` file shows it's currently configured to connect to the **EC2 production database**, not the local one. This means any water demand calculations are being written to the AWS EC2 database.
 
@@ -2504,7 +2504,7 @@ Tool result:      1→NODE_ENV=production
      5→DB_NAME=munbon_dev
      6→DB_SCHEMA=ros
      7→DB_USER=postgres
-     8→DB_PASSWORD=P@ssw0rd123!
+     8→DB_PASSWORD=__ROTATED_DB_PASSWORD__
      9→REDIS_URL=redis://redis:6379
     10→
 
@@ -2841,7 +2841,7 @@ Tool result: psql: error: connection to server at "43.209.12.182", port 5432 fai
 Let me check if there's another EC2 configuration file:
 
 ### User
-Tool result: /Users/subhajlimanond/dev/munbon2-backend/csv_exports/import_to_ec2.sh:EC2_PASSWORD="P@ssw0rd123!"
+Tool result: /Users/subhajlimanond/dev/munbon2-backend/csv_exports/import_to_ec2.sh:EC2_PASSWORD="__ROTATED_DB_PASSWORD__"
 /Users/subhajlimanond/dev/munbon2-backend/csv_exports/import_to_ec2.sh:PGPASSWORD=$EC2_PASSWORD psql -h $EC2_HOST -p $EC2_PORT -U $EC2_USER -d sensor_data << EOF
 /Users/subhajlimanond/dev/munbon2-backend/csv_exports/import_to_ec2.sh:PGPASSWORD=$EC2_PASSWORD psql -h $EC2_HOST -p $EC2_PORT -U $EC2_USER -d sensor_data -c "\COPY public.sensor_registry FROM 'sensor_data/sensor_registry.csv' WITH CSV HEADER"
 /Users/subhajlimanond/dev/munbon2-backend/csv_exports/import_to_ec2.sh:PGPASSWORD=$EC2_PASSWORD psql -h $EC2_HOST -p $EC2_PORT -U $EC2_USER -d sensor_data -c "\COPY public.sensor_readings FROM 'sensor_data/public_sensor_readings.csv' WITH CSV HEADER"
@@ -2854,16 +2854,16 @@ Tool result: /Users/subhajlimanond/dev/munbon2-backend/csv_exports/import_to_ec2
 /Users/subhajlimanond/dev/munbon2-backend/csv_exports/import_to_ec2.sh:    PGPASSWORD=$EC2_PASSWORD psql -h $EC2_HOST -p $EC2_PORT -U $EC2_USER -d sensor_data -c "\COPY sensor.sensors FROM 'sensor_data/sensor_sensors.csv' WITH CSV HEADER"
 /Users/subhajlimanond/dev/munbon2-backend/csv_exports/import_to_ec2.sh:    PGPASSWORD=$EC2_PASSWORD psql -h $EC2_HOST -p $EC2_PORT -U $EC2_USER -d sensor_data -c "\COPY sensor.readings FROM 'sensor_data/sensor_readings.csv' WITH CSV HEADER"
 /Users/subhajlimanond/dev/munbon2-backend/csv_exports/import_to_ec2.sh:PGPASSWORD=$EC2_PASSWORD psql -h $EC2_HOST -p $EC2_PORT -U $EC2_USER -d sensor_data << EOF
-/Users/subhajlimanond/dev/munbon2-backend/csv_exports/disable_triggers_import.sh:EC2_PASSWORD="P@ssw0rd123!"
+/Users/subhajlimanond/dev/munbon2-backend/csv_exports/disable_triggers_import.sh:EC2_PASSWORD="__ROTATED_DB_PASSWORD__"
 /Users/subhajlimanond/dev/munbon2-backend/csv_exports/disable_triggers_import.sh:PGPASSWORD=$EC2_PASSWORD psql -h $EC2_HOST -p $EC2_PORT -U $EC2_USER -d sensor_data -f import_sensor_readings.sql
 /Users/subhajlimanond/dev/munbon2-backend/csv_exports/disable_triggers_import.sh:PGPASSWORD=$EC2_PASSWORD psql -h $EC2_HOST -p $EC2_PORT -U $EC2_USER -d sensor_data -f import_sensor_readings_schema.sql
 /Users/subhajlimanond/dev/munbon2-backend/csv_exports/disable_triggers_import.sh:PGPASSWORD=$EC2_PASSWORD psql -h $EC2_HOST -p $EC2_PORT -U $EC2_USER -d sensor_data << EOF
-/Users/subhajlimanond/dev/munbon2-backend/csv_exports/fix_timescale_import.sh:EC2_PASSWORD="P@ssw0rd123!"
+/Users/subhajlimanond/dev/munbon2-backend/csv_exports/fix_timescale_import.sh:EC2_PASSWORD="__ROTATED_DB_PASSWORD__"
 /Users/subhajlimanond/dev/munbon2-backend/csv_exports/fix_timescale_import.sh:PGPASSWORD=$EC2_PASSWORD psql -h $EC2_HOST -p $EC2_PORT -U $EC2_USER -d sensor_data << EOF
 /Users/subhajlimanond/dev/munbon2-backend/csv_exports/fix_timescale_import.sh:PGPASSWORD=$EC2_PASSWORD psql -h $EC2_HOST -p $EC2_PORT -U $EC2_USER -d sensor_data << 'EOF'
 /Users/subhajlimanond/dev/munbon2-backend/csv_exports/fix_timescale_import.sh:PGPASSWORD=$EC2_PASSWORD psql -h $EC2_HOST -p $EC2_PORT -U $EC2_USER -d sensor_data -c "\COPY public.sensor_readings FROM 'sensor_data/public_sensor_readings.csv' WITH CSV HEADER"
 /Users/subhajlimanond/dev/munbon2-backend/csv_exports/fix_timescale_import.sh:PGPASSWORD=$EC2_PASSWORD psql -h $EC2_HOST -p $EC2_PORT -U $EC2_USER -d sensor_data << 'EOF'
-/Users/subhajlimanond/dev/munbon2-backend/csv_exports/import_via_temp_table.sh:EC2_PASSWORD="P@ssw0rd123!"
+/Users/subhajlimanond/dev/munbon2-backend/csv_exports/import_via_temp_table.sh:EC2_PASSWORD="__ROTATED_DB_PASSWORD__"
 /Users/subhajlimanond/dev/munbon2-backend/csv_exports/import_via_temp_table.sh:PGPASSWORD=$EC2_PASSWORD psql -h $EC2_HOST -p $EC2_PORT -U $EC2_USER -d sensor_data << 'EOF'
 /Users/subhajlimanond/dev/munbon2-backend/csv_exports/import_via_temp_table.sh:PGPASSWORD=$EC2_PASSWORD psql -h $EC2_HOST -p $EC2_PORT -U $EC2_USER -d sensor_data -c "TRUNCATE TABLE public.sensor_registry CASCADE;"
 /Users/subhajlimanond/dev/munbon2-backend/csv_exports/import_via_temp_table.sh:PGPASSWORD=$EC2_PASSWORD psql -h $EC2_HOST -p $EC2_PORT -U $EC2_USER -d sensor_data -c "\COPY public.sensor_registry FROM 'sensor_data/sensor_registry.csv' WITH CSV HEADER"
@@ -2874,9 +2874,9 @@ Tool result: /Users/subhajlimanond/dev/munbon2-backend/csv_exports/import_to_ec2
 /Users/subhajlimanond/dev/munbon2-backend/csv_exports/import_via_temp_table.sh:PGPASSWORD=$EC2_PASSWORD psql -h $EC2_HOST -p $EC2_PORT -U $EC2_USER -d sensor_data -c "TRUNCATE TABLE sensor.readings CASCADE;"
 /Users/subhajlimanond/dev/munbon2-backend/csv_exports/import_via_temp_table.sh:PGPASSWORD=$EC2_PASSWORD psql -h $EC2_HOST -p $EC2_PORT -U $EC2_USER -d sensor_data -c "\COPY sensor.readings FROM 'sensor_data/sensor_readings.csv' WITH CSV HEADER"
 /Users/subhajlimanond/dev/munbon2-backend/csv_exports/import_via_temp_table.sh:PGPASSWORD=$EC2_PASSWORD psql -h $EC2_HOST -p $EC2_PORT -U $EC2_USER -d sensor_data << EOF
-/Users/subhajlimanond/dev/munbon2-backend/complete-verification.sql:-- Host: 43.209.12.182, Port: 5432, User: postgres, Password: P@ssw0rd123!
+/Users/subhajlimanond/dev/munbon2-backend/complete-verification.sql:-- Host: 43.209.12.182, Port: 5432, User: postgres, Password: __ROTATED_DB_PASSWORD__
 /Users/subhajlimanond/dev/munbon2-backend/.env.ec2:POSTGRES_HOST=43.209.12.182
-/Users/subhajlimanond/dev/munbon2-backend/scripts/complete-migration-to-ec2.sh:EC2_PASSWORD="P@ssw0rd123!"
+/Users/subhajlimanond/dev/munbon2-backend/scripts/complete-migration-to-ec2.sh:EC2_PASSWORD="__ROTATED_DB_PASSWORD__"
 /Users/subhajlimanond/dev/munbon2-backend/scripts/complete-migration-to-ec2.sh:PGPASSWORD=$EC2_PASSWORD psql -h $EC2_HOST -p $EC2_PORT -U $EC2_USER -c "CREATE DATABASE munbon_dev;" 2>/dev/null || echo "munbon_dev already exists"
 /Users/subhajlimanond/dev/munbon2-backend/scripts/complete-migration-to-ec2.sh:PGPASSWORD=$EC2_PASSWORD psql -h $EC2_HOST -p $EC2_PORT -U $EC2_USER -c "CREATE DATABASE sensor_data;" 2>/dev/null || echo "sensor_data already exists"
 /Users/subhajlimanond/dev/munbon2-backend/scripts/complete-migration-to-ec2.sh:PGPASSWORD=$EC2_PASSWORD psql -h $EC2_HOST -p $EC2_PORT -U $EC2_USER -d munbon_dev << EOF
@@ -2886,16 +2886,16 @@ Tool result: /Users/subhajlimanond/dev/munbon2-backend/csv_exports/import_to_ec2
 /Users/subhajlimanond/dev/munbon2-backend/scripts/complete-migration-to-ec2.sh:PGPASSWORD=$EC2_PASSWORD psql -h $EC2_HOST -p $EC2_PORT -U $EC2_USER -d munbon_dev << EOF
 /Users/subhajlimanond/dev/munbon2-backend/scripts/complete-migration-to-ec2.sh:PGPASSWORD=$EC2_PASSWORD psql -h $EC2_HOST -p $EC2_PORT -U $EC2_USER -d sensor_data << EOF
 /Users/subhajlimanond/dev/munbon2-backend/scripts/complete-migration-to-ec2.sh:echo "Password: $EC2_PASSWORD"
-/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/munbon_dev?schema=auth
-/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/munbon_dev?schema=gis
-/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/sensor_data
-/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:TIMESCALE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/sensor_data
+/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/munbon_dev?schema=auth
+/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/munbon_dev?schema=gis
+/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/sensor_data
+/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:TIMESCALE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/sensor_data
 /Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:POSTGRES_HOST=43.209.12.182
 /Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:POSTGRES_HOST=43.209.12.182
-/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/munbon_dev
-/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:TIMESCALE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/sensor_data
+/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/munbon_dev
+/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:TIMESCALE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/sensor_data
 /Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:  POSTGRES_HOST: 43.209.12.182
-/Users/subhajlimanond/dev/munbon2-backend/scripts/setup-ec2-schemas.sh:EC2_PASSWORD="P@ssw0rd123!"
+/Users/subhajlimanond/dev/munbon2-backend/scripts/setup-ec2-schemas.sh:EC2_PASSWORD="__ROTATED_DB_PASSWORD__"
 /Users/subhajlimanond/dev/munbon2-backend/scripts/setup-ec2-schemas.sh:PGPASSWORD=$EC2_PASSWORD psql -h $EC2_HOST -p $EC2_PORT -U $EC2_USER -d munbon_dev << EOF
 /Users/subhajlimanond/dev/munbon2-backend/scripts/setup-ec2-schemas.sh:PGPASSWORD=$EC2_PASSWORD psql -h $EC2_HOST -p $EC2_PORT -U $EC2_USER -d sensor_data << EOF
 /Users/subhajlimanond/dev/munbon2-backend/scripts/setup-ec2-schemas.sh:PGPASSWORD=$EC2_PASSWORD psql -h $EC2_HOST -p $EC2_PORT -U $EC2_USER -d munbon_dev << EOF
@@ -2903,7 +2903,7 @@ Tool result: /Users/subhajlimanond/dev/munbon2-backend/csv_exports/import_to_ec2
 /Users/subhajlimanond/dev/munbon2-backend/scripts/setup-ec2-schemas.sh:PGPASSWORD=$EC2_PASSWORD psql -h $EC2_HOST -p $EC2_PORT -U $EC2_USER -d sensor_data -t -c "
 /Users/subhajlimanond/dev/munbon2-backend/VERIFICATION_REPORT.md:- Single PostgreSQL instance: 43.209.12.182:5432
 /Users/subhajlimanond/dev/munbon2-backend/docker-compose.ec2-consolidated.yml:  POSTGRES_HOST: 43.209.12.182
-/Users/subhajlimanond/dev/munbon2-backend/scripts/update-services-for-ec2.sh:EC2_PASSWORD="P@ssw0rd123!"
+/Users/subhajlimanond/dev/munbon2-backend/scripts/update-services-for-ec2.sh:EC2_PASSWORD="__ROTATED_DB_PASSWORD__"
 /Users/subhajlimanond/dev/munbon2-backend/scripts/update-services-for-ec2.sh:DATABASE_URL=postgresql://${EC2_USER}:${EC2_PASSWORD}@${EC2_HOST}:${EC2_PORT}/munbon_dev?schema=auth
 /Users/subhajlimanond/dev/munbon2-backend/scripts/update-services-for-ec2.sh:DATABASE_URL=postgresql://${EC2_USER}:${EC2_PASSWORD}@${EC2_HOST}:${EC2_PORT}/munbon_dev?schema=gis
 /Users/subhajlimanond/dev/munbon2-backend/scripts/update-services-for-ec2.sh:TIMESCALE_PASSWORD=${EC2_PASSWORD}
@@ -2918,7 +2918,7 @@ Tool result: /Users/subhajlimanond/dev/munbon2-backend/csv_exports/import_to_ec2
 /Users/subhajlimanond/dev/munbon2-backend/scripts/update-services-for-ec2.sh:DATABASE_URL=postgresql://${EC2_USER}:${EC2_PASSWORD}@${EC2_HOST}:${EC2_PORT}/munbon_dev
 /Users/subhajlimanond/dev/munbon2-backend/scripts/update-services-for-ec2.sh:TIMESCALE_URL=postgresql://${EC2_USER}:${EC2_PASSWORD}@${EC2_HOST}:${EC2_PORT}/sensor_data
 /Users/subhajlimanond/dev/munbon2-backend/scripts/update-services-for-ec2.sh:echo "   PGPASSWORD='${EC2_PASSWORD}' psql -h ${EC2_HOST} -U ${EC2_USER} -f scripts/create-ec2-schemas.sql"
-/Users/subhajlimanond/dev/munbon2-backend/scripts/proper-data-migration.sh:EC2_PASSWORD="P@ssw0rd123!"
+/Users/subhajlimanond/dev/munbon2-backend/scripts/proper-data-migration.sh:EC2_PASSWORD="__ROTATED_DB_PASSWORD__"
 /Users/subhajlimanond/dev/munbon2-backend/scripts/proper-data-migration.sh:PGPASSWORD=$EC2_PASSWORD psql -h $EC2_HOST -p $EC2_PORT -U $EC2_USER -c "CREATE DATABASE munbon_dev;" 2>/dev/null || echo "Database already exists"
 /Users/subhajlimanond/dev/munbon2-backend/scripts/proper-data-migration.sh:        PGPASSWORD=$EC2_PASSWORD psql -h $EC2_HOST -p $EC2_PORT -U $EC2_USER -d munbon_dev -v ON_ERROR_STOP=1
 /Users/subhajlimanond/dev/munbon2-backend/scripts/proper-data-migration.sh:    PGPASSWORD=$EC2_PASSWORD psql -h $EC2_HOST -p $EC2_PORT -U $EC2_USER -d sensor_data << EOF
@@ -2929,20 +2929,20 @@ Tool result: /Users/subhajlimanond/dev/munbon2-backend/csv_exports/import_to_ec2
 /Users/subhajlimanond/dev/munbon2-backend/services/sensor-data/src/config/dual-write.config.ts:    password: process.env.EC2_DB_PASSWORD || 'postgres',
 /Users/subhajlimanond/dev/munbon2-backend/services/sensor-data/src/config/dual-write.config.ts:  if (!process.env.EC2_DB_PASSWORD) {
 /Users/subhajlimanond/dev/munbon2-backend/services/sensor-data/src/config/dual-write.config.ts:    errors.push('EC2_DB_PASSWORD is not set');
-/Users/subhajlimanond/dev/munbon2-backend/services/sensor-data/deployments/aws-lambda/update-lambda-env-ec2-fixed.sh:        --environment 'Variables={DB_HOST="43.209.12.182",DB_PORT="5432",DB_NAME="sensor_data",DB_USER="postgres",DB_PASSWORD="P@ssw0rd123!",EXTERNAL_API_KEYS="rid-ms-prod-1234567890abcdef,rid-ms-dev-abcdef1234567890,tmd-weather-123abc456def789,test-key-123",STAGE="'$STAGE'"}' \
-/Users/subhajlimanond/dev/munbon2-backend/services/sensor-data/.env.ec2:EC2_DB_PASSWORD=P@ssw0rd123!
-/Users/subhajlimanond/dev/munbon2-backend/services/sensor-data/.env.dual-write:EC2_DB_PASSWORD=P@ssw0rd123!
-/Users/subhajlimanond/dev/munbon2-backend/services/sensor-data/ENABLE_DUAL_WRITE.md:EC2_DB_PASSWORD=P@ssw0rd123!
-/Users/subhajlimanond/dev/munbon2-backend/services/sensor-data/DUAL_WRITE_GUIDE.md:EC2_DB_PASSWORD=P@ssw0rd123!
+/Users/subhajlimanond/dev/munbon2-backend/services/sensor-data/deployments/aws-lambda/update-lambda-env-ec2-fixed.sh:        --environment 'Variables={DB_HOST="43.209.12.182",DB_PORT="5432",DB_NAME="sensor_data",DB_USER="postgres",DB_PASSWORD="__ROTATED_DB_PASSWORD__",EXTERNAL_API_KEYS="rid-ms-prod-1234567890abcdef,rid-ms-dev-abcdef1234567890,tmd-weather-123abc456def789,test-key-123",STAGE="'$STAGE'"}' \
+/Users/subhajlimanond/dev/munbon2-backend/services/sensor-data/.env.ec2:EC2_DB_PASSWORD=__ROTATED_DB_PASSWORD__
+/Users/subhajlimanond/dev/munbon2-backend/services/sensor-data/.env.dual-write:EC2_DB_PASSWORD=__ROTATED_DB_PASSWORD__
+/Users/subhajlimanond/dev/munbon2-backend/services/sensor-data/ENABLE_DUAL_WRITE.md:EC2_DB_PASSWORD=__ROTATED_DB_PASSWORD__
+/Users/subhajlimanond/dev/munbon2-backend/services/sensor-data/DUAL_WRITE_GUIDE.md:EC2_DB_PASSWORD=__ROTATED_DB_PASSWORD__
 /Users/subhajlimanond/dev/munbon2-backend/services/sensor-data/DUAL_WRITE_GUIDE.md:- Verify EC2_DB_PASSWORD is correct
-/Users/subhajlimanond/dev/munbon2-backend/services/sensor-data/DUAL_WRITE_SUMMARY.md:  EC2_DB_PASSWORD=P@ssw0rd123!
+/Users/subhajlimanond/dev/munbon2-backend/services/sensor-data/DUAL_WRITE_SUMMARY.md:  EC2_DB_PASSWORD=__ROTATED_DB_PASSWORD__
 /Users/subhajlimanond/dev/munbon2-backend/services/sensor-data/scripts/verify-table-structures.ts:    password: process.env.EC2_DB_PASSWORD || 'postgres'
 /Users/subhajlimanond/dev/munbon2-backend/services/sensor-data/scripts/verify-table-structures.ts:    password: process.env.EC2_DB_PASSWORD || 'postgres'
 /Users/subhajlimanond/dev/munbon2-backend/services/sensor-data/scripts/check-ec2-hypertables.ts:    password: process.env.EC2_DB_PASSWORD || 'postgres'
 /Users/subhajlimanond/dev/munbon2-backend/services/sensor-data/scripts/setup-ec2-hypertables.ts:    password: process.env.EC2_DB_PASSWORD || 'postgres'
-/Users/subhajlimanond/dev/munbon2-backend/services/sensor-data/scripts/monitor-dual-write.ts:    password: process.env.EC2_DB_PASSWORD || 'P@ssw0rd123!'
-/Users/subhajlimanond/dev/munbon2-backend/services/sensor-data/scripts/fix-ec2-hypertables.ts:    password: process.env.EC2_DB_PASSWORD || 'P@ssw0rd123!'
-/Users/subhajlimanond/dev/munbon2-backend/services/sensor-data/scripts/check-ec2-constraints.ts:    password: process.env.EC2_DB_PASSWORD || 'P@ssw0rd123!'
+/Users/subhajlimanond/dev/munbon2-backend/services/sensor-data/scripts/monitor-dual-write.ts:    password: process.env.EC2_DB_PASSWORD || '__ROTATED_DB_PASSWORD__'
+/Users/subhajlimanond/dev/munbon2-backend/services/sensor-data/scripts/fix-ec2-hypertables.ts:    password: process.env.EC2_DB_PASSWORD || '__ROTATED_DB_PASSWORD__'
+/Users/subhajlimanond/dev/munbon2-backend/services/sensor-data/scripts/check-ec2-constraints.ts:    password: process.env.EC2_DB_PASSWORD || '__ROTATED_DB_PASSWORD__'
 /Users/subhajlimanond/dev/munbon2-backend/services/sensor-data/scripts/test-dual-write.ts:    password: process.env.EC2_DB_PASSWORD || 'postgres'
 
 ### Assistant
@@ -2971,7 +2971,7 @@ Tool result:      1→#!/bin/bash
     14→EC2_HOST="43.209.12.182"
     15→EC2_PORT="5432"
     16→EC2_USER="postgres"
-    17→EC2_PASSWORD="P@ssw0rd123!"
+    17→EC2_PASSWORD="__ROTATED_DB_PASSWORD__"
     18→
     19→echo -e "${BLUE}=== COMPLETE LOCAL TO EC2 MIGRATION ===${NC}"
     20→echo -e "${YELLOW}Target: $EC2_HOST:$EC2_PORT${NC}"
@@ -3093,7 +3093,7 @@ Tool result: psql: error: connection to server at "43.209.12.182", port 5432 fai
 Let me check the exact password format:
 
 ### User
-Tool result: EC2_PASSWORD="P@ssw0rd123!"
+Tool result: EC2_PASSWORD="__ROTATED_DB_PASSWORD__"
 
 ### Assistant
 Let me create a simpler script that exports to CSV and then imports:
@@ -3156,7 +3156,7 @@ Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/ros/scr
     15→EC2_PORT="5432"
     16→EC2_DB="munbon_dev"
     17→EC2_USER="postgres"
-    18→EC2_PASSWORD='P@ssw0rd123!'
+    18→EC2_PASSWORD='__ROTATED_DB_PASSWORD__'
     19→
     20→# Export directory
     21→EXPORT_DIR="./ros_export"
@@ -3179,7 +3179,7 @@ Tool result: + echo ''
 
 + echo -e '\033[0;34mStep 1: Creating databases on EC2...\033[0m'
 [0;34mStep 1: Creating databases on EC2...[0m
-+ PGPASSWORD='P@ssw0rd123!'
++ PGPASSWORD='__ROTATED_DB_PASSWORD__'
 + psql -h 43.209.12.182 -p 5432 -U postgres -c 'CREATE DATABASE munbon_dev;'
 
 ### Assistant
@@ -3196,7 +3196,7 @@ Tool result: + set -e
 + EC2_PORT=5432
 + EC2_DB=munbon_dev
 + EC2_USER=postgres
-+ EC2_PASSWORD='P@ssw0rd123!'
++ EC2_PASSWORD='__ROTATED_DB_PASSWORD__'
 + EXPORT_DIR=./ros_export
 + echo -e '\033[0;34m=== IMPORTING ROS TABLES TO EC2 ===\033[0m'
 [0;34m=== IMPORTING ROS TABLES TO EC2 ===[0m
@@ -3206,7 +3206,7 @@ Tool result: + set -e
 
 + echo -e '\033[0;34mStep 1: Creating schema and tables on EC2...\033[0m'
 [0;34mStep 1: Creating schema and tables on EC2...[0m
-+ PGPASSWORD='P@ssw0rd123!'
++ PGPASSWORD='__ROTATED_DB_PASSWORD__'
 + psql -h 43.209.12.182 -p 5432 -U postgres -d munbon_dev
 NOTICE:  schema "ros" already exists, skipping
 CREATE SCHEMA
@@ -3222,7 +3222,7 @@ DROP TABLE
 DROP TABLE
 + echo -e '\033[1;33mCreating tables from schema script...\033[0m'
 [1;33mCreating tables from schema script...[0m
-+ PGPASSWORD='P@ssw0rd123!'
++ PGPASSWORD='__ROTATED_DB_PASSWORD__'
 + psql -h 43.209.12.182 -p 5432 -U postgres -d munbon_dev -f ../add-plot-water-demand-tables.sql
 psql: error: ../add-plot-water-demand-tables.sql: No such file or directory
 
@@ -3321,7 +3321,7 @@ Sample data from plot_water_demand_weekly:
 
 [0;32m✅ Import complete![0m
 [0;34mConnection string:[0m
-postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/munbon_dev
+postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/munbon_dev
 NOTICE:  schema "ros" already exists, skipping
 NOTICE:  schema "gis" already exists, skipping
 NOTICE:  table "plot_water_demand_weekly" does not exist, skipping
@@ -4275,7 +4275,7 @@ The ROS schema and all data have been successfully migrated to EC2:
 - Port: `5432`
 - Database: `munbon_dev`
 - User: `postgres`
-- Password: `P@ssw0rd123!`
+- Password: `__ROTATED_DB_PASSWORD__`
 - Schemas: `ros` and `gis`
 
 The migration used PostgreSQL 15 client tools, which resolved the version compatibility issue. All tables, including the new columns you added (`crop_water_demand_m3_per_rai` and `net_water_demand_m3_per_rai`), have been successfully migrated to the EC2 database.
@@ -4392,7 +4392,7 @@ Tool result:      1→NODE_ENV=production
      5→DB_NAME=munbon_dev
      6→DB_SCHEMA=ros
      7→DB_USER=postgres
-     8→DB_PASSWORD=P@ssw0rd123!
+     8→DB_PASSWORD=__ROTATED_DB_PASSWORD__
      9→REDIS_URL=redis://redis:6379
     10→
 
@@ -6106,7 +6106,7 @@ Tool result:      1→#!/bin/bash
     24→EC2_PORT="5432"
     25→EC2_DB="munbon_dev"
     26→EC2_USER="postgres"
-    27→EC2_PASSWORD="P@ssw0rd123!"
+    27→EC2_PASSWORD="__ROTATED_DB_PASSWORD__"
     28→
     29→echo -e "${BLUE}=== MIGRATE ROS SCHEMA TO EC2 (PostgreSQL 15) ===${NC}"
     30→echo -e "${YELLOW}Using pg_dump version: $(pg_dump --version)${NC}"
@@ -6244,7 +6244,7 @@ Tool result:      1→NODE_ENV=production
      5→DB_NAME=munbon_dev
      6→DB_SCHEMA=ros
      7→DB_USER=postgres
-     8→DB_PASSWORD=P@ssw0rd123!
+     8→DB_PASSWORD=__ROTATED_DB_PASSWORD__
      9→REDIS_URL=redis://redis:6379
     10→
 
@@ -6806,7 +6806,7 @@ Tool result:      1→NODE_ENV=production
      5→DB_NAME=munbon_dev
      6→DB_SCHEMA=ros
      7→DB_USER=postgres
-     8→DB_PASSWORD=P@ssw0rd123!
+     8→DB_PASSWORD=__ROTATED_DB_PASSWORD__
      9→REDIS_URL=redis://redis:6379
     10→
 

@@ -263,7 +263,7 @@ GET http://localhost:3001/api/v1/moisture/chart?period=24h&timeZone=Asia/Bangkok
 TIMESCALE_HOST=43.208.201.191
 TIMESCALE_PORT=5432
 TIMESCALE_USER=postgres
-TIMESCALE_PASSWORD=P@ssw0rd123!
+TIMESCALE_PASSWORD=__ROTATED_DB_PASSWORD__
 TIMESCALE_DB=sensor_data
 
 # Config Database - Plot Mappings & Thresholds
@@ -271,7 +271,7 @@ CONFIG_DB_HOST=43.208.201.191
 CONFIG_DB_PORT=5432
 CONFIG_DB_NAME=munbon_dev
 CONFIG_DB_USER=postgres
-CONFIG_DB_PASSWORD=P@ssw0rd123!
+CONFIG_DB_PASSWORD=__ROTATED_DB_PASSWORD__
 CONFIG_DB_SCHEMA=water_control_smartfarm
 
 # Server Configuration

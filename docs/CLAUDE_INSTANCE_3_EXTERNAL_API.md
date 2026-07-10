@@ -8122,7 +8122,7 @@ Tool result:             },
             "OpenStdin": false,
             "StdinOnce": false,
             "Env": [
-                "POSTGRES_PASSWORD=P@ssw0rd123!",
+                "POSTGRES_PASSWORD=__ROTATED_DB_PASSWORD__",
                 "POSTGRES_DB=gisdb",
                 "POSTGRES_USER=postgres",
                 "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/lib/postgresql/16/bin",
@@ -8130,7 +8130,7 @@ Tool result:             },
                 "LANG=en_US.utf8",
 
 ### Assistant
-The password is `P@ssw0rd123!`. Let me update the docker-compose file:
+The password is `__ROTATED_DB_PASSWORD__`. Let me update the docker-compose file:
 
 ### User
 Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/docker-compose.unified-api.yml has been updated. Here's the result of running `cat -n` on a snippet of the edited file:
@@ -8138,7 +8138,7 @@ Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/docker-compose.u
     23→      TIMESCALE_PORT: 5432
     24→      TIMESCALE_DB: sensor_data
     25→      TIMESCALE_USER: postgres
-    26→      TIMESCALE_PASSWORD: ${POSTGRES_PASSWORD:-P@ssw0rd123!}
+    26→      TIMESCALE_PASSWORD: ${POSTGRES_PASSWORD:-__ROTATED_DB_PASSWORD__}
     27→      
     28→      # MSSQL connection (optional)
     29→      MSSQL_HOST: ${MSSQL_HOST:-localhost}
@@ -9134,7 +9134,7 @@ Summary:
           ports:
             - "3000:3000"
           environment:
-            TIMESCALE_PASSWORD: ${POSTGRES_PASSWORD:-P@ssw0rd123!}
+            TIMESCALE_PASSWORD: ${POSTGRES_PASSWORD:-__ROTATED_DB_PASSWORD__}
       ```
 
    - `/Users/subhajlimanond/dev/munbon2-backend/services/sensor-data/deployments/aws-lambda/data-exposure-proxy-dynamic.ts`
@@ -9149,7 +9149,7 @@ Summary:
      - User feedback: "Never deploy PM2 on AWS. Focus on docker"
      - Fixed by switching to Docker deployment
    - **Database connection error (password authentication failed)**:
-     - Fixed by using correct password from TimescaleDB container: P@ssw0rd123!
+     - Fixed by using correct password from TimescaleDB container: __ROTATED_DB_PASSWORD__
    - **Database hostname resolution (EAI_AGAIN timescaledb)**:
      - Fixed by connecting TimescaleDB container to munbon-network
    - **Wrong database name (munbon_timescale vs sensor_data)**:
@@ -9272,7 +9272,7 @@ Tool result: {
     "STAGE": "prod",
     "DB_NAME": "sensor_data",
     "DB_HOST": "43.209.12.182",
-    "DB_PASSWORD": "P@ssw0rd123!"
+    "DB_PASSWORD": "__ROTATED_DB_PASSWORD__"
 }
 
 ### Assistant
@@ -9549,8 +9549,8 @@ I'll update all references to the new EC2 IP address (43.209.22.250). Let me sea
 ### User
 Tool result: /Users/subhajlimanond/dev/munbon2-backend/CLAUDE_INSTANCE_EC2_DEPLOYMENT_INIT_PROMPT.txt:- IP Address: 43.209.12.182
 /Users/subhajlimanond/dev/munbon2-backend/test-direct-connection.sh:echo "Host: 43.209.12.182"
-/Users/subhajlimanond/dev/munbon2-backend/test-direct-connection.sh:    PGPASSWORD='P@ssw0rd123!' psql -h 43.209.12.182 -p 5432 -U postgres -d munbon_dev -c "SELECT 'gis.canal_network' as table_name, COUNT(*) FROM gis.canal_network;"
-/Users/subhajlimanond/dev/munbon2-backend/test-direct-connection.sh:    PGPASSWORD='P@ssw0rd123!' psql -h 43.209.12.182 -p 5432 -U postgres -d sensor_data -c "SELECT 'public.sensor_readings' as table_name, COUNT(*) FROM public.sensor_readings;"
+/Users/subhajlimanond/dev/munbon2-backend/test-direct-connection.sh:    PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.209.12.182 -p 5432 -U postgres -d munbon_dev -c "SELECT 'gis.canal_network' as table_name, COUNT(*) FROM gis.canal_network;"
+/Users/subhajlimanond/dev/munbon2-backend/test-direct-connection.sh:    PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.209.12.182 -p 5432 -U postgres -d sensor_data -c "SELECT 'public.sensor_readings' as table_name, COUNT(*) FROM public.sensor_readings;"
 /Users/subhajlimanond/dev/munbon2-backend/EC2_DEPLOYMENT_COMMANDS.md:Run these commands on your EC2 instance (43.209.12.182) to deploy the services:
 /Users/subhajlimanond/dev/munbon2-backend/TH-LAB01-PEM-SETUP.md:gh secret set EC2_HOST -R SubhajL/munbon2-backend -b "43.209.12.182"
 /Users/subhajlimanond/dev/munbon2-backend/TH-LAB01-PEM-SETUP.md:   - **EC2_HOST**: `43.209.12.182`
@@ -9586,7 +9586,7 @@ Tool result: /Users/subhajlimanond/dev/munbon2-backend/services/ros/deploy-direc
 /Users/subhajlimanond/dev/munbon2-backend/services/ros/scripts/migrate-ros-to-ec2-direct.sh:echo -e "${YELLOW}Target: 43.209.12.182:5432/munbon_dev${NC}"
 /Users/subhajlimanond/dev/munbon2-backend/services/ros/scripts/import-ros-final.sh:EC2_HOST="43.209.12.182"
 /Users/subhajlimanond/dev/munbon2-backend/services/ros/scripts/import-ros-final.sh:echo "EC2 Connection: postgresql://postgres:PASSWORD@43.209.12.182:5432/munbon_dev"
-/Users/subhajlimanond/dev/munbon2-backend/services/auth/.env:DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/munbon_dev?schema=auth
+/Users/subhajlimanond/dev/munbon2-backend/services/auth/.env:DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/munbon_dev?schema=auth
 /Users/subhajlimanond/dev/munbon2-backend/services/sensor-location-mapping/dist/config/database.js:    host: process.env.TIMESCALE_HOST || '43.209.12.182',
 /Users/subhajlimanond/dev/munbon2-backend/services/sensor-location-mapping/dist/config/database.js:    host: process.env.POSTGIS_HOST || '43.209.12.182',
 /Users/subhajlimanond/dev/munbon2-backend/services/sensor-data/.env.backup.production:TIMESCALE_HOST=43.209.12.182

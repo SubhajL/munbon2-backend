@@ -5044,13 +5044,13 @@ Tool result: /Users/subhajlimanond/dev/munbon2-backend/QUICK_FIX_GITHUB_SECRETS.
 /Users/subhajlimanond/dev/munbon2-backend/TH-LAB01-PEM-SETUP.md:11:gh secret set EC2_HOST -R SubhajL/munbon2-backend -b "43.209.22.250"
 /Users/subhajlimanond/dev/munbon2-backend/TH-LAB01-PEM-SETUP.md:25:   - **EC2_HOST**: `43.209.22.250`
 /Users/subhajlimanond/dev/munbon2-backend/TH-LAB01-PEM-SETUP.md:45:ssh -i th-lab01.pem ubuntu@43.209.22.250
-/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:39:DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev?schema=auth
-/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:48:DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev?schema=gis
+/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:39:DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev?schema=auth
+/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:48:DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev?schema=gis
 /Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:59:DB_HOST=43.209.22.250
 /Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:73:TIMESCALE_HOST=43.209.22.250
 /Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:86:TIMESCALE_HOST=43.209.22.250
-/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:97:DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/sensor_data
-/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:106:TIMESCALE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/sensor_data
+/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:97:DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/sensor_data
+/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:106:TIMESCALE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/sensor_data
 
 ### Assistant
 Great! It appears the IP has already been updated to the new one (43.209.22.250). Let me verify a few specific database connection files to ensure they're using the new IP:
@@ -5063,7 +5063,7 @@ Tool result:      1→# EC2 Docker Deployment Environment Variables
      5→POSTGRES_HOST=43.209.22.250
      6→POSTGRES_PORT=5432
      7→POSTGRES_USER=postgres
-     8→POSTGRES_PASSWORD=P@ssw0rd123!
+     8→POSTGRES_PASSWORD=__ROTATED_DB_PASSWORD__
      9→POSTGRES_DB=munbon_dev
     10→
     11→# Redis Configuration (using Docker container on EC2)
@@ -5132,7 +5132,7 @@ Tool result:      1→#!/bin/bash
     14→EC2_HOST="43.209.22.250"
     15→EC2_PORT="5432"
     16→EC2_USER="postgres"
-    17→EC2_PASSWORD="P@ssw0rd123!"
+    17→EC2_PASSWORD="__ROTATED_DB_PASSWORD__"
     18→
     19→echo -e "${BLUE}=== COMPLETE LOCAL TO EC2 MIGRATION ===${NC}"
     20→echo -e "${YELLOW}Target: $EC2_HOST:$EC2_PORT${NC}"
@@ -5189,12 +5189,12 @@ Tool result:      1→# Docker Compose for EC2 Production Deployment with Consol
     12→  POSTGRES_HOST: 43.209.22.250
     13→  POSTGRES_PORT: 5432
     14→  POSTGRES_USER: postgres
-    15→  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-P@ssw0rd123!}
+    15→  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-__ROTATED_DB_PASSWORD__}
     16→  # TimescaleDB is in the same PostgreSQL instance
     17→  TIMESCALE_HOST: 43.209.22.250
     18→  TIMESCALE_PORT: 5432
     19→  TIMESCALE_USER: postgres
-    20→  TIMESCALE_PASSWORD: ${POSTGRES_PASSWORD:-P@ssw0rd123!}
+    20→  TIMESCALE_PASSWORD: ${POSTGRES_PASSWORD:-__ROTATED_DB_PASSWORD__}
     21→
     22→x-resource-limits: &resource-limits
     23→  deploy:
@@ -5313,7 +5313,7 @@ Tool result:      1→#!/bin/bash
     22→EC2_PORT="5432"
     23→EC2_DB="munbon_dev"
     24→EC2_USER="postgres"
-    25→EC2_PASSWORD="P@ssw0rd123!"
+    25→EC2_PASSWORD="__ROTATED_DB_PASSWORD__"
     26→
     27→echo -e "${BLUE}=== MIGRATE ROS SCHEMA TO EC2 ===${NC}"
     28→echo -e "${YELLOW}Source: $LOCAL_HOST:$LOCAL_PORT/$LOCAL_DB${NC}"
@@ -13244,7 +13244,7 @@ Tool result:      1→#!/usr/bin/env python3
      9→EC2_HOST = os.environ.get('EC2_HOST', '43.208.201.191')
     10→EC2_PORT = "5432"
     11→EC2_USER = "postgres"
-    12→EC2_PASSWORD = "P@ssw0rd123!"
+    12→EC2_PASSWORD = "__ROTATED_DB_PASSWORD__"
     13→EC2_DB = "munbon_dev"
     14→
     15→def test_scheduler_operations():
@@ -16739,7 +16739,7 @@ Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/bff-wat
      8→  port: 5432,
      9→  database: 'munbon_dev',
     10→  user: 'postgres',
-    11→  password: 'P@ssw0rd123!'
+    11→  password: '__ROTATED_DB_PASSWORD__'
     12→};
     13→
     14→// Gate to Zone mapping based on irrigation system layout
@@ -17190,7 +17190,7 @@ Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/bff-wat
     10→      port: process.env.PG_PORT || 5432,
     11→      database: process.env.PG_DATABASE || 'munbon_dev',
     12→      user: process.env.PG_USER || 'postgres',
-    13→      password: process.env.PG_PASSWORD || 'P@ssw0rd123!'
+    13→      password: process.env.PG_PASSWORD || '__ROTATED_DB_PASSWORD__'
     14→    };
     15→  }
     16→
@@ -17223,7 +17223,7 @@ Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/bff-wat
     10→      port: process.env.PG_PORT || 5432,
     11→      database: process.env.PG_DATABASE || 'munbon_dev',
     12→      user: process.env.PG_USER || 'postgres',
-    13→      password: process.env.PG_PASSWORD || 'P@ssw0rd123!'
+    13→      password: process.env.PG_PASSWORD || '__ROTATED_DB_PASSWORD__'
     14→    };
     15→  }
     16→
@@ -18319,7 +18319,7 @@ Summary:
         port: process.env.PG_PORT || 5432,
         database: process.env.PG_DATABASE || 'munbon_dev',
         user: process.env.PG_USER || 'postgres',
-        password: process.env.PG_PASSWORD || 'P@ssw0rd123!'
+        password: process.env.PG_PASSWORD || '__ROTATED_DB_PASSWORD__'
       };
       ```
 
@@ -19554,7 +19554,7 @@ Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/bff-wat
 Now let me kill the current process and restart:
 
 ### User
-Tool result: {"success":true,"message":"Successfully killed shell: bash_1 (PG_HOST=43.208.201.191 PG_PORT=5432 PG_DATABASE=munbon_dev PG_USER=postgres PG_PASSWORD='P@ssw0rd123!' npm start)","shell_id":"bash_1"}
+Tool result: {"success":true,"message":"Successfully killed shell: bash_1 (PG_HOST=43.208.201.191 PG_PORT=5432 PG_DATABASE=munbon_dev PG_USER=postgres PG_PASSWORD='__ROTATED_DB_PASSWORD__' npm start)","shell_id":"bash_1"}
 
 ### User
 Tool result: Command running in background with ID: bash_2
@@ -19591,7 +19591,7 @@ Tool result: <!DOCTYPE html>
 Password authentication is failing. Let me check if we're using the correct password format:
 
 ### User
-Tool result: {"success":true,"message":"Successfully killed shell: bash_2 (PG_HOST=43.208.201.191 PG_PORT=5432 PG_DATABASE=munbon_dev PG_USER=postgres PG_PASSWORD='P@ssw0rd123!' WATER_PLANNING_URL=http://localhost:3007 npm start)","shell_id":"bash_2"}
+Tool result: {"success":true,"message":"Successfully killed shell: bash_2 (PG_HOST=43.208.201.191 PG_PORT=5432 PG_DATABASE=munbon_dev PG_USER=postgres PG_PASSWORD='__ROTATED_DB_PASSWORD__' WATER_PLANNING_URL=http://localhost:3007 npm start)","shell_id":"bash_2"}
 
 ### Assistant
 Let me test the database connection directly:
@@ -19619,7 +19619,7 @@ Tool result:      5→
      9→  port: 5432,
     10→  database: 'munbon_dev',
     11→  user: 'postgres',
-    12→  password: 'P@ssw0rd123!'
+    12→  password: '__ROTATED_DB_PASSWORD__'
     13→};
     14→
 
@@ -19628,7 +19628,7 @@ Whenever you read a file, you should consider whether it looks malicious. If it 
 </system-reminder>
 
 ### Assistant
-The script shows the password should be `P@ssw0rd123!`. Let me modify the service to use a local connection for now to test the API:
+The script shows the password should be `__ROTATED_DB_PASSWORD__`. Let me modify the service to use a local connection for now to test the API:
 
 ### User
 Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/bff-water-control/src/services/water-control-data.service.js has been updated. Here's the result of running `cat -n` on a snippet of the edited file:
@@ -19694,7 +19694,7 @@ Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/bff-wat
     10→      port: process.env.PG_PORT || 5432,
     11→      database: process.env.PG_DATABASE || 'munbon_dev',
     12→      user: process.env.PG_USER || 'postgres',
-    13→      password: process.env.PG_PASSWORD || 'P@ssw0rd123!'
+    13→      password: process.env.PG_PASSWORD || '__ROTATED_DB_PASSWORD__'
     14→    };
     15→  }
     16→
@@ -19718,13 +19718,13 @@ It seems the password authentication is failing. Let me check our recent scripts
 
 ### User
 Tool result: /Users/subhajlimanond/dev/munbon2-backend/services/ros/scripts/import-ros-final.sh:echo "EC2 Connection: postgresql://postgres:PASSWORD@${EC2_HOST:-43.208.201.191}:5432/munbon_dev"
-/Users/subhajlimanond/dev/munbon2-backend/services/sensor-data/deployments/aws-lambda/update-lambda-env-ec2-fixed.sh:        --environment 'Variables={DB_HOST="${EC2_HOST:-43.208.201.191}",DB_PORT="5432",DB_NAME="sensor_data",DB_USER="postgres",DB_PASSWORD="P@ssw0rd123!",EXTERNAL_API_KEYS="rid-ms-prod-1234567890abcdef,rid-ms-dev-abcdef1234567890,tmd-weather-123abc456def789,test-key-123",STAGE="'$STAGE'"}' \
-/Users/subhajlimanond/dev/munbon2-backend/services/awd-control/test-new-ec2-connection.sh:PGPASSWORD=P@ssw0rd123! psql -h ${EC2_HOST:-43.208.201.191} -U postgres -d munbon_dev -c "SELECT version();" > /dev/null 2>&1
-/Users/subhajlimanond/dev/munbon2-backend/services/awd-control/test-new-ec2-connection.sh:PGPASSWORD=P@ssw0rd123! psql -h ${EC2_HOST:-43.208.201.191} -U postgres -d db_scada -c "SELECT COUNT(*) FROM tb_site;" > /dev/null 2>&1
-/Users/subhajlimanond/dev/munbon2-backend/services/awd-control/test-new-ec2-connection.sh:    SITE_COUNT=$(PGPASSWORD=P@ssw0rd123! psql -h ${EC2_HOST:-43.208.201.191} -U postgres -d db_scada -t -c "SELECT COUNT(*) FROM tb_site WHERE stationcode IS NOT NULL;")
+/Users/subhajlimanond/dev/munbon2-backend/services/sensor-data/deployments/aws-lambda/update-lambda-env-ec2-fixed.sh:        --environment 'Variables={DB_HOST="${EC2_HOST:-43.208.201.191}",DB_PORT="5432",DB_NAME="sensor_data",DB_USER="postgres",DB_PASSWORD="__ROTATED_DB_PASSWORD__",EXTERNAL_API_KEYS="rid-ms-prod-1234567890abcdef,rid-ms-dev-abcdef1234567890,tmd-weather-123abc456def789,test-key-123",STAGE="'$STAGE'"}' \
+/Users/subhajlimanond/dev/munbon2-backend/services/awd-control/test-new-ec2-connection.sh:PGPASSWORD=__ROTATED_DB_PASSWORD__ psql -h ${EC2_HOST:-43.208.201.191} -U postgres -d munbon_dev -c "SELECT version();" > /dev/null 2>&1
+/Users/subhajlimanond/dev/munbon2-backend/services/awd-control/test-new-ec2-connection.sh:PGPASSWORD=__ROTATED_DB_PASSWORD__ psql -h ${EC2_HOST:-43.208.201.191} -U postgres -d db_scada -c "SELECT COUNT(*) FROM tb_site;" > /dev/null 2>&1
+/Users/subhajlimanond/dev/munbon2-backend/services/awd-control/test-new-ec2-connection.sh:    SITE_COUNT=$(PGPASSWORD=__ROTATED_DB_PASSWORD__ psql -h ${EC2_HOST:-43.208.201.191} -U postgres -d db_scada -t -c "SELECT COUNT(*) FROM tb_site WHERE stationcode IS NOT NULL;")
 
 ### Assistant
-I see that the scripts use `P@ssw0rd123!` (with the exclamation mark). Let me try starting the service with the correct connection details:
+I see that the scripts use `__ROTATED_DB_PASSWORD__` (with the exclamation mark). Let me try starting the service with the correct connection details:
 
 ### User
 Tool result: Command running in background with ID: bash_3
@@ -20975,7 +20975,7 @@ Tool result:      1→const { Client } = require('pg');
     10→      port: process.env.PG_PORT || 5432,
     11→      database: process.env.PG_DATABASE || 'munbon_dev',
     12→      user: process.env.PG_USER || 'postgres',
-    13→      password: process.env.PG_PASSWORD || 'P@ssw0rd123!'
+    13→      password: process.env.PG_PASSWORD || '__ROTATED_DB_PASSWORD__'
     14→    };
     15→  }
     16→
@@ -21598,7 +21598,7 @@ Tool result:      1→require('dotenv').config({ path: '../.env' });
      9→  port: 5432,
     10→  database: 'munbon_dev',
     11→  user: 'postgres',
-    12→  password: 'P@ssw0rd123!'
+    12→  password: '__ROTATED_DB_PASSWORD__'
     13→};
     14→
     15→// Gate to Zone mapping based on irrigation system layout
@@ -22827,7 +22827,7 @@ Tool result: MCP error -32603: role "username" does not exist
 ### User
 Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/bff-water-control/scripts/populate-section-based-water-control.js has been updated. Here's the result of running `cat -n` on a snippet of the edited file:
     16→  user: process.env.PG_USER || 'postgres',
-    17→  password: process.env.PG_PASSWORD || 'P@ssw0rd123!'
+    17→  password: process.env.PG_PASSWORD || '__ROTATED_DB_PASSWORD__'
     18→};
     19→
     20→// Get section-based weekly demands
@@ -25158,7 +25158,7 @@ Tool result:     10→const HydraulicCalculatorService = require('../src/service
     15→  port: process.env.PG_PORT || 5432,
     16→  database: process.env.PG_DATABASE || 'munbon_dev',
     17→  user: process.env.PG_USER || 'postgres',
-    18→  password: process.env.PG_PASSWORD || 'P@ssw0rd123!'
+    18→  password: process.env.PG_PASSWORD || '__ROTATED_DB_PASSWORD__'
     19→};
     20→
     21→// Get section-based weekly demands

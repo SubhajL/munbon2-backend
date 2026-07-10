@@ -8,7 +8,7 @@ DB_HOST="${EC2_HOST:-43.208.201.191}"
 DB_PORT="5432"
 DB_NAME="postgres"
 DB_USER="postgres"
-DB_PASSWORD="P@ssw0rd123!"
+DB_PASSWORD="__ROTATED_DB_PASSWORD__"
 
 # Test with psql
 echo "Method 1: Using PGPASSWORD environment variable"

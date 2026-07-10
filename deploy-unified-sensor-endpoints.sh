@@ -1,5 +1,11 @@
 #!/bin/bash
 
+# Wave 1.11 guard: the old leaked credential was rotated; a real one MUST come
+# from the environment, and the redaction sentinel must never reach a live system.
+: "${DB_PASSWORD:?set DB_PASSWORD in the environment (the old leaked value was rotated)}"
+case "$DB_PASSWORD" in *ROTATED_DB_PASSWORD*) echo "refusing to deploy the redaction sentinel as a credential" >&2; exit 1;; esac
+
+
 # Deploy unified sensor endpoints to EC2
 # Handles moisture, water level, and AOS weather data on same server
 
@@ -81,9 +87,10 @@ DB_HOST=localhost
 DB_PORT=5432
 DB_NAME=sensor_data
 DB_USER=postgres
-DB_PASSWORD=P@ssw0rd123!
+DB_PASSWORD=__DB_PASSWORD_FROM_DEPLOY_ENV__
 HTTP_PORT=8080
 ENVFILE
+  sed -i "s/__DB_PASSWORD_FROM_DEPLOY_ENV__/${DB_PASSWORD}/" .env
 
   # Start with PM2
   pm2 start unified-sensor-server.js --name "$SERVICE_NAME" --env production

@@ -31,7 +31,7 @@ The following services have their environment files updated with the new IP:
 
 ### ✅ Database Connection
 - PostgreSQL connection to new IP tested successfully
-- Connection string: `postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432`
+- Connection string: `postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432`
 
 ### 📝 Documentation References
 The following documentation files contain references to the old IP for historical context only:
@@ -61,7 +61,7 @@ docker-compose restart
 
 Test database connectivity:
 ```bash
-PGPASSWORD='P@ssw0rd123!' psql -h 43.209.22.250 -p 5432 -U postgres -d postgres -c "SELECT version();"
+PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.209.22.250 -p 5432 -U postgres -d postgres -c "SELECT version();"
 ```
 
 Test service endpoints:

@@ -17,7 +17,7 @@ docker rm munbon-sensor-data munbon-sensor-data-consumer munbon-auth munbon-gis 
 # Start PostgreSQL if not running
 docker ps | grep postgres || docker run -d \
   --name postgres \
-  -e POSTGRES_PASSWORD=P@ssw0rd123! \
+  -e POSTGRES_PASSWORD=__ROTATED_DB_PASSWORD__ \
   -p 5432:5432 \
   -v postgres_data:/var/lib/postgresql/data \
   postgres:13-alpine
@@ -41,7 +41,7 @@ docker run -d \
   -e TIMESCALE_PORT=5432 \
   -e TIMESCALE_DB=sensor_data \
   -e TIMESCALE_USER=postgres \
-  -e TIMESCALE_PASSWORD=P@ssw0rd123! \
+  -e TIMESCALE_PASSWORD=__ROTATED_DB_PASSWORD__ \
   -e REDIS_HOST=localhost \
   -e REDIS_PORT=6379 \
   -v /home/ubuntu/munbon2-backend/services/sensor-data:/app \
@@ -59,7 +59,7 @@ docker run -d \
   -e TIMESCALE_PORT=5432 \
   -e TIMESCALE_DB=sensor_data \
   -e TIMESCALE_USER=postgres \
-  -e TIMESCALE_PASSWORD=P@ssw0rd123! \
+  -e TIMESCALE_PASSWORD=__ROTATED_DB_PASSWORD__ \
   -e AWS_REGION=ap-southeast-1 \
   -e AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID \
   -e AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY \

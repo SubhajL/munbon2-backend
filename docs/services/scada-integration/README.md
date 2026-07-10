@@ -124,7 +124,7 @@ SCADA_DB_HOST=moonup.hopto.org
 SCADA_DB_PORT=5432
 SCADA_DB_NAME=db_scada
 SCADA_DB_USER=postgres
-SCADA_DB_PASSWORD=P@ssw0rd123!
+SCADA_DB_PASSWORD=__ROTATED_DB_PASSWORD__
 ```
 
 ## Development
@@ -152,7 +152,7 @@ docker build -t scada-integration-service .
 # Run container
 docker run -p 3015:3015 \
   -e SCADA_DB_HOST=moonup.hopto.org \
-  -e SCADA_DB_PASSWORD=P@ssw0rd123! \
+  -e SCADA_DB_PASSWORD=__ROTATED_DB_PASSWORD__ \
   scada-integration-service
 ```
 

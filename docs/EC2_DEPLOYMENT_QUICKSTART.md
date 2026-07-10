@@ -43,7 +43,7 @@ services:
     image: postgres:13-alpine
     container_name: munbon-postgres
     environment:
-      POSTGRES_PASSWORD: P@ssw0rd123!
+      POSTGRES_PASSWORD: __ROTATED_DB_PASSWORD__
       POSTGRES_DB: munbon_dev
     ports:
       - "5432:5432"
@@ -71,7 +71,7 @@ services:
       TIMESCALE_PORT: 5432
       TIMESCALE_DB: sensor_data
       TIMESCALE_USER: postgres
-      TIMESCALE_PASSWORD: P@ssw0rd123!
+      TIMESCALE_PASSWORD: __ROTATED_DB_PASSWORD__
       REDIS_HOST: redis
       REDIS_PORT: 6379
     ports:
@@ -95,7 +95,7 @@ services:
       TIMESCALE_PORT: 5432
       TIMESCALE_DB: sensor_data
       TIMESCALE_USER: postgres
-      TIMESCALE_PASSWORD: P@ssw0rd123!
+      TIMESCALE_PASSWORD: __ROTATED_DB_PASSWORD__
       AWS_REGION: ap-southeast-1
       AWS_ACCESS_KEY_ID: <REDACTED_AWS_ACCESS_KEY>
       AWS_SECRET_ACCESS_KEY: <REDACTED_AWS_SECRET_KEY>

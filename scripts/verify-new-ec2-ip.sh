@@ -20,7 +20,7 @@ fi
 echo ""
 echo "2. Testing PostgreSQL connection to new IP..."
 if command -v psql &> /dev/null; then
-    if PGPASSWORD='P@ssw0rd123!' psql -h $NEW_IP -p 5432 -U postgres -d postgres -c "SELECT version();" > /dev/null 2>&1; then
+    if PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h $NEW_IP -p 5432 -U postgres -d postgres -c "SELECT version();" > /dev/null 2>&1; then
         echo "✅ PostgreSQL connection successful"
     else
         echo "❌ PostgreSQL connection failed"
@@ -34,7 +34,7 @@ try:
         host='$NEW_IP',
         port=5432,
         user='postgres',
-        password='P@ssw0rd123!',
+        password='__ROTATED_DB_PASSWORD__',
         database='postgres'
     )
     print("✅ PostgreSQL connection successful")

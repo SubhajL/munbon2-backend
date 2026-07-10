@@ -36,7 +36,7 @@ All schemas from local sensor_data will remain in EC2 sensor_data:
 DATABASE_URL=postgresql://postgres:postgres@localhost:5434/munbon_dev?schema=auth
 
 # To:
-DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev?schema=auth
+DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev?schema=auth
 ```
 
 ### 2. **GIS Service** (`/services/gis`)
@@ -45,7 +45,7 @@ DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev?sc
 DATABASE_URL=postgresql://postgres:postgres@localhost:5434/munbon_dev?schema=gis
 
 # To:
-DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev?schema=gis
+DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev?schema=gis
 ```
 
 ### 3. **ROS Service** (`/services/ros`)
@@ -94,7 +94,7 @@ TIMESCALE_DATABASE=sensor_data
 DATABASE_URL=postgresql://postgres:postgres@localhost:5433/sensor_data
 
 # To:
-DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/sensor_data
+DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/sensor_data
 ```
 
 ### 7. **Water Level Monitoring Service** (`/services/water-level-monitoring`)
@@ -103,7 +103,7 @@ DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/sensor_data
 TIMESCALE_URL=postgresql://postgres:postgres@localhost:5433/sensor_data
 
 # To:
-TIMESCALE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/sensor_data
+TIMESCALE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/sensor_data
 ```
 
 ### 8. **AWD Control Service** (`/services/awd-control`)
@@ -147,8 +147,8 @@ DATABASE_URL=postgresql://postgres:postgres@localhost:5432/munbon
 TIMESCALE_URL=postgresql://postgres:postgres@localhost:5433/sensor_data
 
 # To:
-DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev
-TIMESCALE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/sensor_data
+DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev
+TIMESCALE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/sensor_data
 ```
 
 ## Schema Creation for New Services
@@ -174,13 +174,13 @@ x-common-variables: &common-variables
   POSTGRES_HOST: 43.209.22.250
   POSTGRES_PORT: 5432
   POSTGRES_USER: postgres
-  POSTGRES_PASSWORD: P@ssw0rd123!
+  POSTGRES_PASSWORD: __ROTATED_DB_PASSWORD__
   
   # TimescaleDB is same as PostgreSQL
   TIMESCALE_HOST: 43.209.22.250
   TIMESCALE_PORT: 5432
   TIMESCALE_USER: postgres
-  TIMESCALE_PASSWORD: P@ssw0rd123!
+  TIMESCALE_PASSWORD: __ROTATED_DB_PASSWORD__
 ```
 
 ## Migration Steps

@@ -69,7 +69,7 @@ module.exports = {
       DB_NAME: 'munbon_dev',
       DB_SCHEMA: 'ros',
       DB_USER: 'postgres',
-      DB_PASSWORD: 'P@ssw0rd123!',
+      DB_PASSWORD: '__ROTATED_DB_PASSWORD__',
       REDIS_HOST: 'localhost',
       REDIS_PORT: 6379
     },

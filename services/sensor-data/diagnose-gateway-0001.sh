@@ -7,7 +7,7 @@ echo ""
 
 echo "1. DATABASE CHECK - Last 7 days of moisture data by gateway"
 echo "-----------------------------------------------------------"
-PGPASSWORD='P@ssw0rd123!' psql -h 43.208.201.191 -U postgres -d sensor_data -c "
+PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.208.201.191 -U postgres -d sensor_data -c "
 SELECT 
   LEFT(sensor_id, 4) as gateway,
   COUNT(*) as total_records,
@@ -25,7 +25,7 @@ ORDER BY last_reading DESC;
 echo ""
 echo "2. GATEWAY 0001 - Detailed sensor breakdown"
 echo "-----------------------------------------------------------"
-PGPASSWORD='P@ssw0rd123!' psql -h 43.208.201.191 -U postgres -d sensor_data -c "
+PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.208.201.191 -U postgres -d sensor_data -c "
 SELECT 
   sensor_id,
   COUNT(*) as records,
@@ -42,7 +42,7 @@ ORDER BY last_seen DESC;
 echo ""
 echo "3. GATEWAY 0002 - Detailed sensor breakdown"
 echo "-----------------------------------------------------------"
-PGPASSWORD='P@ssw0rd123!' psql -h 43.208.201.191 -U postgres -d sensor_data -c "
+PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.208.201.191 -U postgres -d sensor_data -c "
 SELECT 
   sensor_id,
   COUNT(*) as records,
@@ -70,7 +70,7 @@ grep -A 5 "Skip.*sensor" services/sensor-data/src/simple-http-server-fixed.js
 echo ""
 echo "6. SENSOR REGISTRY CHECK - Gateway 0001 status"
 echo "-----------------------------------------------------------"
-PGPASSWORD='P@ssw0rd123!' psql -h 43.208.201.191 -U postgres -d sensor_data -c "
+PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.208.201.191 -U postgres -d sensor_data -c "
 SELECT 
   sensor_id,
   sensor_type,
@@ -88,7 +88,7 @@ LIMIT 10;
 echo ""
 echo "7. TIMELINE ANALYSIS - When did gateway 0001 stop?"
 echo "-----------------------------------------------------------"
-PGPASSWORD='P@ssw0rd123!' psql -h 43.208.201.191 -U postgres -d sensor_data -c "
+PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.208.201.191 -U postgres -d sensor_data -c "
 SELECT 
   DATE(time) as date,
   LEFT(sensor_id, 4) as gateway,

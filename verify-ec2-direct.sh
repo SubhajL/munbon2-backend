@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Direct connection from local to EC2 PostgreSQL
-export PGPASSWORD='P@ssw0rd123!'
+export PGPASSWORD='__ROTATED_DB_PASSWORD__'
 
 echo "=== Direct query from local machine to EC2 PostgreSQL ==="
 echo "Host: ${EC2_HOST:-43.208.201.191}"
@@ -20,7 +20,7 @@ try:
         host='${EC2_HOST:-43.208.201.191}',
         port=5432,
         user='postgres',
-        password='P@ssw0rd123!',
+        password='__ROTATED_DB_PASSWORD__',
         database='sensor_data'
     )
     cur = conn.cursor()

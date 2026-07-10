@@ -3631,7 +3631,7 @@ Tool result:      1→# EC2 Docker Deployment Environment Variables
      5→POSTGRES_HOST=43.209.22.250
      6→POSTGRES_PORT=5432
      7→POSTGRES_USER=postgres
-     8→POSTGRES_PASSWORD=P@ssw0rd123!
+     8→POSTGRES_PASSWORD=__ROTATED_DB_PASSWORD__
      9→POSTGRES_DB=munbon_dev
     10→
     11→# Redis Configuration (using Docker container on EC2)
@@ -3675,7 +3675,7 @@ Tool result:      1→NODE_ENV=production
     20→EC2_DB_PORT=5432
     21→EC2_DB_NAME=sensor_data
     22→EC2_DB_USER=postgres
-    23→EC2_DB_PASSWORD=P@ssw0rd123!
+    23→EC2_DB_PASSWORD=__ROTATED_DB_PASSWORD__
     24→
     25→# EC2 Write Configuration
 
@@ -3812,7 +3812,7 @@ Tool result:      1→# EC2 IP Address Update Summary
     42→
     43→1. **Verify Database Connection**
     44→   ```bash
-    45→   PGPASSWORD='P@ssw0rd123!' psql -h 43.209.22.250 -p 5432 -U postgres -d postgres -c "SELECT version();"
+    45→   PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.209.22.250 -p 5432 -U postgres -d postgres -c "SELECT version();"
     46→   ```
     47→
     48→2. **Update GitHub Secrets**

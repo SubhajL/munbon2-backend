@@ -98,7 +98,7 @@ Performance testing:
 1. Ensure EC2 database is accessible:
 ```bash
 # Test connection
-PGPASSWORD="P@ssw0rd123!" psql -h 43.209.22.250 -p 5432 -U postgres -l
+PGPASSWORD="__ROTATED_DB_PASSWORD__" psql -h 43.209.22.250 -p 5432 -U postgres -l
 ```
 
 2. Start all services:

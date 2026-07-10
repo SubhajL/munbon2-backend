@@ -37,7 +37,7 @@ echo ""
 echo "2. Verifying the data was written to database"
 echo "-----------------------------------------------------------"
 sleep 2
-PGPASSWORD='P@ssw0rd123!' psql -h 43.208.201.191 -U postgres -d sensor_data -c "
+PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.208.201.191 -U postgres -d sensor_data -c "
 SELECT 
   sensor_id,
   time,
@@ -82,7 +82,7 @@ echo ""
 echo "4. Verifying Gateway 0002 data"
 echo "-----------------------------------------------------------"
 sleep 2
-PGPASSWORD='P@ssw0rd123!' psql -h 43.208.201.191 -U postgres -d sensor_data -c "
+PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.208.201.191 -U postgres -d sensor_data -c "
 SELECT 
   sensor_id,
   time,
@@ -126,7 +126,7 @@ echo ""
 echo "6. Check if 0001-0000 was written"
 echo "-----------------------------------------------------------"
 sleep 2
-PGPASSWORD='P@ssw0rd123!' psql -h 43.208.201.191 -U postgres -d sensor_data -c "
+PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.208.201.191 -U postgres -d sensor_data -c "
 SELECT 
   sensor_id,
   time,

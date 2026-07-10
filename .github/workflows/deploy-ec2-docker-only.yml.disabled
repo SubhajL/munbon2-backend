@@ -66,7 +66,7 @@ jobs:
               container_name: munbon-postgres
               environment:
                 POSTGRES_USER: postgres
-                POSTGRES_PASSWORD: P@ssw0rd123!
+                POSTGRES_PASSWORD: __ROTATED_DB_PASSWORD__
                 POSTGRES_DB: munbon_dev
               volumes:
                 - postgres-data:/var/lib/postgresql/data
@@ -90,7 +90,7 @@ jobs:
                 POSTGRES_HOST: postgres
                 POSTGRES_PORT: 5432
                 POSTGRES_USER: postgres
-                POSTGRES_PASSWORD: P@ssw0rd123!
+                POSTGRES_PASSWORD: __ROTATED_DB_PASSWORD__
                 TIMESCALE_DB: sensor_data
                 REDIS_URL: redis://redis:6379
                 JWT_SECRET: ${JWT_SECRET}
@@ -112,7 +112,7 @@ jobs:
                 TIMESCALE_PORT: 5432
                 TIMESCALE_DB: sensor_data
                 TIMESCALE_USER: postgres
-                TIMESCALE_PASSWORD: P@ssw0rd123!
+                TIMESCALE_PASSWORD: __ROTATED_DB_PASSWORD__
                 AWS_REGION: ap-southeast-1
                 AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
                 AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}

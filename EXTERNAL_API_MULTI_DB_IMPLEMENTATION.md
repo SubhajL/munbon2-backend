@@ -78,7 +78,7 @@ DB_HOST=localhost
 DB_PORT=5432
 DB_NAME=sensor_data
 DB_USER=postgres
-DB_PASSWORD=P@ssw0rd123!
+DB_PASSWORD=__ROTATED_DB_PASSWORD__
 
 # MSSQL for AOS Weather Data
 MSSQL_SERVER=moonup.hopto.org

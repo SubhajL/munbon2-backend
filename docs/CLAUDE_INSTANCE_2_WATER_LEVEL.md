@@ -1118,7 +1118,7 @@ Let me check the current status of the system:
 TIMESCALE_PORT: 5432
 TIMESCALE_DB: sensor_data
 TIMESCALE_USER: postgres
-TIMESCALE_PASSWORD: P@ssw0rd123!
+TIMESCALE_PASSWORD: __ROTATED_DB_PASSWORD__
 SQS_QUEUE_URL: https://sqs.ap-southeast-1.amazonaws.com/108728974441/munbon-sensor-ingestion-dev-queue",
     "is_error": false
   }
@@ -1999,7 +1999,7 @@ Tool result: /Users/subhajlimanond/dev/munbon2-backend/setup-secrets-with-pem.sh
 /Users/subhajlimanond/dev/munbon2-backend/DATA_INGESTION_DATABASE_ANALYSIS.md-47-- **Database Name**: `munbon_dev`
 --
 /Users/subhajlimanond/dev/munbon2-backend/DATA_INGESTION_DATABASE_ANALYSIS.md-53-   ```
-/Users/subhajlimanond/dev/munbon2-backend/DATA_INGESTION_DATABASE_ANALYSIS.md:54:   DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/munbon_dev?schema=gis
+/Users/subhajlimanond/dev/munbon2-backend/DATA_INGESTION_DATABASE_ANALYSIS.md:54:   DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/munbon_dev?schema=gis
 /Users/subhajlimanond/dev/munbon2-backend/DATA_INGESTION_DATABASE_ANALYSIS.md-55-   ```
 --
 /Users/subhajlimanond/dev/munbon2-backend/UPDATE_GITHUB_SECRETS.md-9-Update these secrets:
@@ -2183,7 +2183,7 @@ Tool result:     25→   - `src/repository/dual-write.repository.ts` - Implement
     32→   EC2_DB_PORT=5432
     33→   EC2_DB_NAME=sensor_data
     34→   EC2_DB_USER=postgres
-    35→   EC2_DB_PASSWORD=P@ssw0rd123!
+    35→   EC2_DB_PASSWORD=__ROTATED_DB_PASSWORD__
     36→   ```
     37→
     38→### Current Data Flow
@@ -2202,7 +2202,7 @@ Tool result:     25→   - `src/repository/dual-write.repository.ts` - Implement
     51→### Evidence
     52→1. Current `.env` configuration:
     53→   ```
-    54→   DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev?schema=gis
+    54→   DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev?schema=gis
     55→   ```
     56→
     57→2. No dual-write code exists in GIS service
@@ -2473,7 +2473,7 @@ Tool result:      1→# EC2 Docker Deployment Environment Variables
      5→POSTGRES_HOST=43.209.22.250
      6→POSTGRES_PORT=5432
      7→POSTGRES_USER=postgres
-     8→POSTGRES_PASSWORD=P@ssw0rd123!
+     8→POSTGRES_PASSWORD=__ROTATED_DB_PASSWORD__
      9→POSTGRES_DB=munbon_dev
     10→
     11→# Redis Configuration (using Docker container on EC2)
@@ -2529,7 +2529,7 @@ Tool result:      1→NODE_ENV=production
      5→TIMESCALE_PORT=5432
      6→TIMESCALE_DB=sensor_data
      7→TIMESCALE_USER=postgres
-     8→TIMESCALE_PASSWORD=P@ssw0rd123!
+     8→TIMESCALE_PASSWORD=__ROTATED_DB_PASSWORD__
      9→REDIS_HOST=redis
     10→REDIS_PORT=6379
     11→MQTT_PORT=1883
@@ -6701,7 +6701,7 @@ Tool result: TIMESCALE_HOST: localhost
 TIMESCALE_PORT: 5432
 TIMESCALE_DB: sensor_data
 TIMESCALE_USER: postgres
-TIMESCALE_PASSWORD: P@ssw0rd123!
+TIMESCALE_PASSWORD: __ROTATED_DB_PASSWORD__
 SQS_QUEUE_URL: https://sqs.ap-southeast-1.amazonaws.com/108728974441/munbon-sensor-ingestion-dev-queue
 
 ### User
@@ -12761,7 +12761,7 @@ Context: /Users/subhajlimanond/dev/munbon2-backend/docs/CLAUDE_INSTANCE_2_WATER_
     "tool_use_id": "toolu_0197U68dm1YxRzgR5GUCVbck"
   }
 --
-TIMESCALE_PASSWORD: P@ssw0rd123!
+TIMESCALE_PASSWORD: __ROTATED_DB_PASSWORD__
 SQS_QUEUE_URL: https://sqs.ap-southeast-1.amazonaws.com/108728974441/munbon-sensor-ingestion-dev-queue",
     "is_error": false
   }

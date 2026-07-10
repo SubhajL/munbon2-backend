@@ -14,7 +14,7 @@ Should connect to EC2 PostgreSQL/TimescaleDB:
 - Port: 5432
 - Database: sensor_data
 - User: postgres
-- Password: P@ssw0rd123!
+- Password: __ROTATED_DB_PASSWORD__
 
 ### 2. AOS Lambda Functions
 Should connect to MSSQL SCADA:
@@ -55,7 +55,7 @@ aws lambda update-function-configuration \
     DB_PORT='5432',
     DB_NAME='sensor_data',
     DB_USER='postgres',
-    DB_PASSWORD='P@ssw0rd123!',
+    DB_PASSWORD='__ROTATED_DB_PASSWORD__',
     STAGE='prod'
   }"
 ```
@@ -76,7 +76,7 @@ aws lambda update-function-configuration \
     DB_PORT='5432',
     DB_NAME='sensor_data',
     DB_USER='postgres',
-    DB_PASSWORD='P@ssw0rd123!',
+    DB_PASSWORD='__ROTATED_DB_PASSWORD__',
     STAGE='prod'
   }"
 ```

@@ -20,7 +20,7 @@ update_function_env() {
             DB_PORT='5432',
             DB_NAME='sensor_data',
             DB_USER='postgres',
-            DB_PASSWORD='P@ssw0rd123!',
+            DB_PASSWORD='__ROTATED_DB_PASSWORD__',
             EXTERNAL_API_KEYS='rid-ms-prod-1234567890abcdef,rid-ms-dev-abcdef1234567890,tmd-weather-123abc456def789,test-key-123',
             STAGE='$STAGE'
         }" \

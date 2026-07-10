@@ -4926,7 +4926,7 @@ I've successfully updated all references to the EC2 IP address from `43.209.12.1
 
 2. **Test the connection** to verify the new IP is working:
    ```bash
-   PGPASSWORD='P@ssw0rd123!' psql -h 43.209.22.250 -p 5432 -U postgres -d postgres -c "SELECT version();"
+   PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.209.22.250 -p 5432 -U postgres -d postgres -c "SELECT version();"
    ```
 
 3. **Update AWS Lambda environment variables** if you have any Lambda functions deployed

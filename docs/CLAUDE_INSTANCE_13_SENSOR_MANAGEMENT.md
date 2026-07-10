@@ -1045,7 +1045,7 @@ Messages:     4317 | File: c2af0d29-b3e7-477a-883c-b5bcee31f27b
 
 **User:** we have not setup password for SSH yet. Can you help set up? And would this password works for both database and ssh?...
 
-**User:** DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/postgres?schema=public...
+**User:** DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/postgres?schema=public...
 
 
 ## Session: 2025-08-16T07:02:30.105Z
@@ -4820,7 +4820,7 @@ Let me search more specifically:
 ### User
 Tool result:      1→NODE_ENV=production
      2→PORT=3006
-     3→DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev?schema=gis
+     3→DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev?schema=gis
      4→GIS_SCHEMA=gis
      5→REDIS_URL=redis://redis:6379
      6→UPLOAD_DIR=/tmp/gis-uploads
@@ -5292,7 +5292,7 @@ Now I'll fix the GIS Service port configuration:
 Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/gis/.env has been updated. Here's the result of running `cat -n` on a snippet of the edited file:
      1→NODE_ENV=production
      2→PORT=3007
-     3→DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev?schema=gis
+     3→DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev?schema=gis
      4→GIS_SCHEMA=gis
      5→REDIS_URL=redis://redis:6379
      6→UPLOAD_DIR=/tmp/gis-uploads
@@ -10488,8 +10488,8 @@ Now let me search for all occurrences of the old IP across the entire codebase:
 ### User
 Tool result: /Users/subhajlimanond/dev/munbon2-backend/CLAUDE_INSTANCE_EC2_DEPLOYMENT_INIT_PROMPT.txt:- IP Address: 43.209.12.182
 /Users/subhajlimanond/dev/munbon2-backend/test-direct-connection.sh:echo "Host: 43.209.12.182"
-/Users/subhajlimanond/dev/munbon2-backend/test-direct-connection.sh:    PGPASSWORD='P@ssw0rd123!' psql -h 43.209.12.182 -p 5432 -U postgres -d munbon_dev -c "SELECT 'gis.canal_network' as table_name, COUNT(*) FROM gis.canal_network;"
-/Users/subhajlimanond/dev/munbon2-backend/test-direct-connection.sh:    PGPASSWORD='P@ssw0rd123!' psql -h 43.209.12.182 -p 5432 -U postgres -d sensor_data -c "SELECT 'public.sensor_readings' as table_name, COUNT(*) FROM public.sensor_readings;"
+/Users/subhajlimanond/dev/munbon2-backend/test-direct-connection.sh:    PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.209.12.182 -p 5432 -U postgres -d munbon_dev -c "SELECT 'gis.canal_network' as table_name, COUNT(*) FROM gis.canal_network;"
+/Users/subhajlimanond/dev/munbon2-backend/test-direct-connection.sh:    PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.209.12.182 -p 5432 -U postgres -d sensor_data -c "SELECT 'public.sensor_readings' as table_name, COUNT(*) FROM public.sensor_readings;"
 /Users/subhajlimanond/dev/munbon2-backend/EC2_DEPLOYMENT_COMMANDS.md:Run these commands on your EC2 instance (43.209.12.182) to deploy the services:
 /Users/subhajlimanond/dev/munbon2-backend/TH-LAB01-PEM-SETUP.md:gh secret set EC2_HOST -R SubhajL/munbon2-backend -b "43.209.12.182"
 /Users/subhajlimanond/dev/munbon2-backend/TH-LAB01-PEM-SETUP.md:   - **EC2_HOST**: `43.209.12.182`
@@ -10519,18 +10519,18 @@ Tool result: /Users/subhajlimanond/dev/munbon2-backend/CLAUDE_INSTANCE_EC2_DEPLO
 /Users/subhajlimanond/dev/munbon2-backend/EC2_DEPLOYMENT_QUICKSTART.md:scp -r /Users/subhajlimanond/dev/munbon2-backend/services/sensor-data user@43.209.12.182:~/munbon2-backend/services/
 /Users/subhajlimanond/dev/munbon2-backend/EC2_DEPLOYMENT_QUICKSTART.md:curl http://43.209.12.182:3001/health
 /Users/subhajlimanond/dev/munbon2-backend/EC2_DEPLOYMENT_QUICKSTART.md:curl http://43.209.12.182:3002
-/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/munbon_dev?schema=auth
-/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/munbon_dev?schema=gis
+/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/munbon_dev?schema=auth
+/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/munbon_dev?schema=gis
 /Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:DB_HOST=43.209.12.182
 /Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:TIMESCALE_HOST=43.209.12.182
 /Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:TIMESCALE_HOST=43.209.12.182
-/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/sensor_data
-/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:TIMESCALE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/sensor_data
+/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/sensor_data
+/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:TIMESCALE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/sensor_data
 /Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:POSTGRES_HOST=43.209.12.182
 /Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:TIMESCALE_HOST=43.209.12.182
 /Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:POSTGRES_HOST=43.209.12.182
-/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/munbon_dev
-/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:TIMESCALE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/sensor_data
+/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/munbon_dev
+/Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:TIMESCALE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/sensor_data
 /Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:  POSTGRES_HOST: 43.209.12.182
 /Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:  TIMESCALE_HOST: 43.209.12.182
 /Users/subhajlimanond/dev/munbon2-backend/DATABASE_CONSOLIDATION_MAPPING.md:   psql -h 43.209.12.182 -U postgres -c "\l"
@@ -10993,7 +10993,7 @@ Tool result: psql: error: connection to server at "43.209.22.250", port 5432 fai
 The new EC2 instance at **43.209.22.250** is running and has services active, but:
 
 1. **SSH access is blocked** - You need to update the AWS Security Group to allow SSH (port 22) from your current IP address
-2. **Database passwords have changed** - The passwords `postgres123` and `P@ssw0rd123!` are not working on the new instance
+2. **Database passwords have changed** - The passwords `postgres123` and `__ROTATED_DB_PASSWORD__` are not working on the new instance
 
 ## To fix this:
 
@@ -11104,7 +11104,7 @@ Tool result: Checking AWS SSM (Systems Manager) access...
 Would you like me to help you create a local test setup that connects to the remote database while waiting for SSH access?
 
 ### User
-DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/postgres?schema=public
+DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/postgres?schema=public
 JWT_SECRET=9e78b43ea00edcac8299e0cc8df7f6f913078171335f733a21d5d911b6999132
 REFRESH_SECRET=98c76228aa5b7b2f4691400d9be171813eaeff55c1d69d1f813494cd70ea4ee5
 
@@ -11113,7 +11113,7 @@ DB_HOST=43.209.22.250
 DB_PORT=5432
 DB_NAME=postgres
 DB_USER=postgres
-DB_PASSWORD=P@ssw0rd123!\
+DB_PASSWORD=__ROTATED_DB_PASSWORD__\
 \
 Database should be accesible, as we can access using DBeaver!!!
 
@@ -11150,7 +11150,7 @@ Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/sensor-
      9→  port: parseInt(process.env.TIMESCALE_PORT || '5432'),
     10→  database: process.env.TIMESCALE_DB || 'postgres',
     11→  user: process.env.TIMESCALE_USER || 'postgres',
-    12→  password: process.env.TIMESCALE_PASSWORD || 'P@ssw0rd123!',
+    12→  password: process.env.TIMESCALE_PASSWORD || '__ROTATED_DB_PASSWORD__',
     13→  max: 20,
     14→  idleTimeoutMillis: 30000,
     15→  connectionTimeoutMillis: 2000,
@@ -11162,7 +11162,7 @@ Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/sensor-
     21→  port: parseInt(process.env.POSTGIS_PORT || '5432'),
     22→  database: process.env.POSTGIS_DB || 'postgres',
     23→  user: process.env.POSTGIS_USER || 'postgres',
-    24→  password: process.env.POSTGIS_PASSWORD || 'P@ssw0rd123!',
+    24→  password: process.env.POSTGIS_PASSWORD || '__ROTATED_DB_PASSWORD__',
     25→  max: 20,
     26→  idleTimeoutMillis: 30000,
     27→  connectionTimeoutMillis: 2000,

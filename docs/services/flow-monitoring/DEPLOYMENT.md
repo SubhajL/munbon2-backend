@@ -15,8 +15,8 @@ This guide covers the deployment of the Flow Monitoring Service to the EC2 insta
 
 ## Database Configuration
 The service connects to consolidated PostgreSQL on EC2:
-- **Main Database**: `postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev`
-- **TimescaleDB**: `postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/sensor_data`
+- **Main Database**: `postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev`
+- **TimescaleDB**: `postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/sensor_data`
 
 ## Quick Deployment
 
@@ -110,7 +110,7 @@ The service will create the following tables on first run:
 docker logs munbon-flow-monitoring
 
 # Check database connectivity
-docker exec munbon-flow-monitoring python -c "import asyncpg; import asyncio; asyncio.run(asyncpg.connect('postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev'))"
+docker exec munbon-flow-monitoring python -c "import asyncpg; import asyncio; asyncio.run(asyncpg.connect('postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev'))"
 ```
 
 ### Port Already in Use

@@ -39,7 +39,7 @@
 - **Host**: 43.209.22.250
 - **Port**: 5432
 - **Username**: postgres
-- **Password**: P@ssw0rd123!
+- **Password**: __ROTATED_DB_PASSWORD__
 - **Databases**: sensor_data, munbon_dev
 
 ## Notes

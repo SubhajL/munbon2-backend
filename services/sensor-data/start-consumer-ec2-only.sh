@@ -7,12 +7,12 @@ export TIMESCALE_HOST=${EC2_HOST:-43.208.201.191}
 export TIMESCALE_PORT=5432
 export TIMESCALE_DB=sensor_data
 export TIMESCALE_USER=postgres
-export TIMESCALE_PASSWORD=P@ssw0rd123!
+export TIMESCALE_PASSWORD=__ROTATED_DB_PASSWORD__
 export EC2_DB_HOST=${EC2_HOST:-43.208.201.191}
 export EC2_DB_PORT=5432
 export EC2_DB_NAME=sensor_data
 export EC2_DB_USER=postgres
-export EC2_DB_PASSWORD=P@ssw0rd123!
+export EC2_DB_PASSWORD=__ROTATED_DB_PASSWORD__
 export AWS_REGION=ap-southeast-1
 export SQS_QUEUE_URL=https://sqs.ap-southeast-1.amazonaws.com/108728974441/munbon-sensor-ingestion-dev-queue
 

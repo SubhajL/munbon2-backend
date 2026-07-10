@@ -29,7 +29,7 @@ All markdown documentation referencing the old IP has been updated.
 
 1. **Test Database Connection**:
 ```bash
-PGPASSWORD='P@ssw0rd123!' psql -h 43.209.22.250 -U postgres -d sensor_data -c "SELECT version();"
+PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.209.22.250 -U postgres -d sensor_data -c "SELECT version();"
 ```
 
 2. **Restart Services** (if running):

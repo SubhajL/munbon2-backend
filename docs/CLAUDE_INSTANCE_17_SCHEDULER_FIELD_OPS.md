@@ -515,7 +515,7 @@ Messages:     4489 | File: 1adcdd6d-8396-41a0-9dd6-7076a811f56d
 
 **User:**   PostgreSQL       5434    ✅ Running\...
 
-**User:** I want to use DB on EC2. postgresql://postgres:<password>@43.209.22.250:5432 <password> = P@ssw0rd123!...
+**User:** I want to use DB on EC2. postgresql://postgres:<password>@43.209.22.250:5432 <password> = __ROTATED_DB_PASSWORD__...
 
 **User:** This session is being continued from a previous conversation that ran out of context. The conversation is summarized below:...
 
@@ -4591,7 +4591,7 @@ Tool result:      1→# EC2 Docker Deployment Environment Variables
      5→POSTGRES_HOST=43.209.22.250
      6→POSTGRES_PORT=5432
      7→POSTGRES_USER=postgres
-     8→POSTGRES_PASSWORD=P@ssw0rd123!
+     8→POSTGRES_PASSWORD=__ROTATED_DB_PASSWORD__
      9→POSTGRES_DB=munbon_dev
     10→
     11→# Redis Configuration (using Docker container on EC2)
@@ -4696,7 +4696,7 @@ To deploy to EC2, we would need to:
 The current setup is perfect for local development and testing, but it's not yet deployed to your EC2 instance.
 
 ### User
-I want to use DB on EC2. postgresql://postgres:<password>@43.209.22.250:5432 <password> = P@ssw0rd123!
+I want to use DB on EC2. postgresql://postgres:<password>@43.209.22.250:5432 <password> = __ROTATED_DB_PASSWORD__
 
 ### Assistant
 I'll update the scheduler configuration to use the EC2 PostgreSQL database and create the schema there.
@@ -4742,7 +4742,7 @@ I attempted to install dependencies but hit compilation errors with Python 3.13.
 - Built a minimal scheduler service that works without heavy dependencies
 - Got the scheduler running on port 3021
 
-The user then pointed out I was using local PostgreSQL on port 5434 when EC2 PostgreSQL runs on port 5432. They explicitly stated they want to use the EC2 database with credentials: postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432
+The user then pointed out I was using local PostgreSQL on port 5434 when EC2 PostgreSQL runs on port 5432. They explicitly stated they want to use the EC2 database with credentials: postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432
 
 I attempted to connect to EC2 PostgreSQL with the provided password but got authentication failures, indicating either the password format has special character issues or needs different handling.
 
@@ -4754,7 +4754,7 @@ Summary:
    - Carry out comprehensive testing of the scheduler service
    - Install scheduler dependencies locally
    - Set up PostgreSQL and Redis
-   - Use EC2 PostgreSQL database instead of local (postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432)
+   - Use EC2 PostgreSQL database instead of local (postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432)
 
 2. Key Technical Concepts:
    - Weekly Batch Scheduler with Real-time Adaptation (Python/FastAPI on port 3021)
@@ -4830,7 +4830,7 @@ Summary:
     - PostgreSQL connection to EC2 (FATAL: password authentication failed):
       - Attempted multiple password formats
       - Issue remains unresolved - special characters in password may need escaping
-      - User feedback: Want to use EC2 DB with password P@ssw0rd123!
+      - User feedback: Want to use EC2 DB with password __ROTATED_DB_PASSWORD__
 
 5. Problem Solving:
    - Successfully tested mock server (90.9% pass rate)
@@ -4846,7 +4846,7 @@ Summary:
    - "Can you carry out comprehensive test now?"
    - "Please implement \n  1. Install scheduler dependencies locally\n  2. Set up PostgreSQL and Redis"
    - "PostgreSQL       5434    ✅ Running\nBut did you not use postgreSQL on EC2 port 5432?"
-   - "I want to use DB on EC2. postgresql://postgres:<password>@43.209.22.250:5432 <password> = P@ssw0rd123!"
+   - "I want to use DB on EC2. postgresql://postgres:<password>@43.209.22.250:5432 <password> = __ROTATED_DB_PASSWORD__"
 
 7. Pending Tasks:
    - Connect scheduler to EC2 PostgreSQL (authentication issue)
@@ -4857,10 +4857,10 @@ Summary:
    - Deploy scheduler service to EC2
 
 8. Current Work:
-   Attempting to connect scheduler service to EC2 PostgreSQL database at 43.209.22.250:5432 with password P@ssw0rd123!. Multiple connection attempts failed with "FATAL: password authentication failed for user postgres". Was trying different password formats and connection methods to establish database connection.
+   Attempting to connect scheduler service to EC2 PostgreSQL database at 43.209.22.250:5432 with password __ROTATED_DB_PASSWORD__. Multiple connection attempts failed with "FATAL: password authentication failed for user postgres". Was trying different password formats and connection methods to establish database connection.
 
 9. Optional Next Step:
-   Try escaping special characters in the PostgreSQL password or use a connection string with URL encoding for the password. The user explicitly stated: "I want to use DB on EC2. postgresql://postgres:<password>@43.209.22.250:5432 <password> = P@ssw0rd123!" so the next step should be to properly handle the special characters in the password (@ and !) to establish the EC2 database connection..
+   Try escaping special characters in the PostgreSQL password or use a connection string with URL encoding for the password. The user explicitly stated: "I want to use DB on EC2. postgresql://postgres:<password>@43.209.22.250:5432 <password> = __ROTATED_DB_PASSWORD__" so the next step should be to properly handle the special characters in the password (@ and !) to establish the EC2 database connection..
 Please continue the conversation from where we left it off without asking the user any further questions. Continue with the last task that you were asked to work on.
 
 ### Assistant
@@ -5209,16 +5209,16 @@ Tool result: psql: error: connection to server at "43.209.22.250", port 5432 fai
 Let me check the EC2 environment file again to see if there's a different password format:
 
 ### User
-Tool result: /Users/subhajlimanond/dev/munbon2-backend/.env.ec2:POSTGRES_PASSWORD=P@ssw0rd123!
+Tool result: /Users/subhajlimanond/dev/munbon2-backend/.env.ec2:POSTGRES_PASSWORD=__ROTATED_DB_PASSWORD__
 
 ### Assistant
 Let me try a different approach - let's check if there are any working connection examples in the codebase:
 
 ### User
-Tool result: /Users/subhajlimanond/dev/munbon2-backend/test-direct-connection.sh:    PGPASSWORD='P@ssw0rd123!' psql -h 43.209.22.250 -p 5432 -U postgres -d munbon_dev -c "SELECT 'gis.canal_network' as table_name, COUNT(*) FROM gis.canal_network;"
-/Users/subhajlimanond/dev/munbon2-backend/test-direct-connection.sh:    PGPASSWORD='P@ssw0rd123!' psql -h 43.209.22.250 -p 5432 -U postgres -d sensor_data -c "SELECT 'public.sensor_readings' as table_name, COUNT(*) FROM public.sensor_readings;"
+Tool result: /Users/subhajlimanond/dev/munbon2-backend/test-direct-connection.sh:    PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.209.22.250 -p 5432 -U postgres -d munbon_dev -c "SELECT 'gis.canal_network' as table_name, COUNT(*) FROM gis.canal_network;"
+/Users/subhajlimanond/dev/munbon2-backend/test-direct-connection.sh:    PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.209.22.250 -p 5432 -U postgres -d sensor_data -c "SELECT 'public.sensor_readings' as table_name, COUNT(*) FROM public.sensor_readings;"
 /Users/subhajlimanond/dev/munbon2-backend/temp_shapefile_check/test_moisture_e2e.js:  console.log(`PGPASSWORD='<password>' psql -h 43.209.22.250 -p 5432 -U postgres -d sensor_data -c "SELECT sensor_id, time, moisture_surface_pct, moisture_deep_pct FROM moisture_readings WHERE sensor_id = '${sensorId}' ORDER BY time DESC LIMIT 1"`);
-/Users/subhajlimanond/dev/munbon2-backend/complete-verification.sql:-- Host: 43.209.22.250, Port: 5432, User: postgres, Password: P@ssw0rd123!
+/Users/subhajlimanond/dev/munbon2-backend/complete-verification.sql:-- Host: 43.209.22.250, Port: 5432, User: postgres, Password: __ROTATED_DB_PASSWORD__
 /Users/subhajlimanond/dev/munbon2-backend/verify-ec2-direct.sh:    psql -h 43.209.22.250 -p 5432 -U postgres -d sensor_data << 'SQL'
 /Users/subhajlimanond/dev/munbon2-backend/services/ros/scripts/migrate-ros-to-ec2-direct.sh:EC2_CONN="postgresql://postgres:P%40ssw0rd123%21@43.209.22.250:5432/munbon_dev"
 /Users/subhajlimanond/dev/munbon2-backend/services/ros/scripts/migrate-ros-to-ec2-direct.sh:echo -e "${YELLOW}Target: 43.209.22.250:5432/munbon_dev${NC}"
@@ -5395,7 +5395,7 @@ Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/schedul
     10→POSTGRES_HOST=43.209.22.250
     11→POSTGRES_PORT=5432
     12→POSTGRES_USER=postgres
-    13→POSTGRES_PASSWORD=P@ssw0rd123!
+    13→POSTGRES_PASSWORD=__ROTATED_DB_PASSWORD__
     14→POSTGRES_DB=munbon_dev
     15→POSTGRES_URL=postgresql://postgres:P%40ssw0rd123%21@43.209.22.250:5432/munbon_dev
     16→REDIS_URL=redis://localhost:6379/1
@@ -19006,8 +19006,8 @@ drwxr-xr-x@   4 subhajlimanond  staff     128 Jul 12 22:18 test
 ### User
 Tool result:      1→NODE_ENV=production
      2→PORT=3004
-     3→DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/sensor_data
-     4→TIMESCALE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/sensor_data
+     3→DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/sensor_data
+     4→TIMESCALE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/sensor_data
      5→REDIS_URL=redis://redis:6379
      6→TMD_API_KEY=your-tmd-api-key
      7→TMD_API_URL=https://api.tmd.go.th/v1
@@ -19335,8 +19335,8 @@ Let me check what's in the .env file to see if this is the EC2 instance:
 ### User
 Tool result:      1→NODE_ENV=production
      2→PORT=3004
-     3→DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/sensor_data
-     4→TIMESCALE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/sensor_data
+     3→DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/sensor_data
+     4→TIMESCALE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/sensor_data
      5→REDIS_URL=redis://redis:6379
      6→TMD_API_KEY=your-tmd-api-key
      7→TMD_API_URL=https://api.tmd.go.th/v1
@@ -20219,8 +20219,8 @@ Tool result: Todos have been modified successfully. Ensure that you continue to 
 Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/weather-monitoring/.env has been updated. Here's the result of running `cat -n` on a snippet of the edited file:
      1→NODE_ENV=production
      2→PORT=3004
-     3→DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/sensor_data
-     4→TIMESCALE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/sensor_data
+     3→DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/sensor_data
+     4→TIMESCALE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/sensor_data
      5→REDIS_URL=redis://redis:6379
      6→TMD_API_KEY=your-tmd-api-key
      7→TMD_API_URL=https://api.tmd.go.th/v1
@@ -21010,8 +21010,8 @@ Let me verify that the weather-monitoring service now has the correct new IP:
 ### User
 Tool result:      1→NODE_ENV=production
      2→PORT=3004
-     3→DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/sensor_data
-     4→TIMESCALE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/sensor_data
+     3→DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/sensor_data
+     4→TIMESCALE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/sensor_data
      5→REDIS_URL=redis://redis:6379
      6→TMD_API_KEY=your-tmd-api-key
      7→TMD_API_URL=https://api.tmd.go.th/v1
@@ -26428,7 +26428,7 @@ Tool result:      1→# Claude Instance 17: Batch Scheduler and Field Operations
    515→
    516→**User:**   PostgreSQL       5434    ✅ Running\...
    517→
-   518→**User:** I want to use DB on EC2. postgresql://postgres:<password>@43.209.22.250:5432 <password> = P@ssw0rd123!...
+   518→**User:** I want to use DB on EC2. postgresql://postgres:<password>@43.209.22.250:5432 <password> = __ROTATED_DB_PASSWORD__...
    519→
    520→**User:** This session is being continued from a previous conversation that ran out of context. The conversation is summarized below:...
    521→
@@ -28186,7 +28186,7 @@ Tool result: /Users/subhajlimanond/dev/munbon2-backend/services/scheduler/test_e
 /Users/subhajlimanond/dev/munbon2-backend/services/scheduler/test_ec2_connection.py:EC2_HOST = os.environ.get('EC2_HOST', '43.208.201.191')
 /Users/subhajlimanond/dev/munbon2-backend/services/scheduler/test_ec2_connection.py:EC2_PORT = "5432"
 /Users/subhajlimanond/dev/munbon2-backend/services/scheduler/test_ec2_connection.py:EC2_USER = "postgres"
-/Users/subhajlimanond/dev/munbon2-backend/services/scheduler/test_ec2_connection.py:EC2_PASSWORD = "P@ssw0rd123!"
+/Users/subhajlimanond/dev/munbon2-backend/services/scheduler/test_ec2_connection.py:EC2_PASSWORD = "__ROTATED_DB_PASSWORD__"
 /Users/subhajlimanond/dev/munbon2-backend/services/scheduler/test_ec2_connection.py:EC2_DB = "munbon_dev"
 /Users/subhajlimanond/dev/munbon2-backend/services/scheduler/test_ec2_connection.py:    """Test connection to EC2 PostgreSQL"""
 /Users/subhajlimanond/dev/munbon2-backend/services/scheduler/test_ec2_connection.py:        print(f"Connecting to PostgreSQL at {EC2_HOST}:{EC2_PORT}...")

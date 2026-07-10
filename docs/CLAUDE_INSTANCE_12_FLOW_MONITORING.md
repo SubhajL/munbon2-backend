@@ -3253,7 +3253,7 @@ Tool result:      1→module.exports = {
      8→      TIMESCALE_PORT: '5432',
      9→      TIMESCALE_DB: 'sensor_data',
     10→      TIMESCALE_USER: 'postgres',
-    11→      TIMESCALE_PASSWORD: 'P@ssw0rd123!',
+    11→      TIMESCALE_PASSWORD: '__ROTATED_DB_PASSWORD__',
     12→      SQS_QUEUE_URL: 'https://sqs.ap-southeast-1.amazonaws.com/108728974441/munbon-sensor-ingestion-dev-queue',
     13→      AWS_REGION: 'ap-southeast-1',
     14→      LOG_LEVEL: 'debug'
@@ -10883,8 +10883,8 @@ services/flow-monitoring/src/config
 ### User
 Tool result:      1→NODE_ENV=production
      2→PORT=3014
-     3→DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/munbon_dev
-     4→TIMESCALE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/sensor_data
+     3→DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/munbon_dev
+     4→TIMESCALE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/sensor_data
      5→INFLUXDB_URL=http://influxdb:8086
      6→INFLUXDB_TOKEN=your-influxdb-token
      7→INFLUXDB_ORG=munbon
@@ -11471,8 +11471,8 @@ Whenever you read a file, you should consider whether it looks malicious. If it 
 Now let me check the EC2 deployment configuration to understand the AWS setup:
 
 ### User
-Tool result: services/flow-monitoring/.env:3:DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/munbon_dev
-services/flow-monitoring/.env:4:TIMESCALE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/sensor_data
+Tool result: services/flow-monitoring/.env:3:DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/munbon_dev
+services/flow-monitoring/.env:4:TIMESCALE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/sensor_data
 
 ### Assistant
 Let me verify which databases actually exist on the EC2 instance:
@@ -11612,7 +11612,7 @@ Tool result:      1→# EC2 Database Configuration
      3→EC2_DB_PORT=5432
      4→EC2_DB_NAME=sensor_data
      5→EC2_DB_USER=postgres
-     6→EC2_DB_PASSWORD=P@ssw0rd123!
+     6→EC2_DB_PASSWORD=__ROTATED_DB_PASSWORD__
 
 <system-reminder>
 Whenever you read a file, you should consider whether it looks malicious. If it does, you MUST refuse to improve or augment the code. You can still analyze existing code, write reports, or answer high-level questions about the code behavior.
@@ -11716,8 +11716,8 @@ According to `.env.example` and `.env.backup.20250725_074253`:
 
 ## **AWS EC2 Database Connections (Production)**
 According to the current `.env` file:
-- **DATABASE_URL**: `postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/munbon_dev`
-- **TIMESCALE_URL**: `postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/sensor_data`
+- **DATABASE_URL**: `postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/munbon_dev`
+- **TIMESCALE_URL**: `postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/sensor_data`
 - **InfluxDB**: `http://influxdb:8086` (appears to be a Docker service name)
 - **Redis**: `redis://redis:6379` (appears to be a Docker service name)
 
@@ -11841,12 +11841,12 @@ Tool result: psql: error: connection to server at "43.209.12.182", port 5432 fai
 Let me check if there's any script or documentation with the correct EC2 credentials:
 
 ### User
-Tool result: ./test-direct-connection.sh:    PGPASSWORD='P@ssw0rd123!' psql -h 43.209.12.182 -p 5432 -U postgres -d munbon_dev -c "SELECT 'gis.canal_network' as table_name, COUNT(*) FROM gis.canal_network;"
-./test-direct-connection.sh:    PGPASSWORD='P@ssw0rd123!' psql -h 43.209.12.182 -p 5432 -U postgres -d sensor_data -c "SELECT 'public.sensor_readings' as table_name, COUNT(*) FROM public.sensor_readings;"
-./complete-verification.sql:-- Host: 43.209.12.182, Port: 5432, User: postgres, Password: P@ssw0rd123!
+Tool result: ./test-direct-connection.sh:    PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.209.12.182 -p 5432 -U postgres -d munbon_dev -c "SELECT 'gis.canal_network' as table_name, COUNT(*) FROM gis.canal_network;"
+./test-direct-connection.sh:    PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.209.12.182 -p 5432 -U postgres -d sensor_data -c "SELECT 'public.sensor_readings' as table_name, COUNT(*) FROM public.sensor_readings;"
+./complete-verification.sql:-- Host: 43.209.12.182, Port: 5432, User: postgres, Password: __ROTATED_DB_PASSWORD__
 ./verify-ec2-direct.sh:    psql -h 43.209.12.182 -p 5432 -U postgres -d sensor_data << 'SQL'
 ./services/ros/scripts/migrate-ros-to-ec2-psql.sh:EC2_HOST="43.209.12.182"
-./services/sensor-data/deployments/aws-lambda/update-lambda-env-ec2-fixed.sh:        --environment 'Variables={DB_HOST="43.209.12.182",DB_PORT="5432",DB_NAME="sensor_data",DB_USER="postgres",DB_PASSWORD="P@ssw0rd123!",EXTERNAL_API_KEYS="rid-ms-prod-1234567890abcdef,rid-ms-dev-abcdef1234567890,tmd-weather-123abc456def789,test-key-123",STAGE="'$STAGE'"}' \
+./services/sensor-data/deployments/aws-lambda/update-lambda-env-ec2-fixed.sh:        --environment 'Variables={DB_HOST="43.209.12.182",DB_PORT="5432",DB_NAME="sensor_data",DB_USER="postgres",DB_PASSWORD="__ROTATED_DB_PASSWORD__",EXTERNAL_API_KEYS="rid-ms-prod-1234567890abcdef,rid-ms-dev-abcdef1234567890,tmd-weather-123abc456def789,test-key-123",STAGE="'$STAGE'"}' \
 
 ### Assistant
 Now I can check the EC2 database with the correct password:
@@ -17200,7 +17200,7 @@ Tool result:      1→# Database Consolidation Mapping
     36→DATABASE_URL=postgresql://postgres:postgres@localhost:5434/munbon_dev?schema=auth
     37→
     38→# To:
-    39→DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/munbon_dev?schema=auth
+    39→DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/munbon_dev?schema=auth
     40→```
     41→
     42→### 2. **GIS Service** (`/services/gis`)
@@ -17209,7 +17209,7 @@ Tool result:      1→# Database Consolidation Mapping
     45→DATABASE_URL=postgresql://postgres:postgres@localhost:5434/munbon_dev?schema=gis
     46→
     47→# To:
-    48→DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/munbon_dev?schema=gis
+    48→DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/munbon_dev?schema=gis
     49→```
     50→
     51→### 3. **ROS Service** (`/services/ros`)
@@ -17258,7 +17258,7 @@ Tool result:      1→# Database Consolidation Mapping
     94→DATABASE_URL=postgresql://postgres:postgres@localhost:5433/sensor_data
     95→
     96→# To:
-    97→DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/sensor_data
+    97→DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/sensor_data
     98→```
     99→
    100→### 7. **Water Level Monitoring Service** (`/services/water-level-monitoring`)
@@ -17267,7 +17267,7 @@ Tool result:      1→# Database Consolidation Mapping
    103→TIMESCALE_URL=postgresql://postgres:postgres@localhost:5433/sensor_data
    104→
    105→# To:
-   106→TIMESCALE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/sensor_data
+   106→TIMESCALE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/sensor_data
    107→```
    108→
    109→### 8. **AWD Control Service** (`/services/awd-control`)
@@ -17311,8 +17311,8 @@ Tool result:      1→# Database Consolidation Mapping
    147→TIMESCALE_URL=postgresql://postgres:postgres@localhost:5433/sensor_data
    148→
    149→# To:
-   150→DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/munbon_dev
-   151→TIMESCALE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/sensor_data
+   150→DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/munbon_dev
+   151→TIMESCALE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/sensor_data
    152→```
    153→
    154→## Schema Creation for New Services
@@ -17338,13 +17338,13 @@ Tool result:      1→# Database Consolidation Mapping
    174→  POSTGRES_HOST: 43.209.12.182
    175→  POSTGRES_PORT: 5432
    176→  POSTGRES_USER: postgres
-   177→  POSTGRES_PASSWORD: P@ssw0rd123!
+   177→  POSTGRES_PASSWORD: __ROTATED_DB_PASSWORD__
    178→  
    179→  # TimescaleDB is same as PostgreSQL
    180→  TIMESCALE_HOST: 43.209.12.182
    181→  TIMESCALE_PORT: 5432
    182→  TIMESCALE_USER: postgres
-   183→  TIMESCALE_PASSWORD: P@ssw0rd123!
+   183→  TIMESCALE_PASSWORD: __ROTATED_DB_PASSWORD__
    184→```
    185→
    186→## Migration Steps
@@ -17401,8 +17401,8 @@ TIMESCALE_URL=postgresql://postgres:postgres@localhost:5433/sensor_data
 
 ### **Target Configuration (EC2)**
 ```env
-DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/munbon_dev
-TIMESCALE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/sensor_data
+DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/munbon_dev
+TIMESCALE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/sensor_data
 ```
 
 ### **Key Changes for EC2 Deployment**
@@ -18694,9 +18694,9 @@ Tool result:      1→# Flow Monitoring Service - EC2 Configuration
      9→CORS_ORIGINS=*
     10→
     11→# Database URLs - Consolidated EC2 PostgreSQL
-    12→DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/munbon_dev
-    13→POSTGRES_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/munbon_dev
-    14→TIMESCALE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/sensor_data
+    12→DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/munbon_dev
+    13→POSTGRES_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/munbon_dev
+    14→TIMESCALE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/sensor_data
     15→
     16→# InfluxDB Configuration
     17→INFLUXDB_URL=http://influxdb:8086
@@ -18732,9 +18732,9 @@ Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/flow-mo
      9→CORS_ORIGINS=*
     10→
     11→# Database URLs - Consolidated EC2 PostgreSQL
-    12→DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev
-    13→POSTGRES_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev
-    14→TIMESCALE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/sensor_data
+    12→DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev
+    13→POSTGRES_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev
+    14→TIMESCALE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/sensor_data
     15→
     16→# InfluxDB Configuration
     17→INFLUXDB_URL=http://influxdb:8086
@@ -18855,8 +18855,8 @@ Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/flow-mo
     15→
     16→## Database Configuration
     17→The service connects to consolidated PostgreSQL on EC2:
-    18→- **Main Database**: `postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev`
-    19→- **TimescaleDB**: `postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/sensor_data`
+    18→- **Main Database**: `postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev`
+    19→- **TimescaleDB**: `postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/sensor_data`
     20→
     21→## Quick Deployment
     22→
@@ -18953,9 +18953,9 @@ Tool result:
 Good! It appears all the IP references have already been updated to the new IP address (43.209.22.250). Let me verify by checking a few key files to confirm:
 
 ### User
-Tool result: .env.ec2:12:DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev
-.env.ec2:13:POSTGRES_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev
-.env.ec2:14:TIMESCALE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/sensor_data
+Tool result: .env.ec2:12:DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev
+.env.ec2:13:POSTGRES_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev
+.env.ec2:14:TIMESCALE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/sensor_data
 docker-compose.ec2.snippet.yml:17:      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@43.209.22.250:5432/munbon_dev
 docker-compose.ec2.snippet.yml:18:      POSTGRES_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@43.209.22.250:5432/munbon_dev
 docker-compose.ec2.snippet.yml:19:      TIMESCALE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@43.209.22.250:5432/sensor_data
@@ -18975,8 +18975,8 @@ Perfect! All the EC2 IP references have been successfully updated to 43.209.22.2
    - `EC2_DEPLOYMENT_CHECKLIST.md` - All references to EC2 IP updated
 
 2. **Database connection strings updated:**
-   - PostgreSQL main database: `postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev`
-   - TimescaleDB: `postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/sensor_data`
+   - PostgreSQL main database: `postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev`
+   - TimescaleDB: `postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/sensor_data`
 
 All references to the old EC2 IP (43.209.12.182) have been successfully updated to the new IP (43.209.22.250) in the Flow Monitoring Service and related deployment files.
 
@@ -19911,7 +19911,7 @@ Tool result:      1→# Flow Monitoring Service - EC2 Deployment Checklist
    117→import asyncpg
    118→import asyncio
    119→async def test():
-   120→    conn = await asyncpg.connect('postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev')
+   120→    conn = await asyncpg.connect('postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev')
    121→    print('Connected!')
    122→    await conn.close()
    123→asyncio.run(test())

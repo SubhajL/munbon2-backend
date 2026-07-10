@@ -8,7 +8,7 @@
 - Configuration:
   - Local: localhost:5433 (munbon_timescale)
   - EC2: 43.209.22.250:5432 (sensor_data)
-  - Password: P@ssw0rd123!
+  - Password: __ROTATED_DB_PASSWORD__
 
 ### 2. Data Consistency Fixes ✅
 - Fixed timestamp parsing issues that caused worker to stop at 08:00 UTC

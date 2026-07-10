@@ -7968,9 +7968,9 @@ Tool result:      1→# Flow Monitoring Service - EC2 Configuration
      9→CORS_ORIGINS=*
     10→
     11→# Database URLs - Consolidated EC2 PostgreSQL
-    12→DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev
-    13→POSTGRES_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev
-    14→TIMESCALE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/sensor_data
+    12→DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev
+    13→POSTGRES_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev
+    14→TIMESCALE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/sensor_data
     15→
     16→# InfluxDB Configuration
     17→INFLUXDB_URL=http://influxdb:8086
@@ -8132,12 +8132,12 @@ Tool result:      1→# Docker Compose for EC2 Production Deployment with Consol
     12→  POSTGRES_HOST: 43.209.22.250
     13→  POSTGRES_PORT: 5432
     14→  POSTGRES_USER: postgres
-    15→  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-P@ssw0rd123!}
+    15→  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-__ROTATED_DB_PASSWORD__}
     16→  # TimescaleDB is in the same PostgreSQL instance
     17→  TIMESCALE_HOST: 43.209.22.250
     18→  TIMESCALE_PORT: 5432
     19→  TIMESCALE_USER: postgres
-    20→  TIMESCALE_PASSWORD: ${POSTGRES_PASSWORD:-P@ssw0rd123!}
+    20→  TIMESCALE_PASSWORD: ${POSTGRES_PASSWORD:-__ROTATED_DB_PASSWORD__}
     21→
     22→x-resource-limits: &resource-limits
     23→  deploy:
@@ -12074,9 +12074,9 @@ Based on my analysis of the 17 implemented services and your requirement to use 
 ```bash
 # Set environment variables for EC2 databases
 export DB_HOST=43.209.22.250
-export DB_PASSWORD="P@ssw0rd123!"
-export POSTGRES_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev
-export TIMESCALE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5433/munbon_timescale
+export DB_PASSWORD="__ROTATED_DB_PASSWORD__"
+export POSTGRES_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev
+export TIMESCALE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5433/munbon_timescale
 export MONGODB_URL=mongodb://admin:admin@43.209.22.250:27017/munbon_dev
 export REDIS_URL=redis://43.209.22.250:6379
 ```
@@ -12195,9 +12195,9 @@ version: '3.8'
 
 x-ec2-database-config: &ec2-db-config
   DB_HOST: 43.209.22.250
-  DB_PASSWORD: "P@ssw0rd123!"
-  POSTGRES_URL: postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev
-  TIMESCALE_URL: postgresql://postgres:P@ssw0rd123!@43.209.22.250:5433/munbon_timescale
+  DB_PASSWORD: "__ROTATED_DB_PASSWORD__"
+  POSTGRES_URL: postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev
+  TIMESCALE_URL: postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5433/munbon_timescale
   MONGODB_URL: mongodb://admin:admin@43.209.22.250:27017/munbon_dev
   REDIS_URL: redis://43.209.22.250:6379
 
@@ -12242,7 +12242,7 @@ Tool result:      1→# EC2 Docker Deployment Environment Variables
      5→POSTGRES_HOST=43.209.22.250
      6→POSTGRES_PORT=5432
      7→POSTGRES_USER=postgres
-     8→POSTGRES_PASSWORD=P@ssw0rd123!
+     8→POSTGRES_PASSWORD=__ROTATED_DB_PASSWORD__
      9→POSTGRES_DB=munbon_dev
     10→
     11→# Redis Configuration (using Docker container on EC2)
@@ -12302,12 +12302,12 @@ Tool result:      1→# Docker Compose for EC2 Production Deployment with Consol
     12→  POSTGRES_HOST: 43.209.22.250
     13→  POSTGRES_PORT: 5432
     14→  POSTGRES_USER: postgres
-    15→  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-P@ssw0rd123!}
+    15→  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-__ROTATED_DB_PASSWORD__}
     16→  # TimescaleDB is in the same PostgreSQL instance
     17→  TIMESCALE_HOST: 43.209.22.250
     18→  TIMESCALE_PORT: 5432
     19→  TIMESCALE_USER: postgres
-    20→  TIMESCALE_PASSWORD: ${POSTGRES_PASSWORD:-P@ssw0rd123!}
+    20→  TIMESCALE_PASSWORD: ${POSTGRES_PASSWORD:-__ROTATED_DB_PASSWORD__}
     21→
     22→x-resource-limits: &resource-limits
     23→  deploy:
@@ -13123,7 +13123,7 @@ Tool result:      1→module.exports = {
    286→        SCADA_DB_PORT: 5432,
    287→        SCADA_DB_NAME: 'db_scada',
    288→        SCADA_DB_USER: 'postgres',
-   289→        SCADA_DB_PASSWORD: 'P@ssw0rd123!'
+   289→        SCADA_DB_PASSWORD: '__ROTATED_DB_PASSWORD__'
    290→      },
    291→      error_file: './logs/scada-integration-error.log',
    292→      out_file: './logs/scada-integration-out.log'
@@ -13979,7 +13979,7 @@ Summary:
    - Service ports: 3000-3047 range for various services
    - Docker Compose for service orchestration
    - PM2 process management
-   - EC2 connection: 43.209.22.250:5432 with password P@ssw0rd123!
+   - EC2 connection: 43.209.22.250:5432 with password __ROTATED_DB_PASSWORD__
 
 3. **Files and Code Sections:**
    - `/scripts/test-all-services-ec2.sh`
@@ -14038,7 +14038,7 @@ Summary:
       POSTGRES_HOST=43.209.22.250
       POSTGRES_PORT=5432
       POSTGRES_USER=postgres
-      POSTGRES_PASSWORD=P@ssw0rd123!
+      POSTGRES_PASSWORD=__ROTATED_DB_PASSWORD__
       ```
 
    - `/docker-compose.ec2-consolidated.yml`
@@ -14130,12 +14130,12 @@ Tool result:      1→# Docker Compose for EC2 Production Deployment with Consol
     12→  POSTGRES_HOST: 43.209.22.250
     13→  POSTGRES_PORT: 5432
     14→  POSTGRES_USER: postgres
-    15→  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-P@ssw0rd123!}
+    15→  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-__ROTATED_DB_PASSWORD__}
     16→  # TimescaleDB is in the same PostgreSQL instance
     17→  TIMESCALE_HOST: 43.209.22.250
     18→  TIMESCALE_PORT: 5432
     19→  TIMESCALE_USER: postgres
-    20→  TIMESCALE_PASSWORD: ${POSTGRES_PASSWORD:-P@ssw0rd123!}
+    20→  TIMESCALE_PASSWORD: ${POSTGRES_PASSWORD:-__ROTATED_DB_PASSWORD__}
     21→
     22→x-resource-limits: &resource-limits
     23→  deploy:
@@ -14992,7 +14992,7 @@ Tool result: 9b8bde0ff5ee2c1baca96c1f346b72995b73467abbcd27b22e67a9d4427aeb2f
 Tool result: 89a9271303912ed8483fc937f090392ed5337e122e19e08f973396df202caa45
 
 ### User
-Tool result: (eval):1: no matches found: DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev?schema=auth
+Tool result: (eval):1: no matches found: DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev?schema=auth
 
 ### Assistant
 Let's escape the URL properly:
@@ -16874,7 +16874,7 @@ Summary:
           if ! docker info > /dev/null 2>&1; then
               colima start
           fi
-          if PGPASSWORD=P@ssw0rd123! psql -h 43.209.22.250 -p 5432 -U postgres -d postgres -c "SELECT version();" > /dev/null 2>&1; then
+          if PGPASSWORD=__ROTATED_DB_PASSWORD__ psql -h 43.209.22.250 -p 5432 -U postgres -d postgres -c "SELECT version();" > /dev/null 2>&1; then
               echo -e "${GREEN}✓ EC2 database is accessible${NC}"
           fi
       }
@@ -18588,7 +18588,7 @@ services:
       PORT: "3000"
       POSTGRES_DB: munbon_dev
       POSTGRES_HOST: 43.209.22.250
-      POSTGRES_PASSWORD: P@ssw0rd123!
+      POSTGRES_PASSWORD: __ROTATED_DB_PASSWORD__
       POSTGRES_PORT: "5432"
       POSTGRES_USER: postgres
       REDIS_URL: redis://redis:6379
@@ -34990,7 +34990,7 @@ done
 # Test database connections
 echo -e "\n4. Testing database connections..."
 echo "   Testing PostgreSQL on port 5432..."
-PGPASSWORD='P@ssw0rd123!' psql -h $NEW_EC2_IP -p 5432 -U postgres -d postgres -c "SELECT version();" 2>&1 | head -1 || echo "Connection failed"
+PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h $NEW_EC2_IP -p 5432 -U postgres -d postgres -c "SELECT version();" 2>&1 | head -1 || echo "Connection failed"
 
 echo "   Testing PostgreSQL on port 5433..."
 PGPASSWORD='postgres123' psql -h $NEW_EC2_IP -p 5433 -U postgres -d munbon_timescale -c "SELECT version();" 2>&1 | head -1 || echo "Connection failed"
@@ -35077,7 +35077,7 @@ echo "EC2 Database Connection Commands:"
 echo "================================="
 echo ""
 echo "1. Main PostgreSQL (port 5432):"
-echo "   PGPASSWORD='P@ssw0rd123!' psql -h $EC2_IP -p 5432 -U postgres -d postgres"
+echo "   PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h $EC2_IP -p 5432 -U postgres -d postgres"
 echo ""
 echo "2. TimescaleDB (port 5433):"
 echo "   PGPASSWORD='postgres123' psql -h $EC2_IP -p 5433 -U postgres -d munbon_timescale"
@@ -35227,7 +35227,7 @@ cat > EC2_NEW_IP_INFO.md << 'EOF'
 
 ### PostgreSQL Main (Port 5432)
 ```bash
-PGPASSWORD='P@ssw0rd123!' psql -h 43.209.22.250 -p 5432 -U postgres -d postgres
+PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.209.22.250 -p 5432 -U postgres -d postgres
 ```
 
 ### TimescaleDB (Port 5433)
@@ -35335,7 +35335,7 @@ echo -e "\nTesting PostgreSQL database connections..."
 
 # Test main PostgreSQL
 echo "1. Testing PostgreSQL on port 5432..."
-PGPASSWORD='P@ssw0rd123!' psql -h 43.209.22.250 -p 5432 -U postgres -d postgres -c "SELECT 'Connected to port 5432' as status;" 2>&1 | grep -E "(Connected|FATAL|error)"
+PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.209.22.250 -p 5432 -U postgres -d postgres -c "SELECT 'Connected to port 5432' as status;" 2>&1 | grep -E "(Connected|FATAL|error)"
 
 # Test TimescaleDB
 echo -e "\n2. Testing TimescaleDB on port 5433..."

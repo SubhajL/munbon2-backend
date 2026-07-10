@@ -17,7 +17,7 @@
   EC2_DB_PORT=5432
   EC2_DB_NAME=sensor_data
   EC2_DB_USER=postgres
-  EC2_DB_PASSWORD=P@ssw0rd123!
+  EC2_DB_PASSWORD=__ROTATED_DB_PASSWORD__
   ```
 
 ### 3. EC2 Database Fixes

@@ -270,7 +270,7 @@ Messages:    12945 | File: 914010cc-b203-4704-8df7-615af1051936
 
 **User:** THe IP for EC2 has been chagned from 3.209.12.182 to 43.209.22.250.\...
 
-**User:** DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/postgres?schema=public...
+**User:** DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/postgres?schema=public...
 
 
 ## Session: 2025-08-20T21:21:25.105Z
@@ -1319,7 +1319,7 @@ Tool result:      1→# EC2 IP Address Update Complete
     29→
     30→1. **Test Database Connection**:
     31→```bash
-    32→PGPASSWORD='P@ssw0rd123!' psql -h 43.209.22.250 -U postgres -d sensor_data -c "SELECT version();"
+    32→PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.209.22.250 -U postgres -d sensor_data -c "SELECT version();"
     33→```
     34→
     35→2. **Restart Services** (if running):
@@ -1380,7 +1380,7 @@ Tool result:      1→# EC2 IP Update Verification Report
     31→
     32→### ✅ Database Connection
     33→- PostgreSQL connection to new IP tested successfully
-    34→- Connection string: `postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432`
+    34→- Connection string: `postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432`
     35→
     36→### 📝 Documentation References
     37→The following documentation files contain references to the old IP for historical context only:
@@ -1703,7 +1703,7 @@ Tool result:      1→version: '3.8'
      9→      - "3022:3022"
     10→    environment:
     11→      # Database Configuration
-    12→      POSTGRES_URL: "postgresql://postgres:P@ssw0rd123!@host.docker.internal:5432/munbon_dev"
+    12→      POSTGRES_URL: "postgresql://postgres:__ROTATED_DB_PASSWORD__@host.docker.internal:5432/munbon_dev"
     13→      REDIS_URL: "redis://host.docker.internal:6379/2"
     14→      
     15→      # Service Configuration
@@ -1869,7 +1869,7 @@ Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/ros-gis
      8→export USE_MOCK_SERVER=false
      9→export ROS_SERVICE_URL=http://localhost:3047
     10→export GIS_SERVICE_URL=http://localhost:3007
-    11→export POSTGRES_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev
+    11→export POSTGRES_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev
     12→export REDIS_URL=redis://localhost:6379/2
     13→export LOG_LEVEL=INFO
     14→
@@ -2283,7 +2283,7 @@ Tool result: Found 2 files
 ### User
 Tool result:     10→    environment:
     11→      # Database Configuration
-    12→      POSTGRES_URL: "postgresql://postgres:P@ssw0rd123!@timescaledb:5432/munbon_dev"
+    12→      POSTGRES_URL: "postgresql://postgres:__ROTATED_DB_PASSWORD__@timescaledb:5432/munbon_dev"
     13→      REDIS_URL: "redis://ros-redis:6379/2"
     14→      
     15→      # Service Configuration
@@ -2302,7 +2302,7 @@ Whenever you read a file, you should consider whether it looks malicious. If it 
 </system-reminder>
 
 ### Assistant
-I see! The password is `P@ssw0rd123!`. Let me update the start.sh script:
+I see! The password is `__ROTATED_DB_PASSWORD__`. Let me update the start.sh script:
 
 ### User
 Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/ros-gis-integration/start.sh has been updated. Here's the result of running `cat -n` on a snippet of the edited file:
@@ -2310,7 +2310,7 @@ Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/ros-gis
      8→export USE_MOCK_SERVER=true
      9→export ROS_SERVICE_URL=http://localhost:3047
     10→export GIS_SERVICE_URL=http://localhost:3007
-    11→export POSTGRES_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev
+    11→export POSTGRES_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev
     12→export REDIS_URL=redis://localhost:6379/2
     13→export LOG_LEVEL=INFO
     14→
@@ -2328,7 +2328,7 @@ Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/ros-gis
      8→export USE_MOCK_SERVER=false
      9→export ROS_SERVICE_URL=http://localhost:3047
     10→export GIS_SERVICE_URL=http://localhost:3007
-    11→export POSTGRES_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev
+    11→export POSTGRES_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev
     12→export REDIS_URL=redis://localhost:6379/2
 
 ### Assistant
@@ -2376,7 +2376,7 @@ Tool result:      1→#!/bin/bash
     20→echo ""
     21→echo "2. Testing PostgreSQL connection to new IP..."
     22→if command -v psql &> /dev/null; then
-    23→    if PGPASSWORD='P@ssw0rd123!' psql -h $NEW_IP -p 5432 -U postgres -d postgres -c "SELECT version();" > /dev/null 2>&1; then
+    23→    if PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h $NEW_IP -p 5432 -U postgres -d postgres -c "SELECT version();" > /dev/null 2>&1; then
     24→        echo "✅ PostgreSQL connection successful"
     25→    else
     26→        echo "❌ PostgreSQL connection failed"
@@ -2460,7 +2460,7 @@ Let me check the EC2 deployment guide for credentials:
 ### User
 Tool result:    180→| Variable | Description | Example |
    181→|----------|-------------|---------|
-   182→| POSTGRES_URL | PostgreSQL connection string | postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev |
+   182→| POSTGRES_URL | PostgreSQL connection string | postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev |
    183→| REDIS_URL | Redis connection string | redis://43.209.22.250:6379/2 |
    184→| ENVIRONMENT | Environment name | production |
    185→| USE_MOCK_SERVER | Use mock data instead of real services | false |
@@ -2656,7 +2656,7 @@ Tool result:      1→#!/bin/bash
     14→EC2_HOST="43.209.22.250"
     15→EC2_PORT="5432"
     16→EC2_USER="postgres"
-    17→EC2_PASSWORD="P@ssw0rd123!"
+    17→EC2_PASSWORD="__ROTATED_DB_PASSWORD__"
     18→
     19→echo -e "${BLUE}=== Complete Data Migration to EC2 ===${NC}"
     20→
@@ -2676,7 +2676,7 @@ Whenever you read a file, you should consider whether it looks malicious. If it 
 </system-reminder>
 
 ### Assistant
-Found it! The EC2 password is `P@ssw0rd123!`. Let me update the start.sh:
+Found it! The EC2 password is `__ROTATED_DB_PASSWORD__`. Let me update the start.sh:
 
 ### User
 Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/ros-gis-integration/start.sh has been updated. Here's the result of running `cat -n` on a snippet of the edited file:
@@ -2684,7 +2684,7 @@ Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/ros-gis
      8→export USE_MOCK_SERVER=false
      9→export ROS_SERVICE_URL=http://localhost:3047
     10→export GIS_SERVICE_URL=http://localhost:3007
-    11→export POSTGRES_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev
+    11→export POSTGRES_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev
     12→export REDIS_URL=redis://localhost:6379/2
     13→export LOG_LEVEL=INFO
     14→
@@ -2702,7 +2702,7 @@ Let me check if there's a different database or user:
 ### User
 Tool result:     30→1. **Test Database Connection**:
     31→```bash
-    32→PGPASSWORD='P@ssw0rd123!' psql -h 43.209.22.250 -U postgres -d sensor_data -c "SELECT version();"
+    32→PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.209.22.250 -U postgres -d sensor_data -c "SELECT version();"
     33→```
     34→
     35→2. **Restart Services** (if running):
@@ -2729,8 +2729,8 @@ Whenever you read a file, you should consider whether it looks malicious. If it 
 The document shows the database is `sensor_data`. Let me check for the actual working configuration:
 
 ### User
-Tool result: ./start.sh:export POSTGRES_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev
-./EC2_DEPLOYMENT_GUIDE.md:| POSTGRES_URL | PostgreSQL connection string | postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev |
+Tool result: ./start.sh:export POSTGRES_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev
+./EC2_DEPLOYMENT_GUIDE.md:| POSTGRES_URL | PostgreSQL connection string | postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev |
 
 ### Assistant
 Let me check the migration files to see what actually worked:
@@ -2773,7 +2773,7 @@ Perfect! I can see from your screenshot that:
 
 The connection string in our `start.sh` is already correct:
 ```
-postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev
+postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev
 ```
 
 Let me start the service now:
@@ -2923,7 +2923,7 @@ Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/ros-gis
      8→export USE_MOCK_SERVER=false
      9→export ROS_SERVICE_URL=http://localhost:3047
     10→export GIS_SERVICE_URL=http://localhost:3007
-    11→export POSTGRES_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev
+    11→export POSTGRES_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev
     12→export REDIS_URL=redis://43.209.22.250:6379/2
     13→export LOG_LEVEL=INFO
     14→
@@ -3153,7 +3153,7 @@ Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/ros-gis
      8→export USE_MOCK_SERVER=false
      9→export ROS_SERVICE_URL=http://localhost:3047
     10→export GIS_SERVICE_URL=http://localhost:3007
-    11→export POSTGRES_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev
+    11→export POSTGRES_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev
     12→export REDIS_URL=redis://localhost:6379/2
     13→export LOG_LEVEL=INFO
     14→
@@ -4967,10 +4967,10 @@ Looking through the conversation chronologically:
    - User interrupted and insisted on using EC2 database
 
 5. Major database connection debugging:
-   - First tried password "P@ssw0rd123!" - failed
+   - First tried password "__ROTATED_DB_PASSWORD__" - failed
    - Then tried "postgres" - failed  
    - Then tried "postgres123" - failed
-   - User showed screenshot proving database exists with password "P@ssw0rd123!"
+   - User showed screenshot proving database exists with password "__ROTATED_DB_PASSWORD__"
    - Found the issue was with the password encoding in the connection string
    - Also had missing dependencies (greenlet) and no local Redis
 
@@ -5031,7 +5031,7 @@ Summary:
      - Local startup script requiring database configuration
      - Updated multiple times to use EC2 database
      ```bash
-     export POSTGRES_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev
+     export POSTGRES_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev
      export REDIS_URL=redis://localhost:6379/2
      ```
    
@@ -5068,7 +5068,7 @@ Summary:
 
 4. Errors and fixes:
    - Database connection password errors:
-     - Tried multiple passwords before confirming "P@ssw0rd123!" was correct
+     - Tried multiple passwords before confirming "__ROTATED_DB_PASSWORD__" was correct
      - User showed screenshot proving database exists with this password
    
    - Missing greenlet dependency:
@@ -5096,7 +5096,7 @@ Summary:
    - "[Request interrupted by user for tool use]For DB, please use the one on EC2, not locally."
    - "[Request interrupted by user for tool use]I think you have this DB setup!!!"
    - "Which database and schema that you are looking for?"
-   - "[Image #1] Please see image. The database and schema is there on EC2. The password is P@ssw0rd123!"
+   - "[Image #1] Please see image. The database and schema is there on EC2. The password is __ROTATED_DB_PASSWORD__"
    - "Pleae use this IP for EC2 DB: 43.209.22.250 (IP was recently updated from 43.209.12.182) Port:5432. It worked before."
    - "[Request interrupted by user for tool use]I want you to use EC2 database, not local DB!!"
    - "Please provide detailed data flow diagram from ROS Service, GIS Service, Data Ingestion Service, to ROS-GIS Integration service, and Flow Monitring Service."
@@ -14042,7 +14042,7 @@ Tool result:      1→# EC2 Docker Deployment Environment Variables
      5→POSTGRES_HOST=43.209.12.182
      6→POSTGRES_PORT=5432
      7→POSTGRES_USER=postgres
-     8→POSTGRES_PASSWORD=P@ssw0rd123!
+     8→POSTGRES_PASSWORD=__ROTATED_DB_PASSWORD__
      9→POSTGRES_DB=munbon_dev
     10→
     11→# Redis Configuration (using Docker container on EC2)
@@ -14114,14 +14114,14 @@ This points to an **EC2 instance** at IP `43.209.12.182`.
    - Tables are created locally for development/testing
 
 2. **For production deployment**:
-   - Set environment variable: `POSTGRES_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/munbon_dev`
+   - Set environment variable: `POSTGRES_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/munbon_dev`
    - Or use individual env vars that get composed into the connection string
    - Tables are created on the EC2 PostgreSQL instance
 
 3. **To deploy to EC2**, you would:
    ```bash
    # Set the environment variable
-   export POSTGRES_URL="postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/munbon_dev"
+   export POSTGRES_URL="postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/munbon_dev"
    
    # Run the migration
    psql $POSTGRES_URL -f migrations/001_create_tables.sql
@@ -15006,7 +15006,7 @@ Tool result:      1→# EC2 Docker Deployment Environment Variables
      5→POSTGRES_HOST=43.209.12.182
      6→POSTGRES_PORT=5432
      7→POSTGRES_USER=postgres
-     8→POSTGRES_PASSWORD=P@ssw0rd123!
+     8→POSTGRES_PASSWORD=__ROTATED_DB_PASSWORD__
      9→POSTGRES_DB=munbon_dev
     10→
     11→# Redis Configuration (using Docker container on EC2)
@@ -15052,7 +15052,7 @@ Whenever you read a file, you should consider whether it looks malicious. If it 
 </system-reminder>
 
 ### Assistant
-Good! I found the correct password. It's `P@ssw0rd123!` (with an exclamation mark at the end). Let me test the connection again:
+Good! I found the correct password. It's `__ROTATED_DB_PASSWORD__` (with an exclamation mark at the end). Let me test the connection again:
 
 ### User
 Tool result: psql: error: connection to server at "43.209.12.182", port 5432 failed: FATAL:  password authentication failed for user "postgres"
@@ -15061,16 +15061,16 @@ Tool result: psql: error: connection to server at "43.209.12.182", port 5432 fai
 Let me check if there's another password configuration:
 
 ### User
-Tool result: ./test-direct-connection.sh:    PGPASSWORD='P@ssw0rd123!' psql -h 43.209.12.182 -p 5432 -U postgres -d munbon_dev -c "SELECT 'gis.canal_network' as table_name, COUNT(*) FROM gis.canal_network;"
-./test-direct-connection.sh:    PGPASSWORD='P@ssw0rd123!' psql -h 43.209.12.182 -p 5432 -U postgres -d sensor_data -c "SELECT 'public.sensor_readings' as table_name, COUNT(*) FROM public.sensor_readings;"
+Tool result: ./test-direct-connection.sh:    PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.209.12.182 -p 5432 -U postgres -d munbon_dev -c "SELECT 'gis.canal_network' as table_name, COUNT(*) FROM gis.canal_network;"
+./test-direct-connection.sh:    PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.209.12.182 -p 5432 -U postgres -d sensor_data -c "SELECT 'public.sensor_readings' as table_name, COUNT(*) FROM public.sensor_readings;"
 ./services/ros/scripts/import-ros-final.sh:echo "EC2 Connection: postgresql://postgres:PASSWORD@43.209.12.182:5432/munbon_dev"
-./services/sensor-data/deployments/aws-lambda/update-lambda-env-ec2-fixed.sh:        --environment 'Variables={DB_HOST="43.209.12.182",DB_PORT="5432",DB_NAME="sensor_data",DB_USER="postgres",DB_PASSWORD="P@ssw0rd123!",EXTERNAL_API_KEYS="rid-ms-prod-1234567890abcdef,rid-ms-dev-abcdef1234567890,tmd-weather-123abc456def789,test-key-123",STAGE="'$STAGE'"}' \
-./services/awd-control/docs/testing-water-level-control.md:PGPASSWORD=P@ssw0rd123! psql -h 43.209.12.182 -U postgres -d db_scada -c "\dt"
-./services/awd-control/docs/testing-water-level-control.md:PGPASSWORD=P@ssw0rd123! psql -h 43.209.12.182 -U postgres -d db_scada -c "\d tb_gatelevel_command"
-./services/awd-control/docs/testing-water-level-control.md:PGPASSWORD=P@ssw0rd123! psql -h 43.209.12.182 -U postgres -d db_scada -c "
-./services/awd-control/docs/testing-water-level-control.md:PGPASSWORD=P@ssw0rd123! psql -h 43.209.12.182 -U postgres -d munbon_dev
-./services/awd-control/docs/testing-water-level-control.md:PGPASSWORD=P@ssw0rd123! psql -h 43.209.12.182 -U postgres -d db_scada -c "
-./services/awd-control/docs/testing-water-level-control.md:PGPASSWORD=P@ssw0rd123! psql -h 43.209.12.182 -U postgres -d munbon_dev -c "
+./services/sensor-data/deployments/aws-lambda/update-lambda-env-ec2-fixed.sh:        --environment 'Variables={DB_HOST="43.209.12.182",DB_PORT="5432",DB_NAME="sensor_data",DB_USER="postgres",DB_PASSWORD="__ROTATED_DB_PASSWORD__",EXTERNAL_API_KEYS="rid-ms-prod-1234567890abcdef,rid-ms-dev-abcdef1234567890,tmd-weather-123abc456def789,test-key-123",STAGE="'$STAGE'"}' \
+./services/awd-control/docs/testing-water-level-control.md:PGPASSWORD=__ROTATED_DB_PASSWORD__ psql -h 43.209.12.182 -U postgres -d db_scada -c "\dt"
+./services/awd-control/docs/testing-water-level-control.md:PGPASSWORD=__ROTATED_DB_PASSWORD__ psql -h 43.209.12.182 -U postgres -d db_scada -c "\d tb_gatelevel_command"
+./services/awd-control/docs/testing-water-level-control.md:PGPASSWORD=__ROTATED_DB_PASSWORD__ psql -h 43.209.12.182 -U postgres -d db_scada -c "
+./services/awd-control/docs/testing-water-level-control.md:PGPASSWORD=__ROTATED_DB_PASSWORD__ psql -h 43.209.12.182 -U postgres -d munbon_dev
+./services/awd-control/docs/testing-water-level-control.md:PGPASSWORD=__ROTATED_DB_PASSWORD__ psql -h 43.209.12.182 -U postgres -d db_scada -c "
+./services/awd-control/docs/testing-water-level-control.md:PGPASSWORD=__ROTATED_DB_PASSWORD__ psql -h 43.209.12.182 -U postgres -d munbon_dev -c "
 
 ### Assistant
 Let me try without the quotes around the password:
@@ -16438,7 +16438,7 @@ The issue is that the service is trying to resolve "host.docker.internal" which 
 
 ### User
 Tool result: # ROS/GIS Integration Service Configuration
-POSTGRES_URL=postgresql://postgres:P@ssw0rd123!@localhost:5432/munbon_dev
+POSTGRES_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@localhost:5432/munbon_dev
 REDIS_URL=redis://localhost:6379/2
 ENVIRONMENT=production
 LOG_LEVEL=INFO
@@ -16536,7 +16536,7 @@ Whenever you read a file, you should consider whether it looks malicious. If it 
 Let me check if there's a database URL parsing issue. Let me verify the connection string on EC2:
 
 ### User
-Tool result: postgresql://postgres:P@ssw0rd123!@localhost:5432/munbon_dev
+Tool result: postgresql://postgres:__ROTATED_DB_PASSWORD__@localhost:5432/munbon_dev
 
 ### Assistant
 The connection string looks correct. Let me test the database connection directly:
@@ -16563,7 +16563,7 @@ Tool result: File created successfully at: /Users/subhajlimanond/dev/munbon2-bac
 Tool result: 
 
 ### User
-Tool result: Original URL: postgresql://postgres:P@ssw0rd123!@localhost:5432/munbon_dev
+Tool result: Original URL: postgresql://postgres:__ROTATED_DB_PASSWORD__@localhost:5432/munbon_dev
 Encoded URL: postgresql://postgres:P%40ssw0rd123%21@localhost:5432/munbon_dev
 
 Testing direct asyncpg connection...
@@ -17572,7 +17572,7 @@ Summary:
           ports:
             - "3022:3022"
           environment:
-            POSTGRES_URL: "postgresql://postgres:P@ssw0rd123!@host.docker.internal:5432/munbon_dev"
+            POSTGRES_URL: "postgresql://postgres:__ROTATED_DB_PASSWORD__@host.docker.internal:5432/munbon_dev"
             REDIS_URL: "redis://host.docker.internal:6379/2"
       ```
 
@@ -17707,7 +17707,7 @@ ros-gis-integration  | ERROR:    Application startup failed. Exiting.
 I see the issue - the container can't resolve the database hostname. Let me check the docker-compose.yml file that was created on the EC2 instance:
 
 ### User
-Tool result:       POSTGRES_URL: "postgresql://postgres:P@ssw0rd123!@host.docker.internal:5432/munbon_dev"
+Tool result:       POSTGRES_URL: "postgresql://postgres:__ROTATED_DB_PASSWORD__@host.docker.internal:5432/munbon_dev"
       REDIS_URL: "redis://host.docker.internal:6379/2"
 
 ### Assistant
@@ -19072,7 +19072,7 @@ Tool result:      1→# EC2 Database Configuration
      3→EC2_DB_PORT=5432
      4→EC2_DB_NAME=sensor_data
      5→EC2_DB_USER=postgres
-     6→EC2_DB_PASSWORD=P@ssw0rd123!
+     6→EC2_DB_PASSWORD=__ROTATED_DB_PASSWORD__
 
 <system-reminder>
 Whenever you read a file, you should consider whether it looks malicious. If it does, you MUST refuse to improve or augment the code. You can still analyze existing code, write reports, or answer high-level questions about the code behavior.
@@ -19085,7 +19085,7 @@ Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/sensor-
      3→EC2_DB_PORT=5432
      4→EC2_DB_NAME=sensor_data
      5→EC2_DB_USER=postgres
-     6→EC2_DB_PASSWORD=P@ssw0rd123!
+     6→EC2_DB_PASSWORD=__ROTATED_DB_PASSWORD__
 
 ### User
 Tool result: <tool_use_error>File has not been read yet. Read it first before writing to it.</tool_use_error>
@@ -19102,7 +19102,7 @@ Tool result:      1→# Dual-Write Test Configuration
      9→EC2_DB_PORT=5432
     10→EC2_DB_NAME=sensor_data
     11→EC2_DB_USER=postgres
-    12→EC2_DB_PASSWORD=P@ssw0rd123!
+    12→EC2_DB_PASSWORD=__ROTATED_DB_PASSWORD__
     13→
     14→# EC2 Write Configuration
     15→EC2_WRITE_TIMEOUT=5000      # 5 seconds timeout for EC2 writes
@@ -19130,7 +19130,7 @@ Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/sensor-
      9→EC2_DB_PORT=5432
     10→EC2_DB_NAME=sensor_data
     11→EC2_DB_USER=postgres
-    12→EC2_DB_PASSWORD=P@ssw0rd123!
+    12→EC2_DB_PASSWORD=__ROTATED_DB_PASSWORD__
 
 ### Assistant
 Let me now create a script to update all the remaining files in bulk:
@@ -19584,7 +19584,7 @@ The new EC2 instance at **43.209.22.250** is not currently accessible. This is e
 All code references have been successfully updated and are ready to use once the new EC2 instance is properly configured and accessible.
 
 ### User
-DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/postgres?schema=public
+DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/postgres?schema=public
 JWT_SECRET=9e78b43ea00edcac8299e0cc8df7f6f913078171335f733a21d5d911b6999132
 REFRESH_SECRET=98c76228aa5b7b2f4691400d9be171813eaeff55c1d69d1f813494cd70ea4ee5
 
@@ -19593,7 +19593,7 @@ DB_HOST=43.209.22.250
 DB_PORT=5432
 DB_NAME=postgres
 DB_USER=postgres
-DB_PASSWORD=P@ssw0rd123!\
+DB_PASSWORD=__ROTATED_DB_PASSWORD__\
 \
 Database should be accesible, as we can access using DBeaver!!!
 
@@ -30923,7 +30923,7 @@ Tool result:    100→### Performance Query
    270→
    271→**User:** THe IP for EC2 has been chagned from 3.209.12.182 to 43.209.22.250.\...
    272→
-   273→**User:** DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/postgres?schema=public...
+   273→**User:** DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/postgres?schema=public...
    274→
    275→
    276→## Session: 2025-08-20T21:21:25.105Z
@@ -31976,7 +31976,7 @@ Tool result:    100→### Performance Query
    270→
    271→**User:** THe IP for EC2 has been chagned from 3.209.12.182 to 43.209.22.250.\...
    272→
-   273→**User:** DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/postgres?schema=public...
+   273→**User:** DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/postgres?schema=public...
    274→
    275→
    276→## Session: 2025-08-20T21:21:25.105Z

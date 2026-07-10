@@ -1440,12 +1440,12 @@ TIMESCALE_HOST: 43.208.201.191
 TIMESCALE_PORT: 5432
 TIMESCALE_DB: sensor_data
 TIMESCALE_USER: postgres
-TIMESCALE_PASSWORD: P@ssw0rd123!
+TIMESCALE_PASSWORD: __ROTATED_DB_PASSWORD__
 EC2_DB_HOST: 43.208.201.191
 EC2_DB_PORT: 5432
 EC2_DB_NAME: sensor_data
 EC2_DB_USER: postgres
-EC2_DB_PASSWORD: P@ssw0rd123!",
+EC2_DB_PASSWORD: __ROTATED_DB_PASSWORD__",
     "is_error": false
   }
 ]
@@ -1692,7 +1692,7 @@ async function processWaterLevelData(messageBody) {
     "tool_use_id": "toolu_01UXmq8diLnNu4Hwoicu7P7c",
     "type": "tool_result",
     "content": "  DB_USER: process.env.EC2_DB_USER || 'postgres',
-  DB_PASSWORD: process.env.EC2_DB_PASSWORD || 'P@ssw0rd123!'
+  DB_PASSWORD: process.env.EC2_DB_PASSWORD || '__ROTATED_DB_PASSWORD__'
   user: config.DB_USER,
   password: config.DB_PASSWORD,",
     "is_error": false
@@ -5360,7 +5360,7 @@ Messages:    10044 | File: 84fc36c7-9d93-4d37-900f-62e8166cd159
 
 **User:** THe IP for EC2 has been chagned from 43.209.12.182 to 43.209.22.250.\...
 
-**User:** DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/postgres?schema=public...
+**User:** DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/postgres?schema=public...
 
 
 ## Session: 2025-08-19T08:19:31.331Z
@@ -13290,7 +13290,7 @@ Tool result:      1→# EC2 Docker Deployment Environment Variables
      5→POSTGRES_HOST=43.209.12.182
      6→POSTGRES_PORT=5432
      7→POSTGRES_USER=postgres
-     8→POSTGRES_PASSWORD=P@ssw0rd123!
+     8→POSTGRES_PASSWORD=__ROTATED_DB_PASSWORD__
      9→POSTGRES_DB=munbon_dev
     10→
     11→# Redis Configuration (using Docker container on EC2)
@@ -13352,7 +13352,7 @@ Tool result:      1→NODE_ENV=production
      5→TIMESCALE_PORT=5432
      6→TIMESCALE_DB=sensor_data
      7→TIMESCALE_USER=postgres
-     8→TIMESCALE_PASSWORD=P@ssw0rd123!
+     8→TIMESCALE_PASSWORD=__ROTATED_DB_PASSWORD__
      9→REDIS_HOST=redis
     10→REDIS_PORT=6379
     11→MQTT_PORT=1883
@@ -13385,12 +13385,12 @@ Tool result: psql: error: connection to server at "43.209.12.182", port 5432 fai
 ### User
 Tool result: /Users/subhajlimanond/dev/munbon2-backend/test-direct-connection.sh-    # Test munbon_dev
 /Users/subhajlimanond/dev/munbon2-backend/test-direct-connection.sh-    echo "=== Testing munbon_dev database ==="
-/Users/subhajlimanond/dev/munbon2-backend/test-direct-connection.sh:    PGPASSWORD='P@ssw0rd123!' psql -h 43.209.12.182 -p 5432 -U postgres -d munbon_dev -c "SELECT 'gis.canal_network' as table_name, COUNT(*) FROM gis.canal_network;"
+/Users/subhajlimanond/dev/munbon2-backend/test-direct-connection.sh:    PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.209.12.182 -p 5432 -U postgres -d munbon_dev -c "SELECT 'gis.canal_network' as table_name, COUNT(*) FROM gis.canal_network;"
 /Users/subhajlimanond/dev/munbon2-backend/test-direct-connection.sh-    
 /Users/subhajlimanond/dev/munbon2-backend/test-direct-connection.sh-    # Test sensor_data
 /Users/subhajlimanond/dev/munbon2-backend/test-direct-connection.sh-    echo ""
 /Users/subhajlimanond/dev/munbon2-backend/test-direct-connection.sh-    echo "=== Testing sensor_data database ==="
-/Users/subhajlimanond/dev/munbon2-backend/test-direct-connection.sh:    PGPASSWORD='P@ssw0rd123!' psql -h 43.209.12.182 -p 5432 -U postgres -d sensor_data -c "SELECT 'public.sensor_readings' as table_name, COUNT(*) FROM public.sensor_readings;"
+/Users/subhajlimanond/dev/munbon2-backend/test-direct-connection.sh:    PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.209.12.182 -p 5432 -U postgres -d sensor_data -c "SELECT 'public.sensor_readings' as table_name, COUNT(*) FROM public.sensor_readings;"
 /Users/subhajlimanond/dev/munbon2-backend/test-direct-connection.sh-else
 /Users/subhajlimanond/dev/munbon2-backend/test-direct-connection.sh-    echo "psql not found, using Python..."
 
@@ -18031,7 +18031,7 @@ Tool result:      1→# Dual-Write Implementation Summary
     17→  EC2_DB_PORT=5432
     18→  EC2_DB_NAME=sensor_data
     19→  EC2_DB_USER=postgres
-    20→  EC2_DB_PASSWORD=P@ssw0rd123!
+    20→  EC2_DB_PASSWORD=__ROTATED_DB_PASSWORD__
     21→  ```
     22→
     23→### 3. EC2 Database Fixes
@@ -18140,7 +18140,7 @@ Tool result:      1→# EC2 IP Address Update Complete
     29→
     30→1. **Test Database Connection**:
     31→```bash
-    32→PGPASSWORD='P@ssw0rd123!' psql -h 43.209.22.250 -U postgres -d sensor_data -c "SELECT version();"
+    32→PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.209.22.250 -U postgres -d sensor_data -c "SELECT version();"
     33→```
     34→
     35→2. **Restart Services** (if running):
@@ -19546,7 +19546,7 @@ Whenever you read a file, you should consider whether it looks malicious. If it 
 Let me check the .env file or database connection details:
 
 ### User
-Tool result: .env:DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/munbon_dev?schema=gis
+Tool result: .env:DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/munbon_dev?schema=gis
 .env:GIS_SCHEMA=gis
 .env.backup.20250725_074253:DATABASE_URL=postgresql://postgres:postgres@localhost:5434/munbon_dev
 .env.example:DATABASE_URL=postgresql://postgres:postgres@localhost:5432/munbon_gis
@@ -19643,7 +19643,7 @@ Let me check if the GIS service is actually running and what database it's reall
 Tool result: 
 
 ### User
-Tool result: DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/munbon_dev?schema=gis
+Tool result: DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/munbon_dev?schema=gis
 
 ### Assistant
 So the GIS service is configured to use `munbon_dev` on EC2, but locally we have `munbon_gis`. Let me check what's in the local `munbon_gis` database:
@@ -20764,10 +20764,10 @@ You're absolutely right! I do have the EC2 PostgreSQL password from the codebase
 Tool result: 
 
 ### User
-Tool result: DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/munbon_dev?schema=gis
+Tool result: DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/munbon_dev?schema=gis
 
 ### Assistant
-Perfect! The password is `P@ssw0rd123!`. Let me test the connection and then run the migration:
+Perfect! The password is `__ROTATED_DB_PASSWORD__`. Let me test the connection and then run the migration:
 
 ### User
 Tool result: psql: error: connection to server at "43.209.12.182", port 5432 failed: FATAL:  password authentication failed for user "postgres"
@@ -20924,7 +20924,7 @@ Tool result:      1→# Dual-Write Test Configuration
      9→EC2_DB_PORT=5432
     10→EC2_DB_NAME=sensor_data
     11→EC2_DB_USER=postgres
-    12→EC2_DB_PASSWORD=P@ssw0rd123!
+    12→EC2_DB_PASSWORD=__ROTATED_DB_PASSWORD__
     13→
     14→# EC2 Write Configuration
     15→EC2_WRITE_TIMEOUT=5000      # 5 seconds timeout for EC2 writes
@@ -21231,7 +21231,7 @@ Tool result: Todos have been modified successfully. Ensure that you continue to 
 ### 3. Checking GIS Service (GeoPackage)
 
 ### User
-Tool result: DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.12.182:5432/munbon_dev?schema=gis
+Tool result: DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.12.182:5432/munbon_dev?schema=gis
 
 ### User
 Tool result: 
@@ -21317,7 +21317,7 @@ Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/sensor-
     20→EC2_DB_PORT=5432
     21→EC2_DB_NAME=sensor_data
     22→EC2_DB_USER=postgres
-    23→EC2_DB_PASSWORD=P@ssw0rd123!
+    23→EC2_DB_PASSWORD=__ROTATED_DB_PASSWORD__
     24→
     25→# EC2 Write Configuration
     26→EC2_WRITE_TIMEOUT=5000      # 5 seconds timeout for EC2 writes
@@ -22034,7 +22034,7 @@ Summary:
       EC2_DB_PORT=5432
       EC2_DB_NAME=sensor_data
       EC2_DB_USER=postgres
-      EC2_DB_PASSWORD=P@ssw0rd123!
+      EC2_DB_PASSWORD=__ROTATED_DB_PASSWORD__
       ```
 
    - `/Users/subhajlimanond/dev/munbon2-backend/services/sensor-data/src/config/dual-write.config.ts`
@@ -22466,10 +22466,10 @@ Tool result: psql: error: connection to server at "43.209.12.182", port 5432 fai
 Let me check what password works:
 
 ### User
-Tool result: .env:EC2_DB_PASSWORD=P@ssw0rd123!
-.env.dual-write:EC2_DB_PASSWORD=P@ssw0rd123!
-.env.ec2:EC2_DB_PASSWORD=P@ssw0rd123!
-.env.local:EC2_DB_PASSWORD=P@ssw0rd123!
+Tool result: .env:EC2_DB_PASSWORD=__ROTATED_DB_PASSWORD__
+.env.dual-write:EC2_DB_PASSWORD=__ROTATED_DB_PASSWORD__
+.env.ec2:EC2_DB_PASSWORD=__ROTATED_DB_PASSWORD__
+.env.local:EC2_DB_PASSWORD=__ROTATED_DB_PASSWORD__
 
 ### User
 Tool result: File created successfully at: /Users/subhajlimanond/dev/munbon2-backend/services/sensor-data/fix-ec2-hypertables.sql
@@ -23086,7 +23086,7 @@ Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/sensor-
     20→EC2_DB_PORT=5432
     21→EC2_DB_NAME=sensor_data
     22→EC2_DB_USER=postgres
-    23→EC2_DB_PASSWORD=P@ssw0rd123!
+    23→EC2_DB_PASSWORD=__ROTATED_DB_PASSWORD__
     24→
     25→# EC2 Write Configuration
     26→EC2_WRITE_TIMEOUT=5000      # 5 seconds timeout for EC2 writes
@@ -23155,7 +23155,7 @@ Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/sensor-
     32→EC2_DB_PORT=5432
     33→EC2_DB_NAME=sensor_data
     34→EC2_DB_USER=postgres
-    35→EC2_DB_PASSWORD=P@ssw0rd123!
+    35→EC2_DB_PASSWORD=__ROTATED_DB_PASSWORD__
 
 ### Assistant
 Now let me update the TypeScript files in the scripts directory:
@@ -23178,7 +23178,7 @@ Tool result:      1→import { Client } from 'pg';
     12→    port: parseInt(process.env.EC2_DB_PORT || '5432'),
     13→    database: process.env.EC2_DB_NAME || 'sensor_data',
     14→    user: process.env.EC2_DB_USER || 'postgres',
-    15→    password: process.env.EC2_DB_PASSWORD || 'P@ssw0rd123!'
+    15→    password: process.env.EC2_DB_PASSWORD || '__ROTATED_DB_PASSWORD__'
     16→  });
     17→
     18→  try {
@@ -23329,7 +23329,7 @@ I have successfully updated all references from the old EC2 IP (43.209.12.182) t
 The new EC2 IP (43.209.22.250) is not responding yet to SSH, PostgreSQL, or HTTP connections. This is expected if the server is still being configured or migrated. Once the server is ready at the new IP, all services should connect automatically using the updated configuration.
 
 ### User
-DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/postgres?schema=public
+DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/postgres?schema=public
 JWT_SECRET=9e78b43ea00edcac8299e0cc8df7f6f913078171335f733a21d5d911b6999132
 REFRESH_SECRET=98c76228aa5b7b2f4691400d9be171813eaeff55c1d69d1f813494cd70ea4ee5
 
@@ -23338,7 +23338,7 @@ DB_HOST=43.209.22.250
 DB_PORT=5432
 DB_NAME=postgres
 DB_USER=postgres
-DB_PASSWORD=P@ssw0rd123!\
+DB_PASSWORD=__ROTATED_DB_PASSWORD__\
 \
 Database should be accesible, as we can access using DBeaver!!!
 
@@ -24343,7 +24343,7 @@ Tool result:      1→module.exports = {
    286→        SCADA_DB_PORT: 5432,
    287→        SCADA_DB_NAME: 'db_scada',
    288→        SCADA_DB_USER: 'postgres',
-   289→        SCADA_DB_PASSWORD: 'P@ssw0rd123!'
+   289→        SCADA_DB_PASSWORD: '__ROTATED_DB_PASSWORD__'
    290→      },
    291→      error_file: './logs/scada-integration-error.log',
    292→      out_file: './logs/scada-integration-out.log'
@@ -26923,12 +26923,12 @@ TIMESCALE_HOST: 43.208.201.191
 TIMESCALE_PORT: 5432
 TIMESCALE_DB: sensor_data
 TIMESCALE_USER: postgres
-TIMESCALE_PASSWORD: P@ssw0rd123!
+TIMESCALE_PASSWORD: __ROTATED_DB_PASSWORD__
 EC2_DB_HOST: 43.208.201.191
 EC2_DB_PORT: 5432
 EC2_DB_NAME: sensor_data
 EC2_DB_USER: postgres
-EC2_DB_PASSWORD: P@ssw0rd123!
+EC2_DB_PASSWORD: __ROTATED_DB_PASSWORD__
 
 ### User
 Tool result: Todos have been modified successfully. Ensure that you continue to use the todo list to track your progress. Please proceed with the current tasks if applicable
@@ -27065,7 +27065,7 @@ const config = {
   DB_PORT: parseInt(process.env.EC2_DB_PORT || '5432'),
   DB_NAME: process.env.EC2_DB_NAME || 'sensor_data',
   DB_USER: process.env.EC2_DB_USER || 'postgres',
-  DB_PASSWORD: process.env.EC2_DB_PASSWORD || 'P@ssw0rd123!'
+  DB_PASSWORD: process.env.EC2_DB_PASSWORD || '__ROTATED_DB_PASSWORD__'
 };
 
 // Validate AWS credentials
@@ -27209,7 +27209,7 @@ Tool result: psql: error: connection to server at "localhost" (127.0.0.1), port 
 
 ### User
 Tool result:   DB_USER: process.env.EC2_DB_USER || 'postgres',
-  DB_PASSWORD: process.env.EC2_DB_PASSWORD || 'P@ssw0rd123!'
+  DB_PASSWORD: process.env.EC2_DB_PASSWORD || '__ROTATED_DB_PASSWORD__'
   user: config.DB_USER,
   password: config.DB_PASSWORD,
 
@@ -27607,7 +27607,7 @@ const dbPool = new Pool({
   port: parseInt(process.env.DB_PORT || '5432'),
   database: process.env.DB_NAME || 'sensor_data',
   user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || 'P@ssw0rd123!',
+  password: process.env.DB_PASSWORD || '__ROTATED_DB_PASSWORD__',
   max: 10
 });
 
@@ -34809,7 +34809,7 @@ Tool result:      1→# Docker Services Status Report
     68→All 17 services have been configured with proper EC2 database connections:
     69→- Host: 43.209.22.250
     70→- Port: 5432 (consolidated PostgreSQL with TimescaleDB)
-    71→- Password: P@ssw0rd123!
+    71→- Password: __ROTATED_DB_PASSWORD__
     72→- Schemas: auth, gis, ros, awd, sensor_data, etc.
     73→
     74→## Next Steps
@@ -34983,12 +34983,12 @@ Tool result:      1→#!/bin/bash
      7→export TIMESCALE_PORT=5432
      8→export TIMESCALE_DB=sensor_data
      9→export TIMESCALE_USER=postgres
-    10→export TIMESCALE_PASSWORD=P@ssw0rd123!
+    10→export TIMESCALE_PASSWORD=__ROTATED_DB_PASSWORD__
     11→export EC2_DB_HOST=${EC2_HOST:-43.208.201.191}
     12→export EC2_DB_PORT=5432
     13→export EC2_DB_NAME=sensor_data
     14→export EC2_DB_USER=postgres
-    15→export EC2_DB_PASSWORD=P@ssw0rd123!
+    15→export EC2_DB_PASSWORD=__ROTATED_DB_PASSWORD__
     16→export AWS_REGION=ap-southeast-1
     17→export SQS_QUEUE_URL=https://sqs.ap-southeast-1.amazonaws.com/108728974441/munbon-sensor-ingestion-dev-queue
     18→
@@ -36651,7 +36651,7 @@ Testing consumer directly...
       "DB_PORT": 5432,
       "DB_NAME": "sensor_data",
       "DB_USER": "postgres",
-      "DB_PASSWORD": "P@ssw0rd123!"
+      "DB_PASSWORD": "__ROTATED_DB_PASSWORD__"
     }
 [23:14:13.914] [32mINFO[39m (860967): [36mConsumer stats available at http://localhost:3004/stats[39m
 [23:14:13.968] [32mINFO[39m (860967): [36mDatabase connected successfully[39m
@@ -36851,7 +36851,7 @@ Tool result:      1→const express = require('express');
     20→  port: parseInt(process.env.DB_PORT || '5432'),
     21→  database: process.env.DB_NAME || 'sensor_data',
     22→  user: process.env.DB_USER || 'postgres',
-    23→  password: process.env.DB_PASSWORD || 'P@ssw0rd123!',
+    23→  password: process.env.DB_PASSWORD || '__ROTATED_DB_PASSWORD__',
     24→  max: 10
     25→});
     26→
@@ -37436,7 +37436,7 @@ Testing consumer directly for 5 seconds...
       "DB_PORT": 5432,
       "DB_NAME": "sensor_data",
       "DB_USER": "postgres",
-      "DB_PASSWORD": "P@ssw0rd123!"
+      "DB_PASSWORD": "__ROTATED_DB_PASSWORD__"
     }
 [00:15:00.746] [32mINFO[39m (894622): [36mConsumer stats available at http://localhost:3004/stats[39m
 [00:15:00.831] [32mINFO[39m (894622): [36mDatabase connected successfully[39m
@@ -39211,7 +39211,7 @@ Tool result:             },
             "OpenStdin": false,
             "StdinOnce": false,
             "Env": [
-                "POSTGRES_PASSWORD=P@ssw0rd123!",
+                "POSTGRES_PASSWORD=__ROTATED_DB_PASSWORD__",
                 "POSTGRES_DB=gisdb",
                 "POSTGRES_USER=postgres",
                 "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/lib/postgresql/16/bin",
@@ -40512,7 +40512,7 @@ Tool result:      1→# Dual-Write Test Configuration
      9→EC2_DB_PORT=5432
     10→EC2_DB_NAME=sensor_data
     11→EC2_DB_USER=postgres
-    12→EC2_DB_PASSWORD=P@ssw0rd123!
+    12→EC2_DB_PASSWORD=__ROTATED_DB_PASSWORD__
     13→
     14→# EC2 Write Configuration
     15→EC2_WRITE_TIMEOUT=5000      # 5 seconds timeout for EC2 writes
@@ -40562,7 +40562,7 @@ Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/sensor-
     25→EC2_DB_PORT=5432
     26→EC2_DB_NAME=sensor_data
     27→EC2_DB_USER=postgres
-    28→EC2_DB_PASSWORD=P@ssw0rd123!
+    28→EC2_DB_PASSWORD=__ROTATED_DB_PASSWORD__
     29→
     30→# EC2 Write Configuration
     31→EC2_WRITE_TIMEOUT=5000      # 5 seconds timeout for EC2 writes
@@ -41559,7 +41559,7 @@ Summary:
       EC2_DB_PORT=5432
       EC2_DB_NAME=sensor_data
       EC2_DB_USER=postgres
-      EC2_DB_PASSWORD=P@ssw0rd123!
+      EC2_DB_PASSWORD=__ROTATED_DB_PASSWORD__
       ```
 
    - `/services/sensor-data/scripts/verify-table-structures.ts`
@@ -41574,7 +41574,7 @@ Summary:
 
 4. Errors and fixes:
    - **EC2 password authentication failed**:
-     - Found password in Docker container: `P@ssw0rd123!`
+     - Found password in Docker container: `__ROTATED_DB_PASSWORD__`
      - Created `.env.ec2` file with correct credentials
    
    - **Consumer not reading .env.local**:
@@ -44788,7 +44788,7 @@ Tool result: EC2_DB_HOST=43.209.12.182
 EC2_DB_PORT=5432
 EC2_DB_NAME=sensor_data
 EC2_DB_USER=postgres
-EC2_DB_PASSWORD=P@ssw0rd123!
+EC2_DB_PASSWORD=__ROTATED_DB_PASSWORD__
 
 ### User
 Tool result: psql: error: connection to server at "43.209.12.182", port 5432 failed: FATAL:  password authentication failed for user "postgres"
@@ -45648,7 +45648,7 @@ Summary:
       EC2_DB_PORT=5432
       EC2_DB_NAME=sensor_data
       EC2_DB_USER=postgres
-      EC2_DB_PASSWORD=P@ssw0rd123!
+      EC2_DB_PASSWORD=__ROTATED_DB_PASSWORD__
       ```
 
    - `/services/sensor-data/scripts/fix-ec2-hypertables.ts`
@@ -45661,7 +45661,7 @@ Summary:
 
 4. Errors and fixes:
    - **EC2 password authentication failed**:
-     - Fixed by finding correct password in Docker container: `P@ssw0rd123!`
+     - Fixed by finding correct password in Docker container: `__ROTATED_DB_PASSWORD__`
      - User feedback: "Please use existing configuration"
    
    - **Consumer not loading .env.local**:
@@ -46019,7 +46019,7 @@ Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/sensor-
     14→    port: 5432,
     15→    database: 'sensor_data',
     16→    user: 'postgres',
-    17→    password: 'P@ssw0rd123!'
+    17→    password: '__ROTATED_DB_PASSWORD__'
     18→  });
     19→
     20→  try {
@@ -46215,7 +46215,7 @@ Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/sensor-
     14→    port: 5432,
     15→    database: 'sensor_data',
     16→    user: 'postgres',
-    17→    password: 'P@ssw0rd123!'
+    17→    password: '__ROTATED_DB_PASSWORD__'
     18→  });
     19→
     20→  try {
@@ -53452,7 +53452,7 @@ Looking through the conversation chronologically:
    - Auto-registration for sensors to handle FK constraints
 
 4. **Multiple Issues and Fixes**:
-   - EC2 password authentication failures → found correct password: P@ssw0rd123!
+   - EC2 password authentication failures → found correct password: __ROTATED_DB_PASSWORD__
    - Consumer not loading .env.local → fixed path in consumer/main.ts
    - Port conflicts with PM2 → killed PM2 process on port 3004
    - EC2 hypertable insert blockers → removed triggers and converted to proper hypertables
@@ -53612,7 +53612,7 @@ Summary:
 
 4. Errors and fixes:
    - **EC2 password authentication failed**:
-     - Fixed by finding correct password in Docker container: `P@ssw0rd123!`
+     - Fixed by finding correct password in Docker container: `__ROTATED_DB_PASSWORD__`
      - User feedback: "Please use existing configuration"
    
    - **Consumer not loading .env.local**:
@@ -54954,7 +54954,7 @@ Tool result:     30→# EC2 Database Configuration
     32→EC2_DB_PORT=5432
     33→EC2_DB_NAME=sensor_data
     34→EC2_DB_USER=postgres
-    35→EC2_DB_PASSWORD=P@ssw0rd123!
+    35→EC2_DB_PASSWORD=__ROTATED_DB_PASSWORD__
     36→
     37→# EC2 Write Configuration
     38→EC2_WRITE_TIMEOUT=5000      # 5 seconds timeout for EC2 writes
@@ -62884,10 +62884,10 @@ Tool result: const dbPool = new Pool({
   port: parseInt(process.env.DB_PORT || '5432'),
   database: process.env.DB_NAME || 'sensor_data',
   user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || 'P@ssw0rd123!',
+  password: process.env.DB_PASSWORD || '__ROTATED_DB_PASSWORD__',
 
 ### Assistant
-So it's using password `P@ssw0rd123!`. Let me try again with this password:
+So it's using password `__ROTATED_DB_PASSWORD__`. Let me try again with this password:
 
 ### User
 Tool result: psql: error: connection to server at "43.208.201.191", port 5432 failed: FATAL:  password authentication failed for user "postgres"
@@ -64067,10 +64067,10 @@ Tool result:  61700→/home/ubuntu/munbon2-backend/services/sensor-data/logs/con
  62835→  port: parseInt(process.env.DB_PORT || '5432'),
  62836→  database: process.env.DB_NAME || 'sensor_data',
  62837→  user: process.env.DB_USER || 'postgres',
- 62838→  password: process.env.DB_PASSWORD || 'P@ssw0rd123!',
+ 62838→  password: process.env.DB_PASSWORD || '__ROTATED_DB_PASSWORD__',
  62839→
  62840→### Assistant
- 62841→So it's using password `P@ssw0rd123!`. Let me try again with this password:
+ 62841→So it's using password `__ROTATED_DB_PASSWORD__`. Let me try again with this password:
  62842→
  62843→### User
  62844→Tool result: psql: error: connection to server at "43.208.201.191", port 5432 failed: FATAL:  password authentication failed for user "postgres"
@@ -64978,7 +64978,7 @@ Tool result: module.exports = {
       DB_PORT: 5432,
       DB_NAME: 'sensor_data',
       DB_USER: 'postgres',
-      DB_PASSWORD: 'P@ssw0rd123!',
+      DB_PASSWORD: '__ROTATED_DB_PASSWORD__',
       NODE_ENV: 'production'
     },
     instances: 1,
@@ -65018,7 +65018,7 @@ const dbPool = new Pool({
   port: parseInt(process.env.DB_PORT || '5432'),
   database: process.env.DB_NAME || 'sensor_data',
   user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || 'P@ssw0rd123!',
+  password: process.env.DB_PASSWORD || '__ROTATED_DB_PASSWORD__',
   max: 10
 });
 

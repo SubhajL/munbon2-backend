@@ -17,7 +17,7 @@ EC2_DB_HOST=43.209.22.250
 EC2_DB_PORT=5432
 EC2_DB_NAME=sensor_data
 EC2_DB_USER=postgres
-EC2_DB_PASSWORD=P@ssw0rd123!
+EC2_DB_PASSWORD=__ROTATED_DB_PASSWORD__
 
 # EC2 Write Configuration
 EC2_WRITE_TIMEOUT=5000      # 5 seconds timeout for EC2 writes

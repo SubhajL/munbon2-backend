@@ -68,7 +68,7 @@ We successfully attempted to start all backend services using Docker containers 
 All 17 services have been configured with proper EC2 database connections:
 - Host: 43.209.22.250
 - Port: 5432 (consolidated PostgreSQL with TimescaleDB)
-- Password: P@ssw0rd123!
+- Password: __ROTATED_DB_PASSWORD__
 - Schemas: auth, gis, ros, awd, sensor_data, etc.
 
 ## Next Steps

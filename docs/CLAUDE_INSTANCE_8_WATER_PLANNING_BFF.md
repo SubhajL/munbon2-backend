@@ -81619,7 +81619,7 @@ Tool result:      1→"""
     19→POSTGRES_HOST = os.getenv("POSTGRES_HOST", os.environ.get('EC2_HOST', '43.208.201.191'))
     20→POSTGRES_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
     21→POSTGRES_USER = os.getenv("POSTGRES_USER", "postgres")
-    22→POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "P@ssw0rd123!")
+    22→POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "__ROTATED_DB_PASSWORD__")
     23→POSTGRES_DB = os.getenv("POSTGRES_DB", "munbon_dev")
     24→
     25→# Redis configuration
@@ -97950,7 +97950,7 @@ Tool result:      1→#!/bin/bash
      8→export USE_MOCK_SERVER=false
      9→export ROS_SERVICE_URL=http://localhost:3047
     10→export GIS_SERVICE_URL=http://localhost:3007
-    11→export POSTGRES_URL=postgresql://postgres:P@ssw0rd123!@${EC2_HOST:-43.208.201.191}:5432/munbon_dev
+    11→export POSTGRES_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@${EC2_HOST:-43.208.201.191}:5432/munbon_dev
     12→export REDIS_URL=redis://localhost:6379/2
     13→export LOG_LEVEL=INFO
     14→

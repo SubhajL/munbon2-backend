@@ -7,7 +7,7 @@
 
 **Changes:**
 - Removed hardcoded EC2 IP `43.208.201.191` from sensor-location-mapping service
-- Removed hardcoded SCADA password `P@ssw0rd123!` from scada-integration service
+- Removed hardcoded SCADA password `__ROTATED_DB_PASSWORD__` from scada-integration service
 - All credentials now read from environment variables via `process.env`
 - Updated `.env.example` with placeholders for all required secrets
 
@@ -142,7 +142,7 @@ npm test -- cache.spec.ts
 
 ### Immediate Actions (Critical)
 1. **Rotate Exposed Credentials:**
-   - SCADA database password (`P@ssw0rd123!` was in git)
+   - SCADA database password (`__ROTATED_DB_PASSWORD__` was in git)
    - EC2 host credentials (`43.208.201.191`)
    - Any database passwords referenced in pm2-ecosystem.config.js
 

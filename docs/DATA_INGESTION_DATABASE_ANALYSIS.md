@@ -32,7 +32,7 @@
    EC2_DB_PORT=5432
    EC2_DB_NAME=sensor_data
    EC2_DB_USER=postgres
-   EC2_DB_PASSWORD=P@ssw0rd123!
+   EC2_DB_PASSWORD=__ROTATED_DB_PASSWORD__
    ```
 
 ### Current Data Flow
@@ -51,7 +51,7 @@ Sensors → HTTP Endpoint (EC2) → SQS → Consumer → Local TimescaleDB ONLY
 ### Evidence
 1. Current `.env` configuration:
    ```
-   DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev?schema=gis
+   DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev?schema=gis
    ```
 
 2. No dual-write code exists in GIS service

@@ -4475,8 +4475,8 @@ I'll help you update all references to the EC2 IP address from 43.209.12.182 to 
 
 ### User
 Tool result: ./test-direct-connection.sh:echo "Host: 43.209.12.182"
-./test-direct-connection.sh:    PGPASSWORD='P@ssw0rd123!' psql -h 43.209.12.182 -p 5432 -U postgres -d munbon_dev -c "SELECT 'gis.canal_network' as table_name, COUNT(*) FROM gis.canal_network;"
-./test-direct-connection.sh:    PGPASSWORD='P@ssw0rd123!' psql -h 43.209.12.182 -p 5432 -U postgres -d sensor_data -c "SELECT 'public.sensor_readings' as table_name, COUNT(*) FROM public.sensor_readings;"
+./test-direct-connection.sh:    PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.209.12.182 -p 5432 -U postgres -d munbon_dev -c "SELECT 'gis.canal_network' as table_name, COUNT(*) FROM gis.canal_network;"
+./test-direct-connection.sh:    PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.209.12.182 -p 5432 -U postgres -d sensor_data -c "SELECT 'public.sensor_readings' as table_name, COUNT(*) FROM public.sensor_readings;"
 ./EC2_DEPLOYMENT_COMMANDS.md:Run these commands on your EC2 instance (43.209.12.182) to deploy the services:
 ./TH-LAB01-PEM-SETUP.md:gh secret set EC2_HOST -R SubhajL/munbon2-backend -b "43.209.12.182"
 ./TH-LAB01-PEM-SETUP.md:   - **EC2_HOST**: `43.209.12.182`
@@ -4497,8 +4497,8 @@ Tool result: ./test-direct-connection.sh:echo "Host: 43.209.12.182"
 
 ### User
 Tool result: ./test-direct-connection.sh:echo "Host: 43.209.12.182"
-./test-direct-connection.sh:    PGPASSWORD='P@ssw0rd123!' psql -h 43.209.12.182 -p 5432 -U postgres -d munbon_dev -c "SELECT 'gis.canal_network' as table_name, COUNT(*) FROM gis.canal_network;"
-./test-direct-connection.sh:    PGPASSWORD='P@ssw0rd123!' psql -h 43.209.12.182 -p 5432 -U postgres -d sensor_data -c "SELECT 'public.sensor_readings' as table_name, COUNT(*) FROM public.sensor_readings;"
+./test-direct-connection.sh:    PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.209.12.182 -p 5432 -U postgres -d munbon_dev -c "SELECT 'gis.canal_network' as table_name, COUNT(*) FROM gis.canal_network;"
+./test-direct-connection.sh:    PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.209.12.182 -p 5432 -U postgres -d sensor_data -c "SELECT 'public.sensor_readings' as table_name, COUNT(*) FROM public.sensor_readings;"
 ./setup-secrets-with-pem.sh:EC2_HOST="43.209.12.182"
 ./temp_shapefile_check/test_ec2_connection.js:            host: '43.209.12.182',
 ./temp_shapefile_check/test_ec2_connection.js:            host: '43.209.12.182',
@@ -4515,11 +4515,11 @@ Tool result: ./test-direct-connection.sh:echo "Host: 43.209.12.182"
 ./csv_exports/import_via_temp_table.sh:EC2_HOST="43.209.12.182"
 ./csv_exports/fix_timescale_import.sh:EC2_HOST="43.209.12.182"
 ./csv_exports/import_to_ec2.sh:EC2_HOST="43.209.12.182"
-./complete-verification.sql:-- Host: 43.209.12.182, Port: 5432, User: postgres, Password: P@ssw0rd123!
-./.claude/settings.local.json:      "Bash(PGPASSWORD='P@ssw0rd123!' psql -h 43.209.12.182 -p 5432 -U postgres -d sensor_data -c \"\\dn+\")",
+./complete-verification.sql:-- Host: 43.209.12.182, Port: 5432, User: postgres, Password: __ROTATED_DB_PASSWORD__
+./.claude/settings.local.json:      "Bash(PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.209.12.182 -p 5432 -U postgres -d sensor_data -c \"\\dn+\")",
 ./.claude/settings.local.json:      "Bash(PGHOST=43.209.12.182 PGPORT=5432 PGUSER=postgres PGPASSWORD=postgres123 PGDATABASE=munbon_dev psql -c \"SELECT version();\")",
-./.claude/settings.local.json:      "Bash(PGHOST=43.209.12.182 PGPORT=5432 PGUSER=postgres PGPASSWORD='P@ssw0rd123!' PGDATABASE=munbon_dev psql -f /tmp/gis_schema_dump.sql)",
-./.claude/settings.local.json:      "Bash(PGHOST=43.209.12.182 PGPORT=5432 PGUSER=postgres PGPASSWORD='P@ssw0rd123!' psql:*)",
+./.claude/settings.local.json:      "Bash(PGHOST=43.209.12.182 PGPORT=5432 PGUSER=postgres PGPASSWORD='__ROTATED_DB_PASSWORD__' PGDATABASE=munbon_dev psql -f /tmp/gis_schema_dump.sql)",
+./.claude/settings.local.json:      "Bash(PGHOST=43.209.12.182 PGPORT=5432 PGUSER=postgres PGPASSWORD='__ROTATED_DB_PASSWORD__' psql:*)",
 ./.claude/settings.local.json:      "Bash(# Monitor the HTTP endpoint in real-time for 30 seconds\nssh -i $HOME/dev/th-lab01.pem ubuntu@43.209.12.182 \"\"echo ''Monitoring moisture endpoint for 30 seconds...'' && timeout 30 tail -f /home/ubuntu/.pm2/logs/moisture-http-out.log | grep -E ''Received moisture data|sensor_id|gw_id'' || echo ''No new data received in 30 seconds''\"\")",
 ./.claude/settings.local.json:      "Bash(# Test from local machine\necho \"\"Testing endpoint accessibility from outside AWS:\"\"\ncurl -v http://43.209.12.182:8080/health --connect-timeout 5 2>&1 | grep -E ''Connected|HTTP|OK'')",
 ./test-exact-connection.py:    host='43.209.12.182',
@@ -4620,8 +4620,8 @@ Old IP: 43.209.22.250 (should not be found)
 
 1. Checking for old IP in files...
 ./test-direct-connection.sh:echo "Host: 43.209.22.250"
-./test-direct-connection.sh:    PGPASSWORD='P@ssw0rd123!' psql -h 43.209.22.250 -p 5432 -U postgres -d munbon_dev -c "SELECT 'gis.canal_network' as table_name, COUNT(*) FROM gis.canal_network;"
-./test-direct-connection.sh:    PGPASSWORD='P@ssw0rd123!' psql -h 43.209.22.250 -p 5432 -U postgres -d sensor_data -c "SELECT 'public.sensor_readings' as table_name, COUNT(*) FROM public.sensor_readings;"
+./test-direct-connection.sh:    PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.209.22.250 -p 5432 -U postgres -d munbon_dev -c "SELECT 'gis.canal_network' as table_name, COUNT(*) FROM gis.canal_network;"
+./test-direct-connection.sh:    PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.209.22.250 -p 5432 -U postgres -d sensor_data -c "SELECT 'public.sensor_readings' as table_name, COUNT(*) FROM public.sensor_readings;"
 ./EC2_DEPLOYMENT_COMMANDS.md:Run these commands on your EC2 instance (43.209.22.250) to deploy the services:
 ./TH-LAB01-PEM-SETUP.md:gh secret set EC2_HOST -R SubhajL/munbon2-backend -b "43.209.22.250"
 ./TH-LAB01-PEM-SETUP.md:   - **EC2_HOST**: `43.209.22.250`
@@ -4651,18 +4651,18 @@ Old IP: 43.209.22.250 (should not be found)
 ./EC2_DEPLOYMENT_QUICKSTART.md:scp -r /Users/subhajlimanond/dev/munbon2-backend/services/sensor-data user@43.209.22.250:~/munbon2-backend/services/
 ./EC2_DEPLOYMENT_QUICKSTART.md:curl http://43.209.22.250:3001/health
 ./EC2_DEPLOYMENT_QUICKSTART.md:curl http://43.209.22.250:3002
-./DATABASE_CONSOLIDATION_MAPPING.md:DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev?schema=auth
-./DATABASE_CONSOLIDATION_MAPPING.md:DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev?schema=gis
+./DATABASE_CONSOLIDATION_MAPPING.md:DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev?schema=auth
+./DATABASE_CONSOLIDATION_MAPPING.md:DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev?schema=gis
 ./DATABASE_CONSOLIDATION_MAPPING.md:DB_HOST=43.209.22.250
 ./DATABASE_CONSOLIDATION_MAPPING.md:TIMESCALE_HOST=43.209.22.250
 ./DATABASE_CONSOLIDATION_MAPPING.md:TIMESCALE_HOST=43.209.22.250
-./DATABASE_CONSOLIDATION_MAPPING.md:DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/sensor_data
-./DATABASE_CONSOLIDATION_MAPPING.md:TIMESCALE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/sensor_data
+./DATABASE_CONSOLIDATION_MAPPING.md:DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/sensor_data
+./DATABASE_CONSOLIDATION_MAPPING.md:TIMESCALE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/sensor_data
 ./DATABASE_CONSOLIDATION_MAPPING.md:POSTGRES_HOST=43.209.22.250
 ./DATABASE_CONSOLIDATION_MAPPING.md:TIMESCALE_HOST=43.209.22.250
 ./DATABASE_CONSOLIDATION_MAPPING.md:POSTGRES_HOST=43.209.22.250
-./DATABASE_CONSOLIDATION_MAPPING.md:DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev
-./DATABASE_CONSOLIDATION_MAPPING.md:TIMESCALE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/sensor_data
+./DATABASE_CONSOLIDATION_MAPPING.md:DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev
+./DATABASE_CONSOLIDATION_MAPPING.md:TIMESCALE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/sensor_data
 ./DATABASE_CONSOLIDATION_MAPPING.md:  POSTGRES_HOST: 43.209.22.250
 ./DATABASE_CONSOLIDATION_MAPPING.md:  TIMESCALE_HOST: 43.209.22.250
 ./DATABASE_CONSOLIDATION_MAPPING.md:   psql -h 43.209.22.250 -U postgres -c "\l"
@@ -4683,14 +4683,14 @@ Old IP: 43.209.22.250 (should not be found)
 ./K3S_DEPLOYMENT_GUIDE.md:   curl -sfL https://get.k3s.io | K3S_URL=https://43.209.22.250:6443 K3S_TOKEN=<token> sh -
 ./DATA_INGESTION_DATABASE_ANALYSIS.md:   EC2_DB_HOST=43.209.22.250
 ./DATA_INGESTION_DATABASE_ANALYSIS.md:- **Primary Database**: EC2 PostgreSQL (43.209.22.250:5432)
-./DATA_INGESTION_DATABASE_ANALYSIS.md:   DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev?schema=gis
+./DATA_INGESTION_DATABASE_ANALYSIS.md:   DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev?schema=gis
 ./pm2-ecosystem.config.js:        TIMESCALE_HOST: '43.209.22.250',
 ./pm2-ecosystem.config.js:        POSTGIS_HOST: '43.209.22.250',
-./complete-verification.sql:-- Host: 43.209.22.250, Port: 5432, User: postgres, Password: P@ssw0rd123!
-./.claude/settings.local.json:      "Bash(PGPASSWORD='P@ssw0rd123!' psql -h 43.209.22.250 -p 5432 -U postgres -d sensor_data -c \"\\dn+\")",
+./complete-verification.sql:-- Host: 43.209.22.250, Port: 5432, User: postgres, Password: __ROTATED_DB_PASSWORD__
+./.claude/settings.local.json:      "Bash(PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.209.22.250 -p 5432 -U postgres -d sensor_data -c \"\\dn+\")",
 ./.claude/settings.local.json:      "Bash(PGHOST=43.209.22.250 PGPORT=5432 PGUSER=postgres PGPASSWORD=postgres123 PGDATABASE=munbon_dev psql -c \"SELECT version();\")",
-./.claude/settings.local.json:      "Bash(PGHOST=43.209.22.250 PGPORT=5432 PGUSER=postgres PGPASSWORD='P@ssw0rd123!' PGDATABASE=munbon_dev psql -f /tmp/gis_schema_dump.sql)",
-./.claude/settings.local.json:      "Bash(PGHOST=43.209.22.250 PGPORT=5432 PGUSER=postgres PGPASSWORD='P@ssw0rd123!' psql:*)",
+./.claude/settings.local.json:      "Bash(PGHOST=43.209.22.250 PGPORT=5432 PGUSER=postgres PGPASSWORD='__ROTATED_DB_PASSWORD__' PGDATABASE=munbon_dev psql -f /tmp/gis_schema_dump.sql)",
+./.claude/settings.local.json:      "Bash(PGHOST=43.209.22.250 PGPORT=5432 PGUSER=postgres PGPASSWORD='__ROTATED_DB_PASSWORD__' psql:*)",
 ./.claude/settings.local.json:      "Bash(# Monitor the HTTP endpoint in real-time for 30 seconds\nssh -i $HOME/dev/th-lab01.pem ubuntu@43.209.22.250 \"\"echo ''Monitoring moisture endpoint for 30 seconds...'' && timeout 30 tail -f /home/ubuntu/.pm2/logs/moisture-http-out.log | grep -E ''Received moisture data|sensor_id|gw_id'' || echo ''No new data received in 30 seconds''\"\")",
 ./.claude/settings.local.json:      "Bash(# Test from local machine\necho \"\"Testing endpoint accessibility from outside AWS:\"\"\ncurl -v http://43.209.22.250:8080/health --connect-timeout 5 2>&1 | grep -E ''Connected|HTTP|OK'')",
 ./.claude/settings.local.json:      "Bash(AWS_REGION=ap-southeast-1 aws ssm put-parameter --name '/munbon/tunnel-url' --value 'http://43.209.22.250:3000' --type String --overwrite --output json)",
@@ -4793,7 +4793,7 @@ Old IP: 43.209.22.250 (should not be found)
 ./.github/workflows/deploy-ec2-fixed.yml:          echo "- GIS: http://43.209.22.250:3003"
 ./.github/workflows/deploy-flow-monitoring.yml:  EC2_HOST: 43.209.22.250
 ./EC2_IP_UPDATE_SUMMARY.md:- **New IP Address**: 43.209.22.250
-./EC2_IP_UPDATE_SUMMARY.md:   PGPASSWORD='P@ssw0rd123!' psql -h 43.209.22.250 -p 5432 -U postgres -d postgres -c "SELECT version();"
+./EC2_IP_UPDATE_SUMMARY.md:   PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.209.22.250 -p 5432 -U postgres -d postgres -c "SELECT version();"
 ./EC2_IP_UPDATE_SUMMARY.md:   - Update `EC2_HOST` secret in GitHub repository settings to: `43.209.22.250`
 ./EC2_IP_UPDATE_SUMMARY.md:   curl http://43.209.22.250:3003/health
 ./EC2_IP_UPDATE_SUMMARY.md:   curl http://43.209.22.250:8080/health
@@ -4834,7 +4834,7 @@ Old IP: 43.209.22.250 (should not be found)
 ./services/ros/scripts/migrate-ros-to-ec2-direct.sh:echo -e "${YELLOW}Target: 43.209.22.250:5432/munbon_dev${NC}"
 ./services/ros/scripts/import-ros-final.sh:EC2_HOST="43.209.22.250"
 ./services/ros/scripts/import-ros-final.sh:echo "EC2 Connection: postgresql://postgres:PASSWORD@43.209.22.250:5432/munbon_dev"
-./services/auth/.env:DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev?schema=auth
+./services/auth/.env:DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev?schema=auth
 ./services/sensor-location-mapping/deploy-to-ec2.sh:EC2_HOST="43.209.22.250"
 ./services/sensor-location-mapping/dist/config/database.js:    host: process.env.TIMESCALE_HOST || '43.209.22.250',
 ./services/sensor-location-mapping/dist/config/database.js:    host: process.env.POSTGIS_HOST || '43.209.22.250',
@@ -5172,7 +5172,7 @@ Tool result:      1→# EC2 IP Address Update Complete
     29→
     30→1. **Test Database Connection**:
     31→```bash
-    32→PGPASSWORD='P@ssw0rd123!' psql -h 43.209.22.250 -U postgres -d sensor_data -c "SELECT version();"
+    32→PGPASSWORD='__ROTATED_DB_PASSWORD__' psql -h 43.209.22.250 -U postgres -d sensor_data -c "SELECT version();"
     33→```
     34→
     35→2. **Restart Services** (if running):

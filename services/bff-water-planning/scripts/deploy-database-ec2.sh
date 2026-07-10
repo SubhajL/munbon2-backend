@@ -16,7 +16,7 @@ DB_HOST="${EC2_HOST:-43.208.201.191}"
 DB_PORT="5432"
 DB_NAME="munbon_dev"
 DB_USER="postgres"
-DB_PASSWORD="P@ssw0rd123!"
+DB_PASSWORD="__ROTATED_DB_PASSWORD__"
 DB_SCHEMA="ros_gis"
 
 # Script directory
@@ -223,7 +223,7 @@ async def test_connection():
             host='${EC2_HOST:-43.208.201.191}',
             port=5432,
             user='postgres',
-            password='P@ssw0rd123!',
+            password='__ROTATED_DB_PASSWORD__',
             database='munbon_dev'
         )
         

@@ -3817,12 +3817,12 @@ Tool result:      1→NODE_ENV=production
      5→POSTGRES_DB=munbon_dev
      6→POSTGRES_SCHEMA=awd
      7→POSTGRES_USER=postgres
-     8→POSTGRES_PASSWORD=P@ssw0rd123!
+     8→POSTGRES_PASSWORD=__ROTATED_DB_PASSWORD__
      9→TIMESCALE_HOST=43.209.12.182
     10→TIMESCALE_PORT=5432
     11→TIMESCALE_DB=sensor_data
     12→TIMESCALE_USER=postgres
-    13→TIMESCALE_PASSWORD=P@ssw0rd123!
+    13→TIMESCALE_PASSWORD=__ROTATED_DB_PASSWORD__
     14→REDIS_URL=redis://redis:6379
     15→
 
@@ -5206,7 +5206,7 @@ services/sensor-data/deployments/aws-lambda/.env
 services/water-level-monitoring/.env
 
 ### User
-Tool result: DB_PASSWORD=P@ssw0rd123!
+Tool result: DB_PASSWORD=__ROTATED_DB_PASSWORD__
 
 ### Assistant
 Let me check a working service configuration:
@@ -5231,7 +5231,7 @@ Tool result:      1→NODE_ENV=production
      5→DB_NAME=munbon_dev
      6→DB_SCHEMA=ros
      7→DB_USER=postgres
-     8→DB_PASSWORD=P@ssw0rd123!
+     8→DB_PASSWORD=__ROTATED_DB_PASSWORD__
      9→REDIS_URL=redis://redis:6379
     10→
 
@@ -5449,7 +5449,7 @@ I've successfully implemented the database initialization for the AWD Control Se
 3. **Database connections verified**:
    - PostgreSQL: `43.209.12.182:5432/munbon_dev`
    - TimescaleDB: `43.209.12.182:5432/sensor_data`
-   - Password: `P@ssw0rd123!`
+   - Password: `__ROTATED_DB_PASSWORD__`
 
 ### 📁 Scripts location:
 All scripts are in `/services/awd-control/scripts/`
@@ -5499,12 +5499,12 @@ Tool result:      1→NODE_ENV=production
      5→POSTGRES_DB=munbon_dev
      6→POSTGRES_SCHEMA=awd
      7→POSTGRES_USER=postgres
-     8→POSTGRES_PASSWORD=P@ssw0rd123!
+     8→POSTGRES_PASSWORD=__ROTATED_DB_PASSWORD__
      9→TIMESCALE_HOST=43.209.12.182
     10→TIMESCALE_PORT=5432
     11→TIMESCALE_DB=sensor_data
     12→TIMESCALE_USER=postgres
-    13→TIMESCALE_PASSWORD=P@ssw0rd123!
+    13→TIMESCALE_PASSWORD=__ROTATED_DB_PASSWORD__
     14→REDIS_URL=redis://redis:6379
     15→
 
@@ -6242,12 +6242,12 @@ Tool result:      1→NODE_ENV=production
      5→POSTGRES_DB=munbon_dev
      6→POSTGRES_SCHEMA=awd
      7→POSTGRES_USER=postgres
-     8→POSTGRES_PASSWORD=P@ssw0rd123!
+     8→POSTGRES_PASSWORD=__ROTATED_DB_PASSWORD__
      9→TIMESCALE_HOST=43.209.12.182
     10→TIMESCALE_PORT=5432
     11→TIMESCALE_DB=sensor_data
     12→TIMESCALE_USER=postgres
-    13→TIMESCALE_PASSWORD=P@ssw0rd123!
+    13→TIMESCALE_PASSWORD=__ROTATED_DB_PASSWORD__
     14→REDIS_URL=redis://redis:6379
     15→
 
@@ -7528,7 +7528,7 @@ Summary:
 4. Errors and fixes:
    - **Database password authentication failure**:
       - Initially tried wrong passwords
-      - Fixed by finding correct password in ROS service: P@ssw0rd123!
+      - Fixed by finding correct password in ROS service: __ROTATED_DB_PASSWORD__
    
    - **TimescaleDB verification query error**:
       - Initial query used wrong column names
@@ -8157,12 +8157,12 @@ Tool result:      1→NODE_ENV=production
      5→POSTGRES_DB=munbon_dev
      6→POSTGRES_SCHEMA=awd
      7→POSTGRES_USER=postgres
-     8→POSTGRES_PASSWORD=P@ssw0rd123!
+     8→POSTGRES_PASSWORD=__ROTATED_DB_PASSWORD__
      9→TIMESCALE_HOST=43.209.12.182
     10→TIMESCALE_PORT=5432
     11→TIMESCALE_DB=sensor_data
     12→TIMESCALE_USER=postgres
-    13→TIMESCALE_PASSWORD=P@ssw0rd123!
+    13→TIMESCALE_PASSWORD=__ROTATED_DB_PASSWORD__
     14→REDIS_URL=redis://redis:6379
     15→
 
@@ -8179,12 +8179,12 @@ Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/awd-con
      5→POSTGRES_DB=munbon_dev
      6→POSTGRES_SCHEMA=awd
      7→POSTGRES_USER=postgres
-     8→POSTGRES_PASSWORD=P@ssw0rd123!
+     8→POSTGRES_PASSWORD=__ROTATED_DB_PASSWORD__
      9→TIMESCALE_HOST=43.209.12.182
     10→TIMESCALE_PORT=5432
     11→TIMESCALE_DB=sensor_data
     12→TIMESCALE_USER=postgres
-    13→TIMESCALE_PASSWORD=P@ssw0rd123!
+    13→TIMESCALE_PASSWORD=__ROTATED_DB_PASSWORD__
     14→REDIS_URL=redis://redis:6379
     15→
     16→# SCADA Database Configuration (same as AOS data)
@@ -8192,7 +8192,7 @@ Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/awd-con
     18→SCADA_DB_PORT=5432
     19→SCADA_DB_NAME=db_scada
     20→SCADA_DB_USER=postgres
-    21→SCADA_DB_PASSWORD=P@ssw0rd123!
+    21→SCADA_DB_PASSWORD=__ROTATED_DB_PASSWORD__
     22→
     23→# Flow Monitoring Service
     24→FLOW_MONITORING_URL=http://localhost:3012
@@ -8352,7 +8352,7 @@ Summary:
       SCADA_DB_PORT=5432
       SCADA_DB_NAME=db_scada
       SCADA_DB_USER=postgres
-      SCADA_DB_PASSWORD=P@ssw0rd123!
+      SCADA_DB_PASSWORD=__ROTATED_DB_PASSWORD__
       ```
 
 4. Errors and fixes:
@@ -8916,12 +8916,12 @@ Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/awd-con
      5→POSTGRES_DB=munbon_dev
      6→POSTGRES_SCHEMA=awd
      7→POSTGRES_USER=postgres
-     8→POSTGRES_PASSWORD=P@ssw0rd123!
+     8→POSTGRES_PASSWORD=__ROTATED_DB_PASSWORD__
      9→TIMESCALE_HOST=43.209.22.250
     10→TIMESCALE_PORT=5432
     11→TIMESCALE_DB=sensor_data
     12→TIMESCALE_USER=postgres
-    13→TIMESCALE_PASSWORD=P@ssw0rd123!
+    13→TIMESCALE_PASSWORD=__ROTATED_DB_PASSWORD__
     14→REDIS_URL=redis://redis:6379
     15→
     16→# SCADA Database Configuration (same as AOS data)
@@ -8929,7 +8929,7 @@ Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/awd-con
     18→SCADA_DB_PORT=5432
     19→SCADA_DB_NAME=db_scada
     20→SCADA_DB_USER=postgres
-    21→SCADA_DB_PASSWORD=P@ssw0rd123!
+    21→SCADA_DB_PASSWORD=__ROTATED_DB_PASSWORD__
     22→
     23→# Flow Monitoring Service
     24→FLOW_MONITORING_URL=http://localhost:3012
@@ -8945,10 +8945,10 @@ Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/awd-con
     37→      port: parseInt(process.env.SCADA_DB_PORT || '5432'),
     38→      database: process.env.SCADA_DB_NAME || 'db_scada',
     39→      user: process.env.SCADA_DB_USER || 'postgres',
-    40→      password: process.env.SCADA_DB_PASSWORD || 'P@ssw0rd123!',
+    40→      password: process.env.SCADA_DB_PASSWORD || '__ROTATED_DB_PASSWORD__',
 
 ### User
-Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/awd-control/test-scada-integration.sh has been updated. All occurrences of 'PGPASSWORD=P@ssw0rd123! psql -h 43.209.12.182 -U postgres -d db_scada' were successfully replaced with 'PGPASSWORD=P@ssw0rd123! psql -h 43.209.22.250 -U postgres -d db_scada'.
+Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/awd-control/test-scada-integration.sh has been updated. All occurrences of 'PGPASSWORD=__ROTATED_DB_PASSWORD__ psql -h 43.209.12.182 -U postgres -d db_scada' were successfully replaced with 'PGPASSWORD=__ROTATED_DB_PASSWORD__ psql -h 43.209.22.250 -U postgres -d db_scada'.
 
 ### User
 Tool result: Applied 2 edits to /Users/subhajlimanond/dev/munbon2-backend/services/awd-control/docs/scada-gate-control-integration.md:
@@ -8958,8 +8958,8 @@ Tool result: Applied 2 edits to /Users/subhajlimanond/dev/munbon2-backend/servic
 ### User
 Tool result: Applied 4 edits to /Users/subhajlimanond/dev/munbon2-backend/services/awd-control/docs/testing-water-level-control.md:
 1. Replaced "Database: `db_scada` on 43.209.12.182" with "Database: `db_scada` on 43.209.22.250"
-2. Replaced "PGPASSWORD=P@ssw0rd123! psql -h 43.209.12.182 -U p..." with "PGPASSWORD=P@ssw0rd123! psql -h 43.209.22.250 -U p..."
-3. Replaced "PGPASSWORD=P@ssw0rd123! psql -h 43.209.12.182 -U p..." with "PGPASSWORD=P@ssw0rd123! psql -h 43.209.22.250 -U p..."
+2. Replaced "PGPASSWORD=__ROTATED_DB_PASSWORD__ psql -h 43.209.12.182 -U p..." with "PGPASSWORD=__ROTATED_DB_PASSWORD__ psql -h 43.209.22.250 -U p..."
+3. Replaced "PGPASSWORD=__ROTATED_DB_PASSWORD__ psql -h 43.209.12.182 -U p..." with "PGPASSWORD=__ROTATED_DB_PASSWORD__ psql -h 43.209.22.250 -U p..."
 4. Replaced "Check network connectivity to 43.209.12.182" with "Check network connectivity to 43.209.22.250"
 
 ### User
@@ -8973,7 +8973,7 @@ Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/awd-con
    140→SCADA_DB_PORT=5432
    141→SCADA_DB_NAME=db_scada
    142→SCADA_DB_USER=postgres
-   143→SCADA_DB_PASSWORD=P@ssw0rd123!
+   143→SCADA_DB_PASSWORD=__ROTATED_DB_PASSWORD__
    144→
    145→# Flow Monitoring Service
    146→FLOW_MONITORING_URL=http://localhost:3012
@@ -9006,13 +9006,13 @@ Tool result:      1→#!/bin/bash
     21→POSTGRES_PORT=${POSTGRES_PORT:-"5432"}
     22→POSTGRES_DB=${POSTGRES_DB:-"munbon_dev"}
     23→POSTGRES_USER=${POSTGRES_USER:-"postgres"}
-    24→POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-"P@ssw0rd123!"}
+    24→POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-"__ROTATED_DB_PASSWORD__"}
     25→
     26→TIMESCALE_HOST=${TIMESCALE_HOST:-"43.209.12.182"}
     27→TIMESCALE_PORT=${TIMESCALE_PORT:-"5432"}
     28→TIMESCALE_DB=${TIMESCALE_DB:-"sensor_data"}
     29→TIMESCALE_USER=${TIMESCALE_USER:-"postgres"}
-    30→TIMESCALE_PASSWORD=${TIMESCALE_PASSWORD:-"P@ssw0rd123!"}
+    30→TIMESCALE_PASSWORD=${TIMESCALE_PASSWORD:-"__ROTATED_DB_PASSWORD__"}
     31→
     32→echo "======================================"
     33→echo "AWD Control Service Database Setup"
@@ -9155,7 +9155,7 @@ Tool result:      1→#!/bin/bash
     17→POSTGRES_PORT=${POSTGRES_PORT:-"5432"}
     18→POSTGRES_DB=${POSTGRES_DB:-"munbon_dev"}
     19→POSTGRES_USER=${POSTGRES_USER:-"postgres"}
-    20→POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-"P@ssw0rd123!"}
+    20→POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-"__ROTATED_DB_PASSWORD__"}
     21→
     22→TIMESCALE_DB=${TIMESCALE_DB:-"sensor_data"}
     23→
@@ -9219,7 +9219,7 @@ Tool result: The file /Users/subhajlimanond/dev/munbon2-backend/services/awd-con
     17→POSTGRES_PORT=${POSTGRES_PORT:-"5432"}
     18→POSTGRES_DB=${POSTGRES_DB:-"munbon_dev"}
     19→POSTGRES_USER=${POSTGRES_USER:-"postgres"}
-    20→POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-"P@ssw0rd123!"}
+    20→POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-"__ROTATED_DB_PASSWORD__"}
 
 ### User
 Tool result:      1→# AWD Control Service Architecture & Flow Diagram
@@ -10177,7 +10177,7 @@ Tool result:      1→# AWD Control Service - Implementation Complete
    140→SCADA_DB_PORT=5432
    141→SCADA_DB_NAME=db_scada
    142→SCADA_DB_USER=postgres
-   143→SCADA_DB_PASSWORD=P@ssw0rd123!
+   143→SCADA_DB_PASSWORD=__ROTATED_DB_PASSWORD__
    144→
    145→# Flow Monitoring Service
    146→FLOW_MONITORING_URL=http://localhost:3012
@@ -10384,12 +10384,12 @@ Tool result:      1→NODE_ENV=production
      5→POSTGRES_DB=munbon_dev
      6→POSTGRES_SCHEMA=awd
      7→POSTGRES_USER=postgres
-     8→POSTGRES_PASSWORD=P@ssw0rd123!
+     8→POSTGRES_PASSWORD=__ROTATED_DB_PASSWORD__
      9→TIMESCALE_HOST=43.209.22.250
     10→TIMESCALE_PORT=5432
     11→TIMESCALE_DB=sensor_data
     12→TIMESCALE_USER=postgres
-    13→TIMESCALE_PASSWORD=P@ssw0rd123!
+    13→TIMESCALE_PASSWORD=__ROTATED_DB_PASSWORD__
     14→REDIS_URL=redis://redis:6379
     15→
     16→# SCADA Database Configuration (same as AOS data)
@@ -10397,7 +10397,7 @@ Tool result:      1→NODE_ENV=production
     18→SCADA_DB_PORT=5432
     19→SCADA_DB_NAME=db_scada
     20→SCADA_DB_USER=postgres
-    21→SCADA_DB_PASSWORD=P@ssw0rd123!
+    21→SCADA_DB_PASSWORD=__ROTATED_DB_PASSWORD__
     22→
     23→# Flow Monitoring Service
     24→FLOW_MONITORING_URL=http://localhost:3012
@@ -10785,7 +10785,7 @@ Tool result:      1→import { Pool } from 'pg';
     37→      port: parseInt(process.env.SCADA_DB_PORT || '5432'),
     38→      database: process.env.SCADA_DB_NAME || 'db_scada',
     39→      user: process.env.SCADA_DB_USER || 'postgres',
-    40→      password: process.env.SCADA_DB_PASSWORD || 'P@ssw0rd123!',
+    40→      password: process.env.SCADA_DB_PASSWORD || '__ROTATED_DB_PASSWORD__',
     41→      max: 10,
     42→      idleTimeoutMillis: 30000,
     43→      connectionTimeoutMillis: 2000,

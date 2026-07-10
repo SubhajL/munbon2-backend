@@ -116,7 +116,7 @@ ssh -i ~/dev/th-lab01.pem ubuntu@43.209.22.250 \
 ### 6. Update GIS Service Configuration
 The service is already configured to use EC2:
 ```
-DATABASE_URL=postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev?schema=gis
+DATABASE_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev?schema=gis
 ```
 
 ## Important Notes

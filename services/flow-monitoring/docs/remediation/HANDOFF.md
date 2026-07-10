@@ -24,7 +24,7 @@
 - **Canonical configs**: `src/config/{network,canal_geometry,gate_calibrations,
   gate_configuration}.json`, strict-loaded and drift-guarded (`core/config_loader`);
   `network.json` is regenerated from the gate-id naming grammar and locked by test.
-- **External actions still open**: E1 rotate `P@ssw0rd123!` (all DBs), E2
+- **External actions still open**: E1 rotate the leaked DB credential (its old value is redacted repo-wide as `__ROTATED_DB_PASSWORD__`) on all DBs, E2
   `git filter-repo` history purge + team re-clone (after E1), E4 GIS shapefile
   export for crop_registry, E5 RID's authoritative auto-gate list, E6 GitHub
   Actions billing lock (no CI runs until fixed). E3 (SCADA V1.0 Excel) is in-repo.

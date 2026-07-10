@@ -27,13 +27,13 @@ This guide provides comprehensive testing procedures for the water level-based i
 
 ```bash
 # Test SCADA database connection
-PGPASSWORD=P@ssw0rd123! psql -h 43.209.22.250 -U postgres -d db_scada -c "\dt"
+PGPASSWORD=__ROTATED_DB_PASSWORD__ psql -h 43.209.22.250 -U postgres -d db_scada -c "\dt"
 
 # Check gate command table
-PGPASSWORD=P@ssw0rd123! psql -h 43.209.22.250 -U postgres -d db_scada -c "\d tb_gatelevel_command"
+PGPASSWORD=__ROTATED_DB_PASSWORD__ psql -h 43.209.22.250 -U postgres -d db_scada -c "\d tb_gatelevel_command"
 
 # List available control sites
-PGPASSWORD=P@ssw0rd123! psql -h 43.209.22.250 -U postgres -d db_scada -c "
+PGPASSWORD=__ROTATED_DB_PASSWORD__ psql -h 43.209.22.250 -U postgres -d db_scada -c "
 SELECT stationcode, site_name 
 FROM tb_site 
 WHERE stationcode IS NOT NULL 
@@ -44,7 +44,7 @@ LIMIT 20;"
 
 ```sql
 -- Connect to AWD database
-PGPASSWORD=P@ssw0rd123! psql -h 43.209.22.250 -U postgres -d munbon_dev
+PGPASSWORD=__ROTATED_DB_PASSWORD__ psql -h 43.209.22.250 -U postgres -d munbon_dev
 
 -- Add field mappings
 INSERT INTO awd.field_gate_mapping (field_id, station_code, max_flow_rate)
@@ -116,7 +116,7 @@ curl http://localhost:3013/api/v1/awd/control/fields/$FIELD_ID/irrigation/status
 #### 4.4 Monitor Gate Commands
 ```sql
 -- Watch gate commands being created
-PGPASSWORD=P@ssw0rd123! psql -h 43.209.22.250 -U postgres -d db_scada -c "
+PGPASSWORD=__ROTATED_DB_PASSWORD__ psql -h 43.209.22.250 -U postgres -d db_scada -c "
 SELECT id, gate_name, gate_level, 
        startdatetime AT TIME ZONE 'Asia/Bangkok' as start_time,
        CASE completestatus 
@@ -148,7 +148,7 @@ docker logs awd-control-service -f
 #### 5.3 Verify Anomaly Detection
 ```bash
 # Check for anomalies in database
-PGPASSWORD=P@ssw0rd123! psql -h 43.209.22.250 -U postgres -d munbon_dev -c "
+PGPASSWORD=__ROTATED_DB_PASSWORD__ psql -h 43.209.22.250 -U postgres -d munbon_dev -c "
 SELECT * FROM awd.irrigation_anomalies 
 WHERE detected_at > NOW() - INTERVAL '1 hour'
 ORDER BY detected_at DESC;"
@@ -166,7 +166,7 @@ curl -X POST http://localhost:3013/api/v1/awd/control/fields/$FIELD_ID/irrigatio
   }'
 
 # Verify gate close command
-PGPASSWORD=P@ssw0rd123! psql -h 43.209.22.250 -U postgres -d db_scada -c "
+PGPASSWORD=__ROTATED_DB_PASSWORD__ psql -h 43.209.22.250 -U postgres -d db_scada -c "
 SELECT * FROM tb_gatelevel_command 
 WHERE gate_name = 'WWA' 
   AND gate_level = 1 
@@ -228,7 +228,7 @@ ORDER BY id DESC LIMIT 1;"
 
 ```bash
 # Monitor gate command throughput
-PGPASSWORD=P@ssw0rd123! psql -h 43.209.22.250 -U postgres -d db_scada -c "
+PGPASSWORD=__ROTATED_DB_PASSWORD__ psql -h 43.209.22.250 -U postgres -d db_scada -c "
 SELECT 
   DATE_TRUNC('hour', startdatetime) as hour,
   COUNT(*) as commands,
@@ -239,7 +239,7 @@ GROUP BY 1
 ORDER BY 1 DESC;"
 
 # Check irrigation performance
-PGPASSWORD=P@ssw0rd123! psql -h 43.209.22.250 -U postgres -d munbon_dev -c "
+PGPASSWORD=__ROTATED_DB_PASSWORD__ psql -h 43.209.22.250 -U postgres -d munbon_dev -c "
 SELECT 
   field_id,
   AVG(total_duration_minutes) as avg_duration,

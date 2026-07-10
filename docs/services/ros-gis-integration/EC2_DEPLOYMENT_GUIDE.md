@@ -93,7 +93,7 @@ Expected output:
    cp .env.ec2-deploy .env
    
    # Or export directly
-   export POSTGRES_URL="postgresql://postgres:P@ssw0rd123!@localhost:5432/munbon_dev"
+   export POSTGRES_URL="postgresql://postgres:__ROTATED_DB_PASSWORD__@localhost:5432/munbon_dev"
    export REDIS_URL="redis://localhost:6379/2"
    export ENVIRONMENT="production"
    ```
@@ -127,7 +127,7 @@ Expected output:
      --name ros-gis-integration \
      --network munbon-network \
      -p 3022:3022 \
-     -e POSTGRES_URL="postgresql://postgres:P@ssw0rd123!@host.docker.internal:5432/munbon_dev" \
+     -e POSTGRES_URL="postgresql://postgres:__ROTATED_DB_PASSWORD__@host.docker.internal:5432/munbon_dev" \
      -e REDIS_URL="redis://redis:6379/2" \
      -e ENVIRONMENT="production" \
      your-registry/ros-gis-integration:latest
@@ -146,7 +146,7 @@ Expected output:
        ports:
          - "3022:3022"
        environment:
-         - POSTGRES_URL=postgresql://postgres:P@ssw0rd123!@host.docker.internal:5432/munbon_dev
+         - POSTGRES_URL=postgresql://postgres:__ROTATED_DB_PASSWORD__@host.docker.internal:5432/munbon_dev
          - REDIS_URL=redis://redis:6379/2
          - ENVIRONMENT=production
          - USE_MOCK_SERVER=false
@@ -179,7 +179,7 @@ Expected output:
 
 | Variable | Description | Example |
 |----------|-------------|---------|
-| POSTGRES_URL | PostgreSQL connection string | postgresql://postgres:P@ssw0rd123!@43.209.22.250:5432/munbon_dev |
+| POSTGRES_URL | PostgreSQL connection string | postgresql://postgres:__ROTATED_DB_PASSWORD__@43.209.22.250:5432/munbon_dev |
 | REDIS_URL | Redis connection string | redis://43.209.22.250:6379/2 |
 | ENVIRONMENT | Environment name | production |
 | USE_MOCK_SERVER | Use mock data instead of real services | false |

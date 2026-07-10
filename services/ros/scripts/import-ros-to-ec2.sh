@@ -15,7 +15,7 @@ EC2_HOST="${EC2_HOST:-43.208.201.191}"
 EC2_PORT="5432"
 EC2_DB="munbon_dev"
 EC2_USER="postgres"
-EC2_PASSWORD='P@ssw0rd123!'
+EC2_PASSWORD='__ROTATED_DB_PASSWORD__'
 
 # Export directory
 EXPORT_DIR="./ros_export"

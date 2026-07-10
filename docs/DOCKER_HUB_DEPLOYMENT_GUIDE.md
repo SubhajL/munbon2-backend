@@ -65,7 +65,7 @@ services:
     container_name: munbon-postgres
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: P@ssw0rd123!
+      POSTGRES_PASSWORD: __ROTATED_DB_PASSWORD__
       POSTGRES_DB: munbon_dev
     volumes:
       - postgres-data:/var/lib/postgresql/data
@@ -92,7 +92,7 @@ services:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: P@ssw0rd123!
+      POSTGRES_PASSWORD: __ROTATED_DB_PASSWORD__
       TIMESCALE_DB: sensor_data
       REDIS_URL: redis://redis:6379
       JWT_SECRET: ${JWT_SECRET}
@@ -113,7 +113,7 @@ services:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: P@ssw0rd123!
+      POSTGRES_PASSWORD: __ROTATED_DB_PASSWORD__
       TIMESCALE_DB: sensor_data
       REDIS_URL: redis://redis:6379
       AWS_REGION: ap-southeast-1
@@ -136,8 +136,8 @@ services:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: P@ssw0rd123!
-      DATABASE_URL: postgresql://postgres:P@ssw0rd123!@postgres:5432/munbon_dev?schema=auth
+      POSTGRES_PASSWORD: __ROTATED_DB_PASSWORD__
+      DATABASE_URL: postgresql://postgres:__ROTATED_DB_PASSWORD__@postgres:5432/munbon_dev?schema=auth
       REDIS_URL: redis://redis:6379
       JWT_SECRET: ${JWT_SECRET}
     ports:

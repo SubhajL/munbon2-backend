@@ -86,7 +86,7 @@ grouped P0 (audit fixes) and P1 (control-plane build-out), each with *what to sc
 - **#12:** moved tracked service creds → env + `.github/workflows/secret-scan.yml` diff gate + `.env.example`.
 - **#15:** the original SEC **missed 8 more leaking `.py`** (repo-root + `csv_exports/`) **and the
   scan gate self-blocked** (its own regex contained the password). Both fixed.
-- **Reviewer focus (IMPORTANT):** the leaked password `P@ssw0rd123!` **is still in git history and
+- **Reviewer focus (IMPORTANT):** the leaked password `__ROTATED_DB_PASSWORD__` **is still in git history and
   ~137 tracked files** — code changes cannot fix that. **A credential rotation + `git filter-repo`
   history purge is still outstanding** (external action). Verify the scan gate can't be bypassed.
 
@@ -207,7 +207,7 @@ grouped P0 (audit fixes) and P1 (control-plane build-out), each with *what to sc
   beyond 10/59.
 
 **External actions code can't fix (must be scheduled):**
-- 🔐 **Rotate `P@ssw0rd123!` + purge git history** (`git filter-repo`) — still in ~137 files + history.
+- 🔐 **Rotate `__ROTATED_DB_PASSWORD__` + purge git history** (`git filter-repo`) — still in ~137 files + history.
 - **GIS shapefile export** for crop_registry; **real sensor/solver water levels** for F-01.
 
 **Known debt / caveats a reviewer will hit:**
