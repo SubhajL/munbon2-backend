@@ -1,155 +1,42 @@
-# Munbon — Session Handoff
+# Munbon remediation — handoff pointer
 
-> ## ✅ CURRENT STATUS (2026-07-08, later session) — supersedes §1, §5, §6 below
+> **This file no longer tracks current status** (it went stale twice while claiming
+> currency — review finding, PROGRAM_REVIEW §1.3). Status now lives in exactly two
+> places:
 >
-> **The merge is done and ALL 7 P0 items are complete and merged to `origin/main` (HEAD `96abea5`).**
-> Work was delivered TDD, item-by-item, one PR each, via the lifecycle
-> plan → code → q-check → PR → admin-merge → land. (§2 audit findings, §3 decisions,
-> §4 spec set remain the accurate reference; the merge-plan / where-to-start / open-items
-> sections are historical.)
+> 1. **[PR_REVIEW_GUIDE.md](PR_REVIEW_GUIDE.md)** — how the remediation PRs are
+>    reviewed and what each one shipped (per-PR verdicts).
+> 2. **[PROGRAM_REVIEW_2026-07-09.md](PROGRAM_REVIEW_2026-07-09.md)** — the full
+>    program review of PRs #7–#24 plus the forward roadmap (Waves 0–4, maintainer
+>    decisions D1–D4, external actions E1–E6). The wave PRs themselves (#25 onward)
+>    carry their own detailed bodies on GitHub.
 >
-> **Consolidation merged:** PR #6 rewrote the root/ per-service `CLAUDE.md` hierarchy;
-> the two feature branches (scada-gate-control, daily-chart-notifier) + the remediation
-> docs are on `main`.
->
-> **P0 — all merged (PRs #7–#13):**
-> - **F-01** (#7) `flow-monitoring/src/core/gate_flow.py` — clamped bisection gate-flow law; killed the 287 m³/s bug; repointed `hydraulic_service`. 28 tests.
-> - **F-11** (#8) `core/network_topology.py` connectivity guard + canonical `src/config/network.json` (adopted `munbon_network_updated.json`). Guard rejects the old 76%-wrong topology. 12 tests.
-> - **F-04** (#9) `core/canal_capacity.py` — real per-reach q_max (NaN-safe, e.g. M(0,1)); replaced hardcoded 15.0. 9 tests.
-> - **C10** (#10) deleted 5 orphan duplicate impls + anti-regression grep-guard. 3 tests.
-> - **F-08** (#11) restored missing `rid-ms/src/jobs/job-scheduler.js` (service boots again) + jest smoke test.
-> - **SEC** (#12) tracked service creds → env + `.github/workflows/secret-scan.yml` diff gate + `.env.example`.
-> - **F-07** (#13) `bff-water-planning` crop_registry schema migration `009` + env CSV loader (fail-closed) + 8 tests.
->
-> **🔴 Carry-forward — EXTERNAL actions (could NOT be done here; flagged in PRs):**
-> 1. **ROTATE** the leaked DB password `P@ssw0rd123!` — still in ~137 tracked files (docs/`.sql`/`.sh`) + git history; needs a source scrub + `git filter-repo` purge. This is the real security fix.
-> 2. crop_registry population needs the upstream **GIS shapefile export** (set `CROP_REGISTRY_SOURCE`); recommend retiring it for `gis.agricultural_plots` (F-06).
-> 3. Real sensor/solver **water levels = P1** — F-01 uses a documented, *logged* fallback now.
->
-> **Where a new session starts:** **P1** (controller wiring/C9, A1–A4 aggregation, B5 seepage,
-> B8 inverse, C12 demand contract, F-06/F-09 demand reconciliation, SV-façade removal, F-05
-> similar-gate calibration) — see `REMEDIATION_MASTER.md §8`. OR do the credential rotation + history purge first (only urgent external item).
->
-> **Non-P0 follow-ups:** tangled duplicate impls still present (`calibrated_flow_model*`,
-> `calibrated_gate_flow`, `water_gate_controller_{integrated,enhanced,fixed}`) entangled with
-> the solver + viz scripts; rid-ms `src/` (compiled JS) vs `src_typescript_backup/` disarray.
->
-> **Dev notes:** flow-monitoring P0 tests run isolated — `PYTHONPATH=src <venv>/bin/pytest
-> --noconftest -o addopts="" tests/unit/test_X.py` (the shared `conftest.py` pulls heavy DB
-> deps). The repo has aggressive blanket `.gitignore`s (`docs/`, `tests/`, `scripts/`,
-> `.claude/`, `.github/`, `*.sql`) with grandfathered tracked files → new files there need
-> `git add -f` or a scoped negation.
+> **Where things stand** is always derivable from: `git log origin/main` +
+> the roadmap tables in PROGRAM_REVIEW §2.2.
 
----
+## Standing facts that do not go stale
 
-> _The sections below are the ORIGINAL 2026-07-08 audit handoff. §2–§4 (findings, decisions,
-> spec set) are still the reference; §1 merge-plan, §5 where-to-start, §6 open-items are
-> HISTORICAL — see the status block above for what actually happened._
+- **Lifecycle per PR**: plan (Claude + Codex) → TDD → QCHECK + Codex adversary
+  (non-skippable) → PR → admin-merge (delegated) → land local main.
+- **Quality gate**: `pytest` from the service root (bare; core coverage floor
+  enforced in CI). No quarantine list, no isolated-suite manifest — retired in
+  Wave 1.9.
+- **Canonical configs**: `src/config/{network,canal_geometry,gate_calibrations,
+  gate_configuration}.json`, strict-loaded and drift-guarded (`core/config_loader`);
+  `network.json` is regenerated from the gate-id naming grammar and locked by test.
+- **External actions still open**: E1 rotate `P@ssw0rd123!` (all DBs), E2
+  `git filter-repo` history purge + team re-clone (after E1), E4 GIS shapefile
+  export for crop_registry, E5 RID's authoritative auto-gate list, E6 GitHub
+  Actions billing lock (no CI runs until fixed). E3 (SCADA V1.0 Excel) is in-repo.
 
----
+## Historical audit context
 
-## 1. Repos & merge plan
-
-Three local folders are **three working copies of ONE GitHub repo**
-(`github.com/SubhajL/munbon2-backend`), each on a different branch. They share history
-(each has an `other` remote pointing at a sibling folder).
-
-| Folder | Branch | Last commit | Unique content | Note |
-|---|---|---|---|---|
-| `munbon2-backend` (canonical, has `origin`) | `feat/daily-chart-notifier` | 2025-11-26 | `services/daily-chart-notifier` | 50 service dirs (inflated by `*.backup`) |
-| `munbon2-backend-scada` | `feat/scada-gate-control` | **2026-06-10 (newest)** | `services/scada-gate-control` (Modbus) + `scada-gate-control-web` (Next.js 16) | **most advanced**, +7 commits over main |
-| `munbon2-backend-smartfarm` | `feature/smartfarm-debug` | 2025-11-17 | none (== `main`) | disposable — can reset to main |
-
-**Merge verified CLEAN (not executed):** `feat/daily-chart-notifier` + `feat/scada-gate-control`
-share base `2ed11c0` (= `main`), touch **disjoint files** (each adds its own `services/`
-dir), and `git merge-tree` reports **0 conflicts**. Neither branch currently has both features.
-
-**Recommended merge plan (do in `munbon2-backend`, the copy with `origin`):**
-1. `git stash -u` (a feature branch is checked out with dirty state)
-2. `git fetch other feat/scada-gate-control` ; `git branch scada-gate-control other/feat/scada-gate-control`
-3. `git switch -c integration/scada+daily-chart main`
-4. `git merge --no-ff feat/daily-chart-notifier` ; `git merge --no-ff scada-gate-control` (both clean)
-5. Verify: all 3 service dirs present; smoke-build `scada-gate-control{,-web}` + `daily-chart-notifier`; **reconcile PM2 ecosystem config** (register all three, check port collisions); note the scada branch commits `dist/`/`.next/` build artifacts — consider gitignoring before final push.
-6. `git switch main && git merge --ff-only integration/…` → **STOP for approval before `git push origin main`** (push is the only outward step).
-7. Reconcile the other copies: `git fetch origin && git switch main && git reset --hard origin/main`. Long-term keep ONE working copy + branches; delete the smartfarm copy.
-
----
-
-## 2. What the audit found (flow-monitoring control plane)
-
-Full detail in the spec set (§4). Headline: a thoughtfully-scoped hydraulic design on a
-**mostly-scaffolded, partly-incorrect** implementation. The single operational lineage is
-**ROS/Excel demand → `ros_gis` nightly cron**; everything on the gate-control side is stubbed,
-disconnected, or wrong.
-
-Critical/High findings (IDs used across the specs):
-- **F-01** gate flow law returns **287 m³/s at 10 % open** for an 11 m³/s gate — three stacked bugs (inverted `opening^K2`; `Hs` as absolute MSL; no `Cs` clamp) + hardcoded levels. Reproduced numerically.
-- **F-11** the wired network topology (`munbon_network_final.json`) is **~76 % wrong** (42 edges, 14 correct, 2/59 nodes reachable). `munbon_network_updated.json` (59 edges) is correct; canonical tree is regenerable from the `M(i,j,k)` gate IDs.
-- **F-02** hydraulic control (continuous opening) ↔ `scada-gate-control` (discrete levels 1–4) are **not connected** — no quantizer, no command bridge.
-- **F-03/C9** automatic control is **stubbed** (`_get_system_demand`→25.0, `_solve_optimal_gate_settings`→50 %).
-- **F-04/B7** canal capacity is a **hardcoded 15 m³/s** (`_get_canal_capacity`); real per-section `design_discharge` exists but is unused.
-- **F-05** only **10/59 gates** are field-calibrated (K1/K2); rest use size defaults (−27 %…+110 % error).
-- **A1–A4** demand→gate aggregation uses a hardcoded 3-zone path table, synthetic node IDs, per-zone (not per-section) granularity; a real graph exists but is unused.
-- **B5** no conveyance (seepage) loss uplift. **B6/B7** coincident-peak, no capacity. **B8** no branch-split coupling. **D13** no travel-time coupling.
-- **C10/F-10** 3+ divergent flow-per-gate impls and 4 gate-flow implementations coexist; the calibrated one is unwired.
-- Demand plane: **F-06** AquaCrop preferred (`aquacrop_priority`) but `ros_gis.aquacrop_results` is written only by the mock → silent ROS fallback; **F-09** three divergent demand formulas; **F-07** `gis.crop_registry` has no in-repo loader + **hardcoded prod DB creds** in an untracked script; **F-08** `rid-ms` imports a missing `jobs/job-scheduler` (won't boot).
-- **Saint-Venant is NOT implemented** — the `saint-venant`/`manning` API options return hardcoded literals. The real solver is steady Manning + storage relaxation.
-
----
-
-## 3. Decisions locked this session
-
-- **Merge is clean**; use an integration branch; don't push without approval.
-- **Adopt `munbon_network_updated.json`** as the canonical topology (or regenerate from gate IDs); delete the 5 stale variants.
-- **ROS/Excel is the single demand source of truth**; retire the RID-MS calculator + BFF-script formulas; **fail-closed** on missing demand (kill the 25.0 fallback).
-- **F-01 fix uses the correct RID rating** `Cs=K1·(Hs/Go)^K2` (Go metres, Hs = head over sill), clamp [0.3,1.0], `q≤q_max` ceiling, **bisection** (not Newton) for the inverse.
-- **B5 Tier-1 seepage** (`Q_seep = s·P·L`) is the correct starting method — but make `s` **soil-aware** (not just concrete/earth) and treat it as **provisional pending a Tier-3 inflow–outflow calibration**.
-- **Do NOT build full Saint-Venant** — the data (no flow meters, mobile-only stage sensors) can't drive or validate it. Target the **diffusive-wave (Muskingum–Cunge)** rung instead, gated on a sensor rollout.
-- **F-01 + F-11 + F-04 are P0** — everything downstream consumes the corrected gate law and connected graph.
-
----
-
-## 4. Deliverables (already on disk, untracked)
-
-In `services/flow-monitoring/docs/remediation/`:
-- `README.md` — index + reading order.
-- `REMEDIATION_MASTER.md` — complete finding→fix catalog, P0–P4, acceptance matrix. **Start here.**
-- `FIX_F01_GATE_FLOW_LAW_SPEC.md` — the gate-law fix (P0).
-- `GATE_CONTROL_REMEDIATION_SPEC.md` — A–D control-pipeline master.
-- `HYDRAULIC_REMEDIATION_SPEC.md` — B5–B8 code.
-- `AUDIT_FINDINGS_REPORT.html` — visual report (also the live artifact below).
-- `HANDOFF.md` — this file.
-
-Live artifact (private): **https://claude.ai/code/artifact/9de1249b-5bca-4c7d-9a7c-d83a2a025155**
-`git add services/flow-monitoring/docs/remediation/` to commit the doc set.
-
----
-
-## 5. Where to start (next session, ordered)
-
-1. **Decide: execute the merge?** If yes, run §1 steps 1–5 in `munbon2-backend`, stop before push, report build/PM2 status.
-2. **Commit the remediation docs** (§4) and optionally **mirror to `munbon2-backend-scada`**.
-3. **P0 engineering** (any order, all no-hardware):
-   - Regenerate canonical `network.json` from the gate-ID hierarchy; add the loader connectivity guard (F-11).
-   - Implement `core/gate_flow.py` per `FIX_F01_…` + the monotonicity/287 regression tests (F-01).
-   - Wire real `design_discharge` into `_get_canal_capacity` (F-04).
-   - Delete duplicate flow/hydraulic impls (C10); restore/remove `rid-ms` cron (F-08); move DB creds to secrets + rotate (F-07/SEC).
-4. Then P1 (controller wiring, aggregation, B5, B8, demand contract) per the roadmap.
-
----
-
-## 6. Open / offered-but-not-done
-
-- **Merge NOT executed**; nothing committed or pushed.
-- Doc set **not mirrored** to the scada copy.
-- Canonical `network.json` **not yet generated** (offered).
-- Spec `seepage_rate` defaults **not yet made soil-aware** (offered).
-
-## 7. Caveats (carry forward)
-
-- **Provisional inputs, not ready:** `section_node_map` (unwired ros-gis spatial layer),
-  calibrated `seepage_rate` (needs Tier-3 campaign), residual-based `confidence` (needs calibration data).
-- **Re-verify all file/line references** before acting — they were current at the 2026-07-08 audit;
-  the wired network file, calibration counts, and stubs may have moved.
-- The flow-monitoring code is **identical across all three copies** (shared `main` baseline),
-  so the remediation applies regardless of which branch is consolidated.
+The original audit findings (F-01 gate-flow blow-up, F-11 fragmented topology,
+F-04 hardcoded capacity, C10 duplicate laws, F-07/F-08 demand plumbing, SEC
+credentials) and the fix specs are in this folder: REMEDIATION_MASTER.md,
+FIX_F01_GATE_FLOW_LAW_SPEC.md, GATE_CONTROL_REMEDIATION_SPEC.md,
+HYDRAULIC_REMEDIATION_SPEC.md — now carrying supersession banners where later
+work (F-11b serial-chain topology, bisection inverse, aged-concrete seepage)
+replaced their original prescriptions. TOPOLOGY_RECONCILIATION.md documents the
+star-vs-serial-chain discovery; SEEPAGE_CALIBRATION.md the B5 calibration.
+Earlier versions of this HANDOFF (with the full P0 narrative) are in git history.

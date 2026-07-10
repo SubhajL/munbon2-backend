@@ -26,6 +26,12 @@ Suggested repo path: `services/flow-monitoring/docs/GATE_CONTROL_REMEDIATION_SPE
 
 ## §0 Preconditions (blocking — land before anything else)
 
+> **SUPERSEDED (Wave 1.10 banner).** Item 1 as written chose `updated.json` — that
+> file's STAR wiring was later proven wrong for laterals (F-11b, PR #20). The
+> canonical topology is REGENERATED from the gate-id naming grammar
+> (`core.network_topology.edges_from_names`) and lives at `src/config/network.json`,
+> locked by test. All stale variants are deleted (Wave 1.8). Items 2–3 landed (#7, #9).
+
 1. **F-11** single connected topology — adopt `munbon_network_updated.json` (59 edges,
    fully connected) or regenerate from the gate-ID hierarchy; delete the 5 stale variants.
 2. **F-01** gate flow law corrected (§3).
@@ -48,8 +54,8 @@ Suggested repo path: `services/flow-monitoring/docs/GATE_CONTROL_REMEDIATION_SPE
   "reaches": {                                             // keyed by "u->v"
     "M(0,2)->M(0,3)": { "length_m":5260,"manning_n":0.014,"bed_slope":0.00012,
                         "design_discharge":8.737,"lining":"concrete",
-                        "cross_section":{...},"seepage_rate_m_s":3.0e-7,
-                        "operational_loss_frac":0.05 }
+                        "cross_section":{...},"seepage_rate_m_s":3.0e-7  /* SUPERSEDED: shipped aged-concrete rates are 1e-5 concrete / 2e-5 earth / 1.5e-5 unknown — see SEEPAGE_CALIBRATION.md */,
+                        "operational_loss_frac":0.05  /* SUPERSEDED: shipped default is 0 (seepage-primary, discretization-invariant) */ }
   }
 }
 ```
@@ -101,7 +107,12 @@ def gate_flow(cal, L, Hs, dH, Go):       # Q = Cs·L·Hs·√(2gΔH)
     return discharge_coeff(cal.K1, cal.K2, Hs, Go) * L * Hs * math.sqrt(2*9.81*dH)
 
 def required_opening(cal, L, Hs, dH, q_target):
-    """Newton on the CORRECT law with REAL levels (not hardcoded 2.0/0.2)."""
+    """Newton on the CORRECT law with REAL levels (not hardcoded 2.0/0.2).
+
+    SUPERSEDED (Wave 1.10 banner): the shipped inverse (core/gate_flow.py,
+    PRs #7/#26) uses BISECTION, not this Newton sketch — Newton can oscillate
+    on the clamped Cs; bisection cannot. It also fails CLOSED below the
+    Cs-floor discharge (F-01b) instead of overdelivering on tiny targets."""
     Go = 0.5*G_MAX
     for _ in range(40):
         q = gate_flow(cal, L, Hs, dH, Go)
@@ -114,9 +125,9 @@ def required_opening(cal, L, Hs, dH, q_target):
 ```
 
 - Feed **real** upstream/downstream levels (sensor or solved), never fixed constants.
-- Propagate `cal.confidence` (0.95 field / 0.80 size-default / 0.30 generic) onto every
+- Propagate `cal.confidence` (0.95 field / 0.80 size-default / 0.60 generic — the shipped ladder in `utils/gate_calibration_loader.py`) onto every
   result; surface it — do **not** claim a validated 90% CI.
-- **Regression test (must exist):** monotonicity — `gate_flow` strictly increasing in `Go`
+- **Regression test (existed as specified (it now PASSES on the shipped law — see tests/unit/test_gate_flow.py)):** monotonicity — `gate_flow` strictly increasing in `Go`
   for K2<0; and `gate_flow(...,G_MAX) ≤ 1.2·q_max`. This test fails on today's code.
 
 ---

@@ -129,7 +129,7 @@ def required_opening_m(cal, upstream_level, downstream_level, q_target, tol=1e-3
             break
         lo, hi = (mid, hi) if q < q_target else (lo, mid)
     return mid, {"feasible": True, "achievable": q,
-                 "confidence": cal.confidence,          # 0.95 field / 0.80 default / 0.30 generic
+                 "confidence": cal.confidence,          # 0.95 field / 0.80 default / 0.60 generic
                  "within_calibration": cal.range_min <= (max(Hu,1e-9)/max(mid,1e-9)) <= cal.range_max}
 ```
 
@@ -181,7 +181,7 @@ Notes:
 | **Dimensional** | levels given as MSL (e.g. 219/218.8, sill 218) ⇒ Hs≈0.8 m, finite Q, no blow-up |
 | **Dry** | `upstream_level < sill` ⇒ 0.0 |
 | **No head** | `ΔH ≤ 0` ⇒ 0.0 |
-| **Confidence surfaced** | field gate ⇒ 0.95; size-default ⇒ 0.80; generic ⇒ 0.30 (never asserted as validated CI) |
+| **Confidence surfaced** | field gate ⇒ 0.95; size-default ⇒ 0.80; generic ⇒ 0.60 (never asserted as validated CI) |
 
 The first two tests **fail on the current code** and pass after the fix — they are the
 guard against regression.

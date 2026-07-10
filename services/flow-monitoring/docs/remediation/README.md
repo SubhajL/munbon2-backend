@@ -12,6 +12,14 @@ the fix specs it produced. Read in this order:
 4. **HYDRAULIC_REMEDIATION_SPEC.md** — B5–B8 code (conveyance loss, rotation scheduler,
    branch-split solve).
 5. **AUDIT_FINDINGS_REPORT.html** — the visual findings report (open in a browser).
+6. **TOPOLOGY_RECONCILIATION.md** — why the F-11 star wiring was wrong on laterals and
+   how the serial-chain topology is derived from the gate-id naming grammar (F-11b).
+7. **SEEPAGE_CALIBRATION.md** — the B5 seepage recalibration to aged-concrete field
+   values (provisional pending Tier-3 inflow/outflow measurement).
+8. **PR_REVIEW_GUIDE.md** — how remediation PRs are reviewed; per-PR verdicts.
+9. **PROGRAM_REVIEW_2026-07-09.md** — full program review of PRs #7–#24 + the forward
+   roadmap (Waves 0–4, decisions D1–D4, externals E1–E6). **Current-status anchor.**
+10. **HANDOFF.md** — pointer to the two status documents above (kept deliberately thin).
 
 ## P0 (do first — no hardware)
 F-01 gate law · F-11 single connected topology · F-04 real per-section capacity ·
@@ -26,4 +34,7 @@ SCADA bridge → closed loop.**
 - `seepage_rate_m_s` — literature defaults; require a Tier-3 inflow–outflow calibration.
 - calibration `confidence` — should be derived from fit residuals, not the fixed labels.
 
-_Specs authored from the 2026-07-08 audit; re-confirm file/line references before acting._
+_Specs authored from the 2026-07-08 audit; re-confirm file/line references before
+acting. Several sections carry **supersession banners** where later evidence replaced
+the original prescription (topology F-11b, bisection inverse, aged-concrete seepage) —
+the banner text wins over the body it annotates._
