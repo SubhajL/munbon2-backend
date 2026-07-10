@@ -11,6 +11,8 @@ import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+from core.node_id import normalize_node_id
+
 @dataclass
 class CanalSection:
     """Represents a canal section with geometry"""
@@ -110,7 +112,9 @@ class WaterGateControllerIntegrated:
                     q_min=None
                 )
             
-            key = f"{cs.from_node}->{cs.to_node}"
+            # Wave 1.3: normalized keys, so canonical-geometry compact ids join the
+            # network's survey-spaced spellings at lookup time.
+            key = f"{normalize_node_id(cs.from_node)}->{normalize_node_id(cs.to_node)}"
             self.canal_sections[key] = cs
     
     def _initialize_gate_states(self):
@@ -151,9 +155,10 @@ class WaterGateControllerIntegrated:
     
     def calculate_travel_time(self, from_node: str, to_node: str, flow_rate: float) -> float:
         """Calculate water travel time between nodes"""
-        
-        key = f"{from_node}->{to_node}"
-        
+
+        # sections are keyed by normalized id (Wave 1.3) — join any spelling.
+        key = f"{normalize_node_id(from_node)}->{normalize_node_id(to_node)}"
+
         if key not in self.canal_sections:
             # No geometry data - use default estimate
             # Assume 0.5 m/s average velocity

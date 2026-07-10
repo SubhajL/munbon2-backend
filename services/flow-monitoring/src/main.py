@@ -9,6 +9,7 @@ from config import settings
 from api import router as api_router
 from api import gates as gates_api
 from api import control as control_api
+from api import hydraulics as hydraulics_api
 from core.logging import setup_logging
 from core.metrics import setup_metrics
 from core.network_flow_controller import NetworkFlowController
@@ -55,6 +56,12 @@ async def lifespan(app: FastAPI):
             "src/config/network.json", "src/config/canal_geometry.json"
         )
         logger.info("Flow controller (demand->reach aggregation) initialized")
+
+        # App-scoped hydraulics service on the same canonical configs (Wave 1.3);
+        # replaces per-request construction with a never-connected DatabaseManager.
+        from services.hydraulic_service import HydraulicService
+        hydraulics_api.hydraulic_service = HydraulicService(db_manager)
+        logger.info("Hydraulic service initialized (app-scoped)")
         
         # Start Kafka consumer only if configured
         if settings.kafka_brokers:
