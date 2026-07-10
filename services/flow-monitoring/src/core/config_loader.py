@@ -18,6 +18,8 @@ from __future__ import annotations
 import json
 import math
 
+from .node_id import NodeIdError, normalize_gate_id
+
 NETWORK_ROOT = "S"
 
 
@@ -95,7 +97,21 @@ def load_network_config(path: str) -> dict:
         raise ConfigError(
             f"{path}: metadata.canonical must be true — refusing a non-canonical network"
         )
+    normalized_nodes: dict = {}
     for gate_id, gate in gates.items():
+        # Gate ids must parse under the naming grammar and stay unambiguous when
+        # normalized — 'M(0,1)' beside 'M (0,1)' (or a leading-zero alias) would make
+        # any-spacing id resolution at the boundaries ambiguous.
+        try:
+            normalized = normalize_gate_id(gate_id)
+        except NodeIdError as exc:
+            raise ConfigError(f"{path}: gates[{gate_id!r}]: invalid gate id: {exc}") from exc
+        if normalized in normalized_nodes:
+            raise ConfigError(
+                f"{path}: gate ids collide when normalized:"
+                f" {normalized_nodes[normalized]!r} and {gate_id!r}"
+            )
+        normalized_nodes[normalized] = gate_id
         if not isinstance(gate, dict):
             # capacity indexing would silently skip it and fall back to the default.
             raise ConfigError(f"{path}: gates[{gate_id!r}] is not an object")
@@ -205,18 +221,13 @@ def load_gate_calibrations_config(path: str) -> dict:
     gates = _require_dict(data, "gates", path)
     if not gates:
         raise ConfigError(f"{path}: 'gates' is empty")
-    # Deferred import: network_topology imports this module at load time; by call
-    # time it is always fully initialized. The grammar's canonical home becomes
-    # core.node_id in PR 1.2 (which also adds the cross-file join vs the network).
-    from .network_topology import NetworkTopologyError, _normalize_gate_id
-
     calibrated = 0
     normalized_ids: dict = {}
     for gate_id, gate in gates.items():
         where = f"gates[{gate_id!r}]"
         try:
-            normalized = _normalize_gate_id(gate_id)
-        except NetworkTopologyError as exc:
+            normalized = normalize_gate_id(gate_id)
+        except NodeIdError as exc:
             # A typo'd key silently pushes its real gate onto generic defaults via
             # get_calibration's fallback — refuse grammar-invalid ids at load.
             raise ConfigError(f"{path}: {where}: invalid gate id: {exc}") from exc

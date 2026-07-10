@@ -26,7 +26,9 @@ from .network_topology import (
     NetworkTopologyError,
     is_spanning_tree,
     load_validated_network,
+    nodes_of,
 )
+from .node_id import normalize_node_id
 
 
 class NetworkFlowController:
@@ -65,6 +67,12 @@ class NetworkFlowController:
             if not reach_has_geometry(self.sections, edge[0], edge[1])
         }
         self._normalized_edges = {normalize_edge(u, v) for u, v in self.edges}
+        # Any-spacing id resolution (Wave 1.2): canonical compact form -> the exact
+        # network key. Uniqueness is guaranteed by load_network_config's grammar +
+        # normalized-collision validation.
+        self._exact_by_normalized = {
+            normalize_node_id(node): node for node in nodes_of(self.edges)
+        }
         orphans = sorted(set(self.sections) - self._normalized_edges)
         if orphans:
             # Geometry describing reaches the network does not have means the two
@@ -96,6 +104,7 @@ class NetworkFlowController:
             raise ValueError(
                 "charge_dry_reaches/always_wet only make sense with apply_losses=True"
             )
+        node_demand = self._resolve_demands(node_demand)
         reach_loss = None
         if apply_losses:
             wet = set()
@@ -125,3 +134,26 @@ class NetworkFlowController:
                 always_wet=frozenset(wet),
             )
         return required_flow_per_reach(self.edges, node_demand, reach_loss=reach_loss)
+
+    def _resolve_demands(self, node_demand: dict) -> dict:
+        """Demand keys accepted in ANY spacing (compact canonical or survey-spaced),
+        re-keyed to the network-exact ids (Wave 1.2). Unknown ids and two keys naming
+        the same physical node fail closed; values are validated downstream."""
+        resolved: dict = {}
+        alias_of: dict = {}
+        for node_id, value in node_demand.items():
+            if not isinstance(node_id, str):
+                raise ValueError(f"demand key is not a node id string: {node_id!r}")
+            exact = self._exact_by_normalized.get(normalize_node_id(node_id))
+            if exact is None:
+                raise ValueError(
+                    f"demand for unknown node {node_id!r} (not in the network)"
+                )
+            if exact in resolved:
+                raise ValueError(
+                    "demand keys collide after normalization:"
+                    f" {alias_of[exact]!r} and {node_id!r} both name {exact!r}"
+                )
+            resolved[exact] = value
+            alias_of[exact] = node_id
+        return resolved

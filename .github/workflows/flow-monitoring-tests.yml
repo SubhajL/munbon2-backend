@@ -62,8 +62,10 @@ jobs:
         run: >
           pytest --noconftest -o addopts="" -q
           tests/unit/test_gate_flow.py
+          tests/unit/test_node_id.py
           tests/unit/test_config_loader.py
           tests/unit/test_network_topology.py
+          tests/unit/test_gate_calibration_loader.py
           tests/unit/test_demand_aggregation.py
           tests/unit/test_conveyance_loss.py
           tests/unit/test_canal_capacity.py

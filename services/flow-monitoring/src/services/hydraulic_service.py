@@ -720,9 +720,7 @@ class HydraulicService:
     def _gate_rated_capacity(self, gate_id: str) -> Optional[float]:
         """Rated q_max (m3/s) for a gate from the calibration table, if present."""
         loader = self.calibrated_flow_model.calibration_loader
-        excel_id = loader.gate_id_mapping.get(gate_id, gate_id)
-        raw = loader.calibrations.get(excel_id) or loader.calibrations.get(gate_id) or {}
-        return raw.get("q_max_m3s")
+        return loader.get_gate_data(gate_id).get("q_max_m3s")
 
     def _resolve_gate_levels(
         self,
