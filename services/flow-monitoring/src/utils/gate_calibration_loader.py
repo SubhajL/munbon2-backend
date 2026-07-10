@@ -6,6 +6,7 @@ NORMALIZED gate id (core.node_id, Wave 1.2), so compact 'M(0,3;1,0)' and survey
 'M (0,3; 1,0)' spellings resolve to the same stored calibration.
 """
 
+import math
 import os
 from typing import Dict, Optional, Tuple
 from dataclasses import dataclass
@@ -65,6 +66,19 @@ class GateCalibrationLoader:
         in the file. Raises NodeIdError on a grammar-invalid id (fail-closed)."""
         stored_id = self._stored_by_normalized.get(normalize_gate_id(gate_id))
         return self.calibrations.get(stored_id, {}) if stored_id is not None else {}
+
+    def rated_q_max(self, gate_id: str) -> Optional[float]:
+        """Rated q_max (m3/s) from the table — finite positive numbers only; anything
+        else means "no rating", never a capacity of 0/None/garbage."""
+        raw = self.get_gate_data(gate_id).get("q_max_m3s")
+        if (
+            isinstance(raw, (int, float))
+            and not isinstance(raw, bool)
+            and math.isfinite(raw)
+            and raw > 0
+        ):
+            return float(raw)
+        return None
 
     def get_calibration(self, gate_id: str) -> Optional[GateCalibrationData]:
         """Calibration for a gate id in ANY spacing (compact or survey-spaced).

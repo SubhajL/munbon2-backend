@@ -9,7 +9,7 @@ the one source of truth for gate hydraulics. Callers assemble a `GateFlowCalibra
 `gate_flow_m3s` (forward) or `required_opening_m` (inverse).
 
 Fixes the three stacked bugs of the old law (F-01):
-  B1  Cs used `opening**K2` (a 0..1 fraction) instead of `(Hs/Go)^K2` with Go in metres.
+  B1  Cs raised a 0..1 opening fraction to K2 instead of `(Hs/Go)^K2` with Go in metres.
   B3  Hs was taken as an absolute MSL elevation instead of head-over-sill.
   B4  Cs was unclamped, so it could reach ~18 and produce ~287 m3/s.
 Plus a `q <= q_max` capacity ceiling as the final guard.
