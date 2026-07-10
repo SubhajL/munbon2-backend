@@ -198,6 +198,22 @@ class TestLoadNetworkConfig:
         data = load_network_config(_write(tmp_path, _valid_network()))
         assert data["gates"]["M(0,1)"]["q_max"] is None
 
+    def test_rejects_grammar_invalid_gate_key(self, tmp_path):
+        # Canonical networks are regenerated from the naming grammar (F-11b); a key
+        # like "M(00,1)" is a textual alias of another node and must not load.
+        net = _valid_network()
+        net["gates"]["M(00,1)"] = {}
+        net["metadata"]["total_gates"] = 3
+        with pytest.raises(ConfigError, match="invalid gate id"):
+            load_network_config(_write(tmp_path, net))
+
+    def test_rejects_gate_keys_that_collide_when_normalized(self, tmp_path):
+        net = _valid_network()
+        net["gates"]["M (0,1)"] = {}
+        net["metadata"]["total_gates"] = 3
+        with pytest.raises(ConfigError, match="collide"):
+            load_network_config(_write(tmp_path, net))
+
 
 class TestLoadCanalGeometryConfig:
     def test_accepts_committed_canonical_file(self):
@@ -335,6 +351,21 @@ class TestLoadGateCalibrationsConfig:
         cal["metadata"]["total_gates"] = 3
         with pytest.raises(ConfigError, match="collide"):
             load_gate_calibrations_config(_write(tmp_path, cal))
+
+
+def test_calibration_ids_match_network_ids_when_normalized():
+    # Locked cross-file consistency (deferred from 1.1): the calibration file must
+    # describe exactly the canonical network's gates — no missing, no extras. The
+    # provenance pipeline (PR 2.1) will generate both from one source; until then
+    # this test is the drift tripwire.
+    from core.node_id import normalize_gate_id
+
+    network_gates = load_network_config(NETWORK)["gates"]
+    calibration_gates = load_gate_calibrations_config(CALIBRATIONS)["gates"]
+    assert (
+        {normalize_gate_id(g) for g in network_gates}
+        == {normalize_gate_id(g) for g in calibration_gates}
+    )
 
 
 class TestRuntimeWiring:

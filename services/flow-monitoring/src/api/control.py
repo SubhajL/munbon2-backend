@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from core.network_flow_controller import NetworkFlowController
 from core.network_topology import NetworkTopologyError
+from core.node_id import normalize_node_id
 from schemas.control import PlanRequest, PlanResponse, ReachFlow
 
 logger = structlog.get_logger()
@@ -52,14 +53,23 @@ async def plan(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     head_flow = sum(flow for (upstream, _), flow in reach_flow.items() if upstream == "S")
+    # Response ids are CANONICAL COMPACT (Wave 1.2) — one stable contract for consumers,
+    # independent of the survey's irregular spacing in the network file.
     missing = (
-        [list(edge) for edge in sorted(controller.reaches_missing_geometry)]
+        [
+            [normalize_node_id(u), normalize_node_id(v)]
+            for u, v in sorted(controller.reaches_missing_geometry)
+        ]
         if request.apply_losses
         else []
     )
     return PlanResponse(
         reaches=[
-            ReachFlow(upstream=u, downstream=v, required_flow_m3s=q)
+            ReachFlow(
+                upstream=normalize_node_id(u),
+                downstream=normalize_node_id(v),
+                required_flow_m3s=q,
+            )
             for (u, v), q in reach_flow.items()
         ],
         head_flow_m3s=head_flow,

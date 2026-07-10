@@ -39,8 +39,8 @@ class TestConstruction:
         bad = tmp_path / "fragmented.json"
         bad.write_text(json.dumps({
             "metadata": {"canonical": True, "total_gates": 3, "total_connections": 3},
-            "gates": {"M(0,0)": {}, "B": {}, "C": {}},
-            "edges": [["S", "M(0,0)"], ["B", "C"], ["C", "B"]],
+            "gates": {"M(0,0)": {}, "M(5,0)": {}, "M(5,1)": {}},
+            "edges": [["S", "M(0,0)"], ["M(5,0)", "M(5,1)"], ["M(5,1)", "M(5,0)"]],
         }))
         with pytest.raises(NetworkTopologyError):
             NetworkFlowController(str(bad))
@@ -51,11 +51,29 @@ class TestConstruction:
         diamond = tmp_path / "diamond.json"
         diamond.write_text(json.dumps({
             "metadata": {"canonical": True, "total_gates": 3, "total_connections": 4},
-            "gates": {"A": {}, "B": {}, "C": {}},
-            "edges": [["S", "A"], ["S", "B"], ["A", "C"], ["B", "C"]],
+            "gates": {"M(0,1)": {}, "M(0,2)": {}, "M(9,9)": {}},
+            "edges": [
+                ["S", "M(0,1)"], ["S", "M(0,2)"],
+                ["M(0,1)", "M(9,9)"], ["M(0,2)", "M(9,9)"],
+            ],
         }))
         with pytest.raises(NetworkTopologyError):
             NetworkFlowController(str(diamond))
+
+    def test_rejects_network_with_normalized_node_collision(self, tmp_path):
+        # "M(0,1)" and "M (0,1)" are the same physical gate; a network carrying both
+        # would make any-spacing demand resolution ambiguous — the strict loader
+        # refuses it before the controller is even built.
+        from core.config_loader import ConfigError
+
+        twin = tmp_path / "twin.json"
+        twin.write_text(json.dumps({
+            "metadata": {"canonical": True, "total_gates": 3, "total_connections": 3},
+            "gates": {"M(0,0)": {}, "M(0,1)": {}, "M (0,1)": {}},
+            "edges": [["S", "M(0,0)"], ["M(0,0)", "M(0,1)"], ["M(0,0)", "M (0,1)"]],
+        }))
+        with pytest.raises(ConfigError, match="collide"):
+            NetworkFlowController(str(twin))
 
     def test_rejects_geometry_file_with_no_usable_sections(self, tmp_path):
         # Geometry given but empty -> losses would silently be zero; fail closed instead.
@@ -84,6 +102,30 @@ class TestRequiredFlowPerReach:
         ctrl = NetworkFlowController(str(CANONICAL))
         with pytest.raises(ValueError):
             ctrl.required_flow_per_reach({"Zone2": 10.0})
+
+    def test_accepts_compact_demand_alias_for_spaced_network_node(self):
+        # 44/59 network ids carry survey spacing ("M (0,3; 1,0)"); a C12-style producer
+        # sends the compact canonical form — it must land on the same node (Wave 1.2).
+        ctrl = NetworkFlowController(str(CANONICAL))
+        flow = ctrl.required_flow_per_reach({"M(0,3;1,0)": 2.0})
+        assert flow[("M(0,3)", "M (0,3; 1,0)")] == pytest.approx(2.0)
+
+    def test_spaced_and_compact_demands_produce_identical_plans(self):
+        ctrl = NetworkFlowController(str(CANONICAL))
+        spaced = ctrl.required_flow_per_reach({"M (0,3; 1,0)": 2.0})
+        compact = ctrl.required_flow_per_reach({"M(0,3;1,0)": 2.0})
+        assert spaced == compact
+
+    def test_rejects_demand_keys_that_collide_after_normalization(self):
+        # Two textual keys naming one physical gate cannot silently double-specify.
+        ctrl = NetworkFlowController(str(CANONICAL))
+        with pytest.raises(ValueError, match="collide"):
+            ctrl.required_flow_per_reach({"M(0,3;1,0)": 1.0, "M (0,3; 1,0)": 2.0})
+
+    def test_source_demand_still_rejected_through_normalization(self):
+        ctrl = NetworkFlowController(str(CANONICAL))
+        with pytest.raises(ValueError, match="source"):
+            ctrl.required_flow_per_reach({"S": 1.0})
 
 
 class TestConveyanceLossWiring:

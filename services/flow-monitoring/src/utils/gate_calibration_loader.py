@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
 Gate Calibration Loader
-Loads K1/K2 calibration values from the extracted SCADA data
+Loads K1/K2 calibration values from the extracted SCADA data. Lookups join by
+NORMALIZED gate id (core.node_id, Wave 1.2), so compact 'M(0,3;1,0)' and survey
+'M (0,3; 1,0)' spellings resolve to the same stored calibration.
 """
 
 import os
@@ -10,6 +12,7 @@ from dataclasses import dataclass
 import logging
 
 from core.config_loader import load_gate_calibrations_config
+from core.node_id import normalize_gate_id
 
 logger = logging.getLogger(__name__)
 
@@ -37,9 +40,8 @@ class GateCalibrationLoader:
             
         self.calibration_file = calibration_file
         self.calibrations = {}
-        self.gate_id_mapping = {}
+        self._stored_by_normalized = {}
         self._load_calibrations()
-        self._setup_gate_id_mapping()
         
     def _load_calibrations(self):
         """Load calibrations strictly (Wave 1.1): a missing, corrupt, or count-drifted
@@ -51,56 +53,31 @@ class GateCalibrationLoader:
         logger.info(f"Gates with K1/K2: {data['metadata']['gates_with_k1_k2']}")
 
         self.calibrations = data['gates']
-            
-    def _setup_gate_id_mapping(self):
-        """Setup mapping between different gate ID formats"""
-        # Map standardized IDs to Excel IDs
-        self.gate_id_mapping = {
-            # Remove spaces for standardization
-            "M(0,0)": "M(0,0)",
-            "M(0,1)": "M(0,1)", 
-            "M(0,2)": "M(0,2)",
-            "M(0,3)": "M(0,3)",
-            "M(0,4)": "M(0,4)",
-            "M(0,5)": "M(0,5)",
-            "M(0,6)": "M(0,6)",
-            "M(0,7)": "M(0,7)",
-            "M(0,8)": "M(0,8)",
-            "M(0,9)": "M(0,9)",
-            "M(0,10)": "M(0,10)",
-            "M(0,11)": "M(0,11)",
-            "M(0,12)": "M(0,12)",
-            # Zone 6 gates - note the space in Excel format
-            "M(0,1;1,0)": "M (0,1; 1,0)",
-            "M(0,1;1,1)": "M (0,1; 1,1)",
-            "M(0,1;1,2)": "M (0,1; 1,2)",
-            "M(0,1;1,3)": "M (0,1; 1,3)",
-            "M(0,1;1,4)": "M (0,1; 1,4)",
-            "M(0,1;1,0;1,0)": "M(0,1; 1,0; 1,0)",
-            "M(0,1;1,1;1,0)": "M(0,1; 1,1; 1,0)",
-            "M(0,1;1,1;1,1)": "M(0,1; 1,1; 1,1)",
-            "M(0,1;1,1;1,2)": "M(0,1; 1,1; 1,2)",
-            "M(0,1;1,1;1,3)": "M(0,1; 1,1; 1,3)",
-            "M(0,1;1,1;1,4)": "M(0,1; 1,1; 1,4)",
-            "M(0,1;1,1;1,2;1,0)": "M(0,1; 1,1; 1,2; 1,0)",
-            # Zone 3 gates
-            "M(0,3;1,0)": "M (0,3; 1,0)",
-            "M(0,3;1,1)": "M (0,3; 1,1)",
-            # Zone 4 gates
-            "M(0,12;1,0)": "M (0,12; 1,0)",
-            "M(0,12;1,2)": "M (0,12; 1,2)",
-            # Add more mappings as needed
+        # Wave 1.2: full normalized -> stored-key index (replaces the old hardcoded
+        # PARTIAL alias table, whose unmapped compact ids silently fell through to
+        # generic defaults). The strict loader guarantees ids parse and don't collide.
+        self._stored_by_normalized = {
+            normalize_gate_id(stored_id): stored_id for stored_id in self.calibrations
         }
-        
+
+    def get_gate_data(self, gate_id: str) -> dict:
+        """Raw stored record for a gate id in ANY spacing; ``{}`` when the gate is not
+        in the file. Raises NodeIdError on a grammar-invalid id (fail-closed)."""
+        stored_id = self._stored_by_normalized.get(normalize_gate_id(gate_id))
+        return self.calibrations.get(stored_id, {}) if stored_id is not None else {}
+
     def get_calibration(self, gate_id: str) -> Optional[GateCalibrationData]:
-        """Get calibration data for a gate"""
-        # Try standardized ID first
-        excel_id = self.gate_id_mapping.get(gate_id, gate_id)
-        
+        """Calibration for a gate id in ANY spacing (compact or survey-spaced).
+
+        Raises NodeIdError on a grammar-invalid id (fail-closed); a valid id absent
+        from the file still gets the documented size-based/generic default ladder.
+        """
+        excel_id = self._stored_by_normalized.get(normalize_gate_id(gate_id))
+
         # Check if we have data for this gate
-        if excel_id in self.calibrations:
+        if excel_id is not None:
             gate_data = self.calibrations[excel_id]
-            
+
             if gate_data.get('has_calibration', False):
                 # Use actual K1/K2 from Excel
                 return GateCalibrationData(
@@ -165,21 +142,12 @@ class GateCalibrationLoader:
         )
         
     def get_all_calibrated_gates(self) -> Dict[str, Tuple[float, float]]:
-        """Get all gates that have actual K1/K2 calibrations"""
-        calibrated = {}
-        
-        for excel_id, gate_data in self.calibrations.items():
-            if gate_data.get('has_calibration', False):
-                # Find standardized ID
-                std_id = excel_id
-                for std, excel in self.gate_id_mapping.items():
-                    if excel == excel_id:
-                        std_id = std
-                        break
-                        
-                calibrated[std_id] = (gate_data['k1'], gate_data['k2'])
-                
-        return calibrated
+        """All field-calibrated gates, keyed by CANONICAL COMPACT id (Wave 1.2)."""
+        return {
+            normalize_gate_id(excel_id): (gate_data['k1'], gate_data['k2'])
+            for excel_id, gate_data in self.calibrations.items()
+            if gate_data.get('has_calibration', False)
+        }
         
     def print_calibration_summary(self):
         """Print summary of calibrations"""
