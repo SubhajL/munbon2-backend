@@ -1,4 +1,6 @@
 import asyncio
+import os
+
 import structlog
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -41,20 +43,31 @@ async def lifespan(app: FastAPI):
         await db_manager.connect_all()
         logger.info("Database connections established")
         
-        # Initialize gate controller
-        network_file = "src/munbon_network_final.json"
-        geometry_file = "canal_geometry_template.json"
-        gate_controller = DualModeGateController(db_manager, network_file, geometry_file)
-        gates_api.gate_controller = gate_controller
-        logger.info("Gate controller initialized")
+        # Canonical configs, anchored to this file (the old cwd-relative paths only
+        # worked when booted from the service root).
+        config_dir = os.path.join(os.path.dirname(__file__), "config")
+        network_file = os.path.join(config_dir, "network.json")
+        geometry_file = os.path.join(config_dir, "canal_geometry.json")
+
+        # Legacy dual-stack quarantine (Wave 1.5, Decision 2): /api/v1/gates/* stays
+        # OFF unless explicitly enabled, and when enabled it runs on the canonical
+        # configs — never the fragmented munbon_network_final.json (2/57 reachable).
+        if settings.gates_api_enabled:
+            gate_controller = DualModeGateController(db_manager, network_file, geometry_file)
+            gates_api.gate_controller = gate_controller
+            gates_api.disabled_reason = None
+            logger.info("Gate controller initialized (legacy stack, canonical configs)")
+        else:
+            gates_api.gate_controller = None
+            gates_api.disabled_reason = (
+                "legacy gates API disabled by default (PROGRAM_REVIEW_2026-07-09 "
+                "decision 2); set GATES_API_ENABLED=true to re-enable it until the "
+                "F-02 SCADA bridge replaces this surface"
+            )
+            logger.info("Legacy gates API disabled (GATES_API_ENABLED=false)")
 
         # Wire the canonical demand->flow engine (A1-A3 / F-11b / B5) for /api/v1/control/plan.
-        # NOTE: the legacy DualModeGateController above still uses the stale
-        # munbon_network_final.json + template geometry (out of scope here); the corrected
-        # serial-chain topology + surveyed geometry live in src/config/.
-        control_api.flow_controller = NetworkFlowController(
-            "src/config/network.json", "src/config/canal_geometry.json"
-        )
+        control_api.flow_controller = NetworkFlowController(network_file, geometry_file)
         logger.info("Flow controller (demand->reach aggregation) initialized")
 
         # App-scoped hydraulics service on the same canonical configs (Wave 1.3);

@@ -3,25 +3,32 @@ Gate Configuration API
 Provides gate type and configuration information to other services
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import List, Optional, Dict
 from schemas.gate_control import GateConfigResponse, GateLocation
 from services.gate_registry import get_gate_registry
 
-router = APIRouter(prefix="/gates/config", tags=["gate-configuration"])
-gate_registry = get_gate_registry()
+from .gates import get_gate_controller
+
+# Part of the legacy gates surface (Wave 1.5, Decision 2): quarantined behind the
+# same flag/controller state as /api/v1/gates/* — 503 while disabled.
+router = APIRouter(
+    prefix="/gates/config",
+    tags=["gate-configuration"],
+    dependencies=[Depends(get_gate_controller)],
+)
 
 
 @router.get("/all", response_model=Dict[str, Dict])
 async def get_all_gate_configs():
     """Get configuration for all gates in the system"""
-    return gate_registry.gates
+    return get_gate_registry().gates
 
 
 @router.get("/{gate_id}", response_model=GateConfigResponse)
 async def get_gate_config(gate_id: str):
     """Get configuration for a specific gate"""
-    gate_info = gate_registry.get_gate_info(gate_id)
+    gate_info = get_gate_registry().get_gate_info(gate_id)
     if not gate_info:
         raise HTTPException(status_code=404, detail=f"Gate {gate_id} not found")
     
@@ -46,9 +53,9 @@ async def get_gate_config(gate_id: str):
 async def get_gates_by_type(gate_type: str):
     """Get all gates of a specific type (automated/manual)"""
     if gate_type.lower() == "automated":
-        return gate_registry.get_automated_gates()
+        return get_gate_registry().get_automated_gates()
     elif gate_type.lower() == "manual":
-        return gate_registry.get_manual_gates()
+        return get_gate_registry().get_manual_gates()
     else:
         raise HTTPException(
             status_code=400, 
@@ -59,11 +66,11 @@ async def get_gates_by_type(gate_type: str):
 @router.get("/zone/{zone}", response_model=List[Dict])
 async def get_gates_by_zone(zone: int):
     """Get all gates in a specific zone with their types"""
-    gate_ids = gate_registry.get_gates_by_zone(zone)
+    gate_ids = get_gate_registry().get_gates_by_zone(zone)
     gates = []
     
     for gate_id in gate_ids:
-        gate_info = gate_registry.get_gate_info(gate_id)
+        gate_info = get_gate_registry().get_gate_info(gate_id)
         if gate_info:
             gates.append({
                 "gate_id": gate_id,
@@ -82,13 +89,13 @@ async def get_gates_near_location(
     radius_km: float = Query(5.0, description="Search radius in kilometers")
 ):
     """Find gates within a radius of a location"""
-    return gate_registry.get_gates_near_location(lat, lon, radius_km)
+    return get_gate_registry().get_gates_near_location(lat, lon, radius_km)
 
 
 @router.get("/summary", response_model=Dict)
 async def get_operational_summary():
     """Get summary of gate types and distribution"""
-    return gate_registry.get_operational_summary()
+    return get_gate_registry().get_operational_summary()
 
 
 @router.get("/physical-markers", response_model=Dict[str, str])
@@ -96,7 +103,7 @@ async def get_all_physical_markers():
     """Get physical markers for all gates (for field teams)"""
     markers = {}
     
-    for gate_id, gate_info in gate_registry.gates.items():
+    for gate_id, gate_info in get_gate_registry().gates.items():
         marker = gate_info.get("physical_markers")
         if marker:
             markers[gate_id] = marker
@@ -107,7 +114,7 @@ async def get_all_physical_markers():
 @router.get("/scada-mapping", response_model=Dict[str, str])
 async def get_scada_to_gate_mapping():
     """Get mapping of SCADA IDs to gate IDs"""
-    return gate_registry.scada_to_gate
+    return get_gate_registry().scada_to_gate
 
 
 @router.get("/field-team/{team}/schedule/{day}", response_model=List[Dict])
@@ -116,13 +123,13 @@ async def get_field_team_gates(team: str, day: str):
     # This integrates with the scheduler service
     # For now, return example based on team
     if team.upper() == "TEAM_A":
-        gates = gate_registry.get_manual_gates()[:10]  # First 10 manual gates
+        gates = get_gate_registry().get_manual_gates()[:10]  # First 10 manual gates
     else:
-        gates = gate_registry.get_manual_gates()[10:20]  # Next 10 manual gates
+        gates = get_gate_registry().get_manual_gates()[10:20]  # Next 10 manual gates
     
     gate_details = []
     for gate_id in gates:
-        gate_info = gate_registry.get_gate_info(gate_id)
+        gate_info = get_gate_registry().get_gate_info(gate_id)
         if gate_info:
             gate_details.append({
                 "gate_id": gate_id,

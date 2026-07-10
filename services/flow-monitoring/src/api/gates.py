@@ -25,10 +25,15 @@ router = APIRouter()
 
 # Initialize controller (will be properly initialized in lifespan)
 gate_controller = None
+# Set by main.py when the legacy stack is feature-flagged off (Wave 1.5, Decision 2);
+# a clear "disabled" 503 must never be confused with "still starting up".
+disabled_reason: Optional[str] = None
 
 
 def get_gate_controller() -> DualModeGateController:
     """Dependency to get gate controller instance"""
+    if disabled_reason is not None:
+        raise HTTPException(status_code=503, detail=disabled_reason)
     if gate_controller is None:
         raise HTTPException(status_code=503, detail="Gate controller not initialized")
     return gate_controller

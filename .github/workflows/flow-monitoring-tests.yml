@@ -12,6 +12,8 @@ on:
     paths:
       - "services/flow-monitoring/**"
       - ".github/workflows/flow-monitoring-tests.yml"
+      # the quarantine suite locks the deploy workflow's shipped configs
+      - ".github/workflows/deploy-flow-monitoring.yml"
       # repo-root survey oracle read by test_network_topology's SCADA-geometry check
       - "canal_sections_6zones_final.json"
   push:
@@ -19,6 +21,7 @@ on:
     paths:
       - "services/flow-monitoring/**"
       - ".github/workflows/flow-monitoring-tests.yml"
+      - ".github/workflows/deploy-flow-monitoring.yml"
       - "canal_sections_6zones_final.json"
 
 permissions:
@@ -78,4 +81,5 @@ jobs:
           tests/unit/test_timescale_client.py
           tests/unit/test_strict_null_consumers.py
           tests/unit/test_hydraulics_service_scope.py
+          tests/unit/test_legacy_gates_quarantine.py
           tests/unit/test_ci_suite_manifest.py
