@@ -4,7 +4,6 @@ Provides hydraulic modeling and verification capabilities
 """
 
 import asyncio
-import json
 import os
 from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime, timedelta
@@ -20,6 +19,7 @@ from db.connections import DatabaseManager
 from db.influxdb_client import InfluxDBClient
 from db.timescale_client import TimescaleClient
 from core.metrics import hydraulic_solver_iterations, hydraulic_verification_duration
+from core.config_loader import load_network_config
 from core.gate_flow import build_gate_flow_calibration, gate_flow_m3s, required_opening_m
 from core.network_topology import load_validated_network
 from core.canal_capacity import build_capacity_index, reach_capacity
@@ -62,7 +62,11 @@ class HydraulicService:
             self.hydraulic_solver = HydraulicSolver(network_file, geometry_file)
             self.path_solver = PathBasedHydraulicSolver(network_file, geometry_file)
             self.temporal_scheduler = TemporalIrrigationScheduler(network_file)
-            
+
+            # Wave 1.1: warm the strict capacity index so a corrupt/drifted network
+            # fails construction instead of the first capacity check.
+            self._canal_capacity_index()
+
             logger.info("Hydraulic solvers initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize hydraulic solvers: {e}")
@@ -657,16 +661,17 @@ class HydraulicService:
         return capacity
 
     def _canal_capacity_index(self) -> dict:
-        """Lazily load & cache gate q_max capacities from the canonical network.json."""
+        """Lazily load & cache gate q_max capacities from the canonical network.json.
+
+        Strict + fail-closed (Wave 1.1): a corrupt or drifted network raises ConfigError
+        instead of silently emptying the index (which sent every canal to the default
+        capacity). Failures are not cached; the index is warmed at construction so a bad
+        config fails the service, not the first capacity check.
+        """
         cache = getattr(self, "_canal_cap_index_cache", None)
         if cache is None:
             path = os.path.join(os.path.dirname(__file__), "..", "config", "network.json")
-            try:
-                with open(path, encoding="utf-8") as f:
-                    cache = build_capacity_index(json.load(f))
-            except Exception as exc:
-                logger.error("failed to load canal capacity index: %s", exc)
-                cache = {}
+            cache = build_capacity_index(load_network_config(path))
             self._canal_cap_index_cache = cache
         return cache
     

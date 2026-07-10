@@ -34,10 +34,13 @@ class TestConstruction:
 
     def test_rejects_fragmented_network(self, tmp_path):
         # A network whose nodes are not all reachable from S must fail at construction.
+        # Schema-valid (Wave 1.1 strict loader passes) but graph-invalid: the B<->C
+        # cycle hangs free of the source.
         bad = tmp_path / "fragmented.json"
         bad.write_text(json.dumps({
-            "gates": {"M(0,0)": {}, "M(9,9)": {}},
-            "edges": [["S", "M(0,0)"], ["X", "M(9,9)"]],
+            "metadata": {"canonical": True, "total_gates": 3, "total_connections": 3},
+            "gates": {"M(0,0)": {}, "B": {}, "C": {}},
+            "edges": [["S", "M(0,0)"], ["B", "C"], ["C", "B"]],
         }))
         with pytest.raises(NetworkTopologyError):
             NetworkFlowController(str(bad))
@@ -47,6 +50,7 @@ class TestConstruction:
         # aggregation would double-count it, so it must fail at construction, not per-request.
         diamond = tmp_path / "diamond.json"
         diamond.write_text(json.dumps({
+            "metadata": {"canonical": True, "total_gates": 3, "total_connections": 4},
             "gates": {"A": {}, "B": {}, "C": {}},
             "edges": [["S", "A"], ["S", "B"], ["A", "C"], ["B", "C"]],
         }))

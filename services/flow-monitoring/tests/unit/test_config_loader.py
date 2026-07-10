@@ -1,0 +1,400 @@
+"""
+Unit tests for core.config_loader — strict, fail-closed loading of the canonical runtime
+configs (Wave 1.1, PROGRAM_REVIEW_2026-07-09 §2.2). Three failure classes must never
+reach the hydraulics: corrupt JSON (bare NaN/Infinity), missing schema, and
+metadata<->content drift. Pure/stdlib; run in isolation:
+    PYTHONPATH=src pytest --noconftest -o addopts="" tests/unit/test_config_loader.py
+"""
+import json
+from pathlib import Path
+
+import pytest
+
+from core.config_loader import (
+    ConfigError,
+    load_canal_geometry_config,
+    load_gate_calibrations_config,
+    load_network_config,
+    load_strict_json_object,
+)
+
+SERVICE_ROOT = Path(__file__).resolve().parents[2]
+NETWORK = str(SERVICE_ROOT / "src" / "config" / "network.json")
+GEOMETRY = str(SERVICE_ROOT / "src" / "config" / "canal_geometry.json")
+CALIBRATIONS = str(SERVICE_ROOT / "src" / "config" / "gate_calibrations.json")
+
+
+def _write(tmp_path, payload, name="cfg.json"):
+    p = tmp_path / name
+    p.write_text(payload if isinstance(payload, str) else json.dumps(payload))
+    return str(p)
+
+
+def _valid_network():
+    return {
+        "metadata": {"canonical": True, "total_gates": 2, "total_connections": 2},
+        "gates": {"M(0,0)": {"q_max": 11.2}, "M(0,1)": {"q_max": None}},
+        "edges": [["S", "M(0,0)"], ["M(0,0)", "M(0,1)"]],
+    }
+
+
+def _valid_geometry():
+    return {
+        "metadata": {"source": "unit fixture"},
+        "canal_sections": [
+            {
+                "from_node": "M(0,0)",
+                "to_node": "M(0,1)",
+                "geometry": {
+                    "length_m": 1000.0,
+                    "cross_section": {
+                        "type": "trapezoidal",
+                        "depth_m": 2.5,
+                        "bottom_width_m": 4.0,
+                        "side_slope": 1.5,
+                    },
+                    "hydraulic_params": {"lining_type": "concrete"},
+                },
+            }
+        ],
+        "summary": {"total_sections": 1},
+    }
+
+
+def _valid_calibrations():
+    return {
+        "metadata": {"total_gates": 2, "gates_with_k1_k2": 1},
+        "gates": {
+            "M(0,0)": {"has_calibration": True, "k1": 1.0693, "k2": -1.229},
+            "M(0,1)": {"has_calibration": False},
+        },
+    }
+
+
+class TestLoadStrictJsonObject:
+    def test_loads_plain_object(self, tmp_path):
+        path = _write(tmp_path, {"a": 1})
+        assert load_strict_json_object(path) == {"a": 1}
+
+    @pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
+    def test_rejects_non_finite_constants(self, tmp_path, constant):
+        # Python's json.dump happily emits these; strict JSON forbids them (Wave 0.5).
+        path = _write(tmp_path, '{"q_max": %s}' % constant)
+        with pytest.raises(ConfigError, match="cfg.json"):
+            load_strict_json_object(path)
+
+    def test_rejects_malformed_json(self, tmp_path):
+        path = _write(tmp_path, '{"unterminated": ')
+        with pytest.raises(ConfigError, match="cfg.json"):
+            load_strict_json_object(path)
+
+    def test_rejects_missing_file(self, tmp_path):
+        with pytest.raises(ConfigError, match="nowhere.json"):
+            load_strict_json_object(str(tmp_path / "nowhere.json"))
+
+    def test_rejects_non_object_top_level(self, tmp_path):
+        path = _write(tmp_path, [1, 2, 3])
+        with pytest.raises(ConfigError, match="object"):
+            load_strict_json_object(path)
+
+
+class TestLoadNetworkConfig:
+    def test_accepts_committed_canonical_file(self):
+        data = load_network_config(NETWORK)
+        assert len(data["gates"]) == 59
+        assert len(data["edges"]) == 59
+
+    def test_accepts_minimal_consistent_network(self, tmp_path):
+        data = load_network_config(_write(tmp_path, _valid_network()))
+        assert data["edges"] == [["S", "M(0,0)"], ["M(0,0)", "M(0,1)"]]
+
+    def test_rejects_gate_count_drift(self, tmp_path):
+        net = _valid_network()
+        net["metadata"]["total_gates"] = 3
+        with pytest.raises(ConfigError, match="drift"):
+            load_network_config(_write(tmp_path, net))
+
+    def test_rejects_connection_count_drift(self, tmp_path):
+        net = _valid_network()
+        net["metadata"]["total_connections"] = 1
+        with pytest.raises(ConfigError, match="drift"):
+            load_network_config(_write(tmp_path, net))
+
+    @pytest.mark.parametrize("canonical", [False, None, "true"])
+    def test_rejects_non_canonical_marker(self, tmp_path, canonical):
+        net = _valid_network()
+        if canonical is None:
+            del net["metadata"]["canonical"]
+        else:
+            net["metadata"]["canonical"] = canonical
+        with pytest.raises(ConfigError, match="canonical"):
+            load_network_config(_write(tmp_path, net))
+
+    @pytest.mark.parametrize("count", [True, "2", 2.0])
+    def test_rejects_non_integer_declared_counts(self, tmp_path, count):
+        # bool is an int subclass and "2"/2.0 are truthy lookalikes — all must be rejected,
+        # otherwise metadata like {"total_gates": true} slips through count checks.
+        net = _valid_network()
+        net["gates"] = {"M(0,0)": {}}
+        net["edges"] = [["S", "M(0,0)"]]
+        net["metadata"]["total_connections"] = 1
+        net["metadata"]["total_gates"] = count
+        with pytest.raises(ConfigError, match="total_gates"):
+            load_network_config(_write(tmp_path, net))
+
+    @pytest.mark.parametrize("key", ["metadata", "gates", "edges"])
+    def test_rejects_missing_required_key(self, tmp_path, key):
+        net = _valid_network()
+        del net[key]
+        with pytest.raises(ConfigError, match=key):
+            load_network_config(_write(tmp_path, net))
+
+    @pytest.mark.parametrize(
+        "edge", [["S"], ["S", "M(0,0)", "M(0,1)"], ["S", 7], "S->M(0,0)"]
+    )
+    def test_rejects_malformed_edge_shape(self, tmp_path, edge):
+        net = _valid_network()
+        net["edges"][1] = edge
+        with pytest.raises(ConfigError, match="edge"):
+            load_network_config(_write(tmp_path, net))
+
+    def test_rejects_edge_child_not_a_gate(self, tmp_path):
+        net = _valid_network()
+        net["edges"][1] = ["M(0,0)", "M(9,9)"]
+        with pytest.raises(ConfigError, match=r"M\(9,9\)"):
+            load_network_config(_write(tmp_path, net))
+
+    def test_rejects_edge_parent_not_gate_or_source(self, tmp_path):
+        net = _valid_network()
+        net["edges"][1] = ["X", "M(0,1)"]
+        with pytest.raises(ConfigError, match="'X'"):
+            load_network_config(_write(tmp_path, net))
+
+    def test_rejects_duplicate_edges(self, tmp_path):
+        # Two copies of one edge keep the declared count right but corrupt the graph.
+        net = _valid_network()
+        net["edges"][1] = ["S", "M(0,0)"]
+        net["gates"] = {"M(0,0)": {}, "M(0,1)": {}}
+        with pytest.raises(ConfigError, match="duplicate"):
+            load_network_config(_write(tmp_path, net))
+
+    def test_rejects_non_object_gate_value(self, tmp_path):
+        # build_capacity_index silently skips non-dict gates -> default capacity;
+        # the loader must refuse them instead.
+        net = _valid_network()
+        net["gates"]["M(0,1)"] = "not-an-object"
+        with pytest.raises(ConfigError, match=r"gates\['M\(0,1\)'\]"):
+            load_network_config(_write(tmp_path, net))
+
+    @pytest.mark.parametrize("q_max", [0, -3.5, "11.2", True])
+    def test_rejects_invalid_q_max(self, tmp_path, q_max):
+        # q_max must be null (unknown, surfaced downstream) or a finite positive number.
+        net = _valid_network()
+        net["gates"]["M(0,0)"]["q_max"] = q_max
+        with pytest.raises(ConfigError, match="q_max"):
+            load_network_config(_write(tmp_path, net))
+
+    def test_accepts_null_q_max(self, tmp_path):
+        data = load_network_config(_write(tmp_path, _valid_network()))
+        assert data["gates"]["M(0,1)"]["q_max"] is None
+
+
+class TestLoadCanalGeometryConfig:
+    def test_accepts_committed_canonical_file(self):
+        data = load_canal_geometry_config(GEOMETRY)
+        assert len(data["canal_sections"]) == 37
+
+    def test_accepts_minimal_consistent_geometry(self, tmp_path):
+        data = load_canal_geometry_config(_write(tmp_path, _valid_geometry()))
+        assert data["canal_sections"][0]["from_node"] == "M(0,0)"
+
+    def test_rejects_summary_count_drift(self, tmp_path):
+        geo = _valid_geometry()
+        geo["summary"]["total_sections"] = 46
+        with pytest.raises(ConfigError, match="drift"):
+            load_canal_geometry_config(_write(tmp_path, geo))
+
+    def test_rejects_empty_sections(self, tmp_path):
+        geo = _valid_geometry()
+        geo["canal_sections"] = []
+        geo["summary"]["total_sections"] = 0
+        with pytest.raises(ConfigError, match="canal_sections"):
+            load_canal_geometry_config(_write(tmp_path, geo))
+
+    @pytest.mark.parametrize("key", ["from_node", "to_node", "geometry"])
+    def test_rejects_section_missing_required_field(self, tmp_path, key):
+        geo = _valid_geometry()
+        del geo["canal_sections"][0][key]
+        with pytest.raises(ConfigError, match=key):
+            load_canal_geometry_config(_write(tmp_path, geo))
+
+    @pytest.mark.parametrize("length", [0, -120.0, None, "1000", True])
+    def test_rejects_non_positive_or_non_numeric_length(self, tmp_path, length):
+        geo = _valid_geometry()
+        geo["canal_sections"][0]["geometry"]["length_m"] = length
+        with pytest.raises(ConfigError, match="length_m"):
+            load_canal_geometry_config(_write(tmp_path, geo))
+
+    def test_rejects_cross_section_not_an_object(self, tmp_path):
+        geo = _valid_geometry()
+        geo["canal_sections"][0]["geometry"]["cross_section"] = "trapezoidal"
+        with pytest.raises(ConfigError, match="cross_section"):
+            load_canal_geometry_config(_write(tmp_path, geo))
+
+    @pytest.mark.parametrize("key", ["depth_m", "bottom_width_m"])
+    @pytest.mark.parametrize("value", [None, 0, -2.0, "2.5"])
+    def test_rejects_unusable_cross_section_dimension(self, tmp_path, key, value):
+        # The B5 loss runtime needs these to compute the wetted perimeter; an empty
+        # cross_section must fail at load, not as a KeyError under apply_losses.
+        geo = _valid_geometry()
+        if value is None:
+            del geo["canal_sections"][0]["geometry"]["cross_section"][key]
+        else:
+            geo["canal_sections"][0]["geometry"]["cross_section"][key] = value
+        with pytest.raises(ConfigError, match=key):
+            load_canal_geometry_config(_write(tmp_path, geo))
+
+    def test_rejects_negative_side_slope(self, tmp_path):
+        geo = _valid_geometry()
+        geo["canal_sections"][0]["geometry"]["cross_section"]["side_slope"] = -1.0
+        with pytest.raises(ConfigError, match="side_slope"):
+            load_canal_geometry_config(_write(tmp_path, geo))
+
+    def test_accepts_absent_side_slope(self, tmp_path):
+        # side_slope is optional (rectangular sections); absence is not an error.
+        geo = _valid_geometry()
+        del geo["canal_sections"][0]["geometry"]["cross_section"]["side_slope"]
+        assert load_canal_geometry_config(_write(tmp_path, geo))
+
+    @pytest.mark.parametrize("key", ["metadata", "summary"])
+    def test_rejects_missing_top_level_block(self, tmp_path, key):
+        geo = _valid_geometry()
+        del geo[key]
+        with pytest.raises(ConfigError, match=key):
+            load_canal_geometry_config(_write(tmp_path, geo))
+
+
+class TestLoadGateCalibrationsConfig:
+    def test_accepts_committed_canonical_file(self):
+        data = load_gate_calibrations_config(CALIBRATIONS)
+        assert len(data["gates"]) == 59
+        calibrated = [g for g in data["gates"].values() if g.get("has_calibration") is True]
+        assert len(calibrated) == 10
+
+    def test_accepts_minimal_consistent_calibrations(self, tmp_path):
+        data = load_gate_calibrations_config(_write(tmp_path, _valid_calibrations()))
+        assert data["gates"]["M(0,0)"]["k1"] == 1.0693
+
+    def test_rejects_total_gates_drift(self, tmp_path):
+        cal = _valid_calibrations()
+        cal["metadata"]["total_gates"] = 59
+        with pytest.raises(ConfigError, match="drift"):
+            load_gate_calibrations_config(_write(tmp_path, cal))
+
+    def test_rejects_calibrated_count_drift(self, tmp_path):
+        cal = _valid_calibrations()
+        cal["metadata"]["gates_with_k1_k2"] = 2
+        with pytest.raises(ConfigError, match="drift"):
+            load_gate_calibrations_config(_write(tmp_path, cal))
+
+    def test_rejects_string_has_calibration(self, tmp_path):
+        # "true" is truthy: counting it would double-count vs a strict `is True` check,
+        # and a string flag means the file was hand-edited — refuse it outright.
+        cal = _valid_calibrations()
+        cal["gates"]["M(0,1)"]["has_calibration"] = "true"
+        with pytest.raises(ConfigError, match="has_calibration"):
+            load_gate_calibrations_config(_write(tmp_path, cal))
+
+    @pytest.mark.parametrize("k1", [None, "1.07", True])
+    def test_rejects_calibrated_gate_with_bad_k1(self, tmp_path, k1):
+        cal = _valid_calibrations()
+        cal["gates"]["M(0,0)"]["k1"] = k1
+        with pytest.raises(ConfigError, match="k1"):
+            load_gate_calibrations_config(_write(tmp_path, cal))
+
+    def test_rejects_calibrated_gate_missing_k2(self, tmp_path):
+        cal = _valid_calibrations()
+        del cal["gates"]["M(0,0)"]["k2"]
+        with pytest.raises(ConfigError, match="k2"):
+            load_gate_calibrations_config(_write(tmp_path, cal))
+
+    @pytest.mark.parametrize("bad_id", ["M(0,1", "X(0,1)", "M(0,-1)", "M(00,1)"])
+    def test_rejects_gate_id_that_violates_the_naming_grammar(self, tmp_path, bad_id):
+        # A typo'd key would silently push its real gate onto generic defaults via
+        # get_calibration's fallback; grammar-invalid ids must fail at load.
+        # (Cross-checking ids against the network file itself is PR 1.2's join.)
+        cal = _valid_calibrations()
+        cal["gates"][bad_id] = cal["gates"].pop("M(0,1)")
+        with pytest.raises(ConfigError, match="gate id"):
+            load_gate_calibrations_config(_write(tmp_path, cal))
+
+    def test_rejects_gate_ids_that_collide_when_normalized(self, tmp_path):
+        # "M (0,1)" and "M(0,1)" are the same physical gate; both present = a corrupt file.
+        cal = _valid_calibrations()
+        cal["gates"]["M (0,1)"] = {"has_calibration": False}
+        cal["metadata"]["total_gates"] = 3
+        with pytest.raises(ConfigError, match="collide"):
+            load_gate_calibrations_config(_write(tmp_path, cal))
+
+
+class TestRuntimeWiring:
+    """The strict loaders must actually guard the runtime entry points (Wave 1.1
+    'used by all runtime loads') — not just exist beside them."""
+
+    def test_load_validated_network_rejects_nan_network(self, tmp_path):
+        from core.network_topology import load_validated_network
+
+        bad = tmp_path / "nan_net.json"
+        bad.write_text(
+            '{"metadata": {"canonical": true, "total_gates": 1, "total_connections": 1},'
+            ' "gates": {"M(0,0)": {"q_max": NaN}}, "edges": [["S", "M(0,0)"]]}'
+        )
+        with pytest.raises(ConfigError):
+            load_validated_network(str(bad))
+
+    def test_network_flow_controller_rejects_metadata_drift(self, tmp_path):
+        from core.network_flow_controller import NetworkFlowController
+
+        net = _valid_network()
+        net["metadata"]["total_gates"] = 40
+        with pytest.raises(ConfigError):
+            NetworkFlowController(_write(tmp_path, net))
+
+    def test_gate_calibration_loader_fails_closed_on_missing_file(self, tmp_path):
+        from utils.gate_calibration_loader import GateCalibrationLoader
+
+        with pytest.raises(ConfigError):
+            GateCalibrationLoader(str(tmp_path / "missing.json"))
+
+    def test_gate_calibration_loader_fails_closed_on_drift(self, tmp_path):
+        # The old loader swallowed every error and served generic defaults for all
+        # 59 gates (fail-open); a drifted file must now refuse to load at all.
+        from utils.gate_calibration_loader import GateCalibrationLoader
+
+        cal = _valid_calibrations()
+        cal["metadata"]["gates_with_k1_k2"] = 2
+        with pytest.raises(ConfigError):
+            GateCalibrationLoader(_write(tmp_path, cal))
+
+    def test_network_flow_controller_rejects_orphan_geometry_sections(self, tmp_path):
+        # A geometry section describing a reach that is not in the network means the
+        # two files drifted apart — fail closed instead of silently dropping coverage.
+        geo = _valid_geometry()
+        geo["canal_sections"][0]["from_node"] = "M(5,5)"
+        geo["canal_sections"][0]["to_node"] = "M(5,6)"
+        from core.network_flow_controller import NetworkFlowController
+
+        with pytest.raises(ValueError, match="not network reaches"):
+            NetworkFlowController(
+                _write(tmp_path, _valid_network(), name="net.json"),
+                geometry_path=_write(tmp_path, geo, name="geo.json"),
+            )
+
+    def test_gate_calibration_loader_still_serves_canonical_file(self):
+        from utils.gate_calibration_loader import GateCalibrationLoader
+
+        loader = GateCalibrationLoader(CALIBRATIONS)
+        assert len(loader.calibrations) == 59
+        cal = loader.get_calibration("M(0,0)")
+        assert cal.source == "field_measurement"
+        assert cal.k1 == 1.0693
