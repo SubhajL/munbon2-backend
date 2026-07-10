@@ -34,6 +34,9 @@ PURGED_SRC = [
     "core/gate_properties_enhanced.py", "core/job_order_system.py",
     "core/scada_health_monitor.py", "services/gate_controller_integration.py",
     "utils/gate_id_standardizer.py",
+    # dead-except-their-broken-tests modules (Wave 1.9)
+    "core/gate_registry.py", "core/gradual_transition_controller.py",
+    "core/state_preservation.py",
 ]
 
 KEEPER_SCRIPTS = [
@@ -72,7 +75,12 @@ def test_no_code_reference_to_purged_files_repo_wide():
     # A filename can outlive its file in defaults/env wiring (the purge found a
     # machine-absolute munbon_network_final.json fallback in TWO other services).
     # Scan live code trees, ignoring comment lines, for the most dangerous names.
-    dangerous = ("munbon_network_final.json", "munbon_network_updated.json")
+    dangerous = (
+        "munbon_network_final.json", "munbon_network_updated.json",
+        # module spellings of the Wave-1.9 deletions ("core.gate_registry" is
+        # qualified so the LIVE services/gate_registry never false-positives)
+        "core.gate_registry", "gradual_transition_controller", "state_preservation",
+    )
     # scripts/ is exempt: the provenance keepers legitimately name their own
     # historical outputs; network_topology's docstring records the F-11 lineage.
     allowlisted = {SRC / "core" / "network_topology.py"}
