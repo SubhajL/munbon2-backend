@@ -14,8 +14,7 @@ The controller loads and connectivity-guards the canonical network once at const
 """
 from __future__ import annotations
 
-import json
-
+from .config_loader import load_canal_geometry_config
 from .conveyance_loss import (
     make_reach_loss,
     normalize_edge,
@@ -52,8 +51,10 @@ class NetworkFlowController:
             )
         self.sections: dict = {}
         if geometry_path is not None:
-            with open(geometry_path, encoding="utf-8") as f:
-                self.sections = sections_by_edge_from_geometry(json.load(f))
+            # Strict schema/drift validation (Wave 1.1) before the geometry is indexed.
+            self.sections = sections_by_edge_from_geometry(
+                load_canal_geometry_config(geometry_path)
+            )
             if not self.sections:
                 # geometry supplied but unusable -> losses would silently be zero; fail closed.
                 raise ValueError(
@@ -64,6 +65,16 @@ class NetworkFlowController:
             if not reach_has_geometry(self.sections, edge[0], edge[1])
         }
         self._normalized_edges = {normalize_edge(u, v) for u, v in self.edges}
+        orphans = sorted(set(self.sections) - self._normalized_edges)
+        if orphans:
+            # Geometry describing reaches the network does not have means the two
+            # files drifted apart (e.g. a half-regenerated survey) — fail closed
+            # rather than silently losing loss coverage on the real reaches.
+            raise ValueError(
+                f"{geometry_path}: geometry sections are not network reaches: "
+                f"{[list(edge) for edge in orphans[:5]]}"
+                f"{'...' if len(orphans) > 5 else ''}"
+            )
 
     def required_flow_per_reach(
         self,

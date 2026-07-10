@@ -4,11 +4,12 @@ Gate Calibration Loader
 Loads K1/K2 calibration values from the extracted SCADA data
 """
 
-import json
 import os
 from typing import Dict, Optional, Tuple
 from dataclasses import dataclass
 import logging
+
+from core.config_loader import load_gate_calibrations_config
 
 logger = logging.getLogger(__name__)
 
@@ -41,22 +42,15 @@ class GateCalibrationLoader:
         self._setup_gate_id_mapping()
         
     def _load_calibrations(self):
-        """Load calibrations from JSON file"""
-        try:
-            with open(self.calibration_file, 'r') as f:
-                data = json.load(f)
-                
-            logger.info(f"Loaded calibrations for {data['metadata']['total_gates']} gates")
-            logger.info(f"Gates with K1/K2: {data['metadata']['gates_with_k1_k2']}")
-            
-            self.calibrations = data['gates']
-            
-        except FileNotFoundError:
-            logger.warning(f"Calibration file not found: {self.calibration_file}")
-            self.calibrations = {}
-        except Exception as e:
-            logger.error(f"Error loading calibrations: {e}")
-            self.calibrations = {}
+        """Load calibrations strictly (Wave 1.1): a missing, corrupt, or count-drifted
+        file raises ConfigError — never fall back to silent generic defaults for
+        every gate."""
+        data = load_gate_calibrations_config(self.calibration_file)
+
+        logger.info(f"Loaded calibrations for {data['metadata']['total_gates']} gates")
+        logger.info(f"Gates with K1/K2: {data['metadata']['gates_with_k1_k2']}")
+
+        self.calibrations = data['gates']
             
     def _setup_gate_id_mapping(self):
         """Setup mapping between different gate ID formats"""

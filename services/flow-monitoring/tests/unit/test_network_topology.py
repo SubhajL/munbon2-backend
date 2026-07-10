@@ -237,8 +237,11 @@ class TestRegeneratedNetworkFileIsConsistent:
 
 
 def test_load_validated_network_rejects_malformed_file(tmp_path):
-    # A structurally broken network file must raise NetworkTopologyError, not a raw KeyError.
+    # A structurally broken network file must raise the strict loader's ConfigError
+    # (Wave 1.1), not a raw KeyError.
+    from core.config_loader import ConfigError
+
     bad = tmp_path / "no_edges.json"
     bad.write_text('{"nodes": []}')
-    with pytest.raises(NetworkTopologyError):
+    with pytest.raises(ConfigError):
         load_validated_network(str(bad))
