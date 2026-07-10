@@ -4,23 +4,19 @@ Provides hydraulic modeling and verification capabilities
 """
 
 import asyncio
+import math
 import os
 from typing import Dict, List, Optional, Any, Tuple
-from datetime import datetime, timedelta
-from uuid import UUID
-import numpy as np
 import structlog
 
 from hydraulic_solver import HydraulicSolver, ConvergenceResult
 from core.calibrated_flow_model_v2 import CalibratedFlowModelV2
 from path_based_hydraulic_solver import PathBasedHydraulicSolver
 from db.connections import DatabaseManager
-from db.influxdb_client import InfluxDBClient
-from db.timescale_client import TimescaleClient
 from core.metrics import hydraulic_solver_iterations, hydraulic_verification_duration
 from core.config_loader import load_network_config
 from core.gate_flow import build_gate_flow_calibration, gate_flow_m3s, required_opening_m
-from core.network_topology import load_validated_network
+from core.network_topology import ROOT, load_validated_network
 from core.canal_capacity import build_capacity_index, reach_capacity
 
 # P0 (F-01) fallback water levels: used ONLY when real sensor/solver levels are
@@ -55,7 +51,7 @@ class HydraulicService:
             config_dir = os.path.join(os.path.dirname(__file__), "..", "config")
             network_file = os.path.join(config_dir, "network.json")
             geometry_file = os.path.join(config_dir, "canal_geometry.json")
-            load_validated_network(network_file)
+            self._network_edges = load_validated_network(network_file)
 
             self.hydraulic_solver = HydraulicSolver(network_file, geometry_file)
             self.path_solver = PathBasedHydraulicSolver(network_file)
@@ -72,166 +68,9 @@ class HydraulicService:
             logger.error(f"Failed to initialize hydraulic solvers: {e}")
             raise
     
-    async def get_model_results(self, location_id: UUID, model_type: str) -> Dict[str, Any]:
-        """Get hydraulic model results for a location"""
-        try:
-            # Convert UUID to node ID (in real implementation, lookup from database)
-            node_id = f"N{str(location_id)[:8]}"
-            
-            if model_type == "manning":
-                return await self._get_manning_results(node_id)
-            elif model_type == "saint-venant":
-                return await self._get_saint_venant_results(node_id)
-            elif model_type == "rating-curve":
-                return await self._get_rating_curve_results(node_id)
-            else:
-                raise ValueError(f"Unknown model type: {model_type}")
-                
-        except Exception as e:
-            logger.error(f"Failed to get model results: {e}")
-            raise
     
-    async def simulate_propagation(
-        self,
-        start_location_id: UUID,
-        flow_rate: float,
-        duration_hours: int,
-        downstream_locations: Optional[List[UUID]] = None
-    ) -> Dict[str, Any]:
-        """Simulate water propagation through network"""
-        try:
-            # Convert UUIDs to node IDs
-            start_node = f"N{str(start_location_id)[:8]}"
-            
-            # Set up initial conditions
-            initial_flows = {start_node: flow_rate}
-            
-            # Run temporal simulation
-            time_steps = duration_hours * 4  # 15-minute steps
-            results = []
-            
-            for t in range(time_steps):
-                # Update boundary conditions
-                self.hydraulic_solver.set_boundary_flows(initial_flows)
-                
-                # Solve hydraulic network
-                convergence = self.hydraulic_solver.solve()
-                
-                if convergence.converged:
-                    # Extract results
-                    step_result = {
-                        "time": t * 0.25,  # hours
-                        "water_levels": convergence.node_levels.copy(),
-                        "gate_flows": convergence.gate_flows.copy(),
-                        "travel_times": self._calculate_travel_times(start_node, convergence)
-                    }
-                    results.append(step_result)
-                else:
-                    logger.warning(f"Solver did not converge at time {t * 0.25} hours")
-            
-            # Aggregate results
-            propagation_summary = self._summarize_propagation(results, start_node, downstream_locations)
-            
-            return propagation_summary
-            
-        except Exception as e:
-            logger.error(f"Failed to simulate propagation: {e}")
-            raise
     
-    async def estimate_ungauged_flow(self, location_id: UUID) -> Dict[str, Any]:
-        """Estimate flow at ungauged location"""
-        try:
-            node_id = f"N{str(location_id)[:8]}"
-            
-            # Get upstream and downstream gauged locations
-            gauged_data = await self._get_nearby_gauged_data(node_id)
-            
-            if not gauged_data:
-                raise ValueError(f"No gauged data available near {node_id}")
-            
-            # Run hydraulic solver with gauged boundary conditions
-            boundary_conditions = {
-                loc['node_id']: loc['flow'] 
-                for loc in gauged_data
-            }
-            
-            self.hydraulic_solver.set_boundary_flows(boundary_conditions)
-            convergence = self.hydraulic_solver.solve()
-            
-            if not convergence.converged:
-                raise RuntimeError("Hydraulic solver failed to converge")
-            
-            # Extract estimated flow
-            estimated_flow = self._interpolate_flow(node_id, convergence)
-            
-            # Calculate confidence based on distance to gauged points
-            confidence = self._calculate_estimation_confidence(node_id, gauged_data)
-            
-            return {
-                "location_id": str(location_id),
-                "node_id": node_id,
-                "estimated_flow": estimated_flow,
-                "confidence": confidence,
-                "method": "hydraulic_interpolation",
-                "gauged_references": [
-                    {
-                        "node_id": loc['node_id'],
-                        "flow": loc['flow'],
-                        "distance": loc['distance']
-                    }
-                    for loc in gauged_data
-                ],
-                "timestamp": datetime.utcnow().isoformat()
-            }
-            
-        except Exception as e:
-            logger.error(f"Failed to estimate ungauged flow: {e}")
-            raise
     
-    async def calibrate_model(
-        self,
-        location_id: UUID,
-        observed_data: List[Dict[str, Any]],
-        model_type: str
-    ) -> Dict[str, Any]:
-        """Calibrate hydraulic model parameters"""
-        try:
-            node_id = f"N{str(location_id)[:8]}"
-            
-            # Extract observed values
-            observed_flows = np.array([d['flow'] for d in observed_data])
-            observed_levels = np.array([d['level'] for d in observed_data])
-            
-            # Initial parameter guesses
-            if model_type == "manning":
-                initial_params = {"roughness": 0.025}  # Manning's n
-            elif model_type == "rating-curve":
-                initial_params = {"a": 1.0, "b": 2.5}  # Q = a * H^b
-            else:
-                raise ValueError(f"Calibration not supported for {model_type}")
-            
-            # Run optimization
-            best_params, rmse, iterations = await self._optimize_parameters(
-                node_id, observed_flows, observed_levels, 
-                model_type, initial_params
-            )
-            
-            # Store calibrated parameters
-            await self._store_calibration(location_id, model_type, best_params)
-            
-            return {
-                "location_id": str(location_id),
-                "model_type": model_type,
-                "calibrated_parameters": best_params,
-                "rmse": rmse,
-                "iterations": iterations,
-                "n_observations": len(observed_data),
-                "timestamp": datetime.utcnow().isoformat()
-            }
-            
-        except Exception as e:
-            logger.error(f"Failed to calibrate model: {e}")
-            raise
     
     async def verify_schedule(
         self,
@@ -261,7 +100,8 @@ class HydraulicService:
                         "reason": "Total demand exceeds system capacity",
                         "total_demand": total_demand,
                         "system_capacity": system_capacity,
-                        "utilization": total_demand / system_capacity
+                        # same field name as the full-verification response
+                        "system_utilization": total_demand / system_capacity,
                     }
                 
                 # Run hydraulic verification with path-based solver
@@ -374,285 +214,49 @@ class HydraulicService:
     
     # Helper methods
     
-    async def _get_manning_results(self, node_id: str) -> Dict[str, Any]:
-        """Get Manning equation results"""
-        # Simplified implementation
-        return {
-            "model_type": "manning",
-            "node_id": node_id,
-            "flow_rate": 5.0,  # m³/s
-            "water_level": 2.5,  # m
-            "velocity": 1.2,  # m/s
-            "froude_number": 0.3,
-            "roughness": 0.025
-        }
     
-    async def _get_saint_venant_results(self, node_id: str) -> Dict[str, Any]:
-        """Get Saint-Venant equation results"""
-        return {
-            "model_type": "saint-venant",
-            "node_id": node_id,
-            "flow_rate": 5.2,
-            "water_level": 2.6,
-            "velocity": 1.3,
-            "wave_celerity": 3.5
-        }
     
-    async def _get_rating_curve_results(self, node_id: str) -> Dict[str, Any]:
-        """Get rating curve results"""
-        return {
-            "model_type": "rating-curve",
-            "node_id": node_id,
-            "flow_rate": 4.8,
-            "water_level": 2.4,
-            "curve_parameters": {"a": 1.2, "b": 2.3}
-        }
     
-    def _calculate_travel_times(self, start_node: str, convergence: ConvergenceResult) -> Dict[str, float]:
-        """Calculate travel times from start node using actual K1/K2 calibrated flow model"""
-        travel_times = {}
-        
-        # Get network topology from hydraulic solver
-        network = self.hydraulic_solver.network if hasattr(self.hydraulic_solver, 'network') else {}
-        
-        # Initialize with start node
-        travel_times[start_node] = 0.0
-        processed_nodes = set([start_node])
-        nodes_to_process = [(start_node, 0.0)]
-        
-        while nodes_to_process:
-            current_node, current_time = nodes_to_process.pop(0)
-            
-            # Find downstream nodes connected by gates
-            for gate_id, gate_info in convergence.gate_flows.items():
-                # Parse gate ID to find connected nodes
-                # Gate IDs typically formatted as "G_upstream_downstream"
-                if gate_id.startswith("G_"):
-                    parts = gate_id.split("_")
-                    if len(parts) >= 3 and parts[1] == current_node:
-                        downstream_node = parts[2]
-                        
-                        if downstream_node not in processed_nodes:
-                            # Calculate flow velocity using calibrated model
-                            gate_flow = convergence.gate_flows.get(gate_id, 0)
-                            upstream_level = convergence.node_levels.get(current_node, 2.0)
-                            downstream_level = convergence.node_levels.get(downstream_node, 1.8)
-                            
-                            # Get canal properties (simplified - in real system, lookup from database)
-                            canal_length = self._get_canal_length(current_node, downstream_node)
-                            canal_width = self._get_canal_width(current_node, downstream_node)
-                            canal_depth = upstream_level  # Approximate
-                            
-                            # Calculate cross-sectional area and velocity
-                            if canal_depth > 0 and canal_width > 0:
-                                area = canal_width * canal_depth
-                                velocity = gate_flow / area if area > 0 else 0.5
-                                
-                                # Apply realistic velocity constraints (0.3 to 2.0 m/s for irrigation canals)
-                                velocity = max(0.3, min(2.0, velocity))
-                                
-                                # Calculate travel time for this segment
-                                segment_time = (canal_length / velocity) / 3600  # Convert seconds to hours
-                            else:
-                                # Default travel time if geometry unavailable
-                                segment_time = canal_length / 1000 / 2.0  # Assume 2 km/hr
-                            
-                            # Add filling time based on canal volume and flow rate
-                            canal_volume = canal_length * canal_width * canal_depth
-                            filling_time = (0.5 * canal_volume / gate_flow) / 3600 if gate_flow > 0 else 0.5
-                            
-                            total_time = current_time + segment_time + filling_time
-                            travel_times[downstream_node] = total_time
-                            processed_nodes.add(downstream_node)
-                            nodes_to_process.append((downstream_node, total_time))
-        
-        # For any unprocessed nodes, estimate based on network distance
-        for node in convergence.node_levels:
-            if node not in travel_times:
-                # Estimate based on typical irrigation canal velocities
-                estimated_distance = self._estimate_network_distance(start_node, node)
-                travel_times[node] = estimated_distance / 2.0  # 2 km/hr average
-        
-        return travel_times
     
-    def _get_canal_length(self, upstream_node: str, downstream_node: str) -> float:
-        """Get canal length between nodes in meters"""
-        # In real implementation, query from GIS database
-        # For now, use realistic estimates based on irrigation system layout
-        default_lengths = {
-            ("N0", "N1"): 2000,    # Main canal segments typically 2-5 km
-            ("N1", "N2"): 3000,
-            ("N2", "N3"): 2500,
-            ("N3", "N4"): 1500,    # Secondary canals shorter
-            ("N4", "N5"): 1000,
-            ("N5", "N6"): 800,     # Tertiary canals even shorter
-        }
-        
-        key = (upstream_node, downstream_node)
-        return default_lengths.get(key, 1500)  # Default 1.5 km
     
-    def _get_canal_width(self, upstream_node: str, downstream_node: str) -> float:
-        """Get canal width in meters"""
-        # Main canals wider, tertiary canals narrower
-        # Based on typical irrigation canal dimensions
-        if upstream_node.startswith("N0"):
-            return 10.0  # Main canal 10m wide
-        elif upstream_node.startswith("N1") or upstream_node.startswith("N2"):
-            return 5.0   # Secondary canal 5m wide
-        else:
-            return 2.0   # Tertiary canal 2m wide
     
-    def _estimate_network_distance(self, start_node: str, end_node: str) -> float:
-        """Estimate network distance in km when direct path unknown"""
-        # Simple heuristic based on node numbering
-        try:
-            start_num = int(start_node[1:]) if len(start_node) > 1 else 0
-            end_num = int(end_node[1:]) if len(end_node) > 1 else 0
-            hops = abs(end_num - start_num)
-            return hops * 2.5  # Assume 2.5 km average between nodes
-        except:
-            return 5.0  # Default 5 km
     
-    def _summarize_propagation(
-        self, 
-        results: List[Dict], 
-        start_node: str, 
-        downstream_locations: Optional[List[UUID]]
-    ) -> Dict[str, Any]:
-        """Summarize propagation results"""
-        if not results:
-            return {"error": "No results to summarize"}
-        
-        # Extract arrival times
-        arrival_times = {}
-        peak_flows = {}
-        
-        for node in results[0]['water_levels']:
-            # Find when water arrives (level increases)
-            base_level = results[0]['water_levels'][node]
-            for result in results:
-                if result['water_levels'][node] > base_level + 0.1:
-                    arrival_times[node] = result['time']
-                    break
-            
-            # Find peak flow
-            peak_flows[node] = max(
-                result['gate_flows'].get(node, 0) 
-                for result in results
-            )
-        
-        return {
-            "start_location": start_node,
-            "simulation_duration": results[-1]['time'],
-            "arrival_times": arrival_times,
-            "peak_flows": peak_flows,
-            "time_series": results
-        }
     
-    async def _get_nearby_gauged_data(self, node_id: str) -> List[Dict[str, Any]]:
-        """Get data from nearby gauged locations"""
-        # In real implementation, query from database
-        # For now, return dummy data
-        return [
-            {"node_id": "N001", "flow": 5.0, "distance": 2.0},
-            {"node_id": "N003", "flow": 4.5, "distance": 3.0}
-        ]
     
-    def _interpolate_flow(self, node_id: str, convergence: ConvergenceResult) -> float:
-        """Interpolate flow at ungauged location"""
-        # Simplified linear interpolation
-        # In real implementation, use hydraulic routing
-        upstream_flow = convergence.gate_flows.get(f"G_{node_id}_up", 0)
-        downstream_flow = convergence.gate_flows.get(f"G_{node_id}_down", 0)
-        return (upstream_flow + downstream_flow) / 2
     
-    def _calculate_estimation_confidence(self, node_id: str, gauged_data: List[Dict]) -> float:
-        """Calculate confidence in flow estimation"""
-        if not gauged_data:
-            return 0.0
-        
-        # Based on distance to nearest gauge
-        min_distance = min(loc['distance'] for loc in gauged_data)
-        
-        if min_distance < 1.0:
-            return 0.95
-        elif min_distance < 3.0:
-            return 0.85
-        elif min_distance < 5.0:
-            return 0.70
-        else:
-            return 0.50
     
-    async def _optimize_parameters(
-        self,
-        node_id: str,
-        observed_flows: np.ndarray,
-        observed_levels: np.ndarray,
-        model_type: str,
-        initial_params: Dict[str, float]
-    ) -> Tuple[Dict[str, float], float, int]:
-        """Optimize model parameters"""
-        # Simplified optimization
-        # In real implementation, use scipy.optimize
-        
-        best_params = initial_params.copy()
-        best_rmse = float('inf')
-        
-        for iteration in range(50):
-            # Perturb parameters
-            for param, value in best_params.items():
-                test_params = best_params.copy()
-                test_params[param] = value * (1 + np.random.uniform(-0.1, 0.1))
-                
-                # Calculate RMSE
-                predicted_flows = self._predict_flows(
-                    observed_levels, model_type, test_params
-                )
-                rmse = np.sqrt(np.mean((predicted_flows - observed_flows) ** 2))
-                
-                if rmse < best_rmse:
-                    best_rmse = rmse
-                    best_params = test_params
-        
-        return best_params, best_rmse, 50
     
-    def _predict_flows(
-        self, 
-        levels: np.ndarray, 
-        model_type: str, 
-        params: Dict[str, float]
-    ) -> np.ndarray:
-        """Predict flows using model"""
-        if model_type == "manning":
-            # Q = (1/n) * A * R^(2/3) * S^(1/2)
-            # Simplified
-            return levels * 2.0 / params['roughness']
-        elif model_type == "rating-curve":
-            # Q = a * H^b
-            return params['a'] * (levels ** params['b'])
-        else:
-            return levels * 2.0
     
-    async def _store_calibration(
-        self, 
-        location_id: UUID, 
-        model_type: str, 
-        params: Dict[str, float]
-    ):
-        """Store calibration results"""
-        # Store in TimescaleDB
-        pass
     
     async def _get_system_capacity(self) -> float:
-        """Get total system capacity"""
-        # From main canal
-        return 30.0  # m³/s
+        """Rated capacity at the network head: the sum of the source children's rated
+        q_max (Wave 1.4 — replaces a hardcoded 30.0 that let physically impossible
+        schedules pass the total-demand gate). Fail-closed when a source reach has
+        no rating: a fabricated capacity is how overdelivery gets approved."""
+        index = self._canal_capacity_index()
+        heads = [child for parent, child in self._network_edges if parent == ROOT]
+        missing = sorted(g for g in heads if g not in index)
+        if not heads or missing:
+            raise ValueError(
+                "cannot determine system capacity: source reaches without rated "
+                f"q_max: {missing if missing else '(network has no source children)'}"
+            )
+        return sum(index[g] for g in heads)
     
     def _get_gate_capacity(self, gate_id: str) -> float:
-        """Max flow the gate can pass at full opening, via the corrected flow law (F-01)."""
+        """Max flow the gate can pass: its rated q_max when the calibration table has
+        one (Wave 1.4), else the corrected flow law at max opening (F-01). The old
+        flat 10.0 branch was dead — get_calibration always returns the default
+        ladder — and a low-confidence fallback is logged, never silent."""
+        rated = self._gate_rated_capacity(gate_id)
+        if rated is not None:
+            return rated
         calibration = self.calibrated_flow_model.calibration_loader.get_calibration(gate_id)
-        if not calibration:
-            return 10.0  # m³/s — no calibration available; conservative default
+        if calibration.source != "field_measurement":
+            logger.warning(
+                "gate %s: capacity from %s calibration (confidence %.2f)",
+                gate_id, calibration.source, calibration.confidence,
+            )
         cal = self._build_gate_flow_cal(gate_id, calibration)
         upstream_level, downstream_level = self._resolve_gate_levels(gate_id, cal)
         return gate_flow_m3s(cal, upstream_level, downstream_level, cal.max_opening_m)
@@ -729,9 +333,18 @@ class HydraulicService:
         )
 
     def _gate_rated_capacity(self, gate_id: str) -> Optional[float]:
-        """Rated q_max (m3/s) for a gate from the calibration table, if present."""
+        """Rated q_max (m3/s) for a gate from the calibration table — finite positive
+        numbers only; anything else means "no rating", never a capacity of 0/None."""
         loader = self.calibrated_flow_model.calibration_loader
-        return loader.get_gate_data(gate_id).get("q_max_m3s")
+        raw = loader.get_gate_data(gate_id).get("q_max_m3s")
+        if (
+            isinstance(raw, (int, float))
+            and not isinstance(raw, bool)
+            and math.isfinite(raw)
+            and raw > 0
+        ):
+            return float(raw)
+        return None
 
     def _resolve_gate_levels(
         self,
