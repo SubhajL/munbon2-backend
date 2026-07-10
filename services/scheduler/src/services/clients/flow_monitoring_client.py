@@ -17,20 +17,6 @@ class FlowMonitoringClient(BaseServiceClient):
         super().__init__(settings.flow_monitoring_url, "FlowMonitoring")
         self.ws_url = settings.flow_monitoring_url.replace("http://", "ws://").replace("https://", "wss://")
     
-    async def get_hydraulic_model(
-        self,
-        gate_settings: Dict[str, float],
-        target_flows: Optional[Dict[str, float]] = None
-    ) -> Dict[str, Any]:
-        """Get hydraulic model results for given gate settings"""
-        data = {
-            "gateSettings": gate_settings,
-        }
-        if target_flows:
-            data["targetFlows"] = target_flows
-        
-        response = await self.get("/api/v1/hydraulics/model", data)
-        return response.get("data", {})
     
     async def calculate_gate_flow(
         self,
@@ -55,21 +41,6 @@ class FlowMonitoringClient(BaseServiceClient):
         response = await self.get(f"/api/v1/flow/latest/{location_id}")
         return response.get("data", {})
     
-    async def get_water_propagation(
-        self,
-        source_gate: str,
-        flow_change: float,
-        duration_hours: float
-    ) -> Dict[str, Any]:
-        """Calculate water propagation through network"""
-        data = {
-            "sourceGate": source_gate,
-            "flowChange": flow_change,
-            "durationHours": duration_hours,
-        }
-        
-        response = await self.post("/api/v1/model/propagation", data)
-        return response.get("data", {})
     
     async def get_network_efficiency(
         self,

@@ -8,7 +8,7 @@ Computes canal/gate hydraulics for the Munbon network: gate flow law (K1/K2 rati
 ## Commands
 ```bash
 python3 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt          # numpy, pytest, pytest-asyncio, pytest-cov (no hypothesis)
+pip install -r requirements.txt          # numpy, pytest, pytest-asyncio, pytest-cov, hypothesis
 pytest -v                                # tests live in tests/unit/test_*.py
 pytest tests/unit/test_gate_flow.py -v   # (P0) the F-01 regression/invariant suite
 uvicorn src.main:app --reload            # dev server (port from settings)
@@ -16,10 +16,10 @@ uvicorn src.main:app --reload            # dev server (port from settings)
 Gate before PR: `pytest`.
 
 ## Structure (`src/`)
-- `core/` — pure hydraulic/domain logic (**put I/O-free code here so it's unit-testable**): `gate_registry.py`, `gate_properties_enhanced.py` (`GatePropertiesEnhanced`: `sill_elevation_m`, `drop_height_m`), `calibrated_flow_model*.py`, `enhanced_hydraulic_solver.py`. **P0 adds `core/gate_flow.py` as the single flow law.**
+- `core/` — pure hydraulic/domain logic (**put I/O-free code here so it's unit-testable**): `gate_flow.py` (the SINGLE flow law), `network_topology.py`, `node_id.py`, `config_loader.py`, `demand_aggregation.py`, `conveyance_loss.py`, `canal_capacity.py`, `network_flow_controller.py`, `gate_registry.py`. (The legacy duplicates — `calibrated_flow_model*.py`, `enhanced_hydraulic_solver.py` — were deleted in Waves 1.6/1.8.)
 - `services/` — orchestration + I/O: `hydraulic_service.py` (the `_calculate_required_opening`, `_get_gate_capacity`, `_get_canal_capacity` methods being remediated).
 - `utils/gate_calibration_loader.py` — loads K1/K2 from `src/config/gate_calibrations.json` (59 gates, 10 calibrated; confidence 0.95/0.80/0.60).
-- `api/v1/`, `controllers/`, `schemas/`, `db/`, `config/`.
+- `api/`, `controllers/`, `schemas/`, `db/`, `config/`; provenance/generator scripts in `scripts/`.
 - `tests/` — `tests/unit/test_*.py` (pytest), `tests/conftest.py`.
 
 ## Config / Ports / Env
