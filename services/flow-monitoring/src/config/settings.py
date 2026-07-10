@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     port: int = Field(default=3011, env="PORT")
     log_level: str = Field(default="INFO", env="LOG_LEVEL")
     environment: str = Field(default="development", env="ENVIRONMENT")
+    # Wave 1.5 (Decision 2): the legacy /api/v1/gates/* dual-stack stays OFF unless
+    # explicitly enabled; it is quarantined until the F-02 SCADA bridge replaces it.
+    gates_api_enabled: bool = Field(default=False, env="GATES_API_ENABLED")
     
     # Database Connections
     influxdb_url: str = Field(..., env="INFLUXDB_URL")

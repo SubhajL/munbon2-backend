@@ -15,8 +15,10 @@ from schemas.gate_control import (
     ManualInstruction, GateTransitionValidation, SynchronizationStatus
 )
 from hydraulic_solver import HydraulicSolver
+from gate_hydraulics import GateType as SolverGateType
 from calibrated_gate_flow import CalibratedGateFlow
 from db.connections import DatabaseManager
+from utils.gate_calibration_loader import GateCalibrationLoader
 from db.influxdb_client import InfluxDBClient
 from db.timescale_client import TimescaleClient
 from db.redis_client import RedisClient
@@ -26,6 +28,18 @@ from core.metrics import (
 )
 
 logger = structlog.get_logger()
+
+
+# Solver gate types -> API schema types (Wave 1.5): the solver enumerates physical
+# construction (sluice/radial/...), the API schema enumerates hydraulic behavior.
+SCHEMA_GATE_TYPE = {
+    SolverGateType.SLUICE_GATE: GateType.VERTICAL,       # vertical lift gate
+    SolverGateType.RADIAL_GATE: GateType.RADIAL,
+    SolverGateType.BUTTERFLY_VALVE: GateType.UNDERSHOT,  # flow under the disc
+    SolverGateType.CHECK_GATE: GateType.UNDERSHOT,
+    SolverGateType.WEIR_GATE: GateType.OVERSHOT,         # overflow structure
+    SolverGateType.ORIFICE_GATE: GateType.UNDERSHOT,     # submerged opening
+}
 
 
 class DualModeGateController:
@@ -39,6 +53,9 @@ class DualModeGateController:
         self.db_manager = db_manager
         self.hydraulic_solver = HydraulicSolver(network_file, geometry_file)
         self.gate_flow_calculator = CalibratedGateFlow()
+        # Wave 1.5: gate metadata comes from the real calibration table (normalized
+        # ids), not attributes the solver's GateProperties never had.
+        self._calibration_loader = GateCalibrationLoader()
         
         # Gate state tracking
         self.gate_states: Dict[str, GateState] = {}
@@ -62,13 +79,17 @@ class DualModeGateController:
         try:
             # Get gates from hydraulic solver
             for gate_id, props in self.hydraulic_solver.gate_properties.items():
+                # solver gate ids are route strings ("S->M(0,0)"); the physical
+                # gate — and its calibration — is the downstream valve.
+                downstream_node = self.hydraulic_solver.gates[gate_id][1]
+                calibration = self._calibration_loader.get_calibration(downstream_node)
                 self.gate_properties[gate_id] = {
-                    "type": props.gate_type,
-                    "width": props.width,
-                    "height": props.height,
+                    "type": SCHEMA_GATE_TYPE.get(props.gate_type, GateType.UNDERSHOT),
+                    "width": props.width_m,
+                    "height": props.height_m,
                     "calibration": {
-                        "K1": props.K1,
-                        "K2": props.K2
+                        "K1": calibration.k1,
+                        "K2": calibration.k2
                     },
                     "location": {
                         "upstream_node": self.hydraulic_solver.gates[gate_id][0],
