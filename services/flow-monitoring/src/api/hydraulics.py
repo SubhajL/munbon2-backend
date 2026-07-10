@@ -6,16 +6,22 @@ import structlog
 
 from schemas import APIResponse
 from services.hydraulic_service import HydraulicService
-from db import DatabaseManager
 from core.metrics import http_requests_total, http_request_duration_seconds
 
 logger = structlog.get_logger()
 router = APIRouter()
 
-# Dependency injection
-async def get_hydraulic_service():
-    db_manager = DatabaseManager()
-    return HydraulicService(db_manager)
+# Initialized once in main.py lifespan (mirrors api.control); None until then. The
+# old per-request construction rebuilt every solver AND a DatabaseManager that was
+# never connected (Wave 1.3).
+hydraulic_service: Optional[HydraulicService] = None
+
+
+def get_hydraulic_service() -> HydraulicService:
+    """Dependency: the app-scoped service, or 503 if the lifespan has not built it."""
+    if hydraulic_service is None:
+        raise HTTPException(status_code=503, detail="Hydraulic service not initialized")
+    return hydraulic_service
 
 
 @router.get("/model", response_model=APIResponse[Dict[str, Any]])
