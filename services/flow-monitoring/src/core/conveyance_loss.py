@@ -29,7 +29,7 @@ flat per-reach fraction is discretization-dependent (more gate nodes -> more mod
 so it is not used by default; it stays a per-section knob if a calibrated value is supplied.
 
 Pure (stdlib only). Reach keys join to the network by NORMALIZED gate id
-(`core.network_topology._normalize_gate_id`), since geometry uses compact ids and the
+(`core.node_id.normalize_gate_id`), since geometry uses compact ids and the
 network edges use the exact (sometimes irregularly-spaced) gate-key strings.
 """
 from __future__ import annotations
@@ -37,7 +37,7 @@ from __future__ import annotations
 import math
 from typing import Callable, Optional
 
-from .network_topology import NetworkTopologyError, _normalize_gate_id
+from .node_id import NodeIdError, normalize_gate_id
 
 # Aged/deteriorated field seepage flux by lining (m/s), PROVISIONAL pending Tier-3
 # calibration. Ordering earth > unknown > concrete is preserved. See module docstring.
@@ -80,7 +80,7 @@ def sections_by_edge_from_geometry(geometry: dict) -> dict:
     for s in geometry.get("canal_sections", []):
         geo = s["geometry"]
         hp = geo.get("hydraulic_params", {})
-        key = (_normalize_gate_id(s["from_node"]), _normalize_gate_id(s["to_node"]))
+        key = (normalize_gate_id(s["from_node"]), normalize_gate_id(s["to_node"]))
         sections[key] = {
             "length_m": geo["length_m"],
             "cross_section": geo["cross_section"],
@@ -97,8 +97,8 @@ def normalize_edge(upstream: str, downstream: str) -> tuple:
     through unchanged, so unknown junk simply fails membership checks downstream."""
     def norm(node: str) -> str:
         try:
-            return _normalize_gate_id(node)
-        except NetworkTopologyError:
+            return normalize_gate_id(node)
+        except NodeIdError:
             return node
 
     return (norm(upstream), norm(downstream))
@@ -108,8 +108,8 @@ def _lookup_section(sections_by_edge: dict, upstream: str, downstream: str) -> O
     """The section for a reach, matched by normalized id; None if the edge has none or an
     endpoint is not a gate id (e.g. the source ``S``)."""
     try:
-        key = (_normalize_gate_id(upstream), _normalize_gate_id(downstream))
-    except NetworkTopologyError:
+        key = (normalize_gate_id(upstream), normalize_gate_id(downstream))
+    except NodeIdError:
         return None
     return sections_by_edge.get(key)
 

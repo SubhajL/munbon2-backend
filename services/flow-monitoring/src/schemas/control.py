@@ -13,7 +13,11 @@ class PlanRequest(BaseModel):
 
     demands: dict[str, float] = Field(
         default_factory=dict,
-        description="Per-node water demand keyed by network node id, m3/s.",
+        description=(
+            "Per-node water demand keyed by network node id, m3/s. Ids are accepted "
+            "in any spacing (compact 'M(0,3;1,0)' or survey 'M (0,3; 1,0)'); two keys "
+            "naming the same node are rejected. Responses always use the compact form."
+        ),
     )
     apply_losses: bool = Field(
         default=False,

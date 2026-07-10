@@ -79,6 +79,59 @@ class TestPlanEndpoint:
         resp = client.post("/api/v1/control/plan", json={"demands": {"Zone2": 5.0}})
         assert resp.status_code == 400
 
+    def test_accepts_compact_demand_alias_for_spaced_network_node(self, client):
+        # Wave 1.2 boundary normalization: the C12-style compact id must land on the
+        # survey-spaced network node 'M (0,3; 1,0)'.
+        resp = client.post(
+            "/api/v1/control/plan", json={"demands": {"M(0,3;1,0)": 2.0}}
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["head_flow_m3s"] == pytest.approx(2.0)
+        into = [r for r in body["reaches"] if r["downstream"] == "M(0,3;1,0)"]
+        assert into and into[0]["required_flow_m3s"] == pytest.approx(2.0)
+
+    def test_response_reach_ids_are_canonical_compact(self, client):
+        # 44/59 network ids carry survey spacing; the response contract is the exact
+        # normalized edge set — not merely "no spaces".
+        from core.node_id import normalize_node_id
+
+        resp = client.post(
+            "/api/v1/control/plan", json={"demands": {"M (0,3; 1,0)": 2.0}}
+        )
+        assert resp.status_code == 200
+        expected = {
+            (normalize_node_id(u), normalize_node_id(v))
+            for u, v in json.loads(Path(NETWORK).read_text())["edges"]
+        }
+        got = {(r["upstream"], r["downstream"]) for r in resp.json()["reaches"]}
+        assert got == expected
+        assert all(" " not in node for edge in got for node in edge)
+
+    def test_missing_geometry_ids_are_canonical_compact(self, client):
+        from core.node_id import normalize_node_id
+
+        resp = client.post(
+            "/api/v1/control/plan", json={"demands": {}, "apply_losses": True}
+        )
+        assert resp.status_code == 200
+        missing = {tuple(edge) for edge in resp.json()["reaches_missing_geometry"]}
+        expected = {
+            (normalize_node_id(u), normalize_node_id(v))
+            for u, v in NetworkFlowController(NETWORK, GEOMETRY).reaches_missing_geometry
+        }
+        assert missing == expected
+        assert len(missing) == 22
+        assert all(" " not in node for edge in missing for node in edge)
+
+    def test_colliding_demand_aliases_are_rejected_400(self, client):
+        resp = client.post(
+            "/api/v1/control/plan",
+            json={"demands": {"M(0,3;1,0)": 1.0, "M (0,3; 1,0)": 2.0}},
+        )
+        assert resp.status_code == 400
+        assert "collide" in resp.json()["detail"]
+
     def test_zero_demand_with_losses_has_zero_head_flow(self, client):
         # D1: dry reaches take no seepage — an empty plan demands nothing at the head
         # (pre-D1 this returned ~2.46 m3/s of phantom whole-network seepage).

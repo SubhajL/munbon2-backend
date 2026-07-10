@@ -11,10 +11,10 @@ fast so hydraulics never run on a fragmented graph.
 """
 from __future__ import annotations
 
-import re
 from collections import defaultdict, deque
 
 from .config_loader import load_network_config
+from .node_id import NodeIdError, format_gate_tuples, normalize_gate_id, parse_gate_id
 
 ROOT = "S"
 
@@ -127,31 +127,23 @@ def topological_order(edges) -> list:
 
 
 def _parse_gate_id(gate_id: str) -> list[tuple[int, int]]:
-    """Parse ``M(0,1; 1,0)`` (any spacing) into ``[(0, 1), (1, 0)]``."""
-    s = re.sub(r"\s+", "", gate_id)
-    if not (s.startswith("M(") and s.endswith(")")):
-        raise NetworkTopologyError(f"malformed gate id {gate_id!r}")
-    pairs = []
-    for pair in s[2:-1].split(";"):
-        parts = pair.split(",")
-        # non-negative integers only: negative branch/position is a malformed id.
-        if len(parts) != 2 or not all(p.isdigit() for p in parts):
-            raise NetworkTopologyError(f"malformed gate id {gate_id!r}")
-        # leading zeros (M(00,00), M(0,00)) are textual aliases of another node:
-        # they normalize to the same tuples but break exact-string consumers.
-        if any(len(p) > 1 and p[0] == "0" for p in parts):
-            raise NetworkTopologyError(f"malformed gate id {gate_id!r} (leading zero)")
-        pairs.append((int(parts[0]), int(parts[1])))
-    return pairs
+    """Back-compat wrapper: the grammar lives in `core.node_id` (Wave 1.2); this module's
+    consumers and tests expect grammar failures as NetworkTopologyError."""
+    try:
+        return parse_gate_id(gate_id)
+    except NodeIdError as exc:
+        raise NetworkTopologyError(str(exc)) from exc
 
 
-def _fmt_tuples(tuples) -> str:
-    return "M(" + ";".join(f"{b},{p}" for b, p in tuples) + ")"
+_fmt_tuples = format_gate_tuples
 
 
 def _normalize_gate_id(gate_id: str) -> str:
-    """Canonical, space-free form of a gate id, e.g. ``M(0,1;1,0)`` (for matching)."""
-    return _fmt_tuples(_parse_gate_id(gate_id))
+    """Back-compat wrapper around `core.node_id.normalize_gate_id` (NetworkTopologyError)."""
+    try:
+        return normalize_gate_id(gate_id)
+    except NodeIdError as exc:
+        raise NetworkTopologyError(str(exc)) from exc
 
 
 def _derived_parent(gate_id: str):
