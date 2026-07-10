@@ -51,10 +51,12 @@ jobs:
 
     - name: Deploy to EC2
       run: |
-        # Copy environment and config files
+        # Copy environment and config files (Wave 1.5: ship the CANONICAL configs;
+        # the fragmented legacy topology + template geometry are retired)
+        ssh -i ~/.ssh/ec2-key.pem ${{ env.EC2_USER }}@${{ env.EC2_HOST }} 'mkdir -p /home/ubuntu/munbon2-backend/services/flow-monitoring/src/config'
         scp -i ~/.ssh/ec2-key.pem ./services/flow-monitoring/.env.ec2 ${{ env.EC2_USER }}@${{ env.EC2_HOST }}:/home/ubuntu/munbon2-backend/services/flow-monitoring/.env
-        scp -i ~/.ssh/ec2-key.pem ./services/flow-monitoring/src/munbon_network_final.json ${{ env.EC2_USER }}@${{ env.EC2_HOST }}:/home/ubuntu/munbon2-backend/services/flow-monitoring/src/
-        scp -i ~/.ssh/ec2-key.pem ./services/flow-monitoring/canal_geometry_template.json ${{ env.EC2_USER }}@${{ env.EC2_HOST }}:/home/ubuntu/munbon2-backend/services/flow-monitoring/
+        scp -i ~/.ssh/ec2-key.pem ./services/flow-monitoring/src/config/network.json ${{ env.EC2_USER }}@${{ env.EC2_HOST }}:/home/ubuntu/munbon2-backend/services/flow-monitoring/src/config/
+        scp -i ~/.ssh/ec2-key.pem ./services/flow-monitoring/src/config/canal_geometry.json ${{ env.EC2_USER }}@${{ env.EC2_HOST }}:/home/ubuntu/munbon2-backend/services/flow-monitoring/src/config/
         
         # Deploy on EC2
         ssh -i ~/.ssh/ec2-key.pem ${{ env.EC2_USER }}@${{ env.EC2_HOST }} << 'ENDSSH'
@@ -74,6 +76,10 @@ jobs:
           # Verify deployment
           docker ps | grep flow-monitoring
           curl -f http://localhost:3011/health || exit 1
+          # Smoke the canonical control plane: an empty plan must answer 200
+          # (proves the demand->flow engine booted on the shipped configs)
+          curl -sf -X POST http://localhost:3011/api/v1/control/plan \
+            -H 'Content-Type: application/json' -d '{"demands":{}}' || exit 1
         ENDSSH
 
     - name: Clean up
