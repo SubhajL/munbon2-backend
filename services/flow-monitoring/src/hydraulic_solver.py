@@ -10,6 +10,7 @@ from dataclasses import dataclass
 import json
 from datetime import datetime
 
+from core.node_id import normalize_node_id
 from gate_hydraulics import GateHydraulics, GateProperties, HydraulicConditions, GateType
 from water_gate_controller_fixed import WaterGateControllerFixed
 
@@ -210,9 +211,11 @@ class HydraulicSolver:
     
     def calculate_canal_head_loss(self, upstream: str, downstream: str, flow: float) -> float:
         """Calculate head loss in canal reach"""
-        
-        key = f"{upstream}->{downstream}"
-        
+
+        # Wave 1.3: sections are keyed by normalized id; the network spells 44/59
+        # ids with survey spacing — join by normalized form, never exact strings.
+        key = f"{normalize_node_id(upstream)}->{normalize_node_id(downstream)}"
+
         if key not in self.canal_sections or flow <= 0:
             return 0.0
         

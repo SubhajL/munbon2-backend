@@ -9,6 +9,8 @@ from typing import Dict, List, Set, Tuple
 from collections import defaultdict, deque
 import json
 
+from core.node_id import normalize_node_id
+
 class PathBasedHydraulicSolver:
     """
     Solves hydraulic network considering full paths from source to destinations
@@ -27,15 +29,24 @@ class PathBasedHydraulicSolver:
         self.graph = defaultdict(list)  # Adjacency list
         self.reverse_graph = defaultdict(list)  # For upstream traversal
         
-        # Extract edges
+        # Extract edges. The canonical network.json stores edges as [parent, child]
+        # pairs; the legacy demo format used {"parent": ..., "child": ...} dicts.
         for edge in network_data.get('edges', []):
-            parent = edge['parent']
-            child = edge['child']
+            if isinstance(edge, dict):
+                parent, child = edge['parent'], edge['child']
+            else:
+                parent, child = edge
             self.edges.append((parent, child))
             self.graph[parent].append(child)
             self.reverse_graph[child].append(parent)
             self.nodes.add(parent)
             self.nodes.add(child)
+
+        # Any-spacing node resolution (Wave 1.2 boundary policy): canonical compact
+        # id -> the exact network spelling.
+        self._exact_by_normalized = {
+            normalize_node_id(node): node for node in self.nodes
+        }
         
         # Gate properties
         self.gate_capacity = {}  # Maximum flow capacity
@@ -103,6 +114,38 @@ class PathBasedHydraulicSolver:
         
         return []  # No path found
     
+    def find_delivery_paths(
+        self, delivery_nodes: Dict[str, float], source: str = "S"
+    ) -> Dict[str, Dict]:
+        """Delivery paths for schedule verification: for each ``{node_id: flow}``, the
+        source->node path, its gates (each reach's DOWNSTREAM valve id — the physical
+        gate, so calibration lookups work), and the delivery flow. Node ids accepted
+        in any spacing; unknown nodes and colliding aliases fail closed (ValueError).
+        """
+        paths: Dict[str, Dict] = {}
+        alias_of: Dict[str, str] = {}
+        for node_id, flow in delivery_nodes.items():
+            exact = self._exact_by_normalized.get(normalize_node_id(str(node_id)))
+            if exact is None:
+                raise ValueError(
+                    f"delivery for unknown node {node_id!r} (not in the network)"
+                )
+            if exact in paths:
+                raise ValueError(
+                    "delivery node ids collide after normalization:"
+                    f" {alias_of[exact]!r} and {node_id!r} both name {exact!r}"
+                )
+            path = self.find_shortest_path(source, exact)
+            if not path:
+                raise ValueError(f"no delivery path from {source!r} to {node_id!r}")
+            paths[exact] = {
+                "nodes": path,
+                "gates": path[1:],
+                "total_flow": float(flow),
+            }
+            alias_of[exact] = str(node_id)
+        return paths
+
     def get_path_gates(self, path: List[str]) -> List[str]:
         """Get all gates along a path"""
         

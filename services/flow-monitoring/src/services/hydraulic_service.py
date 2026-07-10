@@ -14,7 +14,6 @@ import structlog
 from hydraulic_solver import HydraulicSolver, ConvergenceResult
 from core.calibrated_flow_model_v2 import CalibratedFlowModelV2
 from path_based_hydraulic_solver import PathBasedHydraulicSolver
-from temporal_irrigation_scheduler import TemporalIrrigationScheduler
 from db.connections import DatabaseManager
 from db.influxdb_client import InfluxDBClient
 from db.timescale_client import TimescaleClient
@@ -50,18 +49,19 @@ class HydraulicService:
     def _initialize_solvers(self):
         """Initialize hydraulic solvers"""
         try:
-            # Load network and geometry files
-            # F-11: use the canonical, validated topology (was munbon_network_final.json,
-            # ~76% wrong). Guard connectivity before building solvers — fail fast, never
-            # run hydraulics on a fragmented graph.
-            network_file = os.path.join(os.path.dirname(__file__), "..", "config", "network.json")
-            geometry_file = "/services/flow-monitoring/canal_geometry_template.json"
+            # Wave 1.3: same canonical configs as /control, anchored to __file__ (the
+            # old geometry path was container-absolute and failed everywhere else).
+            # F-11 guard: never run hydraulics on a fragmented graph.
+            config_dir = os.path.join(os.path.dirname(__file__), "..", "config")
+            network_file = os.path.join(config_dir, "network.json")
+            geometry_file = os.path.join(config_dir, "canal_geometry.json")
             load_validated_network(network_file)
-            
-            # Initialize solvers
+
             self.hydraulic_solver = HydraulicSolver(network_file, geometry_file)
-            self.path_solver = PathBasedHydraulicSolver(network_file, geometry_file)
-            self.temporal_scheduler = TemporalIrrigationScheduler(network_file)
+            self.path_solver = PathBasedHydraulicSolver(network_file)
+            # temporal_scheduler stays None: nothing consumes it, its ctor never
+            # matched the canonical network format, and travel-time offsets are
+            # Wave 3.2 (core/travel_time.py).
 
             # Wave 1.1: warm the strict capacity index so a corrupt/drifted network
             # fails construction instead of the first capacity check.
@@ -248,7 +248,9 @@ class HydraulicService:
                 for delivery in deliveries:
                     node_id = delivery.get('node_id', f"N{delivery.get('location_id', '')[:8]}")
                     flow_rate = delivery['flow_rate']
-                    delivery_nodes[node_id] = flow_rate
+                    # Two deliveries to one node combine (the reach must carry both);
+                    # a dict overwrite would silently verify only the last one.
+                    delivery_nodes[node_id] = delivery_nodes.get(node_id, 0.0) + flow_rate
                     total_demand += flow_rate
                 
                 # Check total capacity
@@ -320,8 +322,14 @@ class HydraulicService:
                     delivery_nodes, gate_settings
                 )
                 
-                is_feasible = len(violations) == 0 and convergence.converged
-                
+                # Fail closed when the simulation seam is unavailable (returns None):
+                # capacity + gate-flow checks alone cannot verify the schedule.
+                is_feasible = (
+                    len(violations) == 0
+                    and convergence is not None
+                    and convergence.converged
+                )
+
                 result = {
                     "is_feasible": is_feasible,
                     "total_demand": total_demand,
@@ -333,7 +341,10 @@ class HydraulicService:
                         "iterations": convergence.iterations,
                         "max_error": convergence.max_error
                     } if convergence else None,
-                    "warnings": convergence.warnings if convergence else [],
+                    "warnings": convergence.warnings if convergence else [
+                        "hydraulic simulation unavailable; schedule checked against "
+                        "capacity and gate-flow limits only"
+                    ],
                     "delivery_paths": {
                         path_id: {
                             "nodes": info['nodes'],
