@@ -95,6 +95,11 @@ case "$1" in
         run_sql "03_profile_quality_smoothed.sql" "Profile smoothed water level quality"
         run_sql "07_realtime_smoothing_fn_and_trigger.sql" "Create real-time smoothing trigger"
         ;;
+    "convert")
+        run_sql "10_convert_time_columns_to_timestamptz.sql" "Convert water_level_readings.time to TIMESTAMPTZ"
+        echo -e "${YELLOW}Verifying column type...${NC}"
+        run_query "SELECT table_name, data_type FROM information_schema.columns WHERE table_schema='public' AND table_name IN ('water_level_readings','smoothed_water_level_readings') AND column_name='time' ORDER BY table_name;"
+        ;;
     "verify")
         # Verify installation
         echo -e "${YELLOW}Verifying water level smoothing infrastructure...${NC}\n"

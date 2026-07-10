@@ -58,6 +58,10 @@ export class TimescaleRepository {
       client.query(`SET search_path TO ${schema}, public`).catch(() => {
         // ignore if schema does not exist; queries will hit public
       });
+      // Ensure session timezone is UTC to avoid ambiguous timestamp handling
+      client.query("SET TIME ZONE 'UTC'").catch(() => {
+        // ignore if not permitted; downstream formatters still include explicit offsets
+      });
     });
 
     // Prevent process crash on unexpected idle client errors (e.g., ENETUNREACH/EADDRNOTAVAIL)

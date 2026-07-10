@@ -111,8 +111,8 @@ export class WaterLevelChartFormatter {
       },
       period,
       timeRange: {
-        start: timeRange.start.toISOString(),
-        end: timeRange.end.toISOString(),
+        start: this.formatTimestamp(timeRange.start, timeZone),
+        end: this.formatTimestamp(timeRange.end, timeZone),
       },
       localTimeZone: timeZone,
       sensors,
@@ -127,9 +127,9 @@ export class WaterLevelChartFormatter {
    * Format a date/timestamp to local timezone ISO string.
    */
   formatTimestamp(timestamp: Date | string, timeZone: string): string {
-    const date =
-      typeof timestamp === 'string' ? new Date(timestamp) : timestamp;
-    return dayjs.utc(date).tz(timeZone).toISOString();
+    const date = typeof timestamp === 'string' ? new Date(timestamp) : timestamp;
+    // Include explicit offset for the requested timezone
+    return dayjs.utc(date).tz(timeZone).format();
   }
 
   /**
