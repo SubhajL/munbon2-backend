@@ -11,9 +11,10 @@ fast so hydraulics never run on a fragmented graph.
 """
 from __future__ import annotations
 
-import json
 import re
 from collections import defaultdict, deque
+
+from .config_loader import load_network_config
 
 ROOT = "S"
 
@@ -23,11 +24,12 @@ class NetworkTopologyError(ValueError):
 
 
 def load_edges(path: str) -> list[tuple[str, str]]:
-    with open(path, encoding="utf-8") as f:
-        data = json.load(f)
-    if not isinstance(data, dict) or "edges" not in data:
-        raise NetworkTopologyError(f"{path}: network JSON has no 'edges' key")
-    return [tuple(e) for e in data["edges"]]
+    """Edges of a canonical network file, strictly loaded (Wave 1.1).
+
+    Schema + metadata-drift validation lives in `core.config_loader` (ConfigError);
+    graph structure (connectivity, spanning tree) is validated by the callers below.
+    """
+    return [tuple(e) for e in load_network_config(path)["edges"]]
 
 
 def nodes_of(edges) -> set:
