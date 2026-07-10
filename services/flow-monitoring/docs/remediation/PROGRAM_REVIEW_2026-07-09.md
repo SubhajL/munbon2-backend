@@ -43,7 +43,9 @@ as current in the older docs.
 
 ### 1.2 New defects found by this review
 
-1. **HIGH — leaked password in runtime code.** `__ROTATED_DB_PASSWORD__` in 27 tracked `.js`/`.ts`
+1. **HIGH — leaked password in runtime code.** *(Historical finding; the literal is
+   redacted repo-wide as `__ROTATED_DB_PASSWORD__` since Wave 1.11 — runtime `.js`/`.ts`
+   fallbacks were removed in #29, and rotation E1 remains outstanding.)* It was in 27 tracked `.js`/`.ts`
    (8 runtime service sources: sensor-data, awd-control, external-api, scada-integration,
    sensor-location-mapping, bff-water-control) as `process.env.X || '__ROTATED_DB_PASSWORD__'` fallbacks —
    services silently run on the leaked credential when env is unset. Also in flow-monitoring's
@@ -126,7 +128,7 @@ as current in the older docs.
 
 ### 2.1 External actions (not PRs — schedule now)
 
-- **E1: rotate `__ROTATED_DB_PASSWORD__`** (all DBs using it) — overdue; nothing else neutralizes it.
+- **E1: rotate the leaked DB credential** (old value redacted as `__ROTATED_DB_PASSWORD__`; all DBs using it) — overdue; nothing else neutralizes it.
 - **E2: `git filter-repo` history purge + team re-clone** — after E1 and after PR 0.6 lands.
 - **E3:** provide the SCADA V1.0 Excel (decision 4). **E4:** GIS shapefile export for
   crop_registry. **E5:** RID's authoritative auto-gate list (needed for F-02 quantizer scope).

@@ -1,5 +1,11 @@
 #!/bin/bash
 
+# Wave 1.11 guard: the old leaked credential was rotated; a real one MUST come
+# from the environment, and the redaction sentinel must never reach a live system.
+: "${DB_PASSWORD:?set DB_PASSWORD in the environment (the old leaked value was rotated)}"
+case "$DB_PASSWORD" in *ROTATED_DB_PASSWORD*) echo "refusing to deploy the redaction sentinel as a credential" >&2; exit 1;; esac
+
+
 # Update Lambda environment variables for Munbon Data API to use EC2 database
 
 echo "=== Updating Lambda Environment Variables for EC2 Database ==="
@@ -15,7 +21,7 @@ update_function_env() {
     
     aws lambda update-function-configuration \
         --function-name "$function_name" \
-        --environment 'Variables={DB_HOST="${EC2_HOST:-43.208.201.191}",DB_PORT="5432",DB_NAME="sensor_data",DB_USER="postgres",DB_PASSWORD="__ROTATED_DB_PASSWORD__",EXTERNAL_API_KEYS="rid-ms-prod-1234567890abcdef,rid-ms-dev-abcdef1234567890,tmd-weather-123abc456def789,test-key-123",STAGE="'$STAGE'"}' \
+        --environment 'Variables={DB_HOST="${EC2_HOST:-43.208.201.191}",DB_PORT="5432",DB_NAME="sensor_data",DB_USER="postgres",DB_PASSWORD="'$DB_PASSWORD'",EXTERNAL_API_KEYS="rid-ms-prod-1234567890abcdef,rid-ms-dev-abcdef1234567890,tmd-weather-123abc456def789,test-key-123",STAGE="'$STAGE'"}' \
         --region ap-southeast-1 \
         > /dev/null 2>&1
     
