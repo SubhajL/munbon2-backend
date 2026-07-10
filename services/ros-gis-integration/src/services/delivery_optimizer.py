@@ -59,7 +59,15 @@ class DeliveryOptimizer:
             # Load network data from file
             network_file = settings.flow_monitoring_network_file
             if not network_file:
-                network_file = "/Users/subhajlimanond/dev/munbon2-backend/services/flow-monitoring/src/munbon_network_final.json"
+                # The old fallback was a machine-absolute path to the fragmented
+                # munbon_network_final.json, deleted in flow-monitoring Wave 1.8.
+                # This optimizer still expects that LEGACY schema; its rework onto
+                # the canonical network/plan API is Wave 2 — until then the file
+                # must be provided explicitly.
+                raise RuntimeError(
+                    "FLOW_MONITORING_NETWORK_FILE is not configured (the legacy "
+                    "default was deleted in flow-monitoring Wave 1.8)"
+                )
             
             with open(network_file, 'r') as f:
                 network_data = json.load(f)
