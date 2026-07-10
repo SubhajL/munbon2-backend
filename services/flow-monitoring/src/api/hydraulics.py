@@ -24,127 +24,44 @@ def get_hydraulic_service() -> HydraulicService:
     return hydraulic_service
 
 
-@router.get("/model", response_model=APIResponse[Dict[str, Any]])
+FACADE_REMOVED_DETAIL = (
+    "removed: this endpoint returned hardcoded facade values, never a real hydraulic "
+    "model (PROGRAM_REVIEW_2026-07-09 decision 2); real modeling arrives with the "
+    "scheduler/SCADA waves"
+)
+
+
+def _facade_501(method: str, endpoint: str) -> HTTPException:
+    """An honest 501 for the deleted model facades. No service dependency here: the
+    answer is 501 whether or not the lifespan initialized (503 must not mask it)."""
+    http_requests_total.labels(method=method, endpoint=endpoint, status="501").inc()
+    return HTTPException(status_code=501, detail=FACADE_REMOVED_DETAIL)
+
+
+@router.get("/model")
 async def get_hydraulic_model_results(
     location_id: UUID,
     model_type: Optional[str] = Query("manning", enum=["manning", "saint-venant", "rating-curve"]),
-    hydraulic_service: HydraulicService = Depends(get_hydraulic_service)
 ):
-    """Get hydraulic model results for a location"""
-    with http_request_duration_seconds.labels(method="GET", endpoint="/hydraulics/model").time():
-        try:
-            results = await hydraulic_service.get_model_results(location_id, model_type)
-            
-            http_requests_total.labels(
-                method="GET",
-                endpoint="/hydraulics/model",
-                status="200"
-            ).inc()
-            
-            return APIResponse.success_response(
-                data=results,
-                message="Hydraulic model results retrieved"
-            )
-            
-        except ValueError as e:
-            http_requests_total.labels(
-                method="GET",
-                endpoint="/hydraulics/model",
-                status="404"
-            ).inc()
-            raise HTTPException(status_code=404, detail=str(e))
-        except Exception as e:
-            logger.error("Failed to get hydraulic model results", error=str(e))
-            http_requests_total.labels(
-                method="GET",
-                endpoint="/hydraulics/model",
-                status="500"
-            ).inc()
-            raise HTTPException(status_code=500, detail=str(e))
+    """Removed facade: manning/saint-venant/rating-curve returned constants (5.0/5.2/4.8)."""
+    raise _facade_501("GET", "/hydraulics/model")
 
 
-@router.post("/model/propagation", response_model=APIResponse[Dict[str, Any]])
+@router.post("/model/propagation")
 async def simulate_water_propagation(
     start_location_id: UUID = Body(..., description="Starting location ID"),
-    flow_rate: float = Body(..., description="Initial flow rate in m³/s"),
+    flow_rate: float = Body(..., description="Initial flow rate in m\u00b3/s"),
     duration_hours: int = Body(..., ge=1, le=72, description="Simulation duration in hours"),
     downstream_locations: Optional[List[UUID]] = Body(None, description="Specific downstream locations to simulate"),
-    hydraulic_service: HydraulicService = Depends(get_hydraulic_service)
 ):
-    """Simulate water propagation through the network"""
-    with http_request_duration_seconds.labels(method="POST", endpoint="/model/propagation").time():
-        try:
-            simulation = await hydraulic_service.simulate_propagation(
-                start_location_id=start_location_id,
-                flow_rate=flow_rate,
-                duration_hours=duration_hours,
-                downstream_locations=downstream_locations
-            )
-            
-            http_requests_total.labels(
-                method="POST",
-                endpoint="/model/propagation",
-                status="200"
-            ).inc()
-            
-            return APIResponse.success_response(
-                data=simulation,
-                message="Water propagation simulation completed"
-            )
-            
-        except ValueError as e:
-            http_requests_total.labels(
-                method="POST",
-                endpoint="/model/propagation",
-                status="400"
-            ).inc()
-            raise HTTPException(status_code=400, detail=str(e))
-        except Exception as e:
-            logger.error("Failed to simulate propagation", error=str(e))
-            http_requests_total.labels(
-                method="POST",
-                endpoint="/model/propagation",
-                status="500"
-            ).inc()
-            raise HTTPException(status_code=500, detail=str(e))
+    """Removed facade: the propagation simulation called a solver API that never existed."""
+    raise _facade_501("POST", "/model/propagation")
 
 
 @router.get("/model/ungauged/{location_id}")
-async def estimate_ungauged_flow(
-    location_id: UUID,
-    hydraulic_service: HydraulicService = Depends(get_hydraulic_service)
-):
-    """Estimate flow at ungauged location using hydraulic modeling"""
-    with http_request_duration_seconds.labels(method="GET", endpoint="/hydraulics/ungauged").time():
-        try:
-            estimation = await hydraulic_service.estimate_ungauged_flow(location_id)
-            
-            http_requests_total.labels(
-                method="GET",
-                endpoint="/hydraulics/ungauged",
-                status="200"
-            ).inc()
-            
-            return APIResponse.success_response(
-                data=estimation,
-                message="Ungauged flow estimation completed"
-            )
-            
-        except ValueError as e:
-            http_requests_total.labels(
-                method="GET",
-                endpoint="/hydraulics/ungauged",
-                status="404"
-            ).inc()
-            raise HTTPException(status_code=404, detail=str(e))
-        except Exception as e:
-            logger.error("Failed to estimate ungauged flow", error=str(e))
-            http_requests_total.labels(
-                method="GET",
-                endpoint="/hydraulics/ungauged",
-                status="500"
-            ).inc()
-            raise HTTPException(status_code=500, detail=str(e))
+async def estimate_ungauged_flow(location_id: UUID):
+    """Removed facade: estimates interpolated from hardcoded dummy gauge data."""
+    raise _facade_501("GET", "/hydraulics/ungauged")
 
 
 @router.post("/model/calibrate")
@@ -152,43 +69,9 @@ async def calibrate_hydraulic_model(
     location_id: UUID = Body(...),
     observed_data: List[Dict[str, Any]] = Body(..., description="Observed flow/level data for calibration"),
     model_type: str = Body("manning", enum=["manning", "saint-venant", "rating-curve"]),
-    hydraulic_service: HydraulicService = Depends(get_hydraulic_service)
 ):
-    """Calibrate hydraulic model parameters using observed data"""
-    with http_request_duration_seconds.labels(method="POST", endpoint="/hydraulics/calibrate").time():
-        try:
-            calibration_result = await hydraulic_service.calibrate_model(
-                location_id=location_id,
-                observed_data=observed_data,
-                model_type=model_type
-            )
-            
-            http_requests_total.labels(
-                method="POST",
-                endpoint="/hydraulics/calibrate",
-                status="200"
-            ).inc()
-            
-            return APIResponse.success_response(
-                data=calibration_result,
-                message="Model calibration completed successfully"
-            )
-            
-        except ValueError as e:
-            http_requests_total.labels(
-                method="POST",
-                endpoint="/hydraulics/calibrate",
-                status="400"
-            ).inc()
-            raise HTTPException(status_code=400, detail=str(e))
-        except Exception as e:
-            logger.error("Failed to calibrate model", error=str(e))
-            http_requests_total.labels(
-                method="POST",
-                endpoint="/hydraulics/calibrate",
-                status="500"
-            ).inc()
-            raise HTTPException(status_code=500, detail=str(e))
+    """Removed facade: 'calibration' optimized nothing and stored nothing."""
+    raise _facade_501("POST", "/hydraulics/calibrate")
 
 
 @router.post("/verify-schedule", response_model=APIResponse[Dict[str, Any]])

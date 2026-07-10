@@ -167,14 +167,144 @@ class TestVerifySchedule:
         assert any("simulation unavailable" in w for w in result["warnings"])
 
 
+def _load_router_module():
+    spec = importlib.util.spec_from_file_location(
+        "flowmon_hydraulics_under_test", str(HYDRAULICS_PY)
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class TestModelFacadesAre501(object):
+    """Decision 2 (PROGRAM_REVIEW §2.0): the constant-returning model façades
+    (manning 5.0 / saint-venant 5.2 / rating 4.8, dummy gauges, fake calibration)
+    are deleted; their routes answer an honest 501, never fabricated hydraulics."""
+
+    @pytest.fixture()
+    def client(self, service):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        module = _load_router_module()
+        module.hydraulic_service = service
+        app = FastAPI()
+        app.include_router(module.router, prefix="/api/v1/hydraulics")
+        return TestClient(app)
+
+    UUID_S = "12345678-1234-5678-1234-567812345678"
+
+    def test_model_route_is_501(self, client):
+        resp = client.get(
+            f"/api/v1/hydraulics/model?location_id={self.UUID_S}&model_type=manning"
+        )
+        assert resp.status_code == 501
+
+    def test_propagation_route_is_501(self, client):
+        resp = client.post(
+            "/api/v1/hydraulics/model/propagation",
+            json={
+                "start_location_id": self.UUID_S,
+                "flow_rate": 3.0,
+                "duration_hours": 2,
+            },
+        )
+        assert resp.status_code == 501
+
+    def test_ungauged_route_is_501(self, client):
+        resp = client.get(f"/api/v1/hydraulics/model/ungauged/{self.UUID_S}")
+        assert resp.status_code == 501
+
+    def test_calibrate_route_is_501(self, client):
+        resp = client.post(
+            "/api/v1/hydraulics/model/calibrate",
+            json={
+                "location_id": self.UUID_S,
+                "observed_data": [{"flow": 1.0}],
+                "model_type": "manning",
+            },
+        )
+        assert resp.status_code == 501
+
+    def test_model_route_is_501_even_before_lifespan_init(self):
+        # The 501 must not be masked by the 503 dependency: these routes answer 501
+        # whether or not the lifespan built the service (no Depends on them).
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        module = _load_router_module()
+        assert module.hydraulic_service is None
+        app = FastAPI()
+        app.include_router(module.router, prefix="/api/v1/hydraulics")
+        resp = TestClient(app).get(
+            f"/api/v1/hydraulics/model?location_id={self.UUID_S}&model_type=manning"
+        )
+        assert resp.status_code == 501
+
+    def test_verify_schedule_stays_alive(self, client):
+        resp = client.post(
+            "/api/v1/hydraulics/verify-schedule",
+            json={"schedule": {"deliveries": [{"node_id": "M(0,1)", "flow_rate": 3.0}]}},
+        )
+        assert resp.status_code == 200
+
+
+class TestHonestCapacities:
+    def test_system_capacity_is_the_head_reach_rating_not_30(self, service):
+        # The canonical head gate M(0,0) is rated 11.2 m3/s; the old hardcoded 30.0
+        # let physically impossible schedules pass the total-demand gate.
+        assert asyncio.run(service._get_system_capacity()) == pytest.approx(11.2)
+
+    def test_system_capacity_fails_closed_without_head_rating(self, service):
+        service_copy = HydraulicService(DatabaseManager())
+        service_copy._canal_cap_index_cache = {}  # simulate a network with no ratings
+        with pytest.raises(ValueError):
+            asyncio.run(service_copy._get_system_capacity())
+
+    def test_gate_capacity_prefers_the_rated_q_max(self, service):
+        assert service._get_gate_capacity("M(0,0)") == pytest.approx(11.2)
+
+    def test_gate_capacity_falls_back_to_flow_law_when_unrated(self, service):
+        # M(0,1) has no rated q_max in the calibration table: the capacity comes
+        # from the corrected flow law at max opening — never the old flat 10.0.
+        capacity = service._get_gate_capacity("M(0,1)")
+        assert capacity > 0
+        assert capacity != pytest.approx(10.0)
+
+    def test_gate_capacity_fallback_on_default_calibration_is_logged(
+        self, service, monkeypatch
+    ):
+        import services.hydraulic_service as hs
+
+        warnings = []
+        monkeypatch.setattr(
+            hs.logger, "warning", lambda msg, *a, **k: warnings.append(msg % a if a else msg)
+        )
+        service._get_gate_capacity("M(0,1)")  # default_by_size calibration
+        assert any("calibration" in w for w in warnings)
+
+    def test_verify_schedule_utilization_uses_honest_capacity(self, service):
+        result = asyncio.run(
+            service.verify_schedule([{"node_id": "M(0,1)", "flow_rate": 3.0}])
+        )
+        assert result["system_utilization"] == pytest.approx(3.0 / 11.2)
+
+    def test_over_capacity_demand_fails_the_total_demand_gate(self, service):
+        # 15 m3/s cannot enter an 11.2 m3/s head no matter the gate settings; under
+        # the old 30.0 this sailed through to per-gate checks.
+        result = asyncio.run(
+            service.verify_schedule([{"node_id": "M(0,1)", "flow_rate": 15.0}])
+        )
+        assert result["is_feasible"] is False
+        assert result["reason"] == "Total demand exceeds system capacity"
+        assert result["system_capacity"] == pytest.approx(11.2)
+        # same field name as the full-verification response, not a divergent alias
+        assert result["system_utilization"] == pytest.approx(15.0 / 11.2)
+
+
 class TestDependencyIsAppScoped:
     def _load_router_module(self):
-        spec = importlib.util.spec_from_file_location(
-            "flowmon_hydraulics_under_test", str(HYDRAULICS_PY)
-        )
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        return module
+        return _load_router_module()
 
     def test_returns_503_before_lifespan_initializes(self):
         from fastapi import HTTPException
