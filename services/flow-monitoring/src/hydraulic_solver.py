@@ -424,7 +424,7 @@ def demonstrate_hydraulic_solver():
     
     # Initialize solver
     solver = HydraulicSolver(
-        network_file='munbon_network_updated.json',
+        network_file='src/config/network.json',
         geometry_file='/Users/subhajlimanond/dev/munbon2-backend/canal_sections_6zones_final.json'
     )
     
