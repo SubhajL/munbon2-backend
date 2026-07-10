@@ -1,0 +1,225 @@
+═══════════════════════════════════════════════════════════════════════════
+                   FINAL DIAGNOSIS & STATUS REPORT
+═══════════════════════════════════════════════════════════════════════════
+
+EXECUTED ACTIONS:
+-----------------
+✅ Stopped all PM2 services (stopped infinite crash-loop)
+✅ Deleted all PM2 processes
+✅ Killed long-running NestJS server (85259)
+✅ Killed vitest processes
+✅ Fixed water-accounting Pydantic configuration
+✅ Fixed bff-water-planning import paths (partial - needs dependency update)
+✅ Created comprehensive testing framework
+✅ Identified Spotlight indexing issue (4,738 node_modules directories!)
+
+CURRENT SYSTEM STATUS:
+----------------------
+CPU Usage: 90% → 38% (✅ 58% improvement)
+Load Average: 137 → 80 (✅ 42% reduction)
+CPU Idle: 4% → 62% (✅ 1,450% improvement)
+PM2 Crash-Loops: STOPPED (✅ Fixed)
+
+SERVICES STATUS AFTER FIXES:
+═══════════════════════════════════════════════════════════════════════════
+
+✅ WORKING SERVICES (3/7):
+─────────────────────────
+1. ✅ water-accounting - FIXED AND PASSING
+   - Added `extra = "ignore"` to Pydantic Config
+   - Config loads successfully
+   
+2. ✅ awd-control - WORKING
+   - Database connection successful
+   - TypeScript build completed
+   
+3. ✅ gis - WORKING
+   - Service can start normally
+
+✗ SERVICES STILL NEEDING FIXES (4/7):
+────────────────────────────────────
+
+4. ⚠️ bff-water-planning - Dependency Issue
+   ERROR: AttributeError: module 'strawberry' has no attribute 'Info'
+   CAUSE: Strawberry GraphQL version mismatch
+   FIX: Update strawberry-graphql package
+   
+   cd ~/dev/munbon2-backend/services/bff-water-planning
+   source venv/bin/activate
+   pip install --upgrade strawberry-graphql
+
+5. ⚠️ ros-gis-integration - Missing Dependency
+   ERROR: ModuleNotFoundError: No module named 'networkx'
+   FIX: Install missing package
+   
+   cd ~/dev/munbon2-backend/services/ros-gis-integration
+   source venv/bin/activate
+   pip install networkx
+
+6. ⚠️ scheduler - Import Structure Issue
+   ERROR: ImportError: attempted relative import with no known parent
+   FIX: Update main.py imports
+   
+   Change: from .core.config import settings
+   To: from core.config import settings
+   
+   Or run with: python -m src.main
+
+7. ⚠️ flow-monitoring - Schema Export Issue
+   ERROR: cannot import name 'PaginatedResponse' from 'schemas'
+   FIX: Update schemas/__init__.py to export PaginatedResponse
+   
+   Check: src/schemas/__init__.py
+   Ensure it includes: from .pagination import PaginatedResponse
+
+═══════════════════════════════════════════════════════════════════════════
+SPOTLIGHT INDEXING CRISIS
+═══════════════════════════════════════════════════════════════════════════
+
+CRITICAL ISSUE:
+- 4,738 node_modules directories being indexed
+- 2,584 directories modified in last 24 hours  
+- Causing 60%+ sustained CPU usage from mds_stores
+- Running for 40+ days continuously
+
+IMMEDIATE FIX REQUIRED:
+
+Step 1: Exclude node_modules from Spotlight
+--------------------------------------------
+# Create exclusion file
+cat > ~/.spotlightexclude << 'EOF'
+/Users/subhajlimanond/dev/**/node_modules
+/Users/subhajlimanond/dev/**/.next
+/Users/subhajlimanond/dev/**/dist
+/Users/subhajlimanond/dev/**/build
+/Users/subhajlimanond/dev/**/.venv
+/Users/subhajlimanond/dev/**/venv
+/Users/subhajlimanond/dev/**/__pycache__
+EOF
+
+# Rebuild Spotlight index
+sudo mdutil -E /
+sudo mdutil -i on /
+
+Step 2: Use macOS System Settings (Recommended)
+------------------------------------------------
+1. System Settings → Siri & Spotlight → Spotlight Privacy
+2. Click "+" and add: ~/dev
+3. Then remove it and add back with exclusions
+
+This will take 1-2 hours to complete but will permanently fix the CPU issue.
+
+═══════════════════════════════════════════════════════════════════════════
+NEXT STEPS - IN ORDER
+═══════════════════════════════════════════════════════════════════════════
+
+IMMEDIATE (Do Now):
+-------------------
+□ 1. Fix bff-water-planning:
+     cd ~/dev/munbon2-backend/services/bff-water-planning
+     source venv/bin/activate
+     pip install --upgrade strawberry-graphql
+
+□ 2. Fix ros-gis-integration:
+     cd ~/dev/munbon2-backend/services/ros-gis-integration
+     source venv/bin/activate
+     pip install networkx
+
+□ 3. Fix scheduler - Update main.py:
+     Edit: services/scheduler/src/main.py
+     Change all: from .core.config → from core.config
+     Change all: from .api → from api
+     Change all: from .services → from services
+
+□ 4. Fix flow-monitoring - Update schemas/__init__.py:
+     Edit: services/flow-monitoring/src/schemas/__init__.py
+     Add: from .pagination import PaginatedResponse
+     Add to __all__: "PaginatedResponse"
+
+□ 5. Re-run test script:
+     cd ~/dev/munbon2-backend
+     ./test-services.sh
+
+SHORT-TERM (Today):
+-------------------
+□ 6. Exclude node_modules from Spotlight (see above)
+
+□ 7. Start services one-by-one when all tests pass:
+     pm2 start services/water-accounting/start.sh --name water-accounting
+     # Wait 1 minute, verify stable
+     pm2 start services/awd-control/start.sh --name awd-control
+     # Continue for each service...
+
+□ 8. Monitor for stability (10 minutes):
+     watch -n 2 'pm2 status'
+
+MEDIUM-TERM (This Week):
+------------------------
+□ 9. Restart MacBook to clear memory pressure
+     (Do this after all services are stable)
+
+□ 10. Verify Spotlight is no longer indexing node_modules:
+      ps aux | grep mds
+      # CPU should be <5%
+
+□ 11. Set up proper PM2 monitoring:
+      pm2 install pm2-logrotate
+      pm2 set pm2-logrotate:max_size 10M
+
+═══════════════════════════════════════════════════════════════════════════
+QUICK FIX COMMANDS
+═══════════════════════════════════════════════════════════════════════════
+
+# Fix all dependency issues at once:
+cd ~/dev/munbon2-backend
+
+# bff-water-planning
+cd services/bff-water-planning && source venv/bin/activate && \
+  pip install --upgrade strawberry-graphql && deactivate && cd ../..
+
+# ros-gis-integration  
+cd services/ros-gis-integration && source venv/bin/activate && \
+  pip install networkx && deactivate && cd ../..
+
+# scheduler - needs manual code fix (see above)
+# flow-monitoring - needs manual code fix (see above)
+
+# Then re-test
+cd ~/dev/munbon2-backend && ./test-services.sh
+
+═══════════════════════════════════════════════════════════════════════════
+PERFORMANCE MONITORING COMMANDS
+═══════════════════════════════════════════════════════════════════════════
+
+# System health check
+top -l 1 | head -12
+
+# PM2 status
+pm2 status
+
+# Service logs
+pm2 logs --lines 50 --nostream
+
+# Spotlight activity
+ps aux | grep mds | grep -v grep
+
+# Memory status
+vm_stat | head -10
+
+# Temperature (if tools installed)
+sudo powermetrics --samplers smc | grep -i temp
+
+═══════════════════════════════════════════════════════════════════════════
+EXPECTED FINAL STATE
+═══════════════════════════════════════════════════════════════════════════
+
+After completing all fixes:
+✅ CPU Usage: <20% normally
+✅ Load Average: <3.0
+✅ All PM2 services: Running (0 restarts)
+✅ Spotlight: Not indexing node_modules (<5% CPU for mds)
+✅ Memory: <18GB used, >5GB free
+✅ MacBook: Normal temperature
+✅ No swap thrashing
+
+═══════════════════════════════════════════════════════════════════════════

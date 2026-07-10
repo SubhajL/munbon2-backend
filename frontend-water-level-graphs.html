@@ -3,10 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Water Level Sensor Monitoring - Munbon</title>
+    <title>Water Level Monitoring - Munbon</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-    <script src="frontend-config.js"></script>
     <style>
       * {
         margin: 0;
@@ -22,7 +21,7 @@
       }
 
       .container {
-        max-width: 1400px;
+        max-width: 1600px;
         margin: 0 auto;
       }
 
@@ -78,7 +77,7 @@
 
       .refresh-btn {
         padding: 8px 20px;
-        background: #2196f3;
+        background: #4caf50;
         color: white;
         border: none;
         border-radius: 4px;
@@ -88,12 +87,12 @@
       }
 
       .refresh-btn:hover {
-        background: #1976d2;
+        background: #45a049;
       }
 
       .sensors-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
         gap: 25px;
         margin-bottom: 40px;
       }
@@ -110,34 +109,37 @@
         justify-content: space-between;
         align-items: center;
         margin-bottom: 15px;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .mode-toggle {
+        display: inline-flex;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        overflow: hidden;
+      }
+      .mode-toggle button {
+        background: #fff;
+        border: none;
+        padding: 6px 10px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .mode-toggle button.active {
+        background: #e7f5ff;
+        color: #0369a1;
+        font-weight: 600;
+      }
+      .mode-toggle button:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
       }
 
       .sensor-title {
         font-size: 16px;
         font-weight: 600;
         color: #333;
-      }
-
-      .quality-badge {
-        padding: 4px 10px;
-        border-radius: 12px;
-        font-size: 12px;
-        font-weight: 500;
-      }
-
-      .quality-high {
-        background: #4caf50;
-        color: white;
-      }
-
-      .quality-medium {
-        background: #ff9800;
-        color: white;
-      }
-
-      .quality-low {
-        background: #f44336;
-        color: white;
       }
 
       .sensor-stats {
@@ -159,7 +161,7 @@
 
       .chart-container {
         position: relative;
-        height: 280px;
+        height: 250px;
       }
 
       .loading {
@@ -194,7 +196,7 @@
   <body>
     <div class="container">
       <div class="header">
-        <h1>🌊 Water Level Sensor Monitoring</h1>
+        <h1>💧 Water Level Monitoring</h1>
         <a href="frontend-health-dashboard.html" class="back-button"
           >← Back to Dashboard</a
         >
@@ -208,6 +210,11 @@
           <option value="7d">Last 7 Days</option>
           <option value="14d">Last 14 Days</option>
         </select>
+        <div class="mode-toggle" id="globalModeToggle" style="margin-left:8px;">
+          <button id="globalRawBtn">Raw</button>
+          <button id="globalSmoothedBtn">Smoothed</button>
+          <button id="globalBothBtn" class="active">Both</button>
+        </div>
         <button class="refresh-btn" onclick="refreshData()">
           🔄 Refresh Now
         </button>
@@ -221,23 +228,24 @@
     </div>
 
     <script>
-      const API_BASE = window.API_BASE || "http://localhost:3001/api/v1";
+      const API_BASE = "http://localhost:3001/api/v1";
       const SENSOR_IDS = [
+        "AWD-6D47",
+        "AWD-9950",
         "AWD-B89D",
         "AWD-558F",
-        "AWD-A4F8",
-        "AWD-6D47",
         "AWD-4ED4",
-        "AWD-B89D",
+        "AWD-A4F8",
       ];
 
       let charts = {};
       let refreshInterval = null;
+      const sensorModes = {}; // sensorId -> 'raw' | 'smoothed' | 'both'
 
       async function fetchWaterLevelData(period) {
         try {
           const response = await fetch(
-            `${API_BASE}/water-levels/chart?period=${period}&timeZone=Asia/Bangkok`,
+            `${API_BASE}/water-levels/chart?period=${period}&timeZone=Asia/Bangkok&includeSmoothed=true`,
           );
 
           if (!response.ok) {
@@ -251,264 +259,340 @@
         }
       }
 
-      function calculateStats(dataPoints) {
-        if (!dataPoints || dataPoints.length === 0) {
-          return {
-            minLevel: 0,
-            maxLevel: 0,
-            avgLevel: 0,
-            avgQuality: 0,
-          };
-        }
+      function calculateStats(dataPoints, field) {
+        if (!dataPoints || dataPoints.length === 0)
+          return { min: 0, max: 0, avg: 0 };
 
-        const levels = dataPoints
-          .map((p) => p.avgLevel)
-          .filter((v) => v !== null);
-        const qualities = dataPoints
-          .map((p) => p.avgQuality)
-          .filter((v) => v !== null);
-
-        if (levels.length === 0) {
-          return {
-            minLevel: 0,
-            maxLevel: 0,
-            avgLevel: 0,
-            avgQuality: 0,
-          };
-        }
+        const values = dataPoints
+          .map((p) => p[field])
+          .filter((v) => v !== null && v !== undefined);
+        if (values.length === 0) return { min: 0, max: 0, avg: 0 };
 
         return {
-          minLevel: Math.min(...levels),
-          maxLevel: Math.max(...levels),
-          avgLevel: levels.reduce((a, b) => a + b, 0) / levels.length,
-          avgQuality:
-            qualities.length > 0
-              ? qualities.reduce((a, b) => a + b, 0) / qualities.length
-              : 0,
+          min: Math.min(...values),
+          max: Math.max(...values),
+          avg: values.reduce((a, b) => a + b, 0) / values.length,
         };
       }
 
-      function getQualityClass(quality) {
-        if (quality >= 90) return "quality-high";
-        if (quality >= 70) return "quality-medium";
-        return "quality-low";
-      }
-
-      function getQualityLabel(quality) {
-        if (quality >= 90) return "Excellent";
-        if (quality >= 70) return "Good";
-        return "Poor";
-      }
-
-      function renderSensors(data) {
-        const grid = document.getElementById("sensorsGrid");
-        grid.innerHTML = "";
-
-        if (!data.sensors || Object.keys(data.sensors).length === 0) {
-          grid.innerHTML =
-            '<div class="error-message">No sensor data available</div>';
-          return;
-        }
-
-        const uniqueSensorIds = Object.keys(data.sensors);
-
-        uniqueSensorIds.forEach((sensorId) => {
-          const sensorData = data.sensors[sensorId];
-
-          if (!sensorData) {
-            return;
-          }
-
-          const panel = document.createElement("div");
-          panel.className = "sensor-panel";
-          panel.id = `sensor-${sensorId}`;
-
-          const stats = calculateStats(sensorData.dataPoints);
-          const qualityClass = getQualityClass(stats.avgQuality);
-          const qualityLabel = getQualityLabel(stats.avgQuality);
-
-          panel.innerHTML = `
-                    <div class="sensor-header">
-                        <div class="sensor-title">Sensor ${sensorId}${sensorData.plotId ? ` • Plot: ${sensorData.plotId}` : ''}</div>
-                        <span class="quality-badge ${qualityClass}">
-                            ${qualityLabel} (${stats.avgQuality.toFixed(0)}%)
-                        </span>
-                    </div>
-                    <div class="sensor-stats">
-                        <div class="stat">
-                            Avg: <span class="stat-value">${stats.avgLevel.toFixed(1)} cm</span>
-                        </div>
-                        <div class="stat">
-                            Range: <span class="stat-value">
-                                ${stats.minLevel.toFixed(1)}-${stats.maxLevel.toFixed(1)} cm
-                            </span>
-                        </div>
-                        <div class="stat">
-                            Points: <span class="stat-value">${sensorData.dataPoints.length}</span>
-                        </div>
-                    </div>
-                    <div class="chart-container">
-                        <canvas id="chart-${sensorId}"></canvas>
-                    </div>
-                `;
-
-          grid.appendChild(panel);
-
-          renderChart(sensorId, sensorData.dataPoints);
-        });
-
-        document.getElementById("lastUpdate").textContent =
-          `Last updated: ${new Date().toLocaleString()}`;
-      }
-
-      function renderChart(sensorId, dataPoints) {
-        const canvasId = `chart-${sensorId}`;
-        const ctx = document.getElementById(canvasId);
-
-        if (!ctx) return;
-
-        if (charts[sensorId]) {
-          charts[sensorId].destroy();
-        }
-
-        const palette = {
-          avg: 'rgb(33, 150, 243)',   // blue
-          lower: 'rgb(220, 38, 38)',  // red
-          upper: 'rgb(234, 179, 8)',  // amber
-        };
-
-        const buildDataset = (label, data, color, opts = {}) => ({
+      function buildLineDataset(label, data, color, opts = {}) {
+        return {
           label,
           data,
           borderColor: color,
           backgroundColor: 'rgba(0,0,0,0)',
           borderWidth: 2,
           tension: 0.4,
-          fill: true,
+          fill: false,
           spanGaps: true,
           pointRadius: 2,
-          pointHoverRadius: 5,
+          pointHoverRadius: 4,
           ...opts,
-        });
+        };
+      }
 
-        const chartData = dataPoints.map((p) => ({ x: new Date(p.time), y: p.avgLevel }));
+      const defaultPalette = {
+        raw: 'rgb(54, 162, 235)',      // Blue
+        smoothed: 'rgb(255, 99, 132)', // Red/Pink - more distinct
+      };
 
-        const startX = chartData.length ? chartData[0].x : new Date();
-        const endX = chartData.length ? chartData[chartData.length - 1].x : new Date();
-        const sensor = (window.lastResponse && window.lastResponse.sensors && window.lastResponse.sensors[sensorId]) || {};
-        const thr = sensor.thresholds || null;
+      function toBangkokTime(utcDate) {
+        // Convert UTC to Bangkok (UTC+7)
+        const bangkokOffset = 7 * 60; // 7 hours in minutes
+        const utcTime = utcDate.getTime();
+        const utcOffset = utcDate.getTimezoneOffset(); // browser's offset from UTC
+        const bangkokTime = new Date(utcTime + (bangkokOffset + utcOffset) * 60 * 1000);
+        return bangkokTime;
+      }
+
+      function toXY(series, pick) {
+        return series.map((p) => ({ x: toBangkokTime(new Date(p.time)), y: pick(p) }));
+      }
+
+      function assembleWaterLevelDatasets(mode, dataPoints, smoothedDataPoints, palette = defaultPalette) {
+        const raw = toXY(dataPoints, (p) => p.avgLevel);
+        const smoothed = toXY(smoothedDataPoints || [], (p) => p.avgLevel);
+
         const datasets = [];
-        datasets.push(buildDataset('Avg Level (cm)', chartData, palette.avg, { order: 1 }));
-        if (thr && thr.lower !== null && thr.lower !== undefined) {
-          datasets.push(buildDataset('Lower threshold', [
-            { x: startX, y: thr.lower },
-            { x: endX, y: thr.lower },
-          ], palette.lower, { order: 2, borderWidth: 1, tension: 0, pointRadius: 0, fill: false }));
+        if (mode === 'raw') {
+          datasets.push(buildLineDataset('Water Level (Raw)', raw, palette.raw, { order: 1 }));
+        } else if (mode === 'smoothed') {
+          datasets.push(buildLineDataset('Water Level (Smoothed)', smoothed, palette.smoothed, { order: 1, borderWidth: 3 }));
+        } else { // both
+          datasets.push(buildLineDataset('Water Level (Raw)', raw, palette.raw, { order: 1 }));
+          datasets.push(buildLineDataset('Water Level (Smoothed)', smoothed, palette.smoothed, { order: 2, borderWidth: 3, borderDash: [6, 4] }));
         }
-        if (thr && thr.upper !== null && thr.upper !== undefined) {
-          datasets.push(buildDataset('Upper threshold', [
-            { x: startX, y: thr.upper },
-            { x: endX, y: thr.upper },
-          ], palette.upper, { order: 3, borderWidth: 1, tension: 0, pointRadius: 0, fill: false }));
+        return datasets;
+      }
+
+      function initSensorMode(sensorId, hasSmoothed) {
+        const key = `MUNBON_WATER_MODE_${sensorId}`;
+        try {
+          const saved = localStorage.getItem(key);
+          if ((saved === 'smoothed' || saved === 'both') && hasSmoothed) return saved;
+          if (saved === 'raw') return 'raw';
+        } catch (_) {}
+        return hasSmoothed ? 'both' : 'raw'; // Default to 'both' if smoothed data available
+      }
+
+      function persistSensorMode(sensorId, mode) {
+        try { localStorage.setItem(`MUNBON_WATER_MODE_${sensorId}`, mode); } catch (_) {}
+      }
+
+      function createModeToggle(sensorId, hasSmoothed) {
+        const container = document.createElement('div');
+        container.className = 'mode-toggle';
+        const rawBtn = document.createElement('button');
+        rawBtn.textContent = 'Raw';
+        const smBtn = document.createElement('button');
+        smBtn.textContent = 'Smoothed';
+        const bothBtn = document.createElement('button');
+        bothBtn.textContent = 'Both';
+        smBtn.disabled = !hasSmoothed;
+        bothBtn.disabled = !hasSmoothed;
+        container.appendChild(rawBtn);
+        container.appendChild(smBtn);
+        container.appendChild(bothBtn);
+
+        const syncActive = () => {
+          const mode = sensorModes[sensorId] || 'raw';
+          rawBtn.classList.toggle('active', mode === 'raw');
+          smBtn.classList.toggle('active', mode === 'smoothed');
+          bothBtn.classList.toggle('active', mode === 'both');
+        };
+
+        rawBtn.onclick = () => {
+          sensorModes[sensorId] = 'raw';
+          persistSensorMode(sensorId, 'raw');
+          syncActive();
+          updateSensorChart(sensorId);
+        };
+        smBtn.onclick = () => {
+          if (!hasSmoothed) return;
+          sensorModes[sensorId] = 'smoothed';
+          persistSensorMode(sensorId, 'smoothed');
+          syncActive();
+          updateSensorChart(sensorId);
+        };
+        bothBtn.onclick = () => {
+          if (!hasSmoothed) return;
+          sensorModes[sensorId] = 'both';
+          persistSensorMode(sensorId, 'both');
+          syncActive();
+          updateSensorChart(sensorId);
+        };
+
+        syncActive();
+        return container;
+      }
+
+      function renderSensors(data) {
+        const grid = document.getElementById('sensorsGrid');
+        grid.innerHTML = '';
+
+        const sensors = data.sensors || {};
+        const sensorIds = Object.keys(sensors).sort();
+
+        if (sensorIds.length === 0) {
+          grid.innerHTML = '<div class="loading">No sensor data available</div>';
+          return;
         }
 
+        sensorIds.forEach(sensorId => {
+          const sensorData = sensors[sensorId];
+          const hasSmoothed = (sensorData.smoothedDataPoints && sensorData.smoothedDataPoints.length > 0);
+
+          if (!sensorModes[sensorId]) {
+            sensorModes[sensorId] = initSensorMode(sensorId, hasSmoothed);
+          }
+
+          const panel = document.createElement('div');
+          panel.className = 'sensor-panel';
+          panel.id = `panel-${sensorId}`;
+
+          const header = document.createElement('div');
+          header.className = 'sensor-header';
+
+          const title = document.createElement('div');
+          title.className = 'sensor-title';
+          title.textContent = sensorId;
+
+          const toggle = createModeToggle(sensorId, hasSmoothed);
+
+          header.appendChild(title);
+          header.appendChild(toggle);
+
+          const statsDiv = document.createElement('div');
+          statsDiv.className = 'sensor-stats';
+          statsDiv.id = `stats-${sensorId}`;
+
+          const chartContainer = document.createElement('div');
+          chartContainer.className = 'chart-container';
+          const canvas = document.createElement('canvas');
+          canvas.id = `chart-${sensorId}`;
+          chartContainer.appendChild(canvas);
+
+          panel.appendChild(header);
+          panel.appendChild(statsDiv);
+          panel.appendChild(chartContainer);
+          grid.appendChild(panel);
+
+          updateSensorChart(sensorId);
+        });
+      }
+
+      let globalData = null;
+
+      function updateSensorChart(sensorId) {
+        if (!globalData || !globalData.sensors || !globalData.sensors[sensorId]) return;
+
+        const sensorData = globalData.sensors[sensorId];
+        const mode = sensorModes[sensorId] || 'raw';
+        const dataPoints = sensorData.dataPoints || [];
+        const smoothedDataPoints = sensorData.smoothedDataPoints || [];
+
+        const datasets = assembleWaterLevelDatasets(mode, dataPoints, smoothedDataPoints);
+
+        const canvas = document.getElementById(`chart-${sensorId}`);
+        if (!canvas) return;
+
+        if (charts[sensorId]) {
+          charts[sensorId].destroy();
+        }
+
+        const ctx = canvas.getContext('2d');
         charts[sensorId] = new Chart(ctx, {
-          type: "line",
-          data: {
-            datasets,
-          },
+          type: 'line',
+          data: { datasets },
           options: {
             responsive: true,
             maintainAspectRatio: false,
+            interaction: {
+              mode: 'index',
+              intersect: false
+            },
             plugins: {
               legend: {
                 display: true,
-                position: "top",
+                position: 'top',
+                labels: {
+                  boxWidth: 12,
+                  font: { size: 11 }
+                }
               },
               tooltip: {
-                mode: "index",
-                intersect: false,
                 callbacks: {
-                  label: function (context) {
-                    const dataPoint = dataPoints[context.dataIndex];
-                    return [
-                      `Level: ${dataPoint.avgLevel?.toFixed(1) || "N/A"} cm`,
-                      `Min: ${dataPoint.minLevel?.toFixed(1) || "N/A"} cm`,
-                      `Max: ${dataPoint.maxLevel?.toFixed(1) || "N/A"} cm`,
-                      `Quality: ${dataPoint.avgQuality?.toFixed(0) || "N/A"}%`,
-                    ];
-                  },
-                },
-              },
+                  label: (context) => {
+                    return `${context.dataset.label}: ${context.parsed.y.toFixed(2)} cm`;
+                  }
+                }
+              }
             },
             scales: {
               x: {
-                type: "time",
+                type: 'time',
                 time: {
-                  unit: "hour",
+                  unit: 'hour',
                   displayFormats: {
-                    hour: "MM/dd HH:mm",
-                  },
+                    hour: 'MMM d HH:mm'
+                  }
                 },
                 title: {
                   display: true,
-                  text: "Time",
-                },
+                  text: 'Time (Asia/Bangkok)',
+                  font: { size: 11 }
+                }
               },
               y: {
-                beginAtZero: false,
                 title: {
                   display: true,
-                  text: "Level (cm)",
+                  text: 'Water Level (cm)',
+                  font: { size: 11 }
                 },
-              },
-            },
-          },
+                beginAtZero: true
+              }
+            }
+          }
         });
+
+        // Update stats
+        const statsDiv = document.getElementById(`stats-${sensorId}`);
+        if (statsDiv) {
+          const activeData = (mode === 'smoothed') ? smoothedDataPoints : dataPoints;
+          const stats = calculateStats(activeData, 'avgLevel');
+          statsDiv.innerHTML = `
+            <div class="stat">Latest: <span class="stat-value">${activeData.length > 0 ? activeData[activeData.length - 1].avgLevel.toFixed(2) : 'N/A'} cm</span></div>
+            <div class="stat">Avg: <span class="stat-value">${stats.avg.toFixed(2)} cm</span></div>
+            <div class="stat">Min: <span class="stat-value">${stats.min.toFixed(2)} cm</span></div>
+            <div class="stat">Max: <span class="stat-value">${stats.max.toFixed(2)} cm</span></div>
+          `;
+        }
       }
 
-      async function loadData() {
-        const grid = document.getElementById("sensorsGrid");
-        grid.innerHTML = '<div class="loading">Loading sensor data...</div>';
+      async function refreshData() {
+        const period = document.getElementById('periodSelect').value;
 
         try {
-          const period = document.getElementById("periodSelect").value;
           const data = await fetchWaterLevelData(period);
-          window.lastResponse = data;
+          globalData = data;
           renderSensors(data);
+
+          const now = new Date();
+          document.getElementById('lastUpdate').textContent =
+            `Last updated: ${now.toLocaleString('en-US', { timeZone: 'Asia/Bangkok' })} (Bangkok Time)`;
         } catch (error) {
-          grid.innerHTML = `<div class="error-message">Failed to load data: ${error.message}</div>`;
+          document.getElementById('sensorsGrid').innerHTML =
+            `<div class="error-message">Error loading data: ${error.message}</div>`;
         }
       }
 
-      function refreshData() {
-        loadData();
-      }
-
-      function setupAutoRefresh() {
-        if (refreshInterval) {
-          clearInterval(refreshInterval);
-        }
-        refreshInterval = setInterval(() => {
-          loadData();
-        }, 60000);
-      }
-
-      document.getElementById("periodSelect").addEventListener("change", () => {
-        loadData();
-        setupAutoRefresh();
-      });
-
-      window.onload = () => {
-        loadData();
-        setupAutoRefresh();
+      // Global mode toggle handlers
+      document.getElementById('globalRawBtn').onclick = () => {
+        Object.keys(sensorModes).forEach(sid => {
+          sensorModes[sid] = 'raw';
+          persistSensorMode(sid, 'raw');
+        });
+        document.getElementById('globalRawBtn').classList.add('active');
+        document.getElementById('globalSmoothedBtn').classList.remove('active');
+        document.getElementById('globalBothBtn').classList.remove('active');
+        renderSensors(globalData);
       };
 
-      window.onbeforeunload = () => {
-        if (refreshInterval) {
-          clearInterval(refreshInterval);
-        }
+      document.getElementById('globalSmoothedBtn').onclick = () => {
+        Object.keys(sensorModes).forEach(sid => {
+          const hasSmoothed = globalData?.sensors?.[sid]?.smoothedDataPoints?.length > 0;
+          if (hasSmoothed) {
+            sensorModes[sid] = 'smoothed';
+            persistSensorMode(sid, 'smoothed');
+          }
+        });
+        document.getElementById('globalRawBtn').classList.remove('active');
+        document.getElementById('globalSmoothedBtn').classList.add('active');
+        document.getElementById('globalBothBtn').classList.remove('active');
+        renderSensors(globalData);
       };
+
+      document.getElementById('globalBothBtn').onclick = () => {
+        Object.keys(sensorModes).forEach(sid => {
+          const hasSmoothed = globalData?.sensors?.[sid]?.smoothedDataPoints?.length > 0;
+          if (hasSmoothed) {
+            sensorModes[sid] = 'both';
+            persistSensorMode(sid, 'both');
+          }
+        });
+        document.getElementById('globalRawBtn').classList.remove('active');
+        document.getElementById('globalSmoothedBtn').classList.remove('active');
+        document.getElementById('globalBothBtn').classList.add('active');
+        renderSensors(globalData);
+      };
+
+      document.getElementById('periodSelect').onchange = refreshData;
+
+      // Initial load
+      refreshData();
+
+      // Auto-refresh every 30 seconds
+      refreshInterval = setInterval(refreshData, 30000);
     </script>
   </body>
 </html>
