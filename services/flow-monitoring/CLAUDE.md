@@ -16,7 +16,7 @@ uvicorn src.main:app --reload            # dev server (port from settings)
 Gate before PR: `pytest`.
 
 ## Structure (`src/`)
-- `core/` — pure hydraulic/domain logic (**put I/O-free code here so it's unit-testable**): `gate_flow.py` (the SINGLE flow law), `network_topology.py`, `node_id.py`, `config_loader.py`, `demand_aggregation.py`, `conveyance_loss.py`, `canal_capacity.py`, `network_flow_controller.py`, `gate_registry.py`. (The legacy duplicates — `calibrated_flow_model*.py`, `enhanced_hydraulic_solver.py` — were deleted in Waves 1.6/1.8.)
+- `core/` — pure hydraulic/domain logic (**put I/O-free code here so it's unit-testable**): `gate_flow.py` (the SINGLE flow law), `network_topology.py`, `node_id.py`, `config_loader.py`, `demand_aggregation.py`, `conveyance_loss.py`, `canal_capacity.py`, `network_flow_controller.py`. (The live gate registry is `services/gate_registry.py`, feeding the `/gates/config` API; the legacy duplicates — `calibrated_flow_model*.py`, `enhanced_hydraulic_solver.py` — were deleted in Waves 1.6/1.8.)
 - `services/` — orchestration + I/O: `hydraulic_service.py` (the `_calculate_required_opening`, `_get_gate_capacity`, `_get_canal_capacity` methods being remediated).
 - `utils/gate_calibration_loader.py` — loads K1/K2 from `src/config/gate_calibrations.json` (59 gates, 10 calibrated; confidence 0.95/0.80/0.60).
 - `api/`, `controllers/`, `schemas/`, `db/`, `config/`; provenance/generator scripts in `scripts/`.
