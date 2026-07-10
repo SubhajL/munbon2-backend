@@ -9,6 +9,8 @@ from datetime import datetime, timedelta
 from unittest.mock import Mock, AsyncMock, patch
 
 from core.gate_registry import GateRegistry, ControlMode, EquipmentStatus
+import pytest as _pytest
+_pytest.importorskip("core.enhanced_hydraulic_solver")  # deleted Wave 1.6; suite is legacy/quarantined
 from core.enhanced_hydraulic_solver import EnhancedHydraulicSolver
 from core.state_preservation import StatePreservationSystem, TransitionType
 from core.gradual_transition_controller import GradualTransitionController, TransitionStrategy

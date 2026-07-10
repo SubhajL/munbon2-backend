@@ -4,15 +4,14 @@ Provides hydraulic modeling and verification capabilities
 """
 
 import asyncio
-import math
 import os
 from typing import Dict, List, Optional, Any, Tuple
 import structlog
 
 from hydraulic_solver import HydraulicSolver, ConvergenceResult
-from core.calibrated_flow_model_v2 import CalibratedFlowModelV2
 from path_based_hydraulic_solver import PathBasedHydraulicSolver
 from db.connections import DatabaseManager
+from utils.gate_calibration_loader import GateCalibrationLoader
 from core.metrics import hydraulic_solver_iterations, hydraulic_verification_duration
 from core.config_loader import load_network_config
 from core.gate_flow import build_gate_flow_calibration, gate_flow_m3s, required_opening_m
@@ -37,7 +36,9 @@ class HydraulicService:
         self.hydraulic_solver = None
         self.path_solver = None
         self.temporal_scheduler = None
-        self.calibrated_flow_model = CalibratedFlowModelV2()
+        # Wave 1.6 (C10 completion): the calibration loader is owned directly —
+        # CalibratedFlowModelV2 (inverted flow law) is deleted.
+        self.calibration_loader = GateCalibrationLoader()
         
         # Initialize solvers
         self._initialize_solvers()
@@ -251,7 +252,7 @@ class HydraulicService:
         rated = self._gate_rated_capacity(gate_id)
         if rated is not None:
             return rated
-        calibration = self.calibrated_flow_model.calibration_loader.get_calibration(gate_id)
+        calibration = self.calibration_loader.get_calibration(gate_id)
         if calibration.source != "field_measurement":
             logger.warning(
                 "gate %s: capacity from %s calibration (confidence %.2f)",
@@ -302,7 +303,7 @@ class HydraulicService:
         level assumption when sensor/solver levels are unavailable (real levels land in P1).
         Returns (opening_percent, info); info carries feasible/achievable/min_deliverable
         so callers can surface infeasibility instead of trusting the opening alone."""
-        calibration = self.calibrated_flow_model.calibration_loader.get_calibration(gate_id)
+        calibration = self.calibration_loader.get_calibration(gate_id)
         if not calibration:
             capacity = self._get_gate_capacity(gate_id)
             pct = min(100.0, (required_flow / capacity) * 100) if capacity > 0 else 100.0
@@ -333,18 +334,8 @@ class HydraulicService:
         )
 
     def _gate_rated_capacity(self, gate_id: str) -> Optional[float]:
-        """Rated q_max (m3/s) for a gate from the calibration table — finite positive
-        numbers only; anything else means "no rating", never a capacity of 0/None."""
-        loader = self.calibrated_flow_model.calibration_loader
-        raw = loader.get_gate_data(gate_id).get("q_max_m3s")
-        if (
-            isinstance(raw, (int, float))
-            and not isinstance(raw, bool)
-            and math.isfinite(raw)
-            and raw > 0
-        ):
-            return float(raw)
-        return None
+        """Rated q_max (m3/s) for a gate from the calibration table, if any."""
+        return self.calibration_loader.rated_q_max(gate_id)
 
     def _resolve_gate_levels(
         self,

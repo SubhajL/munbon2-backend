@@ -126,6 +126,102 @@ class TestControllerOnCanonicalConfigs:
             gates_module.gate_controller = None
 
 
+class TestManualUpdateFlowLaw:
+    @staticmethod
+    def _controller_with_stubbed_seams(upstream, downstream):
+        from controllers.dual_mode_gate_controller import DualModeGateController
+        from db.connections import DatabaseManager
+
+        controller = DualModeGateController(DatabaseManager(), NETWORK, GEOMETRY)
+
+        async def levels(gate_id):
+            return {"upstream_level": upstream, "downstream_level": downstream}
+
+        async def no_store(**kwargs):
+            return None
+
+        async def no_conflicts():
+            return None
+
+        controller._get_gate_measurements = levels
+        controller._store_gate_update = no_store
+        controller._check_synchronization_conflicts = no_conflicts
+        return controller
+
+    def test_manual_update_computes_flow_via_the_canonical_law(self):
+        # Wave 1.6: the old path called CalibratedGateFlow.calculate_gate_flow — a
+        # method that never existed — so any manual update WITH measurements crashed.
+        import asyncio
+        import math
+
+        from core.gate_flow import gate_flow_m3s
+
+        probe = self._controller_with_stubbed_seams(0.0, 0.0)
+        gate_id = next(iter(probe.gate_properties))
+        cal = probe.gate_properties[gate_id]["flow_cal"]
+        # non-circular datum check: the cached calibration's sill must be the
+        # solver's real invert for this gate, not a default 0.0
+        assert cal.sill_m == pytest.approx(
+            probe.hydraulic_solver.gate_properties[gate_id].sill_elevation_m
+        )
+        assert cal.sill_m > 100.0  # Munbon inverts are ~216-221 m MSL, never ~0
+        # levels relative to the gate's REAL sill: the calibration must be built with
+        # sill_m, or absolute MSL levels turn Hs into ~220 m and the flow pins at the
+        # q_max clamp for every opening (the B3 datum bug this suite now locks out).
+        # Shallow head keeps the flow below both the Cs-floor band and the clamp.
+        upstream, downstream = cal.sill_m + 0.5, cal.sill_m + 0.2
+        controller = self._controller_with_stubbed_seams(upstream, downstream)
+
+        ok = asyncio.run(
+            controller.update_manual_gate_state(gate_id, 40.0, operator_id="op-1")
+        )
+        assert ok is True
+        flow_40 = controller.gate_states[gate_id].flow_rate
+        assert flow_40 is not None and flow_40 >= 0.0 and math.isfinite(flow_40)
+        # independent oracle: exactly the canonical law at 40% of the gate's ACTUAL
+        # travel (cal.max_opening_m) — 40% sits in the law's differentiating band
+        # here, so a wrong percent denominator (the old height-based one) fails this.
+        opening_m = 0.40 * cal.max_opening_m
+        assert flow_40 == pytest.approx(
+            gate_flow_m3s(cal, upstream, downstream, opening_m)
+        )
+
+    def test_manual_update_flow_depends_on_the_opening(self):
+        # 2% and 20% open MUST pass different flow below the capacity clamp — the
+        # sill-omission bug made every opening report the identical clamped value.
+        import asyncio
+
+        probe = self._controller_with_stubbed_seams(0.0, 0.0)
+        gate_id = next(iter(probe.gate_properties))
+        cal = probe.gate_properties[gate_id]["flow_cal"]
+        # shallow head-over-sill so both openings sit ABOVE the Cs floor band
+        # (inside the band the law is legitimately opening-independent, F-01b)
+        upstream, downstream = cal.sill_m + 0.5, cal.sill_m + 0.2
+        controller = self._controller_with_stubbed_seams(upstream, downstream)
+
+        from core.gate_flow import gate_flow_m3s
+
+        # guard the premise: 30%% and 50%% of travel must sit in the law's
+        # differentiating band for these heads (between the Cs floor and cap) —
+        # if a future calibration change flattens it, skip rather than lie red.
+        law = {
+            pct: gate_flow_m3s(
+                cal, upstream, downstream, pct / 100.0 * cal.max_opening_m
+            )
+            for pct in (30.0, 50.0)
+        }
+        if law[30.0] == law[50.0]:
+            pytest.skip("30/50%% no longer differentiate for this calibration data")
+
+        flows = {}
+        for pct in (30.0, 50.0):
+            asyncio.run(
+                controller.update_manual_gate_state(gate_id, pct, operator_id="op-1")
+            )
+            flows[pct] = controller.gate_states[gate_id].flow_rate
+        assert flows[30.0] < flows[50.0]
+
+
 class TestGateConfigRouterQuarantined:
     def test_gates_config_surface_fails_closed_with_the_gates_flag(self):
         # /api/v1/gates/config/* is mounted as a SEPARATE router; it must share the
