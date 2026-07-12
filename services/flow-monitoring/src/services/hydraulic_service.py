@@ -31,7 +31,7 @@ logger = structlog.get_logger()
 
 class HydraulicService:
     """Service for hydraulic calculations and modeling"""
-    
+
     def __init__(self, db_manager: DatabaseManager):
         self.db_manager = db_manager
         self.hydraulic_solver = None
@@ -40,10 +40,10 @@ class HydraulicService:
         # Wave 1.6 (C10 completion): the calibration loader is owned directly —
         # CalibratedFlowModelV2 (inverted flow law) is deleted.
         self.calibration_loader = GateCalibrationLoader()
-        
+
         # Initialize solvers
         self._initialize_solvers()
-    
+
     def _initialize_solvers(self):
         """Initialize hydraulic solvers"""
         try:
@@ -71,11 +71,7 @@ class HydraulicService:
         except Exception as e:
             logger.error(f"Failed to initialize hydraulic solvers: {e}")
             raise
-    
-    
-    
-    
-    
+
     async def verify_schedule(
         self,
         deliveries: List[Dict[str, Any]],
@@ -87,7 +83,7 @@ class HydraulicService:
                 # Extract delivery requirements
                 delivery_nodes = {}
                 total_demand = 0.0
-                
+
                 for delivery in deliveries:
                     node_id = delivery.get('node_id', f"N{delivery.get('location_id', '')[:8]}")
                     flow_rate = delivery['flow_rate']
@@ -95,7 +91,7 @@ class HydraulicService:
                     # a dict overwrite would silently verify only the last one.
                     delivery_nodes[node_id] = delivery_nodes.get(node_id, 0.0) + flow_rate
                     total_demand += flow_rate
-                
+
                 # Check total capacity
                 system_capacity = await self._get_system_capacity()
                 if total_demand > system_capacity * (1 - safety_margin):
@@ -107,19 +103,19 @@ class HydraulicService:
                         # same field name as the full-verification response
                         "system_utilization": total_demand / system_capacity,
                     }
-                
+
                 # Run hydraulic verification with path-based solver
                 paths = self.path_solver.find_delivery_paths(delivery_nodes)
-                
+
                 # Check each path for hydraulic constraints
                 violations = []
                 gate_settings = {}
-                
+
                 for path_id, path_info in paths.items():
                     # Calculate required gate openings
                     path_gates = path_info['gates']
                     path_flow = path_info['total_flow']
-                    
+
                     for gate_id in path_gates:
                         # Check gate capacity
                         gate_capacity = self._get_gate_capacity(gate_id)
@@ -130,7 +126,7 @@ class HydraulicService:
                                 "required_flow": path_flow,
                                 "capacity": gate_capacity
                             })
-                        
+
                         # Calculate required opening
                         required_opening, opening_info = self._calculate_required_opening(
                             gate_id, path_flow
@@ -148,7 +144,7 @@ class HydraulicService:
                             gate_settings.get(gate_id, 0),
                             required_opening
                         )
-                
+
                 # Check canal capacities
                 canal_flows = self._aggregate_canal_flows(paths)
                 for canal_id, flow in canal_flows.items():
@@ -160,12 +156,12 @@ class HydraulicService:
                             "required_flow": flow,
                             "capacity": canal_capacity
                         })
-                
+
                 # Run full hydraulic simulation
                 convergence = await self._run_schedule_simulation(
                     delivery_nodes, gate_settings
                 )
-                
+
                 # Fail closed when the simulation seam is unavailable (returns None):
                 # capacity + gate-flow checks alone cannot verify the schedule.
                 is_feasible = (
@@ -199,39 +195,25 @@ class HydraulicService:
                         for path_id, info in paths.items()
                     }
                 }
-                
+
                 if not is_feasible:
                     result["recommendations"] = self._generate_schedule_recommendations(
                         violations, delivery_nodes
                     )
-                
+
                 # Record metric
                 hydraulic_solver_iterations.observe(
                     convergence.iterations if convergence else 0
                 )
-                
+
                 return result
-                
+
             except Exception as e:
                 logger.error(f"Failed to verify schedule: {e}")
                 raise
-    
+
     # Helper methods
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
+
     async def _get_system_capacity(self) -> float:
         """Rated capacity at the network head: the sum of the source children's rated
         q_max (Wave 1.4 — replaces a hardcoded 30.0 that let physically impossible
@@ -246,7 +228,7 @@ class HydraulicService:
                 f"q_max: {missing if missing else '(network has no source children)'}"
             )
         return sum(index[g] for g in heads)
-    
+
     def _get_gate_capacity(self, gate_id: str) -> float:
         """Max flow the gate can pass: its rated q_max when the calibration table has
         one (Wave 1.4), else the corrected flow law at max opening (F-01). The old
@@ -256,15 +238,16 @@ class HydraulicService:
         if rated is not None:
             return rated
         calibration = self.calibration_loader.get_calibration(gate_id)
-        if calibration.source != "field_measurement":
+        if calibration.calibration_method != "measured":
             logger.warning(
                 "gate %s: capacity from %s calibration (confidence %.2f)",
-                gate_id, calibration.source, calibration.confidence,
+                gate_id,
+                calibration.calibration_method,
+                calibration.confidence,
             )
         cal = self._build_gate_flow_cal(gate_id, calibration)
         upstream_level, downstream_level = self._resolve_gate_levels(gate_id, cal)
         return gate_flow_m3s(cal, upstream_level, downstream_level, cal.max_opening_m)
-
 
     def _get_canal_capacity(self, canal_id: str) -> float:
         """Rated capacity (m3/s) of a canal reach: min of the downstream gate's q_max
@@ -308,7 +291,7 @@ class HydraulicService:
             cache = build_capacity_index(load_network_config(path))
             self._canal_cap_index_cache = cache
         return cache
-    
+
     def _calculate_required_opening(
         self,
         gate_id: str,
@@ -375,7 +358,6 @@ class HydraulicService:
         )
         return u, d
 
-
     def _aggregate_canal_flows(self, paths: Dict[str, Any]) -> Dict[str, float]:
         """Aggregate flows by canal"""
         canal_flows = {}
@@ -385,7 +367,7 @@ class HydraulicService:
                 canal_id = f"C_{node}_{path_info['nodes'][i+1]}"
                 canal_flows[canal_id] = canal_flows.get(canal_id, 0) + path_info['total_flow']
         return canal_flows
-    
+
     async def _run_schedule_simulation(
         self,
         delivery_nodes: Dict[str, float],
@@ -395,17 +377,17 @@ class HydraulicService:
         try:
             # Set boundary conditions
             self.hydraulic_solver.set_boundary_flows(delivery_nodes)
-            
+
             # Set gate openings
             for gate_id, opening in gate_settings.items():
                 self.hydraulic_solver.set_gate_opening(gate_id, opening / 100.0)
-            
+
             # Solve
             return self.hydraulic_solver.solve()
         except Exception as e:
             logger.error(f"Schedule simulation failed: {e}")
             return None
-    
+
     def _generate_schedule_recommendations(
         self,
         violations: List[Dict],
@@ -413,26 +395,26 @@ class HydraulicService:
     ) -> List[str]:
         """Generate recommendations for infeasible schedule"""
         recommendations = []
-        
+
         # Group violations by type
         gate_violations = [v for v in violations if v['type'] == 'gate_capacity']
         canal_violations = [v for v in violations if v['type'] == 'canal_capacity']
-        
+
         if gate_violations:
             recommendations.append(
                 f"Reduce flow through {len(gate_violations)} gates or stagger deliveries"
             )
-        
+
         if canal_violations:
             recommendations.append(
                 f"Split deliveries across multiple time slots to reduce peak canal flow"
             )
-        
+
         # Suggest alternative scheduling
         total_demand = sum(deliveries.values())
         if total_demand > 20:  # High demand
             recommendations.append(
                 "Consider night-time irrigation to balance system load"
             )
-        
+
         return recommendations

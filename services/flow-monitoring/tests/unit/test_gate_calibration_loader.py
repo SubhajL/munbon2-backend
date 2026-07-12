@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from core.node_id import NodeIdError, normalize_gate_id
-from utils.gate_calibration_loader import GateCalibrationLoader
+from utils.gate_calibration_loader import GateCalibrationData, GateCalibrationLoader
 
 SERVICE_ROOT = Path(__file__).resolve().parents[2]
 CALIBRATIONS = str(SERVICE_ROOT / "src" / "config" / "gate_calibrations.json")
@@ -27,32 +27,77 @@ class TestGetCalibration:
         # 'M(0,0; 1,0)' is field-calibrated but was NOT in the old alias table:
         # its compact spelling used to fall through to the generic default.
         cal = loader.get_calibration("M(0,0;1,0)")
-        assert cal.source == "field_measurement"
+        assert cal.calibration_method == "measured"
 
     def test_spaced_and_compact_queries_agree(self, loader):
         spaced = loader.get_calibration("M (0,3; 1,0)")
         compact = loader.get_calibration("M(0,3;1,0)")
-        assert (spaced.k1, spaced.k2, spaced.source) == (
-            compact.k1, compact.k2, compact.source
+        assert (spaced.k1, spaced.k2, spaced.calibration_method) == (
+            compact.k1,
+            compact.k2,
+            compact.calibration_method,
         )
-        assert spaced.source == "field_measurement"
+        assert spaced.calibration_method == "measured"
 
     def test_field_values_match_the_config_file(self, loader):
         stored = json.load(open(CALIBRATIONS))["gates"]["M(0,0)"]
         cal = loader.get_calibration("M(0,0)")
         assert (cal.k1, cal.k2) == (stored["k1"], stored["k2"])
-        assert cal.confidence == 0.95
+        assert (
+            cal.calibration_method,
+            cal.confidence,
+            cal.source_gate_ids,
+            cal.source_version,
+        ) == (
+            "measured",
+            0.9986,
+            ("M(0,0)",),
+            stored["source_version"],
+        )
 
     def test_known_uncalibrated_gate_gets_size_based_default(self, loader):
-        # 'M(0,1)' exists with has_calibration=false and no shape/width data.
+        # 'M(0,1)' exists as an explicit default and has no shape/width data.
         cal = loader.get_calibration("M(0,1)")
-        assert cal.source == "default_by_size"
-        assert cal.confidence == 0.80
+        assert (
+            cal.calibration_method,
+            cal.confidence,
+            cal.source_gate_ids,
+        ) == ("default", 0.8, ())
 
     def test_unknown_but_valid_gate_gets_generic_default(self, loader):
         cal = loader.get_calibration("M(7,7)")
-        assert cal.source == "generic_default"
-        assert cal.confidence == 0.60
+        assert (
+            cal.calibration_method,
+            cal.confidence,
+            cal.source_gate_ids,
+            cal.source_version,
+        ) == ("default", 0.6, (), "runtime-default-v1")
+
+    def test_inferred_gate_uses_supplied_coefficients_and_lineage(self, tmp_path):
+        data = json.loads(Path(CALIBRATIONS).read_text())
+        gate = data["gates"]["M(0,1)"]
+        gate.update(
+            calibration_method="inferred",
+            k1=1.05,
+            k2=-1.4,
+            confidence=0.75,
+            source_gate_ids=["M(0,0)"],
+            source_version="similar-gate-v1:" + data["metadata"]["source_sha256"],
+        )
+        counts = data["metadata"]["gates_by_calibration_method"]
+        counts.update(inferred=1, default=48)
+        path = tmp_path / "inferred.json"
+        path.write_text(json.dumps(data))
+        inferred = GateCalibrationLoader(str(path)).get_calibration("M(0,1)")
+        assert inferred == GateCalibrationData(
+            gate_id="M(0,1)",
+            k1=1.05,
+            k2=-1.4,
+            calibration_method="inferred",
+            confidence=0.75,
+            source_gate_ids=("M(0,0)",),
+            source_version=gate["source_version"],
+        )
 
     def test_malformed_gate_id_fails_closed(self, loader):
         with pytest.raises(NodeIdError):
@@ -81,11 +126,11 @@ class TestGetAllCalibratedGates:
         assert len(calibrated) == 10
         assert all(" " not in gate_id for gate_id in calibrated)
 
-    def test_keys_cover_every_has_calibration_gate_in_the_file(self, loader):
+    def test_keys_cover_every_nondefault_gate_in_the_file(self, loader):
         stored = json.load(open(CALIBRATIONS))["gates"]
         expected = {
             normalize_gate_id(g)
             for g, v in stored.items()
-            if v.get("has_calibration") is True
+            if v["calibration_method"] != "default"
         }
         assert set(loader.get_all_calibrated_gates()) == expected

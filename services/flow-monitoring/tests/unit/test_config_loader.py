@@ -63,10 +63,32 @@ def _valid_geometry():
 
 def _valid_calibrations():
     return {
-        "metadata": {"total_gates": 2, "gates_with_k1_k2": 1},
+        "metadata": {
+            "source_sha256": "workbook-sha",
+            "total_gates": 2,
+            "gates_by_calibration_method": {
+                "measured": 1,
+                "inferred": 0,
+                "default": 1,
+            },
+        },
         "gates": {
-            "M(0,0)": {"has_calibration": True, "k1": 1.0693, "k2": -1.229},
-            "M(0,1)": {"has_calibration": False},
+            "M(0,0)": {
+                "gate_id": "M(0,0)",
+                "calibration_method": "measured",
+                "k1": 1.0693,
+                "k2": -1.229,
+                "confidence": 0.9986,
+                "source_gate_ids": ["M(0,0)"],
+                "source_version": "workbook-sha",
+            },
+            "M(0,1)": {
+                "gate_id": "M(0,1)",
+                "calibration_method": "default",
+                "confidence": 0.8,
+                "source_gate_ids": [],
+                "source_version": "workbook-sha",
+            },
         },
     }
 
@@ -325,7 +347,11 @@ class TestLoadGateCalibrationsConfig:
     def test_accepts_committed_canonical_file(self):
         data = load_gate_calibrations_config(CALIBRATIONS)
         assert len(data["gates"]) == 59
-        calibrated = [g for g in data["gates"].values() if g.get("has_calibration") is True]
+        calibrated = [
+            gate
+            for gate in data["gates"].values()
+            if gate["calibration_method"] == "measured"
+        ]
         assert len(calibrated) == 10
 
     def test_accepts_minimal_consistent_calibrations(self, tmp_path):
@@ -340,16 +366,14 @@ class TestLoadGateCalibrationsConfig:
 
     def test_rejects_calibrated_count_drift(self, tmp_path):
         cal = _valid_calibrations()
-        cal["metadata"]["gates_with_k1_k2"] = 2
+        cal["metadata"]["gates_by_calibration_method"]["measured"] = 2
         with pytest.raises(ConfigError, match="drift"):
             load_gate_calibrations_config(_write(tmp_path, cal))
 
-    def test_rejects_string_has_calibration(self, tmp_path):
-        # "true" is truthy: counting it would double-count vs a strict `is True` check,
-        # and a string flag means the file was hand-edited — refuse it outright.
+    def test_rejects_unknown_calibration_method(self, tmp_path):
         cal = _valid_calibrations()
-        cal["gates"]["M(0,1)"]["has_calibration"] = "true"
-        with pytest.raises(ConfigError, match="has_calibration"):
+        cal["gates"]["M(0,1)"]["calibration_method"] = "similar"
+        with pytest.raises(ConfigError, match="calibration_method"):
             load_gate_calibrations_config(_write(tmp_path, cal))
 
     @pytest.mark.parametrize("k1", [None, "1.07", True])
@@ -365,6 +389,63 @@ class TestLoadGateCalibrationsConfig:
         with pytest.raises(ConfigError, match="k2"):
             load_gate_calibrations_config(_write(tmp_path, cal))
 
+    @pytest.mark.parametrize("key,value", [("k1", 0.0), ("k2", 0.0)])
+    def test_rejects_calibrated_gate_with_impossible_coefficient(
+        self, tmp_path, key, value
+    ):
+        cal = _valid_calibrations()
+        cal["gates"]["M(0,0)"][key] = value
+        with pytest.raises(ConfigError, match=key):
+            load_gate_calibrations_config(_write(tmp_path, cal))
+
+    @pytest.mark.parametrize("key", ["confidence", "source_gate_ids", "source_version"])
+    def test_rejects_missing_provenance_field(self, tmp_path, key):
+        cal = _valid_calibrations()
+        del cal["gates"]["M(0,0)"][key]
+        with pytest.raises(ConfigError, match=key):
+            load_gate_calibrations_config(_write(tmp_path, cal))
+
+    @pytest.mark.parametrize("confidence", [-0.01, 1.01, "high", True])
+    def test_rejects_invalid_confidence(self, tmp_path, confidence):
+        cal = _valid_calibrations()
+        cal["gates"]["M(0,0)"]["confidence"] = confidence
+        with pytest.raises(ConfigError, match="confidence"):
+            load_gate_calibrations_config(_write(tmp_path, cal))
+
+    def test_accepts_inferred_coefficients_with_measured_lineage(self, tmp_path):
+        cal = _valid_calibrations()
+        inferred = cal["gates"]["M(0,1)"]
+        inferred.update(
+            calibration_method="inferred",
+            k1=1.05,
+            k2=-1.4,
+            confidence=0.75,
+            source_gate_ids=["M(0,0)"],
+            source_version="similar-gate-v1:workbook-sha",
+        )
+        counts = cal["metadata"]["gates_by_calibration_method"]
+        counts.update(inferred=1, default=0)
+        assert load_gate_calibrations_config(_write(tmp_path, cal)) == cal
+
+    @pytest.mark.parametrize("gate_id", ["M(0,0)", "M(0,1)"])
+    def test_rejects_workbook_derived_source_version_drift(self, tmp_path, gate_id):
+        cal = _valid_calibrations()
+        cal["gates"][gate_id]["source_version"] = "different-workbook-sha"
+        with pytest.raises(ConfigError, match="source_version"):
+            load_gate_calibrations_config(_write(tmp_path, cal))
+
+    @pytest.mark.parametrize(
+        "gate_id,source_gate_ids",
+        [("M(0,0)", []), ("M(0,0)", ["M(0,1)"]), ("M(0,1)", ["M(0,0)"])],
+    )
+    def test_rejects_lineage_that_disagrees_with_method(
+        self, tmp_path, gate_id, source_gate_ids
+    ):
+        cal = _valid_calibrations()
+        cal["gates"][gate_id]["source_gate_ids"] = source_gate_ids
+        with pytest.raises(ConfigError, match="source_gate_ids"):
+            load_gate_calibrations_config(_write(tmp_path, cal))
+
     @pytest.mark.parametrize("bad_id", ["M(0,1", "X(0,1)", "M(0,-1)", "M(00,1)"])
     def test_rejects_gate_id_that_violates_the_naming_grammar(self, tmp_path, bad_id):
         # A typo'd key would silently push its real gate onto generic defaults via
@@ -378,7 +459,7 @@ class TestLoadGateCalibrationsConfig:
     def test_rejects_gate_ids_that_collide_when_normalized(self, tmp_path):
         # "M (0,1)" and "M(0,1)" are the same physical gate; both present = a corrupt file.
         cal = _valid_calibrations()
-        cal["gates"]["M (0,1)"] = {"has_calibration": False}
+        cal["gates"]["M (0,1)"] = dict(cal["gates"]["M(0,1)"])
         cal["metadata"]["total_gates"] = 3
         with pytest.raises(ConfigError, match="collide"):
             load_gate_calibrations_config(_write(tmp_path, cal))
@@ -393,10 +474,9 @@ def test_calibration_ids_match_network_ids_when_normalized():
 
     network_gates = load_network_config(NETWORK)["gates"]
     calibration_gates = load_gate_calibrations_config(CALIBRATIONS)["gates"]
-    assert (
-        {normalize_gate_id(g) for g in network_gates}
-        == {normalize_gate_id(g) for g in calibration_gates}
-    )
+    assert {normalize_gate_id(g) for g in network_gates} == {
+        normalize_gate_id(g) for g in calibration_gates
+    }
 
 
 class TestRuntimeWiring:
@@ -434,7 +514,7 @@ class TestRuntimeWiring:
         from utils.gate_calibration_loader import GateCalibrationLoader
 
         cal = _valid_calibrations()
-        cal["metadata"]["gates_with_k1_k2"] = 2
+        cal["metadata"]["gates_by_calibration_method"]["measured"] = 2
         with pytest.raises(ConfigError):
             GateCalibrationLoader(_write(tmp_path, cal))
 
@@ -458,5 +538,5 @@ class TestRuntimeWiring:
         loader = GateCalibrationLoader(CALIBRATIONS)
         assert len(loader.calibrations) == 59
         cal = loader.get_calibration("M(0,0)")
-        assert cal.source == "field_measurement"
+        assert cal.calibration_method == "measured"
         assert cal.k1 == 1.0693

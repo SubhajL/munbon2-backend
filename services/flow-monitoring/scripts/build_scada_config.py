@@ -35,6 +35,7 @@ Artifacts (all stamped with the workbook SHA-256):
   src/config/network.json            gates + edges_from_names topology
   src/config/canal_geometry.json     2.1a multi-segment survey geometry
   src/config/geometry_coverage.json  59-edge coverage report
+  src/config/gate_calibrations.json  measured/default calibration provenance
 
 Run:  python scripts/build_scada_config.py [workbook.xlsx] [--out-dir DIR]
 """
@@ -54,18 +55,39 @@ from core.network_topology import ROOT, edges_from_names  # noqa: E402
 from core.node_id import parse_gate_id  # noqa: E402
 
 DEFAULT_WORKBOOK = (
-    SERVICE_ROOT.parents[1] / "SCADA Section Detailed Information 2025-08-23 V1.0 SL.xlsx"
+    SERVICE_ROOT.parents[1]
+    / "SCADA Section Detailed Information 2025-08-23 V1.0 SL.xlsx"
 )
 DEFAULT_OUT_DIR = SERVICE_ROOT / "src" / "config"
 GENERATOR = "scripts/build_scada_config.py"
 
 # Consumed columns, validated against the header rows before any cell is read —
 # a silently shifted column is exactly how the 1000x bug happened.
-SHEET1_HEADERS = {2: "Canal Name", 5: "Gate Valve", 14: "Zone",
-                  16: "km", 17: "Area (Rais)", 21: "q_max (m^3/s)"}
-CHAR_HEADERS_R2 = {2: "คลอง", 5: "ระยะ", 7: "Qmax (จากแผนรอบเวรส่งน้ำ)",
-                   8: "Qd", 9: "A", 13: "n", 14: "s", 15: "B", 16: "D",
-                   26: "หมายเหตุ"}
+SHEET1_HEADERS = {
+    2: "Canal Name",
+    5: "Gate Valve",
+    14: "Zone",
+    16: "km",
+    17: "Area (Rais)",
+    21: "q_max (m^3/s)",
+    22: "k1",
+    23: "k2",
+    24: "r2",
+    25: "width (m)",
+    26: "height (m)",
+}
+CHAR_HEADERS_R2 = {
+    2: "คลอง",
+    5: "ระยะ",
+    7: "Qmax (จากแผนรอบเวรส่งน้ำ)",
+    8: "Qd",
+    9: "A",
+    13: "n",
+    14: "s",
+    15: "B",
+    16: "D",
+    26: "หมายเหตุ",
+}
 CHAR_HEADERS_R3 = {3: "เริ่ม", 4: "สิ้นสุด"}
 # Columns 6..25 hold the LEFT table's hydraulic values; a chainage-less row with
 # any of them populated is dropped survey data, not a separator.
@@ -175,10 +197,10 @@ def _validate_headers(ws, row: int, expected: dict, sheet: str) -> None:
 
 
 def extract_gates(ws) -> list[dict]:
-    """Sheet1 gate rows: exact ids, canal, zone, chainage, q_max, area."""
+    """Sheet1 gate rows: exact ids, geometry, ratings and calibration triplets."""
     _validate_headers(ws, 2, SHEET1_HEADERS, "Sheet1")
     gates = []
-    for row in ws.iter_rows(min_row=3, max_col=21):
+    for row in ws.iter_rows(min_row=3, max_col=26):
         cell = lambda col: row[col - 1].value  # noqa: E731
         raw_id = cell(5)
         if raw_id is None:
@@ -190,16 +212,35 @@ def extract_gates(ws) -> list[dict]:
         q_max = cell_number(cell(21), f"Sheet1 gate {gate_id} q_max")
         if q_max is not None and q_max <= 0:
             raise WorkbookError(f"gate {gate_id}: q_max must be > 0, got {q_max}")
-        gates.append({
-            "gate_id": gate_id,
-            "canal": canal,
-            "zone": int(zone) if zone is not None else None,
-            "parsed": [list(t) for t in parsed],
-            "km_text": str(cell(16)).strip() if cell(16) is not None else None,
-            "km_m": parse_km_marker(cell(16)),
-            "q_max": q_max,
-            "area": cell_number(cell(17), f"Sheet1 gate {gate_id} Area"),
-        })
+        raw_width = cell(25)
+        if isinstance(raw_width, str) and raw_width.strip().upper() == "C":
+            shape = "circular"
+            width_m = None
+        else:
+            width_m = cell_number(raw_width, f"Sheet1 gate {gate_id} width")
+            shape = "rectangular" if width_m is not None else None
+        height_m = cell_number(cell(26), f"Sheet1 gate {gate_id} height")
+        for name, value in (("width", width_m), ("height", height_m)):
+            if value is not None and value <= 0:
+                raise WorkbookError(f"gate {gate_id}: {name} must be > 0, got {value}")
+        gates.append(
+            {
+                "gate_id": gate_id,
+                "canal": canal,
+                "zone": int(zone) if zone is not None else None,
+                "parsed": [list(t) for t in parsed],
+                "km_text": str(cell(16)).strip() if cell(16) is not None else None,
+                "km_m": parse_km_marker(cell(16)),
+                "q_max": q_max,
+                "area": cell_number(cell(17), f"Sheet1 gate {gate_id} Area"),
+                "k1": cell_number(cell(22), f"Sheet1 gate {gate_id} k1"),
+                "k2": cell_number(cell(23), f"Sheet1 gate {gate_id} k2"),
+                "r2": cell_number(cell(24), f"Sheet1 gate {gate_id} r2"),
+                "shape": shape,
+                "width_m": width_m,
+                "height_m": height_m,
+            }
+        )
     return gates
 
 
@@ -514,10 +555,14 @@ def classify_edges(
                      "category": "junction_head", "status": "not_applicable",
                      "canal": canal_by_gate.get(head)}
         else:
-            entry = {"upstream": parent, "downstream": child,
-                     "category": "serial", "status": "none",
-                     "canal": canal_by_gate.get(head),
-                     "missing": [{"reason": "canal_not_in_survey"}]}
+            entry = {
+                "upstream": parent,
+                "downstream": child,
+                "category": "serial",
+                "status": "none",
+                "canal": canal_by_gate.get(head),
+                "missing": [{"reason": "canal_not_in_survey"}],
+            }
         entries.append(entry)
     return entries
 
@@ -531,8 +576,77 @@ def _metadata(workbook: Path, sha256: str, description: str) -> dict:
     }
 
 
+def build_gate_calibrations(
+    gates: list[dict], workbook_path: Path, sha256: str
+) -> dict:
+    records = {}
+    counts = {"measured": 0, "inferred": 0, "default": 0}
+    for gate in gates:
+        gate_id = gate["gate_id"]
+        triplet = (gate.get("k1"), gate.get("k2"), gate.get("r2"))
+        present = tuple(value is not None for value in triplet)
+        if any(present) and not all(present):
+            raise WorkbookError(
+                f"gate {gate_id}: k1/k2/r2 must be all present or all blank"
+            )
+        if all(present):
+            k1, k2, r2 = triplet
+            if k1 <= 0 or k2 >= 0 or not 0.0 <= r2 <= 1.0:
+                raise WorkbookError(
+                    f"gate {gate_id}: invalid measured k1/k2/r2 {triplet!r}"
+                )
+            record = {
+                "gate_id": gate_id,
+                "calibration_method": "measured",
+                "k1": _intish(k1),
+                "k2": _intish(k2),
+                "confidence": _intish(r2),
+                "source_gate_ids": [gate_id],
+                "source_version": sha256,
+            }
+            counts["measured"] += 1
+        else:
+            record = {
+                "gate_id": gate_id,
+                "calibration_method": "default",
+                "confidence": 0.8,
+                "source_gate_ids": [],
+                "source_version": sha256,
+            }
+            counts["default"] += 1
+        for source_key, output_key in (
+            ("shape", "shape"),
+            ("width_m", "width_m"),
+            ("height_m", "height_m"),
+            ("q_max", "q_max_m3s"),
+            ("zone", "zone"),
+        ):
+            if gate.get(source_key) is not None:
+                record[output_key] = (
+                    _intish(gate[source_key])
+                    if source_key != "shape"
+                    else gate[source_key]
+                )
+        records[gate_id] = record
+    return {
+        "metadata": {
+            **_metadata(
+                workbook_path,
+                sha256,
+                (
+                    "Gate calibration coefficients and provenance from Sheet1;"
+                    " unmeasured gates remain explicit defaults until Wave 2.3."
+                ),
+            ),
+            "total_gates": len(records),
+            "gates_by_calibration_method": counts,
+        },
+        "gates": records,
+    }
+
+
 def build_all(workbook_path) -> dict:
-    """The three canonical artifacts from one workbook, deterministically."""
+    """The four canonical artifacts from one workbook, deterministically."""
     import openpyxl
 
     workbook_path = Path(workbook_path)
@@ -574,17 +688,19 @@ def build_all(workbook_path) -> dict:
             # The gate-to-gate span every runtime consumer needs: head/tail gap
             # measurement (reach_chainage_gap_m) and the legacy solver's
             # physical reach length.
-            reaches.append({
-                "from_node": entry["upstream"],
-                "to_node": entry["downstream"],
-                "canal_name": canal,
-                "from_km": format_km_marker(up_m),
-                "to_km": format_km_marker(down_m),
-                "span_m": entry["span_m"],
-                "covered_m": entry["covered_m"],
-                "gap_m": entry["gap_m"],
-                "segments": entry["segments"],
-            })
+            reaches.append(
+                {
+                    "from_node": entry["upstream"],
+                    "to_node": entry["downstream"],
+                    "canal_name": canal,
+                    "from_km": format_km_marker(up_m),
+                    "to_km": format_km_marker(down_m),
+                    "span_m": entry["span_m"],
+                    "covered_m": entry["covered_m"],
+                    "gap_m": entry["gap_m"],
+                    "segments": entry["segments"],
+                }
+            )
         section_no = 0
         for edge_key in zip(chain, chain[1:]):
             for piece in pieces_by_edge.get(edge_key, []):
@@ -595,9 +711,7 @@ def build_all(workbook_path) -> dict:
                 if zone is None:
                     zone = gates_by_id[up]["zone"]
                 if zone is None:
-                    raise WorkbookError(
-                        f"edge {edge_key}: neither gate carries a zone"
-                    )
+                    raise WorkbookError(f"edge {edge_key}: neither gate carries a zone")
                 # area_m2 and qd are emission-required (skip_reason), so
                 # side_slope and q_max are present on EVERY section — consumers
                 # never fall back to a divergent default slope or lose a bound.
@@ -613,27 +727,31 @@ def build_all(workbook_path) -> dict:
                     # rotation-plan Qmax, retained so no capacity information is
                     # deleted (binding stays Qd pending the 2.3 calibration PR).
                     hydraulic_params["q_rotation_plan"] = _intish(row["q_rotation"])
-                sections.append({
-                    "from_node": up,
-                    "to_node": down,
-                    "canal_name": canal,
-                    "zone": zone,
-                    "section_no": section_no,
-                    "from_km": format_km_marker(piece["from_m"]),
-                    "to_km": format_km_marker(piece["to_m"]),
-                    "geometry": {
-                        "length_m": _intish(piece["to_m"] - piece["from_m"]),
-                        "cross_section": {
-                            "type": "trapezoidal",
-                            "bottom_width_m": _intish(row["bottom_width_m"]),
-                            "depth_m": _intish(row["depth_m"]),
-                            "side_slope": derive_side_slope(
-                                row["area_m2"], row["bottom_width_m"], row["depth_m"]
-                            ),
+                sections.append(
+                    {
+                        "from_node": up,
+                        "to_node": down,
+                        "canal_name": canal,
+                        "zone": zone,
+                        "section_no": section_no,
+                        "from_km": format_km_marker(piece["from_m"]),
+                        "to_km": format_km_marker(piece["to_m"]),
+                        "geometry": {
+                            "length_m": _intish(piece["to_m"] - piece["from_m"]),
+                            "cross_section": {
+                                "type": "trapezoidal",
+                                "bottom_width_m": _intish(row["bottom_width_m"]),
+                                "depth_m": _intish(row["depth_m"]),
+                                "side_slope": derive_side_slope(
+                                    row["area_m2"],
+                                    row["bottom_width_m"],
+                                    row["depth_m"],
+                                ),
+                            },
+                            "hydraulic_params": hydraulic_params,
                         },
-                        "hydraulic_params": hydraulic_params,
-                    },
-                })
+                    }
+                )
 
     # --- network.json -----------------------------------------------------
     network_gates = {}
@@ -662,11 +780,15 @@ def build_all(workbook_path) -> dict:
     edges = [list(edge) for edge in edges_from_names(gate_ids)]
     network = {
         "metadata": {
-            **_metadata(workbook_path, sha256, (
-                "Canonical network: gates from Sheet1; edges regenerated"
-                " deterministically from the gate-id naming grammar"
-                " (core.network_topology.edges_from_names, F-11b)."
-            )),
+            **_metadata(
+                workbook_path,
+                sha256,
+                (
+                    "Canonical network: gates from Sheet1; edges regenerated"
+                    " deterministically from the gate-id naming grammar"
+                    " (core.network_topology.edges_from_names, F-11b)."
+                ),
+            ),
             "total_gates": len(network_gates),
             "total_connections": len(edges),
             "canonical": True,
@@ -682,11 +804,15 @@ def build_all(workbook_path) -> dict:
         by_zone[key] = by_zone.get(key, 0) + 1
     canal_geometry = {
         "metadata": {
-            **_metadata(workbook_path, sha256, (
-                "Surveyed canal geometry (Characteristics sheet) cut into"
-                " gate-to-gate reach segments at Sheet1 gate chainages"
-                " (multi-segment reach model, Wave 2.1a/2.1b)."
-            )),
+            **_metadata(
+                workbook_path,
+                sha256,
+                (
+                    "Surveyed canal geometry (Characteristics sheet) cut into"
+                    " gate-to-gate reach segments at Sheet1 gate chainages"
+                    " (multi-segment reach model, Wave 2.1a/2.1b)."
+                ),
+            ),
             "notes": {
                 "q_max": "design discharge Qd (ม.3/วินาที)",
                 "side_slope": "derived from design flow area: z = (A/D - B)/D",
@@ -719,12 +845,16 @@ def build_all(workbook_path) -> dict:
     for skip in all_skipped:
         skipped_rows[skip["reason"]] = skipped_rows.get(skip["reason"], 0) + 1
     geometry_coverage = {
-        "metadata": _metadata(workbook_path, sha256, (
-            "Per-edge survey coverage of the 59-edge network: which reaches"
-            " carry geometry, which chainage is unmapped and why. Junction"
-            " heads sit at their offtake (zero chainage span); offtakes"
-            " (Waste Way, FTOs) have no surveyed canal of their own."
-        )),
+        "metadata": _metadata(
+            workbook_path,
+            sha256,
+            (
+                "Per-edge survey coverage of the 59-edge network: which reaches"
+                " carry geometry, which chainage is unmapped and why. Junction"
+                " heads sit at their offtake (zero chainage span); offtakes"
+                " (Waste Way, FTOs) have no surveyed canal of their own."
+            ),
+        ),
         "edges": coverage_edges,
         "summary": {
             "total_edges": len(coverage_edges),
@@ -734,18 +864,23 @@ def build_all(workbook_path) -> dict:
             "survey_rows": len(survey),
             "skipped_rows": skipped_rows,
             "skipped_row_detail": [
-                {"reason": s["reason"], "canal": s["canal"],
-                 "from_km": format_km_marker(s["from_m"]),
-                 "to_km": format_km_marker(s["to_m"]),
-                 "excel_row": s["excel_row"]}
+                {
+                    "reason": s["reason"],
+                    "canal": s["canal"],
+                    "from_km": format_km_marker(s["from_m"]),
+                    "to_km": format_km_marker(s["to_m"]),
+                    "excel_row": s["excel_row"],
+                }
                 for s in all_skipped
             ],
         },
     }
+    gate_calibrations = build_gate_calibrations(gates, workbook_path, sha256)
     return {
         "network": network,
         "canal_geometry": canal_geometry,
         "geometry_coverage": geometry_coverage,
+        "gate_calibrations": gate_calibrations,
     }
 
 
@@ -757,7 +892,7 @@ def main(argv=None) -> None:
     artifacts = build_all(args.workbook)
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    for name in ("network", "canal_geometry", "geometry_coverage"):
+    for name in ("network", "canal_geometry", "geometry_coverage", "gate_calibrations"):
         path = out_dir / f"{name}.json"
         path.write_text(
             json.dumps(artifacts[name], indent=2, ensure_ascii=False) + "\n",
@@ -765,9 +900,11 @@ def main(argv=None) -> None:
         )
         print(f"wrote {path}")
     summary = artifacts["geometry_coverage"]["summary"]
-    print(f"sections: {summary['sections_emitted']}"
-          f" | edge status: {summary['by_status']}"
-          f" | skipped rows: {summary['skipped_rows']}")
+    print(
+        f"sections: {summary['sections_emitted']}"
+        f" | edge status: {summary['by_status']}"
+        f" | skipped rows: {summary['skipped_rows']}"
+    )
 
 
 if __name__ == "__main__":

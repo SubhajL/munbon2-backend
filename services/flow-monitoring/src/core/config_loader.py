@@ -52,7 +52,9 @@ def load_strict_json_object(path: str) -> dict:
 def _require_dict(data: dict, key: str, path: str) -> dict:
     value = data.get(key)
     if not isinstance(value, dict):
-        raise ConfigError(f"{path}: required object {key!r} is missing or not an object")
+        raise ConfigError(
+            f"{path}: required object {key!r} is missing or not an object"
+        )
     return value
 
 
@@ -105,7 +107,9 @@ def load_network_config(path: str) -> dict:
         try:
             normalized = normalize_gate_id(gate_id)
         except NodeIdError as exc:
-            raise ConfigError(f"{path}: gates[{gate_id!r}]: invalid gate id: {exc}") from exc
+            raise ConfigError(
+                f"{path}: gates[{gate_id!r}]: invalid gate id: {exc}"
+            ) from exc
         if normalized in normalized_nodes:
             raise ConfigError(
                 f"{path}: gate ids collide when normalized:"
@@ -123,11 +127,15 @@ def load_network_config(path: str) -> dict:
             )
     _check_drift(
         _declared_count(metadata, "total_gates", path, "metadata"),
-        len(gates), path, "total_gates",
+        len(gates),
+        path,
+        "total_gates",
     )
     _check_drift(
         _declared_count(metadata, "total_connections", path, "metadata"),
-        len(edges), path, "total_connections",
+        len(edges),
+        path,
+        "total_connections",
     )
     seen: set = set()
     for edge in edges:
@@ -163,7 +171,9 @@ def load_canal_geometry_config(path: str) -> dict:
     _require_dict(data, "metadata", path)
     sections = data.get("canal_sections")
     if not isinstance(sections, list) or not sections:
-        raise ConfigError(f"{path}: required array 'canal_sections' is missing or empty")
+        raise ConfigError(
+            f"{path}: required array 'canal_sections' is missing or empty"
+        )
     for i, section in enumerate(sections):
         where = f"canal_sections[{i}]"
         if not isinstance(section, dict):
@@ -234,7 +244,9 @@ def load_canal_geometry_config(path: str) -> dict:
     summary = _require_dict(data, "summary", path)
     _check_drift(
         _declared_count(summary, "total_sections", path, "summary"),
-        len(sections), path, "summary.total_sections",
+        len(sections),
+        path,
+        "summary.total_sections",
     )
     return data
 
@@ -242,15 +254,20 @@ def load_canal_geometry_config(path: str) -> dict:
 def load_gate_calibrations_config(path: str) -> dict:
     """The canonical calibrations dict, or ConfigError on schema/drift violations.
 
-    Validates: declared total_gates/gates_with_k1_k2 match the content; has_calibration
-    is a real boolean; every calibrated gate carries finite numeric k1/k2.
+    Measured, inferred and default records have explicit, non-interchangeable
+    provenance. Inferred records may only cite measured gates from the same file.
     """
     data = load_strict_json_object(path)
     metadata = _require_dict(data, "metadata", path)
     gates = _require_dict(data, "gates", path)
     if not gates:
         raise ConfigError(f"{path}: 'gates' is empty")
-    calibrated = 0
+    source_sha256 = metadata.get("source_sha256")
+    if not isinstance(source_sha256, str) or not source_sha256.strip():
+        raise ConfigError(
+            f"{path}: metadata.source_sha256 must be a non-empty string,"
+            f" got {source_sha256!r}"
+        )
     normalized_ids: dict = {}
     for gate_id, gate in gates.items():
         where = f"gates[{gate_id!r}]"
@@ -268,26 +285,129 @@ def load_gate_calibrations_config(path: str) -> dict:
         normalized_ids[normalized] = gate_id
         if not isinstance(gate, dict):
             raise ConfigError(f"{path}: {where} is not an object")
-        has_calibration = gate.get("has_calibration", False)
-        if not isinstance(has_calibration, bool):
+        if gate.get("gate_id") != gate_id:
             raise ConfigError(
-                f"{path}: {where}.has_calibration must be a boolean,"
-                f" got {has_calibration!r}"
+                f"{path}: {where}.gate_id must exactly match its key,"
+                f" got {gate.get('gate_id')!r}"
             )
-        if has_calibration:
-            calibrated += 1
+
+    methods = ("measured", "inferred", "default")
+    method_counts = {method: 0 for method in methods}
+    for gate_id, gate in gates.items():
+        where = f"gates[{gate_id!r}]"
+        method = gate.get("calibration_method")
+        if method not in methods:
+            raise ConfigError(
+                f"{path}: {where}.calibration_method must be one of {methods},"
+                f" got {method!r}"
+            )
+        method_counts[method] += 1
+        confidence = gate.get("confidence")
+        if not _is_finite_number(confidence) or not 0.0 <= confidence <= 1.0:
+            raise ConfigError(
+                f"{path}: {where}.confidence must be a finite number in [0, 1],"
+                f" got {confidence!r}"
+            )
+        source_version = gate.get("source_version")
+        if not isinstance(source_version, str) or not source_version.strip():
+            raise ConfigError(
+                f"{path}: {where}.source_version must be a non-empty string,"
+                f" got {source_version!r}"
+            )
+        source_gate_ids = gate.get("source_gate_ids")
+        if not isinstance(source_gate_ids, list):
+            raise ConfigError(
+                f"{path}: {where}.source_gate_ids must be an array,"
+                f" got {source_gate_ids!r}"
+            )
+        normalized_sources = []
+        for source_gate_id in source_gate_ids:
+            if not isinstance(source_gate_id, str):
+                raise ConfigError(
+                    f"{path}: {where}.source_gate_ids must contain gate-id strings"
+                )
+            try:
+                normalized_source = normalize_gate_id(source_gate_id)
+            except NodeIdError as exc:
+                raise ConfigError(
+                    f"{path}: {where}.source_gate_ids contains an invalid gate id:"
+                    f" {source_gate_id!r}"
+                ) from exc
+            if normalized_source not in normalized_ids:
+                raise ConfigError(
+                    f"{path}: {where}.source_gate_ids contains unknown gate"
+                    f" {source_gate_id!r}"
+                )
+            normalized_sources.append(normalized_source)
+        if len(set(normalized_sources)) != len(normalized_sources):
+            raise ConfigError(f"{path}: {where}.source_gate_ids contains duplicates")
+
+        if method in ("measured", "inferred"):
             for key in ("k1", "k2"):
-                if not _is_finite_number(gate.get(key)):
+                value = gate.get(key)
+                valid = _is_finite_number(value) and (
+                    value > 0 if key == "k1" else value < 0
+                )
+                if not valid:
                     raise ConfigError(
-                        f"{path}: {where}.{key} must be a finite number,"
-                        f" got {gate.get(key)!r}"
+                        f"{path}: {where}.{key} must be a finite"
+                        f" {'positive' if key == 'k1' else 'negative'} number,"
+                        f" got {value!r}"
                     )
+        elif "k1" in gate or "k2" in gate:
+            raise ConfigError(
+                f"{path}: {where}: default calibrations must not carry k1/k2"
+            )
+
+        normalized_gate_id = normalize_gate_id(gate_id)
+        if method == "measured" and normalized_sources != [normalized_gate_id]:
+            raise ConfigError(
+                f"{path}: {where}.source_gate_ids must contain only the measured"
+                " gate itself"
+            )
+        if method == "default" and normalized_sources:
+            raise ConfigError(
+                f"{path}: {where}.source_gate_ids must be empty for defaults"
+            )
+        if method in ("measured", "default") and source_version != source_sha256:
+            raise ConfigError(
+                f"{path}: {where}.source_version must match metadata.source_sha256"
+                f" for {method} records, got {source_version!r}"
+            )
+        if method == "inferred":
+            if not normalized_sources:
+                raise ConfigError(
+                    f"{path}: {where}.source_gate_ids must identify measured sources"
+                )
+            non_measured_sources = [
+                normalized_ids[source]
+                for source in normalized_sources
+                if gates[normalized_ids[source]].get("calibration_method") != "measured"
+            ]
+            if non_measured_sources:
+                raise ConfigError(
+                    f"{path}: {where}.source_gate_ids must reference measured gates,"
+                    f" got {non_measured_sources!r}"
+                )
     _check_drift(
         _declared_count(metadata, "total_gates", path, "metadata"),
-        len(gates), path, "total_gates",
+        len(gates),
+        path,
+        "total_gates",
     )
-    _check_drift(
-        _declared_count(metadata, "gates_with_k1_k2", path, "metadata"),
-        calibrated, path, "gates_with_k1_k2",
-    )
+    declared_methods = _require_dict(metadata, "gates_by_calibration_method", path)
+    if set(declared_methods) != set(methods):
+        raise ConfigError(
+            f"{path}: metadata.gates_by_calibration_method must contain exactly"
+            f" {methods}, got {tuple(declared_methods)}"
+        )
+    for method, count in method_counts.items():
+        _check_drift(
+            _declared_count(
+                declared_methods, method, path, "metadata.gates_by_calibration_method"
+            ),
+            count,
+            path,
+            f"gates_by_calibration_method.{method}",
+        )
     return data
