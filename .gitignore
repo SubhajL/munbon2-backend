@@ -285,6 +285,10 @@ services/flow-monitoring/docs/*
 !services/flow-monitoring/tests/
 !services/flow-monitoring/tests/**
 
+# Track the bff-water-planning test suite (Wave 2.6a boot-restoration gate)
+!services/bff-water-planning/tests/
+!services/bff-water-planning/tests/**
+
 # Compiled python artifacts must never be tracked, even inside re-included trees
 # (gitignore is last-match-wins; keep these at the END of the file). Wave 1.8.
 **/__pycache__/
