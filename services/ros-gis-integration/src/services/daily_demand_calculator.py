@@ -409,20 +409,28 @@ class DailyDemandCalculator:
         self,
         zones: Optional[List[int]] = None
     ) -> List[Dict]:
-        """Get all active plots/sections"""
+        """Get all active plots/sections.
+
+        Mock plots are served ONLY under the explicit USE_MOCK_SERVER profile.
+        A real-mode dependency failure must abort the run — never fabricate
+        demand inputs (WAVE_2-4_PLAN §1.5 finding #10).
+        """
+        if settings.use_mock_server:
+            return self._get_mock_plots(zones)
+
         try:
             async with self.db.get_connection() as conn:
-                conditions = ["status = 'active'"]
+                conditions = ["p.status = 'active'"]
                 params = []
-                
-                if zones:
-                    conditions.append(f"zone = ANY($1)")
+
+                if zones is not None:
+                    conditions.append("p.zone = ANY($1)")
                     params.append(zones)
-                
+
                 where_clause = " AND ".join(conditions)
-                
+
                 query = f"""
-                    SELECT 
+                    SELECT
                         p.plot_id,
                         p.section_id,
                         p.zone,
@@ -437,16 +445,14 @@ class DailyDemandCalculator:
                     WHERE {where_clause}
                     ORDER BY p.zone, p.section_id, p.plot_id
                 """
-                
+
                 results = await conn.fetch(query, *params)
-                
+
                 return [dict(row) for row in results]
-                
         except Exception as e:
             self.logger.error("Failed to get active plots", error=str(e))
-            # Fallback to mock data
-            return self._get_mock_plots(zones)
-    
+            raise
+
     def _get_mock_plots(self, zones: Optional[List[int]] = None) -> List[Dict]:
         """Get mock plot data for testing"""
         mock_plots = []

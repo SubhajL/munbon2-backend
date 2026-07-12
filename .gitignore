@@ -289,6 +289,10 @@ services/flow-monitoring/docs/*
 !services/bff-water-planning/tests/
 !services/bff-water-planning/tests/**
 
+# Track the ros-gis-integration test suite (Wave 2.6b fail-closed gate)
+!services/ros-gis-integration/tests/
+!services/ros-gis-integration/tests/**
+
 # Compiled python artifacts must never be tracked, even inside re-included trees
 # (gitignore is last-match-wins; keep these at the END of the file). Wave 1.8.
 **/__pycache__/
