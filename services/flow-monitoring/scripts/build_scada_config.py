@@ -35,7 +35,7 @@ Artifacts (all stamped with the workbook SHA-256):
   src/config/network.json            gates + edges_from_names topology
   src/config/canal_geometry.json     2.1a multi-segment survey geometry
   src/config/geometry_coverage.json  59-edge coverage report
-  src/config/gate_calibrations.json  measured/default calibration provenance
+  src/config/gate_calibrations.json  measured/inferred calibration provenance
 
 Run:  python scripts/build_scada_config.py [workbook.xlsx] [--out-dir DIR]
 """
@@ -67,6 +67,7 @@ SHEET1_HEADERS = {
     2: "Canal Name",
     5: "Gate Valve",
     14: "Zone",
+    15: "PC/SC/TC/QC",
     16: "km",
     17: "Area (Rais)",
     21: "q_max (m^3/s)",
@@ -96,6 +97,11 @@ CHAR_HYDRAULIC_COLS = range(6, 26)
 LENGTH_TOLERANCE_M = 0.5
 MAX_SIDE_SLOPE = 5.0
 CHAINAGE_EPS = 1e-6
+MAX_SIMILAR_GATES = 3
+INFERENCE_CONFIDENCE_PENALTY = 0.7
+SHAPE_SIMILARITY_WEIGHT = 0.45
+DIMENSION_SIMILARITY_WEIGHT = 0.35
+CANAL_CLASS_SIMILARITY_WEIGHT = 0.2
 
 
 class WorkbookError(ValueError):
@@ -209,6 +215,9 @@ def extract_gates(ws) -> list[dict]:
         parsed = parse_gate_id(gate_id)  # NodeIdError propagates: bad id = bad workbook
         canal = str(cell(2)).strip() if cell(2) is not None else None
         zone = cell_number(cell(14), f"Sheet1 gate {gate_id} Zone")
+        canal_class = str(cell(15)).strip() if cell(15) is not None else None
+        if not canal_class:
+            raise WorkbookError(f"gate {gate_id}: missing canal class")
         q_max = cell_number(cell(21), f"Sheet1 gate {gate_id} q_max")
         if q_max is not None and q_max <= 0:
             raise WorkbookError(f"gate {gate_id}: q_max must be > 0, got {q_max}")
@@ -223,11 +232,18 @@ def extract_gates(ws) -> list[dict]:
         for name, value in (("width", width_m), ("height", height_m)):
             if value is not None and value <= 0:
                 raise WorkbookError(f"gate {gate_id}: {name} must be > 0, got {value}")
+        if shape == "circular":
+            if height_m is None:
+                raise WorkbookError(
+                    f"gate {gate_id}: circular gate requires a numeric diameter"
+                )
+            width_m = height_m
         gates.append(
             {
                 "gate_id": gate_id,
                 "canal": canal,
                 "zone": int(zone) if zone is not None else None,
+                "canal_class": canal_class,
                 "parsed": [list(t) for t in parsed],
                 "km_text": str(cell(16)).strip() if cell(16) is not None else None,
                 "km_m": parse_km_marker(cell(16)),
@@ -576,11 +592,88 @@ def _metadata(workbook: Path, sha256: str, description: str) -> dict:
     }
 
 
+def calibration_similarity(target: dict, donor: dict) -> float:
+    score = 0.0
+    target_shape, donor_shape = target.get("shape"), donor.get("shape")
+    if target_shape is not None and target_shape == donor_shape:
+        score += SHAPE_SIMILARITY_WEIGHT
+    dimension_ratios = []
+    for key in ("width_m", "height_m"):
+        target_value, donor_value = target.get(key), donor.get(key)
+        if target_value is not None and donor_value is not None:
+            dimension_ratios.append(
+                min(target_value, donor_value) / max(target_value, donor_value)
+            )
+    if dimension_ratios:
+        score += (
+            DIMENSION_SIMILARITY_WEIGHT * sum(dimension_ratios) / len(dimension_ratios)
+        )
+    if target.get("canal_class") == donor.get("canal_class"):
+        score += CANAL_CLASS_SIMILARITY_WEIGHT
+    return round(score, 6)
+
+
+def infer_calibration(target: dict, measured: list[dict], source_version: str) -> dict:
+    target_shape = target.get("shape")
+    if target_shape is not None:
+        same_shape = [gate for gate in measured if gate.get("shape") == target_shape]
+        candidates = same_shape or measured
+    else:
+        same_class = [
+            gate
+            for gate in measured
+            if gate.get("canal_class") == target.get("canal_class")
+        ]
+        candidates = same_class or measured
+    ranked = sorted(
+        ((calibration_similarity(target, donor), donor) for donor in candidates),
+        key=lambda item: (-item[0], item[1]["gate_id"]),
+    )
+    selected = [
+        (score, donor) for score, donor in ranked[:MAX_SIMILAR_GATES] if score > 0
+    ]
+    if not selected:
+        raise WorkbookError(
+            f"gate {target['gate_id']}: no similar measured donor available"
+        )
+    coefficient_weights = [score * donor["r2"] for score, donor in selected]
+    total_weight = sum(coefficient_weights)
+    if total_weight <= 0:
+        raise WorkbookError(
+            f"gate {target['gate_id']}: measured donor confidence is zero"
+        )
+    k1 = (
+        sum(
+            donor["k1"] * weight
+            for weight, (_, donor) in zip(coefficient_weights, selected)
+        )
+        / total_weight
+    )
+    k2 = (
+        sum(
+            donor["k2"] * weight
+            for weight, (_, donor) in zip(coefficient_weights, selected)
+        )
+        / total_weight
+    )
+    similarity_weighted_fit = total_weight / sum(score for score, _ in selected)
+    confidence = similarity_weighted_fit * selected[0][0] * INFERENCE_CONFIDENCE_PENALTY
+    return {
+        "calibration_method": "inferred",
+        "k1": round(k1, 6),
+        "k2": round(k2, 6),
+        "confidence": round(confidence, 6),
+        "source_gate_ids": [donor["gate_id"] for _, donor in selected],
+        "source_version": source_version,
+    }
+
+
 def build_gate_calibrations(
     gates: list[dict], workbook_path: Path, sha256: str
 ) -> dict:
     records = {}
     counts = {"measured": 0, "inferred": 0, "default": 0}
+    measured = []
     for gate in gates:
         gate_id = gate["gate_id"]
         triplet = (gate.get("k1"), gate.get("k2"), gate.get("r2"))
@@ -595,6 +688,13 @@ def build_gate_calibrations(
                 raise WorkbookError(
                     f"gate {gate_id}: invalid measured k1/k2/r2 {triplet!r}"
                 )
+            measured.append(gate)
+    inference_version = f"similar-gate-v1:{sha256}"
+    measured_gate_ids = {gate["gate_id"] for gate in measured}
+    for gate in gates:
+        gate_id = gate["gate_id"]
+        if gate_id in measured_gate_ids:
+            k1, k2, r2 = gate["k1"], gate["k2"], gate["r2"]
             record = {
                 "gate_id": gate_id,
                 "calibration_method": "measured",
@@ -608,13 +708,11 @@ def build_gate_calibrations(
         else:
             record = {
                 "gate_id": gate_id,
-                "calibration_method": "default",
-                "confidence": 0.8,
-                "source_gate_ids": [],
-                "source_version": sha256,
+                **infer_calibration(gate, measured, inference_version),
             }
-            counts["default"] += 1
+            counts["inferred"] += 1
         for source_key, output_key in (
+            ("canal_class", "canal_class"),
             ("shape", "shape"),
             ("width_m", "width_m"),
             ("height_m", "height_m"),
@@ -624,7 +722,7 @@ def build_gate_calibrations(
             if gate.get(source_key) is not None:
                 record[output_key] = (
                     _intish(gate[source_key])
-                    if source_key != "shape"
+                    if source_key not in ("shape", "canal_class")
                     else gate[source_key]
                 )
         records[gate_id] = record
@@ -635,11 +733,12 @@ def build_gate_calibrations(
                 sha256,
                 (
                     "Gate calibration coefficients and provenance from Sheet1;"
-                    " unmeasured gates remain explicit defaults until Wave 2.3."
+                    " unmeasured gates use provisional similar-gate inference."
                 ),
             ),
             "total_gates": len(records),
             "gates_by_calibration_method": counts,
+            "intended_use": "planning_only",
         },
         "gates": records,
     }

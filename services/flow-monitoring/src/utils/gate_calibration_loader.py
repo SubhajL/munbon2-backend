@@ -64,6 +64,7 @@ class GateCalibrationLoader:
         )
 
         self.calibrations = data["gates"]
+        self.intended_use = data["metadata"]["intended_use"]
         # Wave 1.2: full normalized -> stored-key index (replaces the old hardcoded
         # PARTIAL alias table, whose unmapped compact ids silently fell through to
         # generic defaults). The strict loader guarantees ids parse and don't collide.
@@ -172,7 +173,7 @@ class GateCalibrationLoader:
         )
 
     def get_all_calibrated_gates(self) -> Dict[str, Tuple[float, float]]:
-        """All field-calibrated gates, keyed by CANONICAL COMPACT id (Wave 1.2)."""
+        """All measured/inferred gates, keyed by CANONICAL COMPACT id."""
         return {
             normalize_gate_id(excel_id): (gate_data["k1"], gate_data["k2"])
             for excel_id, gate_data in self.calibrations.items()

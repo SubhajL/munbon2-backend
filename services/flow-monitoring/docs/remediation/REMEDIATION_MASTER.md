@@ -76,8 +76,10 @@ def build_canonical_network(gate_ids):
 
 ### 1.3 Calibration coverage (F-05)
 10/59 gates field-measured; 49 on size defaults (−27 %…+110 % error).
-- **Short term:** replace generic defaults with **similar-gate estimation** (weighted by
-  calibration confidence, already sketched in `calibrated_gate_hydraulics.estimate_calibration_from_similar`), keyed by gate type + dimensions + canal class.
+- **Short term:** `scripts/build_scada_config.py` now replaces generic defaults with
+  **similar-gate estimation**, weighted by measured fit confidence and keyed by physical
+  shape, dimensions, and canal class. Outputs remain `planning_only`; every inference
+  records its measured donors, lower confidence, and algorithm/workbook source version.
 - **Program:** rank uncalibrated gates by (a) command-area served, (b) position on
   critical delivery paths; field-rate the top-N first (tail FTOs and shared trunk gates
   matter most). Store `flow_range_tested` with each calibration.

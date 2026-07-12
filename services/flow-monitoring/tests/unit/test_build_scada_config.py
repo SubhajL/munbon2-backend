@@ -363,6 +363,63 @@ class TestBuildGateCalibrations:
             bsc.build_gate_calibrations([gate], Path("source.xlsx"), "source-sha")
 
 
+class TestSimilarGateInference:
+    TARGET = {
+        "gate_id": "TARGET",
+        "canal_class": "SC",
+        "shape": "rectangular",
+        "width_m": 1.0,
+        "height_m": 1.0,
+    }
+    DONORS = [
+        {
+            "gate_id": "A",
+            "canal_class": "SC",
+            "shape": "rectangular",
+            "width_m": 2.0,
+            "height_m": 2.0,
+            "k1": 1.0,
+            "k2": -1.0,
+            "r2": 1.0,
+        },
+        {
+            "gate_id": "B",
+            "canal_class": "PC",
+            "shape": "rectangular",
+            "width_m": 1.0,
+            "height_m": 1.0,
+            "k1": 2.0,
+            "k2": -3.0,
+            "r2": 0.5,
+        },
+    ]
+
+    def test_similarity_prioritizes_shape_size_and_canal_class(self):
+        assert bsc.calibration_similarity(self.TARGET, self.DONORS[0]) == 0.825
+        assert bsc.calibration_similarity(self.TARGET, self.DONORS[1]) == 0.8
+
+    def test_inference_is_confidence_weighted_and_provenanced(self):
+        assert bsc.infer_calibration(
+            self.TARGET, self.DONORS, "similar-gate-v1:source-sha"
+        ) == {
+            "calibration_method": "inferred",
+            "k1": 1.326531,
+            "k2": -1.653061,
+            "confidence": 0.435346,
+            "source_gate_ids": ["A", "B"],
+            "source_version": "similar-gate-v1:source-sha",
+        }
+
+    def test_inference_is_invariant_to_donor_input_order(self):
+        assert bsc.infer_calibration(
+            self.TARGET, list(reversed(self.DONORS)), "version"
+        ) == bsc.infer_calibration(self.TARGET, self.DONORS, "version")
+
+    def test_inference_fails_closed_without_a_similar_measured_gate(self):
+        with pytest.raises(bsc.WorkbookError, match="measured donor"):
+            bsc.infer_calibration(self.TARGET, [], "version")
+
+
 @pytest.fixture(scope="module")
 def artifacts():
     return bsc.build_all(WORKBOOK)
@@ -386,8 +443,8 @@ class TestRealWorkbookGeneration:
         calibrations = artifacts["gate_calibrations"]
         assert calibrations["metadata"]["gates_by_calibration_method"] == {
             "measured": 10,
-            "inferred": 0,
-            "default": 49,
+            "inferred": 49,
+            "default": 0,
         }
         assert calibrations["gates"]["M(0,0)"] == {
             "gate_id": "M(0,0)",
@@ -397,19 +454,48 @@ class TestRealWorkbookGeneration:
             "confidence": 0.9986,
             "source_gate_ids": ["M(0,0)"],
             "source_version": digest,
+            "canal_class": "PC",
             "q_max_m3s": 11.2,
             "zone": 1,
         }
 
-    def test_gate_calibrations_mark_uncalibrated_rows_as_defaults(self, artifacts):
+    def test_gate_calibrations_mark_unmeasured_rows_as_provisional_inferences(
+        self, artifacts
+    ):
         digest = hashlib.sha256(WORKBOOK.read_bytes()).hexdigest()
-        assert artifacts["gate_calibrations"]["gates"]["M(0,1)"] == {
-            "gate_id": "M(0,1)",
-            "calibration_method": "default",
-            "confidence": 0.8,
-            "source_gate_ids": [],
-            "source_version": digest,
+        calibrations = artifacts["gate_calibrations"]
+        measured = {
+            gate_id
+            for gate_id, gate in calibrations["gates"].items()
+            if gate["calibration_method"] == "measured"
         }
+        inferred = [
+            gate
+            for gate in calibrations["gates"].values()
+            if gate["calibration_method"] == "inferred"
+        ]
+        measured_records = [
+            gate
+            for gate in calibrations["gates"].values()
+            if gate["calibration_method"] == "measured"
+        ]
+        assert calibrations["metadata"]["intended_use"] == "planning_only"
+        assert len(inferred) == 49
+        assert all(0.0 < gate["confidence"] < 0.9805 for gate in inferred)
+        assert all(1 <= len(gate["source_gate_ids"]) <= 3 for gate in inferred)
+        assert all(set(gate["source_gate_ids"]) <= measured for gate in inferred)
+        assert all(
+            gate["source_version"] == f"similar-gate-v1:{digest}" for gate in inferred
+        )
+        assert all(
+            min(gate["k1"] for gate in measured_records)
+            <= gate["k1"]
+            <= max(gate["k1"] for gate in measured_records)
+            and min(gate["k2"] for gate in measured_records)
+            <= gate["k2"]
+            <= max(gate["k2"] for gate in measured_records)
+            for gate in inferred
+        )
 
     def test_gate_ratings_match_the_network_artifact(self, artifacts):
         calibration_gates = artifacts["gate_calibrations"]["gates"]
@@ -418,6 +504,14 @@ class TestRealWorkbookGeneration:
             gate_id: gate.get("q_max_m3s")
             for gate_id, gate in calibration_gates.items()
         } == {gate_id: gate.get("q_max") for gate_id, gate in network_gates.items()}
+
+    def test_circular_gate_height_is_used_as_its_hydraulic_width(self, artifacts):
+        gate = artifacts["gate_calibrations"]["gates"]["M(0,1; 1,0; 1,0)"]
+        assert (gate["shape"], gate["width_m"], gate["height_m"]) == (
+            "circular",
+            0.4,
+            0.4,
+        )
 
     def test_geometry_passes_the_strict_runtime_loader(self, artifacts, tmp_path):
         path = tmp_path / "canal_geometry.json"

@@ -319,7 +319,7 @@ class TestHonestCapacities:
         assert capacity > 0
         assert capacity != pytest.approx(10.0)
 
-    def test_gate_capacity_fallback_on_default_calibration_is_logged(
+    def test_gate_capacity_fallback_on_inferred_calibration_is_logged(
         self, service, monkeypatch
     ):
         import services.hydraulic_service as hs
@@ -328,8 +328,19 @@ class TestHonestCapacities:
         monkeypatch.setattr(
             hs.logger, "warning", lambda msg, *a, **k: warnings.append(msg % a if a else msg)
         )
-        service._get_gate_capacity("M(0,1)")  # default_by_size calibration
+        service._get_gate_capacity("M(0,1)")
         assert any("calibration" in w for w in warnings)
+
+    def test_circular_gate_uses_workbook_diameter_not_two_metre_default(self, service):
+        gate_id = "M(0,1;1,0;1,0)"
+        calibration = service.calibration_loader.get_calibration(gate_id)
+        flow_calibration = service._build_gate_flow_cal(gate_id, calibration)
+        assert (
+            calibration.shape,
+            calibration.width_m,
+            calibration.height_m,
+            flow_calibration.width_m,
+        ) == ("circular", 0.4, 0.4, 0.4)
 
     def test_canal_capacity_is_bounded_by_the_weakest_surveyed_segment(self, service):
         # M(0,1) has q_max=null in the canonical network (excluded from the gate
