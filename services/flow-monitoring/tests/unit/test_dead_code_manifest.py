@@ -11,39 +11,62 @@ SRC = SERVICE_ROOT / "src"
 
 PURGED_SRC = [
     # stale topology/demo/result JSONs (canonical set lives in src/config/)
-    "canal_geometry_template.json", "daily_flow_report.json", "demo_network.json",
-    "hydraulic_profile_data.json", "irrigation_schedule.json",
-    "munbon_network_complete.json", "munbon_network_final.json",
-    "munbon_network_structure.json", "munbon_network_updated.json",
-    "network_simple.json", "network_structure_updated.json",
-    "path_based_results.json", "real_geometry_test_results.json",
-    "scada_analysis.json", "temporal_demo_network.json", "travel_time_results.json",
+    "canal_geometry_template.json",
+    "daily_flow_report.json",
+    "demo_network.json",
+    "hydraulic_profile_data.json",
+    "irrigation_schedule.json",
+    "munbon_network_complete.json",
+    "munbon_network_final.json",
+    "munbon_network_structure.json",
+    "munbon_network_updated.json",
+    "network_simple.json",
+    "network_structure_updated.json",
+    "path_based_results.json",
+    "real_geometry_test_results.json",
+    "scada_analysis.json",
+    "temporal_demo_network.json",
+    "travel_time_results.json",
     # dead analysis/visualization/extraction scripts
-    "analyze_network_changes.py", "analyze_scada_structure.py",
-    "build_network_graph.py", "canal_geometry_impact.py",
-    "extract_network_from_scada.py", "extract_network_structure.py",
-    "flow_monitoring_integration.py", "hydraulic_network_model.py",
-    "network_graph_text.py", "shared_path_coordinator.py",
-    "simple_gate_control_example.py", "temporal_irrigation_scheduler.py",
-    "test_with_real_geometry.py", "update_network_graph.py",
-    "visualize_gate_curves_detailed.py", "visualize_gate_hydraulics.py",
-    "visualize_hydraulic_profile.py", "visualize_network_final.py",
-    "visualize_network_graph.py", "visualize_travel_times.py",
+    "analyze_network_changes.py",
+    "analyze_scada_structure.py",
+    "build_network_graph.py",
+    "canal_geometry_impact.py",
+    "extract_network_from_scada.py",
+    "extract_network_structure.py",
+    "flow_monitoring_integration.py",
+    "hydraulic_network_model.py",
+    "network_graph_text.py",
+    "shared_path_coordinator.py",
+    "simple_gate_control_example.py",
+    "temporal_irrigation_scheduler.py",
+    "test_with_real_geometry.py",
+    "update_network_graph.py",
+    "visualize_gate_curves_detailed.py",
+    "visualize_gate_hydraulics.py",
+    "visualize_hydraulic_profile.py",
+    "visualize_network_final.py",
+    "visualize_network_graph.py",
+    "visualize_travel_times.py",
     "visualize_travel_times_corrected.py",
     # dead modules
-    "core/gate_properties_enhanced.py", "core/job_order_system.py",
-    "core/scada_health_monitor.py", "services/gate_controller_integration.py",
+    "core/gate_properties_enhanced.py",
+    "core/job_order_system.py",
+    "core/scada_health_monitor.py",
+    "services/gate_controller_integration.py",
     "utils/gate_id_standardizer.py",
     # dead-except-their-broken-tests modules (Wave 1.9)
-    "core/gate_registry.py", "core/gradual_transition_controller.py",
+    "core/gate_registry.py",
+    "core/gradual_transition_controller.py",
     "core/state_preservation.py",
 ]
 
 KEEPER_SCRIPTS = [
     # provenance/generator lineage for the Wave-2.1 config pipeline
-    "analyze_scada_excel.py", "build_final_network.py",
-    "extract_gate_calibrations.py", "network_from_gate_names.py",
-    # the live 2.1b generator (workbook -> network/geometry/coverage artifacts)
+    "analyze_scada_excel.py",
+    "build_final_network.py",
+    "network_from_gate_names.py",
+    # the live generator (workbook -> network/geometry/coverage/calibration artifacts)
     "build_scada_config.py",
 ]
 
@@ -52,11 +75,15 @@ PURGED_SCRIPTS = [
     # holds KILOMETRES and was written straight into length_m (the 1000x bug),
     # and missing survey columns silently became invented defaults.
     "excel_to_canal_sections.py",
+    "extract_gate_calibrations.py",
+    "excel_to_calibration_json.py",
 ]
 
 CANONICAL_CONFIGS = [
-    "config/network.json", "config/canal_geometry.json",
-    "config/gate_calibrations.json", "config/gate_configuration.json",
+    "config/network.json",
+    "config/canal_geometry.json",
+    "config/gate_calibrations.json",
+    "config/gate_configuration.json",
     "config/geometry_coverage.json",
 ]
 

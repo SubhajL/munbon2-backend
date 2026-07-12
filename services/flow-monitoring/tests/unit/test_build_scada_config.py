@@ -326,6 +326,43 @@ class TestExtractionValidation:
             bsc.extract_survey_rows(loaded["Characteristics"])
 
 
+class TestBuildGateCalibrations:
+    @pytest.mark.parametrize(
+        "k1,k2,r2",
+        [(1.1, None, 0.99), (None, -1.2, 0.99), (1.1, -1.2, None)],
+    )
+    def test_rejects_partial_measured_calibration_triplets(self, k1, k2, r2):
+        gate = {
+            "gate_id": "M(0,0)",
+            "k1": k1,
+            "k2": k2,
+            "r2": r2,
+            "q_max": 11.2,
+            "zone": 1,
+            "width_m": None,
+            "height_m": None,
+        }
+        with pytest.raises(bsc.WorkbookError, match="k1/k2/r2"):
+            bsc.build_gate_calibrations([gate], Path("source.xlsx"), "source-sha")
+
+    @pytest.mark.parametrize(
+        "k1,k2,r2", [(0.0, -1.2, 0.99), (1.1, 0.0, 0.99), (1.1, -1.2, 1.01)]
+    )
+    def test_rejects_invalid_measured_calibration_values(self, k1, k2, r2):
+        gate = {
+            "gate_id": "M(0,0)",
+            "k1": k1,
+            "k2": k2,
+            "r2": r2,
+            "q_max": 11.2,
+            "zone": 1,
+            "width_m": None,
+            "height_m": None,
+        }
+        with pytest.raises(bsc.WorkbookError, match="invalid measured k1/k2/r2"):
+            bsc.build_gate_calibrations([gate], Path("source.xlsx"), "source-sha")
+
+
 @pytest.fixture(scope="module")
 def artifacts():
     return bsc.build_all(WORKBOOK)
@@ -334,10 +371,53 @@ def artifacts():
 class TestRealWorkbookGeneration:
     def test_all_artifacts_carry_the_workbook_sha256(self, artifacts):
         digest = hashlib.sha256(WORKBOOK.read_bytes()).hexdigest()
-        for name in ("network", "canal_geometry", "geometry_coverage"):
+        for name in (
+            "network",
+            "canal_geometry",
+            "geometry_coverage",
+            "gate_calibrations",
+        ):
             meta = artifacts[name]["metadata"]
             assert meta["source_sha256"] == digest
             assert meta["source_workbook"] == WORKBOOK.name
+
+    def test_gate_calibrations_preserve_measured_provenance(self, artifacts):
+        digest = hashlib.sha256(WORKBOOK.read_bytes()).hexdigest()
+        calibrations = artifacts["gate_calibrations"]
+        assert calibrations["metadata"]["gates_by_calibration_method"] == {
+            "measured": 10,
+            "inferred": 0,
+            "default": 49,
+        }
+        assert calibrations["gates"]["M(0,0)"] == {
+            "gate_id": "M(0,0)",
+            "calibration_method": "measured",
+            "k1": 1.0693,
+            "k2": -1.229,
+            "confidence": 0.9986,
+            "source_gate_ids": ["M(0,0)"],
+            "source_version": digest,
+            "q_max_m3s": 11.2,
+            "zone": 1,
+        }
+
+    def test_gate_calibrations_mark_uncalibrated_rows_as_defaults(self, artifacts):
+        digest = hashlib.sha256(WORKBOOK.read_bytes()).hexdigest()
+        assert artifacts["gate_calibrations"]["gates"]["M(0,1)"] == {
+            "gate_id": "M(0,1)",
+            "calibration_method": "default",
+            "confidence": 0.8,
+            "source_gate_ids": [],
+            "source_version": digest,
+        }
+
+    def test_gate_ratings_match_the_network_artifact(self, artifacts):
+        calibration_gates = artifacts["gate_calibrations"]["gates"]
+        network_gates = artifacts["network"]["gates"]
+        assert {
+            gate_id: gate.get("q_max_m3s")
+            for gate_id, gate in calibration_gates.items()
+        } == {gate_id: gate.get("q_max") for gate_id, gate in network_gates.items()}
 
     def test_geometry_passes_the_strict_runtime_loader(self, artifacts, tmp_path):
         path = tmp_path / "canal_geometry.json"
@@ -513,11 +593,15 @@ class TestRegenerationLock:
     """The committed artifacts must be BYTE-exactly what the committed workbook
     regenerates — hand edits, reformatting, and stale artifacts fail the suite."""
 
-    @pytest.mark.parametrize("name,filename", [
-        ("network", "network.json"),
-        ("canal_geometry", "canal_geometry.json"),
-        ("geometry_coverage", "geometry_coverage.json"),
-    ])
+    @pytest.mark.parametrize(
+        "name,filename",
+        [
+            ("network", "network.json"),
+            ("canal_geometry", "canal_geometry.json"),
+            ("geometry_coverage", "geometry_coverage.json"),
+            ("gate_calibrations", "gate_calibrations.json"),
+        ],
+    )
     def test_committed_artifact_equals_regeneration(self, artifacts, name, filename):
         expected = (
             json.dumps(artifacts[name], indent=2, ensure_ascii=False) + "\n"
@@ -526,11 +610,16 @@ class TestRegenerationLock:
 
 
 class TestMainCli:
-    def test_writes_three_deterministic_artifacts(self, tmp_path):
+    def test_writes_four_deterministic_artifacts(self, tmp_path):
         out1, out2 = tmp_path / "a", tmp_path / "b"
         bsc.main([str(WORKBOOK), "--out-dir", str(out1)])
         bsc.main([str(WORKBOOK), "--out-dir", str(out2)])
-        names = ["network.json", "canal_geometry.json", "geometry_coverage.json"]
+        names = [
+            "network.json",
+            "canal_geometry.json",
+            "geometry_coverage.json",
+            "gate_calibrations.json",
+        ]
         for n in names:
             b1, b2 = (out1 / n).read_bytes(), (out2 / n).read_bytes()
             assert b1 == b2  # deterministic: no timestamps, stable ordering
