@@ -23,6 +23,9 @@ def loader():
 
 
 class TestGetCalibration:
+    def test_bundle_is_explicitly_planning_only(self, loader):
+        assert loader.intended_use == "planning_only"
+
     def test_compact_alias_resolves_to_field_calibration(self, loader):
         # 'M(0,0; 1,0)' is field-calibrated but was NOT in the old alias table:
         # its compact spelling used to fall through to the generic default.
@@ -55,15 +58,6 @@ class TestGetCalibration:
             stored["source_version"],
         )
 
-    def test_known_uncalibrated_gate_gets_size_based_default(self, loader):
-        # 'M(0,1)' exists as an explicit default and has no shape/width data.
-        cal = loader.get_calibration("M(0,1)")
-        assert (
-            cal.calibration_method,
-            cal.confidence,
-            cal.source_gate_ids,
-        ) == ("default", 0.8, ())
-
     def test_unknown_but_valid_gate_gets_generic_default(self, loader):
         cal = loader.get_calibration("M(7,7)")
         assert (
@@ -84,8 +78,13 @@ class TestGetCalibration:
             source_gate_ids=["M(0,0)"],
             source_version="similar-gate-v1:" + data["metadata"]["source_sha256"],
         )
-        counts = data["metadata"]["gates_by_calibration_method"]
-        counts.update(inferred=1, default=48)
+        data["metadata"]["gates_by_calibration_method"] = {
+            method: sum(
+                record["calibration_method"] == method
+                for record in data["gates"].values()
+            )
+            for method in ("measured", "inferred", "default")
+        }
         path = tmp_path / "inferred.json"
         path.write_text(json.dumps(data))
         inferred = GateCalibrationLoader(str(path)).get_calibration("M(0,1)")
@@ -98,6 +97,13 @@ class TestGetCalibration:
             source_gate_ids=("M(0,0)",),
             source_version=gate["source_version"],
         )
+
+    def test_committed_unmeasured_gate_uses_provisional_inference(self, loader):
+        inferred = loader.get_calibration("M(0,1)")
+        assert inferred.calibration_method == "inferred"
+        assert inferred.source_gate_ids == ("M(0,0)", "M(0,2)", "M(0,7)")
+        assert 0.0 < inferred.confidence < 0.9805
+        assert inferred.source_version.startswith("similar-gate-v1:")
 
     def test_malformed_gate_id_fails_closed(self, loader):
         with pytest.raises(NodeIdError):
@@ -121,9 +127,9 @@ class TestGetGateData:
 
 
 class TestGetAllCalibratedGates:
-    def test_returns_all_ten_field_calibrated_gates_keyed_canonically(self, loader):
+    def test_returns_all_59_measured_and_inferred_gates_keyed_canonically(self, loader):
         calibrated = loader.get_all_calibrated_gates()
-        assert len(calibrated) == 10
+        assert len(calibrated) == 59
         assert all(" " not in gate_id for gate_id in calibrated)
 
     def test_keys_cover_every_nondefault_gate_in_the_file(self, loader):

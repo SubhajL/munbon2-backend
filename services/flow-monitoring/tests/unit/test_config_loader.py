@@ -65,6 +65,7 @@ def _valid_calibrations():
     return {
         "metadata": {
             "source_sha256": "workbook-sha",
+            "intended_use": "planning_only",
             "total_gates": 2,
             "gates_by_calibration_method": {
                 "measured": 1,
@@ -412,6 +413,19 @@ class TestLoadGateCalibrationsConfig:
         with pytest.raises(ConfigError, match="confidence"):
             load_gate_calibrations_config(_write(tmp_path, cal))
 
+    @pytest.mark.parametrize(
+        "width_m,height_m", [(2.0, 0.4), (None, 0.4), (None, None)]
+    )
+    def test_rejects_circular_gate_without_one_numeric_diameter(
+        self, tmp_path, width_m, height_m
+    ):
+        cal = _valid_calibrations()
+        cal["gates"]["M(0,1)"].update(
+            shape="circular", width_m=width_m, height_m=height_m
+        )
+        with pytest.raises(ConfigError, match="circular.*width_m"):
+            load_gate_calibrations_config(_write(tmp_path, cal))
+
     def test_accepts_inferred_coefficients_with_measured_lineage(self, tmp_path):
         cal = _valid_calibrations()
         inferred = cal["gates"]["M(0,1)"]
@@ -426,6 +440,44 @@ class TestLoadGateCalibrationsConfig:
         counts = cal["metadata"]["gates_by_calibration_method"]
         counts.update(inferred=1, default=0)
         assert load_gate_calibrations_config(_write(tmp_path, cal)) == cal
+
+    def test_rejects_inferred_confidence_not_below_measured_sources(self, tmp_path):
+        cal = _valid_calibrations()
+        inferred = cal["gates"]["M(0,1)"]
+        inferred.update(
+            calibration_method="inferred",
+            k1=1.05,
+            k2=-1.4,
+            confidence=0.9986,
+            source_gate_ids=["M(0,0)"],
+            source_version="similar-gate-v1:workbook-sha",
+        )
+        counts = cal["metadata"]["gates_by_calibration_method"]
+        counts.update(inferred=1, default=0)
+        with pytest.raises(ConfigError, match="lower than every measured source"):
+            load_gate_calibrations_config(_write(tmp_path, cal))
+
+    def test_rejects_inferred_source_version_drift(self, tmp_path):
+        cal = _valid_calibrations()
+        inferred = cal["gates"]["M(0,1)"]
+        inferred.update(
+            calibration_method="inferred",
+            k1=1.05,
+            k2=-1.4,
+            confidence=0.75,
+            source_gate_ids=["M(0,0)"],
+            source_version="similar-gate-v2:workbook-sha",
+        )
+        counts = cal["metadata"]["gates_by_calibration_method"]
+        counts.update(inferred=1, default=0)
+        with pytest.raises(ConfigError, match="source_version"):
+            load_gate_calibrations_config(_write(tmp_path, cal))
+
+    def test_rejects_non_planning_calibration_bundle(self, tmp_path):
+        cal = _valid_calibrations()
+        cal["metadata"]["intended_use"] = "actuation"
+        with pytest.raises(ConfigError, match="intended_use"):
+            load_gate_calibrations_config(_write(tmp_path, cal))
 
     @pytest.mark.parametrize("gate_id", ["M(0,0)", "M(0,1)"])
     def test_rejects_workbook_derived_source_version_drift(self, tmp_path, gate_id):

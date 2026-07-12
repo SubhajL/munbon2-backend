@@ -268,6 +268,11 @@ def load_gate_calibrations_config(path: str) -> dict:
             f"{path}: metadata.source_sha256 must be a non-empty string,"
             f" got {source_sha256!r}"
         )
+    if metadata.get("intended_use") != "planning_only":
+        raise ConfigError(
+            f"{path}: metadata.intended_use must be 'planning_only',"
+            f" got {metadata.get('intended_use')!r}"
+        )
     normalized_ids: dict = {}
     for gate_id, gate in gates.items():
         where = f"gates[{gate_id!r}]"
@@ -307,6 +312,29 @@ def load_gate_calibrations_config(path: str) -> dict:
             raise ConfigError(
                 f"{path}: {where}.confidence must be a finite number in [0, 1],"
                 f" got {confidence!r}"
+            )
+        shape = gate.get("shape")
+        if shape is not None and shape not in ("rectangular", "circular"):
+            raise ConfigError(
+                f"{path}: {where}.shape must be 'rectangular' or 'circular',"
+                f" got {shape!r}"
+            )
+        for dimension in ("width_m", "height_m"):
+            value = gate.get(dimension)
+            if value is not None and (
+                not _is_finite_number(value) or value <= 0
+            ):
+                raise ConfigError(
+                    f"{path}: {where}.{dimension} must be a finite number > 0,"
+                    f" got {value!r}"
+                )
+        if shape == "circular" and (
+            gate.get("width_m") is None
+            or gate.get("height_m") is None
+            or gate["width_m"] != gate["height_m"]
+        ):
+            raise ConfigError(
+                f"{path}: {where}: circular width_m must equal height_m (diameter)"
             )
         source_version = gate.get("source_version")
         if not isinstance(source_version, str) or not source_version.strip():
@@ -388,6 +416,21 @@ def load_gate_calibrations_config(path: str) -> dict:
                 raise ConfigError(
                     f"{path}: {where}.source_gate_ids must reference measured gates,"
                     f" got {non_measured_sources!r}"
+                )
+            expected_source_version = f"similar-gate-v1:{source_sha256}"
+            if source_version != expected_source_version:
+                raise ConfigError(
+                    f"{path}: {where}.source_version must be"
+                    f" {expected_source_version!r}, got {source_version!r}"
+                )
+            source_confidences = [
+                gates[normalized_ids[source]]["confidence"]
+                for source in normalized_sources
+            ]
+            if confidence >= min(source_confidences):
+                raise ConfigError(
+                    f"{path}: {where}.confidence must be lower than every measured"
+                    f" source, got {confidence!r} versus {source_confidences!r}"
                 )
     _check_drift(
         _declared_count(metadata, "total_gates", path, "metadata"),
