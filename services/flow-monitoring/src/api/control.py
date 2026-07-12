@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from core.network_flow_controller import NetworkFlowController
 from core.network_topology import NetworkTopologyError
 from core.node_id import normalize_node_id
-from schemas.control import PlanRequest, PlanResponse, ReachFlow
+from schemas.control import PlanRequest, PlanResponse, ReachChainageGap, ReachFlow
 
 logger = structlog.get_logger()
 router = APIRouter()
@@ -63,6 +63,16 @@ async def plan(
         if request.apply_losses
         else []
     )
+    # Partially surveyed reaches take zero loss on their unsurveyed chainage —
+    # say so, or the head-gate figure reads as full loss coverage (2.1b).
+    gaps = (
+        [
+            ReachChainageGap(upstream=u, downstream=v, gap_m=gap)
+            for (u, v), gap in sorted(controller.reaches_with_chainage_gaps.items())
+        ]
+        if request.apply_losses
+        else []
+    )
     return PlanResponse(
         reaches=[
             ReachFlow(
@@ -76,4 +86,5 @@ async def plan(
         apply_losses=request.apply_losses,
         charge_dry_reaches=request.charge_dry_reaches,
         reaches_missing_geometry=missing,
+        reaches_with_chainage_gaps=gaps,
     )

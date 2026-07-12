@@ -1,0 +1,701 @@
+{
+  "metadata": {
+    "source_workbook": "SCADA Section Detailed Information 2025-08-23 V1.0 SL.xlsx",
+    "source_sha256": "b796361cb19a76074e10da9e0a4ed46eb50b26b556192c37738a4490a230be11",
+    "generator": "scripts/build_scada_config.py",
+    "description": "Per-edge survey coverage of the 59-edge network: which reaches carry geometry, which chainage is unmapped and why. Junction heads sit at their offtake (zero chainage span); offtakes (Waste Way, FTOs) have no surveyed canal of their own."
+  },
+  "edges": [
+    {
+      "upstream": "S",
+      "downstream": "M(0,0)",
+      "category": "source",
+      "status": "not_applicable"
+    },
+    {
+      "upstream": "M(0,0)",
+      "downstream": "M(0,1)",
+      "category": "serial",
+      "span_m": 300,
+      "covered_m": 130,
+      "gap_m": 170,
+      "segments": 1,
+      "status": "partial",
+      "missing": [
+        {
+          "from_km": "0+000",
+          "to_km": "0+170",
+          "reason": "survey_row_missing_cross_section"
+        }
+      ],
+      "canal": "LMC"
+    },
+    {
+      "upstream": "M(0,1)",
+      "downstream": "M(0,2)",
+      "category": "serial",
+      "span_m": 1320,
+      "covered_m": 1320,
+      "gap_m": 0,
+      "segments": 1,
+      "status": "full",
+      "missing": [],
+      "canal": "LMC"
+    },
+    {
+      "upstream": "M(0,2)",
+      "downstream": "M(0,3)",
+      "category": "serial",
+      "span_m": 5260,
+      "covered_m": 5260,
+      "gap_m": 0,
+      "segments": 2,
+      "status": "full",
+      "missing": [],
+      "canal": "LMC"
+    },
+    {
+      "upstream": "M(0,3)",
+      "downstream": "M(0,4)",
+      "category": "serial",
+      "span_m": 2320,
+      "covered_m": 2320,
+      "gap_m": 0,
+      "segments": 2,
+      "status": "full",
+      "missing": [],
+      "canal": "LMC"
+    },
+    {
+      "upstream": "M(0,4)",
+      "downstream": "M(0,5)",
+      "category": "serial",
+      "span_m": 2600,
+      "covered_m": 2600,
+      "gap_m": 0,
+      "segments": 2,
+      "status": "full",
+      "missing": [],
+      "canal": "LMC"
+    },
+    {
+      "upstream": "M(0,5)",
+      "downstream": "M(0,6)",
+      "category": "serial",
+      "span_m": 5200,
+      "covered_m": 5200,
+      "gap_m": 0,
+      "segments": 4,
+      "status": "full",
+      "missing": [],
+      "canal": "LMC"
+    },
+    {
+      "upstream": "M(0,6)",
+      "downstream": "M(0,7)",
+      "category": "serial",
+      "span_m": 4000,
+      "covered_m": 4000,
+      "gap_m": 0,
+      "segments": 2,
+      "status": "full",
+      "missing": [],
+      "canal": "LMC"
+    },
+    {
+      "upstream": "M(0,7)",
+      "downstream": "M(0,8)",
+      "category": "serial",
+      "span_m": 2315,
+      "covered_m": 2315,
+      "gap_m": 0,
+      "segments": 1,
+      "status": "full",
+      "missing": [],
+      "canal": "LMC"
+    },
+    {
+      "upstream": "M(0,8)",
+      "downstream": "M(0,9)",
+      "category": "serial",
+      "span_m": 2385,
+      "covered_m": 2385,
+      "gap_m": 0,
+      "segments": 2,
+      "status": "full",
+      "missing": [],
+      "canal": "LMC"
+    },
+    {
+      "upstream": "M(0,9)",
+      "downstream": "M(0,10)",
+      "category": "serial",
+      "span_m": 2600,
+      "covered_m": 2600,
+      "gap_m": 0,
+      "segments": 2,
+      "status": "full",
+      "missing": [],
+      "canal": "LMC"
+    },
+    {
+      "upstream": "M(0,10)",
+      "downstream": "M(0,11)",
+      "category": "serial",
+      "span_m": 7710,
+      "covered_m": 7710,
+      "gap_m": 0,
+      "segments": 5,
+      "status": "full",
+      "missing": [],
+      "canal": "LMC"
+    },
+    {
+      "upstream": "M(0,11)",
+      "downstream": "M(0,12)",
+      "category": "serial",
+      "span_m": 1849,
+      "covered_m": 1849,
+      "gap_m": 0,
+      "segments": 2,
+      "status": "full",
+      "missing": [],
+      "canal": "LMC"
+    },
+    {
+      "upstream": "M(0,12)",
+      "downstream": "M(0,13)",
+      "category": "serial",
+      "span_m": 241,
+      "covered_m": 241,
+      "gap_m": 0,
+      "segments": 1,
+      "status": "full",
+      "missing": [],
+      "canal": "LMC"
+    },
+    {
+      "upstream": "M(0,13)",
+      "downstream": "M(0,14)",
+      "category": "serial",
+      "span_m": 950,
+      "covered_m": 950,
+      "gap_m": 0,
+      "segments": 4,
+      "status": "full",
+      "missing": [],
+      "canal": "LMC"
+    },
+    {
+      "upstream": "M(0,0)",
+      "downstream": "M(0,0; 1,0)",
+      "category": "offtake",
+      "status": "not_applicable",
+      "canal": "Waste Way",
+      "km": "0+160"
+    },
+    {
+      "upstream": "M(0,1)",
+      "downstream": "M (0,1; 1,0)",
+      "category": "junction_head",
+      "status": "not_applicable",
+      "canal": "RMC"
+    },
+    {
+      "upstream": "M (0,1; 1,0)",
+      "downstream": "M (0,1; 1,1)",
+      "category": "serial",
+      "span_m": 2600,
+      "covered_m": 2600,
+      "gap_m": 0,
+      "segments": 2,
+      "status": "full",
+      "missing": [],
+      "canal": "RMC"
+    },
+    {
+      "upstream": "M (0,1; 1,1)",
+      "downstream": "M (0,1; 1,2)",
+      "category": "serial",
+      "span_m": 1920,
+      "covered_m": 1920,
+      "gap_m": 0,
+      "segments": 2,
+      "status": "full",
+      "missing": [],
+      "canal": "RMC"
+    },
+    {
+      "upstream": "M (0,1; 1,2)",
+      "downstream": "M (0,1; 1,3)",
+      "category": "serial",
+      "span_m": 980,
+      "covered_m": 980,
+      "gap_m": 0,
+      "segments": 1,
+      "status": "full",
+      "missing": [],
+      "canal": "RMC"
+    },
+    {
+      "upstream": "M (0,1; 1,3)",
+      "downstream": "M (0,1; 1,4)",
+      "category": "serial",
+      "span_m": 1280,
+      "covered_m": 1200,
+      "gap_m": 80,
+      "segments": 2,
+      "status": "partial",
+      "missing": [
+        {
+          "from_km": "6+700",
+          "to_km": "6+780",
+          "reason": "unsurveyed"
+        }
+      ],
+      "canal": "RMC"
+    },
+    {
+      "upstream": "M (0,1; 1,0)",
+      "downstream": "M(0,1; 1,0; 1,0)",
+      "category": "offtake",
+      "status": "not_applicable",
+      "canal": "FTO 2+450",
+      "km": "2+450"
+    },
+    {
+      "upstream": "M (0,1; 1,1)",
+      "downstream": "M(0,1; 1,1; 1,0)",
+      "category": "junction_head",
+      "status": "not_applicable",
+      "canal": "4L-RMC"
+    },
+    {
+      "upstream": "M(0,1; 1,1; 1,0)",
+      "downstream": "M(0,1; 1,1; 1,1)",
+      "category": "serial",
+      "span_m": 750,
+      "covered_m": 750,
+      "gap_m": 0,
+      "segments": 1,
+      "status": "full",
+      "missing": [],
+      "canal": "4L-RMC"
+    },
+    {
+      "upstream": "M(0,1; 1,1; 1,1)",
+      "downstream": "M(0,1; 1,1; 1,2)",
+      "category": "serial",
+      "span_m": 1100,
+      "covered_m": 1100,
+      "gap_m": 0,
+      "segments": 2,
+      "status": "full",
+      "missing": [],
+      "canal": "4L-RMC"
+    },
+    {
+      "upstream": "M(0,1; 1,1; 1,2)",
+      "downstream": "M(0,1; 1,1; 1,3)",
+      "category": "serial",
+      "span_m": 750,
+      "covered_m": 750,
+      "gap_m": 0,
+      "segments": 1,
+      "status": "full",
+      "missing": [],
+      "canal": "4L-RMC"
+    },
+    {
+      "upstream": "M(0,1; 1,1; 1,3)",
+      "downstream": "M(0,1; 1,1; 1,4)",
+      "category": "serial",
+      "span_m": 400,
+      "covered_m": 400,
+      "gap_m": 0,
+      "segments": 1,
+      "status": "full",
+      "missing": [],
+      "canal": "4L-RMC"
+    },
+    {
+      "upstream": "M(0,1; 1,1; 1,2)",
+      "downstream": "M(0,1; 1,1; 1,2; 1,0)",
+      "category": "offtake",
+      "status": "not_applicable",
+      "canal": "FTO337 Rai",
+      "km": "2+333"
+    },
+    {
+      "upstream": "M(0,3)",
+      "downstream": "M (0,3; 1,0)",
+      "category": "junction_head",
+      "status": "not_applicable",
+      "canal": "9R-LMC"
+    },
+    {
+      "upstream": "M (0,3; 1,0)",
+      "downstream": "M (0,3; 1,1)",
+      "category": "serial",
+      "span_m": 5750,
+      "covered_m": 5750,
+      "gap_m": 0,
+      "segments": 4,
+      "status": "full",
+      "missing": [],
+      "canal": "9R-LMC"
+    },
+    {
+      "upstream": "M (0,3; 1,1)",
+      "downstream": "M (0,3; 1,2)",
+      "category": "serial",
+      "span_m": 2150,
+      "covered_m": 2150,
+      "gap_m": 0,
+      "segments": 2,
+      "status": "full",
+      "missing": [],
+      "canal": "9R-LMC"
+    },
+    {
+      "upstream": "M (0,3; 1,2)",
+      "downstream": "M (0,3; 1,3)",
+      "category": "serial",
+      "span_m": 6600,
+      "covered_m": 6600,
+      "gap_m": 0,
+      "segments": 6,
+      "status": "full",
+      "missing": [],
+      "canal": "9R-LMC"
+    },
+    {
+      "upstream": "M (0,3; 1,1)",
+      "downstream": "M (0,3; 1,1; 1,0)",
+      "category": "junction_head",
+      "status": "not_applicable",
+      "canal": "7R-9R-LMC"
+    },
+    {
+      "upstream": "M (0,3; 1,1; 1,0)",
+      "downstream": "M (0,3; 1,1; 1,1)",
+      "category": "serial",
+      "span_m": 3000,
+      "covered_m": 3000,
+      "gap_m": 0,
+      "segments": 2,
+      "status": "full",
+      "missing": [],
+      "canal": "7R-9R-LMC"
+    },
+    {
+      "upstream": "M (0,3; 1,1)",
+      "downstream": "M (0,3; 1,1; 2,0)",
+      "category": "junction_head",
+      "status": "not_applicable",
+      "canal": "7L-9R-LMC"
+    },
+    {
+      "upstream": "M (0,3; 1,1; 2,0)",
+      "downstream": "M (0,3; 1,1; 2,1)",
+      "category": "serial",
+      "span_m": 2500,
+      "covered_m": 2500,
+      "gap_m": 0,
+      "segments": 2,
+      "status": "full",
+      "missing": [],
+      "canal": "7L-9R-LMC"
+    },
+    {
+      "upstream": "M(0,12)",
+      "downstream": "M (0,12; 1,0)",
+      "category": "junction_head",
+      "status": "not_applicable",
+      "canal": "38R-LMC"
+    },
+    {
+      "upstream": "M (0,12; 1,0)",
+      "downstream": "M (0,12; 1,1)",
+      "category": "serial",
+      "span_m": 1720,
+      "covered_m": 1720,
+      "gap_m": 0,
+      "segments": 3,
+      "status": "full",
+      "missing": [],
+      "canal": "38R-LMC"
+    },
+    {
+      "upstream": "M (0,12; 1,1)",
+      "downstream": "M (0,12; 1,2)",
+      "category": "serial",
+      "span_m": 1280,
+      "covered_m": 1280,
+      "gap_m": 0,
+      "segments": 1,
+      "status": "full",
+      "missing": [],
+      "canal": "38R-LMC"
+    },
+    {
+      "upstream": "M (0,12; 1,2)",
+      "downstream": "M (0,12; 1,3)",
+      "category": "serial",
+      "span_m": 1500,
+      "covered_m": 1500,
+      "gap_m": 0,
+      "segments": 2,
+      "status": "full",
+      "missing": [],
+      "canal": "38R-LMC"
+    },
+    {
+      "upstream": "M (0,12; 1,3)",
+      "downstream": "M (0,12; 1,4)",
+      "category": "serial",
+      "span_m": 2120,
+      "covered_m": 2120,
+      "gap_m": 0,
+      "segments": 2,
+      "status": "full",
+      "missing": [],
+      "canal": "38R-LMC"
+    },
+    {
+      "upstream": "M (0,12; 1,4)",
+      "downstream": "M (0,12; 1,5)",
+      "category": "serial",
+      "span_m": 2280,
+      "covered_m": 2280,
+      "gap_m": 0,
+      "segments": 3,
+      "status": "full",
+      "missing": [],
+      "canal": "38R-LMC"
+    },
+    {
+      "upstream": "M (0,12; 1,0)",
+      "downstream": "M (0,12; 1,0; 1,0)",
+      "category": "junction_head",
+      "status": "not_applicable",
+      "canal": "1R-38R-LMC"
+    },
+    {
+      "upstream": "M (0,12; 1,0; 1,0)",
+      "downstream": "M (0,12; 1,0; 1,1)",
+      "category": "serial",
+      "span_m": 4550,
+      "covered_m": 4550,
+      "gap_m": 0,
+      "segments": 4,
+      "status": "full",
+      "missing": [],
+      "canal": "1R-38R-LMC"
+    },
+    {
+      "upstream": "M (0,12; 1,1)",
+      "downstream": "M (0,12; 1,1; 1,0)",
+      "category": "junction_head",
+      "status": "not_applicable",
+      "canal": "2R-38R-LMC"
+    },
+    {
+      "upstream": "M (0,12; 1,1; 1,0)",
+      "downstream": "M (0,12; 1,1; 1,1)",
+      "category": "serial",
+      "span_m": 540,
+      "covered_m": 540,
+      "gap_m": 0,
+      "segments": 1,
+      "status": "full",
+      "missing": [],
+      "canal": "2R-38R-LMC"
+    },
+    {
+      "upstream": "M (0,12; 1,1; 1,1)",
+      "downstream": "M (0,12; 1,1; 1,2)",
+      "category": "serial",
+      "span_m": 3340,
+      "covered_m": 3310,
+      "gap_m": 30,
+      "segments": 5,
+      "status": "partial",
+      "missing": [
+        {
+          "from_km": "3+850",
+          "to_km": "3+880",
+          "reason": "unsurveyed"
+        }
+      ],
+      "canal": "2R-38R-LMC"
+    },
+    {
+      "upstream": "M (0,12; 1,1; 1,0)",
+      "downstream": "M (0,12; 1,1; 1,0; 1,0)",
+      "category": "junction_head",
+      "status": "not_applicable",
+      "canal": "1R-2R-38R-LMC"
+    },
+    {
+      "upstream": "M (0,12; 1,1; 1,0; 1,0)",
+      "downstream": "M (0,12; 1,1; 1,0; 1,1)",
+      "category": "serial",
+      "span_m": 3200,
+      "covered_m": 3200,
+      "gap_m": 0,
+      "segments": 2,
+      "status": "full",
+      "missing": [],
+      "canal": "1R-2R-38R-LMC"
+    },
+    {
+      "upstream": "M (0,12; 1,1; 1,0; 1,1)",
+      "downstream": "M (0,12; 1,1; 1,0; 1,2)",
+      "category": "serial",
+      "span_m": 4580,
+      "covered_m": 4580,
+      "gap_m": 0,
+      "segments": 6,
+      "status": "full",
+      "missing": [],
+      "canal": "1R-2R-38R-LMC"
+    },
+    {
+      "upstream": "M (0,12; 1,2)",
+      "downstream": "M (0,12; 1,2; 1,0)",
+      "category": "junction_head",
+      "status": "not_applicable",
+      "canal": "4L-38R-LMC"
+    },
+    {
+      "upstream": "M (0,12; 1,2; 1,0)",
+      "downstream": "M (0,12; 1,2; 1,1)",
+      "category": "serial",
+      "span_m": 4000,
+      "covered_m": 4000,
+      "gap_m": 0,
+      "segments": 5,
+      "status": "full",
+      "missing": [],
+      "canal": "4L-38R-LMC"
+    },
+    {
+      "upstream": "M (0,12; 1,2; 1,1)",
+      "downstream": "M (0,12; 1,2; 1,2)",
+      "category": "serial",
+      "span_m": 3000,
+      "covered_m": 1800,
+      "gap_m": 1200,
+      "segments": 3,
+      "status": "partial",
+      "missing": [
+        {
+          "from_km": "5+800",
+          "to_km": "7+000",
+          "reason": "unsurveyed"
+        }
+      ],
+      "canal": "4L-38R-LMC"
+    },
+    {
+      "upstream": "M (0,12; 1,2; 1,0)",
+      "downstream": "M (0,12; 1,2; 1,0; 1,0)",
+      "category": "junction_head",
+      "status": "not_applicable",
+      "canal": "5R-4L-38R-LMC"
+    },
+    {
+      "upstream": "M (0,12; 1,2; 1,0; 1,0)",
+      "downstream": "M (0,12; 1,2; 1,0; 1,1)",
+      "category": "serial",
+      "span_m": 1950,
+      "covered_m": 1540,
+      "gap_m": 410,
+      "segments": 2,
+      "status": "partial",
+      "missing": [
+        {
+          "from_km": "1+540",
+          "to_km": "1+950",
+          "reason": "unsurveyed"
+        }
+      ],
+      "canal": "5R-4L-38R-LMC"
+    },
+    {
+      "upstream": "M (0,12; 1,3)",
+      "downstream": "M (0,12; 1,3; 1,0)",
+      "category": "junction_head",
+      "status": "not_applicable",
+      "canal": "6R-38R-LMC"
+    },
+    {
+      "upstream": "M (0,12; 1,3; 1,0)",
+      "downstream": "M (0,12; 1,3; 1,1)",
+      "category": "serial",
+      "span_m": 2550,
+      "covered_m": 2550,
+      "gap_m": 0,
+      "segments": 3,
+      "status": "full",
+      "missing": [],
+      "canal": "6R-38R-LMC"
+    },
+    {
+      "upstream": "M (0,12; 1,4)",
+      "downstream": "M (0,12; 1,4; 1,0)",
+      "category": "junction_head",
+      "status": "not_applicable",
+      "canal": "8R-38R-LMC"
+    },
+    {
+      "upstream": "M (0,12; 1,4; 1,0)",
+      "downstream": "M (0,12; 1,4; 1,1)",
+      "category": "serial",
+      "span_m": 2500,
+      "covered_m": 2500,
+      "gap_m": 0,
+      "segments": 2,
+      "status": "full",
+      "missing": [],
+      "canal": "8R-38R-LMC"
+    }
+  ],
+  "summary": {
+    "total_edges": 59,
+    "by_status": {
+      "not_applicable": 17,
+      "partial": 5,
+      "full": 37
+    },
+    "by_category": {
+      "source": 1,
+      "serial": 42,
+      "offtake": 3,
+      "junction_head": 13
+    },
+    "sections_emitted": 103,
+    "survey_rows": 99,
+    "skipped_rows": {
+      "missing_cross_section": 1,
+      "beyond_last_gate": 1
+    },
+    "skipped_row_detail": [
+      {
+        "reason": "missing_cross_section",
+        "canal": "LMC",
+        "from_km": "0+000",
+        "to_km": "0+170",
+        "excel_row": 4
+      },
+      {
+        "reason": "beyond_last_gate",
+        "canal": "7R-9R-LMC",
+        "from_km": "3+000",
+        "to_km": "3+200",
+        "excel_row": 47
+      }
+    ]
+  }
+}

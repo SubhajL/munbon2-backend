@@ -45,10 +45,58 @@ class TestAppScopedConstruction:
     def test_capacity_index_is_warm_and_populated(self, service):
         assert len(service._canal_capacity_index()) > 0
 
-    def test_canonical_geometry_joins_all_37_sections(self, service):
+    def test_canonical_geometry_joins_all_42_surveyed_reaches(self, service):
+        # 2.1b: every serial gate-to-gate reach carries survey geometry; the
+        # legacy solver aggregates a reach's segment pieces into one section.
         sections = service.hydraulic_solver.canal_sections
-        assert len(sections) == 37
+        assert len(sections) == 42
         assert "M(0,0)->M(0,1)" in sections  # normalized compact keys
+        # M(0,13)->M(0,14) is surveyed as four pieces (240+160+200+350 m); the
+        # aggregate must carry the full reach length, not the last piece's.
+        assert sections["M(0,13)->M(0,14)"].length_m == 950
+        # QCHECK 2.1b HIGH: partially surveyed reaches must use the PHYSICAL
+        # gate-to-gate span (the `reaches` block), not the covered-piece sum —
+        # travel time and friction loss run over real distance. M(0,0)->M(0,1)
+        # spans 300 m of which only 130 m (post-flume) carries survey rows.
+        assert sections["M(0,0)->M(0,1)"].length_m == 300
+
+    def test_multi_piece_aggregation_semantics(self, tmp_path):
+        # The aggregate CanalSection is: span length, WEAKEST piece q_max, and
+        # the UPSTREAM-most piece's cross-section by CHAINAGE (not file order —
+        # the pieces below are deliberately listed downstream-first).
+        from water_gate_controller_integrated import WaterGateControllerIntegrated
+
+        def piece(from_km, to_km, length, width, q_max):
+            return {
+                "from_node": "M(0,0)", "to_node": "M(0,1)",
+                "canal_name": "LMC", "section_no": 1,
+                "from_km": from_km, "to_km": to_km,
+                "geometry": {
+                    "length_m": length,
+                    "cross_section": {"bottom_width_m": width, "depth_m": 1.5,
+                                      "side_slope": 1.5},
+                    "hydraulic_params": {"manning_n": 0.018, "bed_slope": 0.0002,
+                                         "q_max": q_max},
+                },
+            }
+
+        geometry = {
+            "canal_sections": [
+                piece("0+400", "0+800", 400, 2.0, 4.0),   # downstream, weakest
+                piece("0+100", "0+400", 300, 3.5, 9.0),   # upstream
+            ],
+            "reaches": [{
+                "from_node": "M(0,0)", "to_node": "M(0,1)",
+                "from_km": "0+000", "to_km": "1+000",
+            }],
+        }
+        path = tmp_path / "geometry.json"
+        path.write_text(json.dumps(geometry), encoding="utf-8")
+        ctrl = WaterGateControllerIntegrated(str(NETWORK), str(path))
+        section = ctrl.canal_sections["M(0,0)->M(0,1)"]
+        assert section.length_m == 1000       # physical span, not 700 covered
+        assert section.q_max == 4.0           # weakest piece
+        assert section.bottom_width_m == 3.5  # upstream piece by chainage
 
     def test_head_loss_lookup_joins_spaced_network_ids(self, service):
         # The network file spells 44/59 ids with survey spacing while geometry keys
@@ -285,10 +333,11 @@ class TestHonestCapacities:
 
     def test_canal_capacity_is_bounded_by_the_weakest_surveyed_segment(self, service):
         # M(0,1) has q_max=null in the canonical network (excluded from the gate
-        # index); before 2.1a this reach fell back to the 15.0 default. Its surveyed
-        # segment is rated 11.2 — the segment survey now bounds the reach with real
-        # data (WAVE_2-4_PLAN §1.5 amendment #2).
-        assert service._get_canal_capacity("C_M(0,0)_M(0,1)") == pytest.approx(11.2)
+        # index); before 2.1a this reach fell back to the 15.0 default. The 2.1b
+        # survey bounds it by the post-flume concrete section's design discharge
+        # Qd = 9.961 (the flume itself is rated 11.2 but has no cross-section
+        # survey; the concrete constriction downstream governs the reach).
+        assert service._get_canal_capacity("C_M(0,0)_M(0,1)") == pytest.approx(9.961)
 
     def test_verify_schedule_utilization_uses_honest_capacity(self, service):
         result = asyncio.run(

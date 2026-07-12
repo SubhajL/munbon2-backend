@@ -68,7 +68,30 @@ class TestPlanEndpoint:
             "/api/v1/control/plan", json={"demands": demand, "apply_losses": True}
         ).json()
         assert lossy["head_flow_m3s"] > lossless["head_flow_m3s"]
-        assert len(lossy["reaches_missing_geometry"]) == 22
+        # 17 = 59 edges - 42 surveyed serial reaches (2.1b full-survey coverage):
+        # the source edge + 13 junction heads + 3 offtakes (Waste Way, FTOs).
+        assert len(lossy["reaches_missing_geometry"]) == 17
+
+    def test_apply_losses_surfaces_partial_reach_chainage_gaps(self, client):
+        # QCHECK 2.1b HIGH: partially surveyed reaches take zero loss on their
+        # unsurveyed chainage — the plan must SAY so, or the operator reads an
+        # understated head-gate release as full loss coverage.
+        lossy = client.post(
+            "/api/v1/control/plan", json={"demands": {}, "apply_losses": True}
+        ).json()
+        gaps = {
+            (g["upstream"], g["downstream"]): g["gap_m"]
+            for g in lossy["reaches_with_chainage_gaps"]
+        }
+        assert gaps == {
+            ("M(0,0)", "M(0,1)"): pytest.approx(170.0),
+            ("M(0,1;1,3)", "M(0,1;1,4)"): pytest.approx(80.0),
+            ("M(0,12;1,1;1,1)", "M(0,12;1,1;1,2)"): pytest.approx(30.0),
+            ("M(0,12;1,2;1,1)", "M(0,12;1,2;1,2)"): pytest.approx(1200.0),
+            ("M(0,12;1,2;1,0;1,0)", "M(0,12;1,2;1,0;1,1)"): pytest.approx(410.0),
+        }
+        lossless = client.post("/api/v1/control/plan", json={"demands": {}}).json()
+        assert lossless["reaches_with_chainage_gaps"] == []
 
     def test_empty_demand_yields_all_zero_reaches(self, client):
         resp = client.post("/api/v1/control/plan", json={"demands": {}})
@@ -121,7 +144,7 @@ class TestPlanEndpoint:
             for u, v in NetworkFlowController(NETWORK, GEOMETRY).reaches_missing_geometry
         }
         assert missing == expected
-        assert len(missing) == 22
+        assert len(missing) == 17
         assert all(" " not in node for edge in missing for node in edge)
 
     def test_colliding_demand_aliases_are_rejected_400(self, client):

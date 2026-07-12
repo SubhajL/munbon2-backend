@@ -11,6 +11,7 @@ import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+from core.conveyance_loss import parse_chainage_m
 from core.node_id import normalize_node_id
 
 @dataclass
@@ -77,7 +78,19 @@ class WaterGateControllerIntegrated:
         """Load canal geometry data"""
         with open(geometry_file, 'r') as f:
             data = json.load(f)
-        
+
+        # Wave 2.1b: gate-to-gate spans — the PHYSICAL reach length for travel
+        # time / friction loss, independent of how much of it carries survey rows.
+        reach_span_m = {}
+        for reach in data.get('reaches', []):
+            span_from = parse_chainage_m(reach.get('from_km'))
+            span_to = parse_chainage_m(reach.get('to_km'))
+            if span_from is not None and span_to is not None and span_to > span_from:
+                key = (f"{normalize_node_id(reach['from_node'])}->"
+                       f"{normalize_node_id(reach['to_node'])}")
+                reach_span_m[key] = span_to - span_from
+
+        pieces_by_key = {}
         for section in data.get('canal_sections', []):
             # Handle both formats (template and actual data)
             if 'section_id' in section:
@@ -115,8 +128,30 @@ class WaterGateControllerIntegrated:
             # Wave 1.3: normalized keys, so canonical-geometry compact ids join the
             # network's survey-spaced spellings at lookup time.
             key = f"{normalize_node_id(cs.from_node)}->{normalize_node_id(cs.to_node)}"
-            self.canal_sections[key] = cs
-    
+            order = parse_chainage_m(section.get('from_km'))
+            pieces_by_key.setdefault(key, []).append(
+                (order if order is not None else float('inf'), cs)
+            )
+
+        # Wave 2.1b: a reach may carry several survey pieces (multi-segment
+        # geometry). This solver models one section per reach, so aggregate:
+        # length is the physical gate-to-gate span (covered-piece sum only when
+        # no span is known), q_max takes the weakest piece, the cross-section
+        # stays the upstream-most piece's (sorted by chainage, not file order).
+        # The segment-exact model lives in core.conveyance_loss/canal_capacity.
+        for key, pieces in pieces_by_key.items():
+            pieces.sort(key=lambda pair: pair[0])
+            first = pieces[0][1]
+            first.length_m = reach_span_m.get(
+                key, sum(cs.length_m for _, cs in pieces)
+            )
+            q_valid = [
+                cs.q_max for _, cs in pieces
+                if isinstance(cs.q_max, (int, float)) and cs.q_max > 0
+            ]
+            first.q_max = min(q_valid) if q_valid else None
+            self.canal_sections[key] = first
+
     def _initialize_gate_states(self):
         """Initialize all gates to closed state"""
         for gate_id in self.gates:

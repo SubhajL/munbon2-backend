@@ -16,6 +16,7 @@ motor==3.3.2
 pandas==2.1.4
 numpy==1.26.3
 scipy==1.11.4
+openpyxl==3.1.5  # SCADA workbook reader (scripts/build_scada_config.py + its tests)
 
 # Async libraries
 aiohttp==3.9.1
