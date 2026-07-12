@@ -20,6 +20,7 @@ from .conveyance_loss import (
     normalize_edge,
     reach_chainage_gap_m,
     reach_has_geometry,
+    reach_spans_from_geometry,
     sections_by_edge_from_geometry,
 )
 from .demand_aggregation import required_flow_per_reach
@@ -53,27 +54,30 @@ class NetworkFlowController:
                 "(a node has multiple parents); aggregation would double-count it"
             )
         self.sections: dict = {}
+        reach_spans: dict = {}
         if geometry_path is not None:
             # Strict schema/drift validation (Wave 1.1) before the geometry is indexed.
-            self.sections = sections_by_edge_from_geometry(
-                load_canal_geometry_config(geometry_path)
-            )
+            geometry = load_canal_geometry_config(geometry_path)
+            self.sections = sections_by_edge_from_geometry(geometry)
+            reach_spans = reach_spans_from_geometry(geometry)
             if not self.sections:
                 # geometry supplied but unusable -> losses would silently be zero; fail closed.
                 raise ValueError(
                     f"{geometry_path}: geometry file has no usable canal_sections"
                 )
+        # Wave 2.1a/2.1b: partial surveys are legal but never silent — unsurveyed
+        # chainage (loss/capacity understate there) is surfaced per reach. The
+        # geometry's `reaches` spans make HEAD/TAIL gaps measurable too; all five
+        # real partial reaches gap at a boundary, not between segments.
         self.reaches_missing_geometry = {
             edge for edge in self.edges
             if not reach_has_geometry(self.sections, edge[0], edge[1])
         }
-        # Wave 2.1a: partial surveys are legal but never silent — reaches whose
-        # segments leave unsurveyed chainage between them (loss/capacity understate
-        # there) are surfaced for the coverage report (2.1b) and observability (2.8a).
         self.reaches_with_chainage_gaps = {
             edge: gap
             for edge, segments in self.sections.items()
-            if (gap := reach_chainage_gap_m(segments)) is not None and gap > 0.0
+            if (gap := reach_chainage_gap_m(segments, span=reach_spans.get(edge)))
+            is not None and gap > 0.0
         }
         self._normalized_edges = {normalize_edge(u, v) for u, v in self.edges}
         # Any-spacing id resolution (Wave 1.2): canonical compact form -> the exact

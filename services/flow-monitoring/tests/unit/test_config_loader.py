@@ -217,12 +217,43 @@ class TestLoadNetworkConfig:
 
 class TestLoadCanalGeometryConfig:
     def test_accepts_committed_canonical_file(self):
+        # 103 = 99 survey rows - flume - beyond-last-gate tail + 6 splits (2.1b).
         data = load_canal_geometry_config(GEOMETRY)
-        assert len(data["canal_sections"]) == 37
+        assert len(data["canal_sections"]) == 103
 
     def test_accepts_minimal_consistent_geometry(self, tmp_path):
         data = load_canal_geometry_config(_write(tmp_path, _valid_geometry()))
         assert data["canal_sections"][0]["from_node"] == "M(0,0)"
+
+    def test_accepts_valid_reaches_block(self, tmp_path):
+        geo = _valid_geometry()
+        geo["reaches"] = [{
+            "from_node": "M(0,0)", "to_node": "M(0,1)",
+            "from_km": "0+000", "to_km": "1+000",
+            "span_m": 1000, "covered_m": 1000, "gap_m": 0,
+        }]
+        data = load_canal_geometry_config(_write(tmp_path, geo))
+        assert data["reaches"][0]["span_m"] == 1000
+
+    def test_rejects_reach_without_span(self, tmp_path):
+        geo = _valid_geometry()
+        geo["reaches"] = [{
+            "from_node": "M(0,0)", "to_node": "M(0,1)",
+            "from_km": "0+000", "to_km": "1+000",
+            "covered_m": 1000, "gap_m": 0,
+        }]
+        with pytest.raises(ConfigError, match="span_m"):
+            load_canal_geometry_config(_write(tmp_path, geo))
+
+    def test_rejects_reach_with_blank_node(self, tmp_path):
+        geo = _valid_geometry()
+        geo["reaches"] = [{
+            "from_node": "", "to_node": "M(0,1)",
+            "from_km": "0+000", "to_km": "1+000",
+            "span_m": 1000, "covered_m": 1000, "gap_m": 0,
+        }]
+        with pytest.raises(ConfigError, match="from_node"):
+            load_canal_geometry_config(_write(tmp_path, geo))
 
     def test_rejects_summary_count_drift(self, tmp_path):
         geo = _valid_geometry()

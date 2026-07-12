@@ -49,9 +49,19 @@ class ReachFlow(BaseModel):
     required_flow_m3s: float
 
 
+class ReachChainageGap(BaseModel):
+    """A partially surveyed reach: `gap_m` of its chainage carries NO surveyed
+    geometry, so its conveyance loss and capacity bound understate there (2.1b)."""
+
+    upstream: str
+    downstream: str
+    gap_m: float
+
+
 class PlanResponse(BaseModel):
     reaches: list[ReachFlow]
     head_flow_m3s: float
     apply_losses: bool
     charge_dry_reaches: bool = False
     reaches_missing_geometry: list[list[str]] = Field(default_factory=list)
+    reaches_with_chainage_gaps: list[ReachChainageGap] = Field(default_factory=list)

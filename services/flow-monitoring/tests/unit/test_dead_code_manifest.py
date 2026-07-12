@@ -43,11 +43,21 @@ KEEPER_SCRIPTS = [
     # provenance/generator lineage for the Wave-2.1 config pipeline
     "analyze_scada_excel.py", "build_final_network.py",
     "extract_gate_calibrations.py", "network_from_gate_names.py",
+    # the live 2.1b generator (workbook -> network/geometry/coverage artifacts)
+    "build_scada_config.py",
+]
+
+PURGED_SCRIPTS = [
+    # replaced by build_scada_config.py (Wave 2.1b): its Sheet1 ระยะทาง column
+    # holds KILOMETRES and was written straight into length_m (the 1000x bug),
+    # and missing survey columns silently became invented defaults.
+    "excel_to_canal_sections.py",
 ]
 
 CANONICAL_CONFIGS = [
     "config/network.json", "config/canal_geometry.json",
     "config/gate_calibrations.json", "config/gate_configuration.json",
+    "config/geometry_coverage.json",
 ]
 
 
@@ -69,6 +79,16 @@ def test_keeper_scripts_moved_not_deleted():
     for name in KEEPER_SCRIPTS:
         assert (SERVICE_ROOT / "scripts" / name).exists(), f"keeper missing: {name}"
         assert not (SRC / name).exists(), f"keeper duplicated in src/: {name}"
+
+
+def test_purged_scripts_stay_deleted():
+    resurrected = [
+        name for name in PURGED_SCRIPTS
+        if (SERVICE_ROOT / "scripts" / name).exists() or (SRC / name).exists()
+    ]
+    assert not resurrected, (
+        f"replaced generator scripts re-added (Wave 2.1b): {resurrected}"
+    )
 
 
 def test_no_code_reference_to_purged_files_repo_wide():

@@ -202,6 +202,35 @@ def load_canal_geometry_config(path: str) -> dict:
                 f"{path}: {where}.geometry.cross_section.side_slope must be a finite"
                 f" number >= 0 when present, got {side_slope!r}"
             )
+    reaches = data.get("reaches")
+    if reaches is not None:
+        # 2.1b: per-reach gate-to-gate spans (head/tail gap measurement + the
+        # legacy solver's physical reach length). Optional so pre-2.1b files
+        # still load; when present it must be structurally sound.
+        if not isinstance(reaches, list):
+            raise ConfigError(f"{path}: 'reaches' must be an array when present")
+        for i, reach in enumerate(reaches):
+            where = f"reaches[{i}]"
+            if not isinstance(reach, dict):
+                raise ConfigError(f"{path}: {where} is not an object")
+            for key in ("from_node", "to_node", "from_km", "to_km"):
+                if not (isinstance(reach.get(key), str) and reach[key]):
+                    raise ConfigError(
+                        f"{path}: {where}.{key} must be a non-empty string"
+                    )
+            span = reach.get("span_m")
+            if not _is_finite_number(span) or span <= 0:
+                raise ConfigError(
+                    f"{path}: {where}.span_m must be a finite number > 0,"
+                    f" got {span!r}"
+                )
+            for key in ("covered_m", "gap_m"):
+                value = reach.get(key)
+                if not _is_finite_number(value) or value < 0:
+                    raise ConfigError(
+                        f"{path}: {where}.{key} must be a finite number >= 0,"
+                        f" got {value!r}"
+                    )
     summary = _require_dict(data, "summary", path)
     _check_drift(
         _declared_count(summary, "total_sections", path, "summary"),

@@ -228,13 +228,15 @@ class TestSectionsByEdgeFromGeometry:
     def test_parses_all_survey_sections_keyed_by_normalized_edge(self):
         geo = json.loads(GEOMETRY_CFG.read_text())
         sections = sections_by_edge_from_geometry(geo)
-        assert len(sections) == 37
-        # First LMC reach runs M(0,0) -> M(0,1): ONE segment, concrete, 300 m.
+        assert len(sections) == 42  # 2.1b: every serial reach carries survey rows
+        # First LMC reach runs M(0,0) -> M(0,1) over 0+000-0+300: the flume
+        # [0,170] has no cross-section survey, so the reach carries ONE emitted
+        # segment — the [170,300] piece of the 0+170-1+620 concrete row.
         [seg] = sections[("M(0,0)", "M(0,1)")]
-        assert seg["length_m"] == 300
+        assert seg["length_m"] == 130
         assert seg["seepage_rate_m_s"] == 1.0e-5  # enriched from lining_type=concrete (aged)
         assert "cross_section" in seg
-        assert seg["from_km_m"] == 0.0 and seg["to_km_m"] == 300.0
+        assert seg["from_km_m"] == 170.0 and seg["to_km_m"] == 300.0
 
     def test_duplicate_edge_rows_become_ordered_segments_not_overwrites(self):
         # Input deliberately OUT of chainage order; pre-2.1a this dict-overwrote to
@@ -317,6 +319,47 @@ class TestSectionsByEdgeFromGeometry:
         geo = {"canal_sections": [_survey_row("M(0,1)", "M(0,2)", None, None, 1000)]}
         segments = sections_by_edge_from_geometry(geo)[("M(0,1)", "M(0,2)")]
         assert reach_chainage_gap_m(segments) is None
+
+    def test_reach_span_exposes_head_and_tail_gaps(self):
+        # QCHECK 2.1b HIGH: all five real partial reaches have their gaps at the
+        # reach HEAD or TAIL (flume 0-170 on M(0,0)->M(0,1); trailing 30-1200 m
+        # elsewhere) — between-segment measurement alone reports {} for all of
+        # them. With the reach span, boundary gaps are measured too.
+        from core.conveyance_loss import reach_chainage_gap_m
+
+        geo = {"canal_sections": [
+            _survey_row("M(0,1)", "M(0,2)", "0+170", "0+300", 130),
+        ]}
+        segments = sections_by_edge_from_geometry(geo)[("M(0,1)", "M(0,2)")]
+        assert reach_chainage_gap_m(segments) == 0.0  # no interior gap
+        assert reach_chainage_gap_m(segments, span=(0.0, 300.0)) == pytest.approx(170.0)
+        assert reach_chainage_gap_m(segments, span=(170.0, 500.0)) == pytest.approx(200.0)
+
+    def test_reach_span_adds_boundary_to_interior_gaps(self):
+        from core.conveyance_loss import reach_chainage_gap_m
+
+        geo = {"canal_sections": [
+            _survey_row("M(0,1)", "M(0,2)", "0+100", "0+400", 300),
+            _survey_row("M(0,1)", "M(0,2)", "0+600", "0+900", 300),
+        ]}
+        segments = sections_by_edge_from_geometry(geo)[("M(0,1)", "M(0,2)")]
+        assert reach_chainage_gap_m(segments) == pytest.approx(200.0)
+        assert reach_chainage_gap_m(segments, span=(0.0, 1000.0)) == pytest.approx(400.0)
+
+    def test_reach_spans_from_geometry_keys_by_normalized_edge(self):
+        from core.conveyance_loss import reach_spans_from_geometry
+
+        geo = {"reaches": [
+            {"from_node": "M (0,3; 1,0)", "to_node": "M (0,3; 1,1)",
+             "from_km": "0+000", "to_km": "5+750"},
+        ]}
+        spans = reach_spans_from_geometry(geo)
+        assert spans == {("M(0,3;1,0)", "M(0,3;1,1)"): (0.0, 5750.0)}
+
+    def test_reach_spans_absent_block_is_empty(self):
+        from core.conveyance_loss import reach_spans_from_geometry
+
+        assert reach_spans_from_geometry({"canal_sections": []}) == {}
 
     def test_segment_q_max_is_retained_when_valid(self):
         geo = {"canal_sections": [

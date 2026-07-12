@@ -107,9 +107,16 @@ def reach_loss_uplift(segments: list, throughflow: float) -> float:
     return reach_seepage_m3s(segments) + op * throughflow
 
 
-def reach_chainage_gap_m(segments: list) -> Optional[float]:
-    """Total unsurveyed chainage between consecutive segments of a reach (metres);
-    0.0 for a contiguous survey, None when any segment lacks parseable chainage.
+def reach_chainage_gap_m(segments: list, span: Optional[tuple] = None) -> Optional[float]:
+    """Total unsurveyed chainage of a reach (metres); 0.0 for a full survey,
+    None when any segment lacks parseable chainage.
+
+    Without ``span``, only gaps BETWEEN consecutive segments are measurable.
+    With ``span`` = (reach_from_m, reach_to_m) — the gate-to-gate chainage the
+    2.1b geometry carries in its ``reaches`` block — head and tail gaps count
+    too: all five real partial reaches have their gap at a reach boundary
+    (the M(0,0) flume, four canal tails), which between-segment measurement
+    alone reports as zero.
 
     Partial surveys are LEGAL (several gates lack lengths entirely) — but they must
     be measurable so coverage consumers can surface incomplete reaches instead of
@@ -122,7 +129,34 @@ def reach_chainage_gap_m(segments: list) -> Optional[float]:
     gap = 0.0
     for prev, nxt in zip(segments, segments[1:]):
         gap += max(0.0, nxt["from_km_m"] - prev["to_km_m"])
+    if span is not None and segments:
+        gap += max(0.0, segments[0]["from_km_m"] - span[0])
+        gap += max(0.0, span[1] - segments[-1]["to_km_m"])
     return gap
+
+
+def reach_spans_from_geometry(geometry: dict) -> dict:
+    """Gate-to-gate chainage span per NORMALIZED (from, to) edge, from the
+    geometry's ``reaches`` block (2.1b); {} for a pre-2.1b file without one.
+
+    A reach record whose chainage does not parse or runs backwards is a broken
+    artifact — fail closed rather than silently lose gap measurement."""
+    spans: dict = {}
+    for reach in geometry.get("reaches", []):
+        key = (
+            normalize_gate_id(reach["from_node"]),
+            normalize_gate_id(reach["to_node"]),
+        )
+        from_m = parse_chainage_m(reach.get("from_km"))
+        to_m = parse_chainage_m(reach.get("to_km"))
+        if from_m is None or to_m is None or to_m <= from_m:
+            raise ConfigError(
+                f"reaches[{reach['from_node']!r} -> {reach['to_node']!r}]: span"
+                f" chainage must parse and run forward, got"
+                f" {reach.get('from_km')!r}..{reach.get('to_km')!r}"
+            )
+        spans[key] = (from_m, to_m)
+    return spans
 
 
 def _valid_q_max(value) -> Optional[float]:

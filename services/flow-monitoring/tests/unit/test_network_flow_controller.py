@@ -135,8 +135,10 @@ class TestConveyanceLossWiring:
 
     def test_geometry_load_flags_reaches_without_survey_data(self):
         ctrl = NetworkFlowController(str(CANONICAL), geometry_path=str(GEOMETRY_CFG))
-        assert len(ctrl.sections) == 37
-        assert len(ctrl.reaches_missing_geometry) == 22  # 59 edges - 37 surveyed
+        assert len(ctrl.sections) == 42
+        # 17 = 59 edges - 42 surveyed serial reaches (2.1b): the source edge,
+        # 13 junction heads and 3 offtakes have no chainage span to survey.
+        assert len(ctrl.reaches_missing_geometry) == 17
 
     def test_apply_losses_lifts_head_flow_above_lossless(self):
         ctrl = NetworkFlowController(str(CANONICAL), geometry_path=str(GEOMETRY_CFG))
@@ -208,11 +210,20 @@ class TestDryReachSemantics:
         flowing = {edge for edge, q in flow.items() if q > 0.0}
         assert flowing == path  # nothing off the supply path is charged
 
-    def test_current_survey_has_no_intra_reach_chainage_gaps(self):
-        # Every current reach is a single surveyed segment, so no reach can have an
-        # internal gap; the attribute exists for the 2.1b multi-segment survey.
+    def test_partial_reaches_surface_their_boundary_chainage_gaps(self):
+        # QCHECK 2.1b HIGH: the five partially surveyed reaches have their gaps
+        # at the reach head/tail, invisible to between-segment measurement — the
+        # geometry's `reaches` spans make them measurable. These values match
+        # geometry_coverage.json's per-edge gap_m (same generator, same lock).
         ctrl = self._ctrl()
-        assert ctrl.reaches_with_chainage_gaps == {}
+        gaps = {edge: round(gap, 3) for edge, gap in ctrl.reaches_with_chainage_gaps.items()}
+        assert gaps == {
+            ("M(0,0)", "M(0,1)"): 170.0,                        # flume, no cross-section
+            ("M(0,1;1,3)", "M(0,1;1,4)"): 80.0,                 # RMC tail
+            ("M(0,12;1,1;1,1)", "M(0,12;1,1;1,2)"): 30.0,       # 2R-38R tail
+            ("M(0,12;1,2;1,1)", "M(0,12;1,2;1,2)"): 1200.0,     # 4L-38R unsurveyed
+            ("M(0,12;1,2;1,0;1,0)", "M(0,12;1,2;1,0;1,1)"): 410.0,  # 5R-4L tail
+        }
 
     def test_charge_dry_reaches_restores_whole_network_seepage(self):
         from core.conveyance_loss import reach_seepage_m3s

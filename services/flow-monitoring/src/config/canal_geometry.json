@@ -1,80 +1,39 @@
 {
   "metadata": {
-    "source": "SCADA Section Detailed Information 20250713 V0.95 SL",
-    "created_date": "2024-01-13",
-    "description": "Canal sections with geometry and hydraulic parameters for all 6 zones",
-    "total_zones": 6,
+    "source_workbook": "SCADA Section Detailed Information 2025-08-23 V1.0 SL.xlsx",
+    "source_sha256": "b796361cb19a76074e10da9e0a4ed46eb50b26b556192c37738a4490a230be11",
+    "generator": "scripts/build_scada_config.py",
+    "description": "Surveyed canal geometry (Characteristics sheet) cut into gate-to-gate reach segments at Sheet1 gate chainages (multi-segment reach model, Wave 2.1a/2.1b).",
     "notes": {
-      "control_structures": "Multiple control structures at km 0+000 indicate branching points for lateral canals",
-      "length_calculation": "Lengths calculated from km differences between consecutive structures along same canal",
-      "zone_6_update": "RMC system now starts from M(0,1) instead of M(0,2), with updated km values and flow rates",
-      "flow_rates": "q_max values from updated measurements where available"
-    }
-  },
-  "zones_summary": {
-    "zone_1": {
-      "description": "Main canal upper reach",
-      "main_canals": ["Outlet", "LMC", "Waste Way"],
-      "control_structures": 5,
-      "branch_points": ["M(0,0) at km 0+000", "M(0,1) at km 0+300"]
-    },
-    "zone_2": {
-      "description": "Main canal middle reach",
-      "main_canals": ["LMC"],
-      "control_structures": 10,
-      "coverage": "km 9+200 to km 29+150"
-    },
-    "zone_3": {
-      "description": "9R-LMC lateral system",
-      "main_canals": ["9R-LMC", "7R-9R-LMC", "7L-9R-LMC"],
-      "control_structures": 8,
-      "branch_point": "M(0,3) at km 1+620"
-    },
-    "zone_4": {
-      "description": "38R-LMC upper lateral system",
-      "main_canals": ["38R-LMC", "1R-38R-LMC", "2R-38R-LMC", "1R-2R-38R-LMC"],
-      "control_structures": 11,
-      "branch_point": "M(0,12) at km 28+315"
-    },
-    "zone_5": {
-      "description": "38R-LMC lower lateral system",
-      "main_canals": ["38R-LMC", "4L-38R-LMC", "5R-4L-38R-LMC", "6R-38R-LMC", "8R-38R-LMC"],
-      "control_structures": 12,
-      "continuation_from": "Zone 4 38R-LMC"
-    },
-    "zone_6": {
-      "description": "RMC system",
-      "main_canals": ["RMC", "4L-RMC", "FTO 2+450", "FTO337 Rai"],
-      "control_structures": 12,
-      "branch_point": "M(0,1) at km 0+300",
-      "updated_flow_rates": true
+      "q_max": "design discharge Qd (ม.3/วินาที)",
+      "side_slope": "derived from design flow area: z = (A/D - B)/D",
+      "lining_type": "from the survey note; absent = unknown lining",
+      "coverage": "see geometry_coverage.json for unmapped chainage"
     }
   },
   "canal_sections": [
     {
-      "comment": "ZONE 1 - Main Canal Upper Reach",
       "from_node": "M(0,0)",
       "to_node": "M(0,1)",
-      "canal_name": "Outlet",
+      "canal_name": "LMC",
       "zone": 1,
       "section_no": 1,
-      "area_rai": 0,
-      "from_km": "0+000",
+      "from_km": "0+170",
       "to_km": "0+300",
       "geometry": {
-        "length_m": 300,
+        "length_m": 130,
         "cross_section": {
           "type": "trapezoidal",
           "bottom_width_m": 3.5,
-          "top_width_m": 5.0,
           "depth_m": 1.85,
-          "side_slope": 0.06
+          "side_slope": 1.5
         },
         "hydraulic_params": {
           "manning_n": 0.018,
           "bed_slope": 0.0002,
           "lining_type": "concrete",
-          "q_max": 11.2
+          "q_max": 9.961,
+          "q_rotation_plan": 9.926
         }
       }
     },
@@ -83,24 +42,23 @@
       "to_node": "M(0,2)",
       "canal_name": "LMC",
       "zone": 1,
-      "section_no": 1,
-      "area_rai": 0,
+      "section_no": 2,
       "from_km": "0+300",
-      "to_km": "0+580",
+      "to_km": "1+620",
       "geometry": {
-        "length_m": 280,
+        "length_m": 1320,
         "cross_section": {
           "type": "trapezoidal",
           "bottom_width_m": 3.5,
-          "top_width_m": 5.0,
           "depth_m": 1.85,
-          "side_slope": 0.06
+          "side_slope": 1.5
         },
         "hydraulic_params": {
           "manning_n": 0.018,
           "bed_slope": 0.0002,
           "lining_type": "concrete",
-          "q_max": 9.823
+          "q_max": 9.961,
+          "q_rotation_plan": 9.926
         }
       }
     },
@@ -109,24 +67,46 @@
       "to_node": "M(0,3)",
       "canal_name": "LMC",
       "zone": 1,
-      "section_no": 2,
-      "area_rai": 0,
-      "from_km": "0+580",
-      "to_km": "1+620",
+      "section_no": 3,
+      "from_km": "1+620",
+      "to_km": "3+500",
       "geometry": {
-        "length_m": 1040,
+        "length_m": 1880,
         "cross_section": {
           "type": "trapezoidal",
-          "bottom_width_m": 3.5,
-          "top_width_m": 5.0,
-          "depth_m": 1.85,
-          "side_slope": 0.06
+          "bottom_width_m": 3,
+          "depth_m": 1.83,
+          "side_slope": 1.5
         },
         "hydraulic_params": {
           "manning_n": 0.018,
           "bed_slope": 0.0002,
           "lining_type": "concrete",
-          "q_max": 9.823
+          "q_max": 8.778
+        }
+      }
+    },
+    {
+      "from_node": "M(0,2)",
+      "to_node": "M(0,3)",
+      "canal_name": "LMC",
+      "zone": 1,
+      "section_no": 4,
+      "from_km": "3+500",
+      "to_km": "6+880",
+      "geometry": {
+        "length_m": 3380,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 3,
+          "depth_m": 1.83,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 8.778
         }
       }
     },
@@ -135,24 +115,47 @@
       "to_node": "M(0,4)",
       "canal_name": "LMC",
       "zone": 1,
-      "section_no": 3,
-      "area_rai": 0,
-      "from_km": "1+620",
-      "to_km": "6+880",
+      "section_no": 5,
+      "from_km": "6+880",
+      "to_km": "7+000",
       "geometry": {
-        "length_m": 5260,
+        "length_m": 120,
         "cross_section": {
           "type": "trapezoidal",
-          "bottom_width_m": 3.0,
-          "top_width_m": 4.8,
+          "bottom_width_m": 3,
           "depth_m": 1.83,
-          "side_slope": 0.06
+          "side_slope": 1.5
         },
         "hydraulic_params": {
           "manning_n": 0.018,
           "bed_slope": 0.0002,
           "lining_type": "concrete",
-          "q_max": 8.299
+          "q_max": 8.778
+        }
+      }
+    },
+    {
+      "from_node": "M(0,3)",
+      "to_node": "M(0,4)",
+      "canal_name": "LMC",
+      "zone": 1,
+      "section_no": 6,
+      "from_km": "7+000",
+      "to_km": "9+200",
+      "geometry": {
+        "length_m": 2200,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 3,
+          "depth_m": 1.83,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 8.778,
+          "q_rotation_plan": 8.737
         }
       }
     },
@@ -160,52 +163,146 @@
       "from_node": "M(0,4)",
       "to_node": "M(0,5)",
       "canal_name": "LMC",
-      "zone": 1,
-      "section_no": 4,
-      "area_rai": 0,
-      "from_km": "6+880",
-      "to_km": "9+200",
+      "zone": 2,
+      "section_no": 7,
+      "from_km": "9+200",
+      "to_km": "10+500",
       "geometry": {
-        "length_m": 2320,
+        "length_m": 1300,
         "cross_section": {
           "type": "trapezoidal",
-          "bottom_width_m": 3.0,
-          "top_width_m": 4.8,
-          "depth_m": 1.83,
-          "side_slope": 0.06
+          "bottom_width_m": 2.5,
+          "depth_m": 1.6,
+          "side_slope": 1.5
         },
         "hydraulic_params": {
           "manning_n": 0.018,
           "bed_slope": 0.0002,
           "lining_type": "concrete",
-          "q_max": 8.299
+          "q_max": 5.943
         }
       }
     },
     {
-      "comment": "ZONE 2 - Main Canal Middle Reach",
-      "from_node": "M(0,5)",
-      "to_node": "M(0,6)",
+      "from_node": "M(0,4)",
+      "to_node": "M(0,5)",
       "canal_name": "LMC",
       "zone": 2,
-      "section_no": 5,
-      "area_rai": 0,
-      "from_km": "9+200",
+      "section_no": 8,
+      "from_km": "10+500",
       "to_km": "11+800",
       "geometry": {
-        "length_m": 2600,
+        "length_m": 1300,
         "cross_section": {
           "type": "trapezoidal",
           "bottom_width_m": 2.5,
-          "top_width_m": 4.1,
-          "depth_m": 1.60,
-          "side_slope": 0.06
+          "depth_m": 1.6,
+          "side_slope": 1.5
         },
         "hydraulic_params": {
           "manning_n": 0.018,
           "bed_slope": 0.0002,
           "lining_type": "concrete",
-          "q_max": 5.868
+          "q_max": 5.943,
+          "q_rotation_plan": 5.963
+        }
+      }
+    },
+    {
+      "from_node": "M(0,5)",
+      "to_node": "M(0,6)",
+      "canal_name": "LMC",
+      "zone": 2,
+      "section_no": 9,
+      "from_km": "11+800",
+      "to_km": "12+720",
+      "geometry": {
+        "length_m": 920,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 2.5,
+          "depth_m": 1.6,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 5.943,
+          "q_rotation_plan": 5.963
+        }
+      }
+    },
+    {
+      "from_node": "M(0,5)",
+      "to_node": "M(0,6)",
+      "canal_name": "LMC",
+      "zone": 2,
+      "section_no": 10,
+      "from_km": "12+720",
+      "to_km": "13+420",
+      "geometry": {
+        "length_m": 700,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 2.5,
+          "depth_m": 1.6,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "q_max": 5.943,
+          "q_rotation_plan": 5.963
+        }
+      }
+    },
+    {
+      "from_node": "M(0,5)",
+      "to_node": "M(0,6)",
+      "canal_name": "LMC",
+      "zone": 2,
+      "section_no": 11,
+      "from_km": "13+420",
+      "to_km": "14+000",
+      "geometry": {
+        "length_m": 580,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 2.5,
+          "depth_m": 1.6,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 5.943
+        }
+      }
+    },
+    {
+      "from_node": "M(0,5)",
+      "to_node": "M(0,6)",
+      "canal_name": "LMC",
+      "zone": 2,
+      "section_no": 12,
+      "from_km": "14+000",
+      "to_km": "17+000",
+      "geometry": {
+        "length_m": 3000,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 2.5,
+          "depth_m": 1.6,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 5.943,
+          "q_rotation_plan": 5.963
         }
       }
     },
@@ -214,24 +311,47 @@
       "to_node": "M(0,7)",
       "canal_name": "LMC",
       "zone": 2,
-      "section_no": 6,
-      "area_rai": 0,
-      "from_km": "11+800",
-      "to_km": "17+000",
+      "section_no": 13,
+      "from_km": "17+000",
+      "to_km": "17+500",
       "geometry": {
-        "length_m": 5200,
+        "length_m": 500,
         "cross_section": {
           "type": "trapezoidal",
           "bottom_width_m": 2.5,
-          "top_width_m": 4.1,
-          "depth_m": 1.60,
-          "side_slope": 0.06
+          "depth_m": 1.55,
+          "side_slope": 1.5
         },
         "hydraulic_params": {
           "manning_n": 0.018,
           "bed_slope": 0.0002,
           "lining_type": "concrete",
-          "q_max": 5.868
+          "q_max": 5.579
+        }
+      }
+    },
+    {
+      "from_node": "M(0,6)",
+      "to_node": "M(0,7)",
+      "canal_name": "LMC",
+      "zone": 2,
+      "section_no": 14,
+      "from_km": "17+500",
+      "to_km": "21+000",
+      "geometry": {
+        "length_m": 3500,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 2.5,
+          "depth_m": 1.55,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 5.579,
+          "q_rotation_plan": 5.579
         }
       }
     },
@@ -240,24 +360,22 @@
       "to_node": "M(0,8)",
       "canal_name": "LMC",
       "zone": 2,
-      "section_no": 7,
-      "area_rai": 0,
-      "from_km": "17+000",
-      "to_km": "21+000",
+      "section_no": 15,
+      "from_km": "21+000",
+      "to_km": "23+315",
       "geometry": {
-        "length_m": 4000,
+        "length_m": 2315,
         "cross_section": {
           "type": "trapezoidal",
-          "bottom_width_m": 2.5,
-          "top_width_m": 4.1,
+          "bottom_width_m": 2.4,
           "depth_m": 1.55,
-          "side_slope": 0.06
+          "side_slope": 1.5
         },
         "hydraulic_params": {
           "manning_n": 0.018,
           "bed_slope": 0.0002,
           "lining_type": "concrete",
-          "q_max": 5.501
+          "q_max": 5.434
         }
       }
     },
@@ -266,24 +384,47 @@
       "to_node": "M(0,9)",
       "canal_name": "LMC",
       "zone": 2,
-      "section_no": 8,
-      "area_rai": 0,
-      "from_km": "21+000",
-      "to_km": "23+315",
+      "section_no": 16,
+      "from_km": "23+315",
+      "to_km": "24+500",
       "geometry": {
-        "length_m": 2315,
+        "length_m": 1185,
         "cross_section": {
           "type": "trapezoidal",
-          "bottom_width_m": 2.5,
-          "top_width_m": 4.1,
+          "bottom_width_m": 2.4,
           "depth_m": 1.55,
-          "side_slope": 0.06
+          "side_slope": 1.5
         },
         "hydraulic_params": {
           "manning_n": 0.018,
           "bed_slope": 0.0002,
           "lining_type": "concrete",
-          "q_max": 5.35
+          "q_max": 5.434
+        }
+      }
+    },
+    {
+      "from_node": "M(0,8)",
+      "to_node": "M(0,9)",
+      "canal_name": "LMC",
+      "zone": 2,
+      "section_no": 17,
+      "from_km": "24+500",
+      "to_km": "25+700",
+      "geometry": {
+        "length_m": 1200,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 2.4,
+          "depth_m": 1.55,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 5.434,
+          "q_rotation_plan": 5.43
         }
       }
     },
@@ -292,24 +433,47 @@
       "to_node": "M(0,10)",
       "canal_name": "LMC",
       "zone": 2,
-      "section_no": 9,
-      "area_rai": 0,
-      "from_km": "23+315",
-      "to_km": "24+815",
+      "section_no": 18,
+      "from_km": "25+700",
+      "to_km": "28+000",
       "geometry": {
-        "length_m": 1500,
+        "length_m": 2300,
         "cross_section": {
           "type": "trapezoidal",
-          "bottom_width_m": 2.5,
-          "top_width_m": 4.1,
-          "depth_m": 1.55,
-          "side_slope": 0.06
+          "bottom_width_m": 2.4,
+          "depth_m": 1.5,
+          "side_slope": 1.5
         },
         "hydraulic_params": {
           "manning_n": 0.018,
           "bed_slope": 0.0002,
           "lining_type": "concrete",
-          "q_max": 5.297
+          "q_max": 5.085
+        }
+      }
+    },
+    {
+      "from_node": "M(0,9)",
+      "to_node": "M(0,10)",
+      "canal_name": "LMC",
+      "zone": 2,
+      "section_no": 19,
+      "from_km": "28+000",
+      "to_km": "28+300",
+      "geometry": {
+        "length_m": 300,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 2.4,
+          "depth_m": 1.5,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 5.085,
+          "q_rotation_plan": 5.082
         }
       }
     },
@@ -318,24 +482,121 @@
       "to_node": "M(0,11)",
       "canal_name": "LMC",
       "zone": 2,
-      "section_no": 10,
-      "area_rai": 0,
-      "from_km": "24+815",
-      "to_km": "26+815",
+      "section_no": 20,
+      "from_km": "28+300",
+      "to_km": "31+270",
       "geometry": {
-        "length_m": 2000,
+        "length_m": 2970,
         "cross_section": {
           "type": "trapezoidal",
-          "bottom_width_m": 2.5,
-          "top_width_m": 4.1,
-          "depth_m": 1.50,
-          "side_slope": 0.06
+          "bottom_width_m": 2.2,
+          "depth_m": 1.5,
+          "side_slope": 1.5
         },
         "hydraulic_params": {
           "manning_n": 0.018,
           "bed_slope": 0.0002,
           "lining_type": "concrete",
-          "q_max": 4.916
+          "q_max": 4.806,
+          "q_rotation_plan": 4.806
+        }
+      }
+    },
+    {
+      "from_node": "M(0,10)",
+      "to_node": "M(0,11)",
+      "canal_name": "LMC",
+      "zone": 2,
+      "section_no": 21,
+      "from_km": "31+270",
+      "to_km": "31+500",
+      "geometry": {
+        "length_m": 230,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 2.2,
+          "depth_m": 1.45,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 4.485
+        }
+      }
+    },
+    {
+      "from_node": "M(0,10)",
+      "to_node": "M(0,11)",
+      "canal_name": "LMC",
+      "zone": 2,
+      "section_no": 22,
+      "from_km": "31+500",
+      "to_km": "33+650",
+      "geometry": {
+        "length_m": 2150,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 2.2,
+          "depth_m": 1.45,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 4.485,
+          "q_rotation_plan": 4.486
+        }
+      }
+    },
+    {
+      "from_node": "M(0,10)",
+      "to_node": "M(0,11)",
+      "canal_name": "LMC",
+      "zone": 2,
+      "section_no": 23,
+      "from_km": "33+650",
+      "to_km": "35+000",
+      "geometry": {
+        "length_m": 1350,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 2.2,
+          "depth_m": 1.45,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 4.485
+        }
+      }
+    },
+    {
+      "from_node": "M(0,10)",
+      "to_node": "M(0,11)",
+      "canal_name": "LMC",
+      "zone": 2,
+      "section_no": 24,
+      "from_km": "35+000",
+      "to_km": "36+010",
+      "geometry": {
+        "length_m": 1010,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 2.2,
+          "depth_m": 1.45,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 4.485,
+          "q_rotation_plan": 4.486
         }
       }
     },
@@ -344,24 +605,48 @@
       "to_node": "M(0,12)",
       "canal_name": "LMC",
       "zone": 2,
-      "section_no": 11,
-      "area_rai": 0,
-      "from_km": "26+815",
-      "to_km": "28+315",
+      "section_no": 25,
+      "from_km": "36+010",
+      "to_km": "36+190",
       "geometry": {
-        "length_m": 1500,
+        "length_m": 180,
         "cross_section": {
           "type": "trapezoidal",
-          "bottom_width_m": 2.0,
-          "top_width_m": 3.4,
-          "depth_m": 1.40,
-          "side_slope": 0.06
+          "bottom_width_m": 2.2,
+          "depth_m": 1.45,
+          "side_slope": 1.5
         },
         "hydraulic_params": {
           "manning_n": 0.018,
           "bed_slope": 0.0002,
           "lining_type": "concrete",
-          "q_max": 3.545
+          "q_max": 4.485,
+          "q_rotation_plan": 4.486
+        }
+      }
+    },
+    {
+      "from_node": "M(0,11)",
+      "to_node": "M(0,12)",
+      "canal_name": "LMC",
+      "zone": 2,
+      "section_no": 26,
+      "from_km": "36+190",
+      "to_km": "37+859",
+      "geometry": {
+        "length_m": 1669,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 2.2,
+          "depth_m": 1.4,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 4.178,
+          "q_rotation_plan": 4.179
         }
       }
     },
@@ -370,24 +655,23 @@
       "to_node": "M(0,13)",
       "canal_name": "LMC",
       "zone": 2,
-      "section_no": 12,
-      "area_rai": 0,
-      "from_km": "28+315",
-      "to_km": "29+150",
+      "section_no": 27,
+      "from_km": "37+859",
+      "to_km": "38+100",
       "geometry": {
-        "length_m": 835,
+        "length_m": 241,
         "cross_section": {
           "type": "trapezoidal",
-          "bottom_width_m": 2.0,
-          "top_width_m": 3.4,
-          "depth_m": 1.40,
-          "side_slope": 0.06
+          "bottom_width_m": 2.2,
+          "depth_m": 1.4,
+          "side_slope": 1.5
         },
         "hydraulic_params": {
           "manning_n": 0.018,
           "bed_slope": 0.0002,
           "lining_type": "concrete",
-          "q_max": 3.545
+          "q_max": 4.178,
+          "q_rotation_plan": 4.179
         }
       }
     },
@@ -396,645 +680,2345 @@
       "to_node": "M(0,14)",
       "canal_name": "LMC",
       "zone": 2,
-      "section_no": 13,
-      "area_rai": 0,
-      "from_km": "29+150",
-      "to_km": "31+000",
+      "section_no": 28,
+      "from_km": "38+100",
+      "to_km": "38+340",
       "geometry": {
-        "length_m": 1850,
+        "length_m": 240,
         "cross_section": {
           "type": "trapezoidal",
-          "bottom_width_m": 1.5,
-          "top_width_m": 2.7,
-          "depth_m": 1.20,
-          "side_slope": 0.06
+          "bottom_width_m": 0.5,
+          "depth_m": 0.5,
+          "side_slope": 1.5
         },
         "hydraulic_params": {
           "manning_n": 0.018,
           "bed_slope": 0.0002,
           "lining_type": "concrete",
-          "q_max": 1.975
+          "q_max": 0.206
         }
       }
     },
     {
-      "comment": "ZONE 3 - 9R-LMC Lateral System",
-      "from_node": "M(0,3;1,0)",
-      "to_node": "M(0,3;1,1)",
-      "canal_name": "9R-LMC",
-      "zone": 3,
-      "section_no": 1,
-      "area_rai": 0,
-      "from_km": "0+000",
-      "to_km": "1+800",
+      "from_node": "M(0,13)",
+      "to_node": "M(0,14)",
+      "canal_name": "LMC",
+      "zone": 2,
+      "section_no": 29,
+      "from_km": "38+340",
+      "to_km": "38+500",
       "geometry": {
-        "length_m": 1800,
+        "length_m": 160,
         "cross_section": {
           "type": "trapezoidal",
-          "bottom_width_m": 1.5,
-          "top_width_m": 2.7,
-          "depth_m": 1.20,
-          "side_slope": 0.06
+          "bottom_width_m": 0.5,
+          "depth_m": 0.5,
+          "side_slope": 1.5
         },
         "hydraulic_params": {
           "manning_n": 0.018,
-          "bed_slope": 0.00015,
+          "bed_slope": 0.0002,
           "lining_type": "concrete",
-          "q_max": 1.525
+          "q_max": 0.206
         }
       }
     },
     {
-      "from_node": "M(0,3;1,1)",
-      "to_node": "M(0,3;1,2)",
-      "canal_name": "9R-LMC",
-      "zone": 3,
-      "section_no": 2,
-      "area_rai": 0,
-      "from_km": "1+800",
-      "to_km": "3+000",
+      "from_node": "M(0,13)",
+      "to_node": "M(0,14)",
+      "canal_name": "LMC",
+      "zone": 2,
+      "section_no": 30,
+      "from_km": "38+500",
+      "to_km": "38+700",
       "geometry": {
-        "length_m": 1200,
+        "length_m": 200,
         "cross_section": {
           "type": "trapezoidal",
-          "bottom_width_m": 1.5,
-          "top_width_m": 2.7,
-          "depth_m": 1.20,
-          "side_slope": 0.06
+          "bottom_width_m": 0.5,
+          "depth_m": 0.5,
+          "side_slope": 1.5
         },
         "hydraulic_params": {
           "manning_n": 0.018,
-          "bed_slope": 0.00015,
+          "bed_slope": 0.0002,
           "lining_type": "concrete",
-          "q_max": 1.525
+          "q_max": 0.206,
+          "q_rotation_plan": 0.205
         }
       }
     },
     {
-      "from_node": "M(0,3;1,2)",
-      "to_node": "M(0,3;1,3)",
-      "canal_name": "9R-LMC",
-      "zone": 3,
-      "section_no": 3,
-      "area_rai": 0,
-      "from_km": "3+000",
-      "to_km": "4+300",
+      "from_node": "M(0,13)",
+      "to_node": "M(0,14)",
+      "canal_name": "LMC",
+      "zone": 2,
+      "section_no": 31,
+      "from_km": "38+700",
+      "to_km": "39+050",
       "geometry": {
-        "length_m": 1300,
+        "length_m": 350,
         "cross_section": {
           "type": "trapezoidal",
-          "bottom_width_m": 1.5,
-          "top_width_m": 2.7,
-          "depth_m": 1.20,
-          "side_slope": 0.06
+          "bottom_width_m": 0.5,
+          "depth_m": 0.5,
+          "side_slope": 1.5
         },
         "hydraulic_params": {
-          "manning_n": 0.018,
-          "bed_slope": 0.00015,
-          "lining_type": "concrete",
-          "q_max": 1.525
+          "manning_n": 0.03,
+          "bed_slope": 0.0003,
+          "lining_type": "earth",
+          "q_max": 0.151,
+          "q_rotation_plan": 0.159
         }
       }
     },
     {
-      "from_node": "M(0,3;1,1;1,0)",
-      "to_node": "M(0,3;1,1;1,1)",
-      "canal_name": "7R-9R-LMC",
-      "zone": 3,
-      "section_no": 1,
-      "area_rai": 0,
-      "from_km": "0+000",
-      "to_km": "3+000",
-      "geometry": {
-        "length_m": 3000,
-        "cross_section": {
-          "type": "trapezoidal",
-          "bottom_width_m": 1.0,
-          "top_width_m": 2.0,
-          "depth_m": 1.0,
-          "side_slope": 0.06
-        },
-        "hydraulic_params": {
-          "manning_n": 0.018,
-          "bed_slope": 0.00015,
-          "lining_type": "concrete",
-          "q_max": 0.855
-        }
-      }
-    },
-    {
-      "from_node": "M(0,3;1,1;2,0)",
-      "to_node": "M(0,3;1,1;2,1)",
-      "canal_name": "7L-9R-LMC",
-      "zone": 3,
-      "section_no": 1,
-      "area_rai": 0,
-      "from_km": "0+000",
-      "to_km": "2+500",
-      "geometry": {
-        "length_m": 2500,
-        "cross_section": {
-          "type": "trapezoidal",
-          "bottom_width_m": 1.0,
-          "top_width_m": 2.0,
-          "depth_m": 1.0,
-          "side_slope": 0.06
-        },
-        "hydraulic_params": {
-          "manning_n": 0.018,
-          "bed_slope": 0.00015,
-          "lining_type": "concrete",
-          "q_max": 0.67
-        }
-      }
-    },
-    {
-      "comment": "ZONE 4 - 38R-LMC Upper Lateral System",
-      "from_node": "M(0,12;1,0)",
-      "to_node": "M(0,12;1,1)",
-      "canal_name": "38R-LMC",
-      "zone": 4,
-      "section_no": 1,
-      "area_rai": 0,
-      "from_km": "0+000",
-      "to_km": "1+800",
-      "geometry": {
-        "length_m": 1800,
-        "cross_section": {
-          "type": "trapezoidal",
-          "bottom_width_m": 2.0,
-          "top_width_m": 3.2,
-          "depth_m": 1.20,
-          "side_slope": 0.06
-        },
-        "hydraulic_params": {
-          "manning_n": 0.018,
-          "bed_slope": 0.00015,
-          "lining_type": "concrete",
-          "q_max": 1.57
-        }
-      }
-    },
-    {
-      "from_node": "M(0,12;1,1)",
-      "to_node": "M(0,12;1,2)",
-      "canal_name": "38R-LMC",
-      "zone": 4,
-      "section_no": 2,
-      "area_rai": 0,
-      "from_km": "1+800",
-      "to_km": "3+000",
-      "geometry": {
-        "length_m": 1200,
-        "cross_section": {
-          "type": "trapezoidal",
-          "bottom_width_m": 2.0,
-          "top_width_m": 3.2,
-          "depth_m": 1.20,
-          "side_slope": 0.06
-        },
-        "hydraulic_params": {
-          "manning_n": 0.018,
-          "bed_slope": 0.00015,
-          "lining_type": "concrete",
-          "q_max": 1.57
-        }
-      }
-    },
-    {
-      "from_node": "M(0,12;1,0;1,0)",
-      "to_node": "M(0,12;1,0;1,1)",
-      "canal_name": "1R-38R-LMC",
-      "zone": 4,
-      "section_no": 1,
-      "area_rai": 0,
-      "from_km": "0+000",
-      "to_km": "2+000",
-      "geometry": {
-        "length_m": 2000,
-        "cross_section": {
-          "type": "trapezoidal",
-          "bottom_width_m": 1.5,
-          "top_width_m": 2.5,
-          "depth_m": 1.0,
-          "side_slope": 0.06
-        },
-        "hydraulic_params": {
-          "manning_n": 0.018,
-          "bed_slope": 0.00015,
-          "lining_type": "concrete",
-          "q_max": 0.777
-        }
-      }
-    },
-    {
-      "from_node": "M(0,12;1,1;1,0)",
-      "to_node": "M(0,12;1,1;1,1)",
-      "canal_name": "2R-38R-LMC",
-      "zone": 4,
-      "section_no": 1,
-      "area_rai": 0,
-      "from_km": "0+000",
-      "to_km": "1+500",
-      "geometry": {
-        "length_m": 1500,
-        "cross_section": {
-          "type": "trapezoidal",
-          "bottom_width_m": 1.5,
-          "top_width_m": 2.5,
-          "depth_m": 1.0,
-          "side_slope": 0.06
-        },
-        "hydraulic_params": {
-          "manning_n": 0.018,
-          "bed_slope": 0.00015,
-          "lining_type": "concrete",
-          "q_max": 0.793
-        }
-      }
-    },
-    {
-      "from_node": "M(0,12;1,1;1,1)",
-      "to_node": "M(0,12;1,1;1,2)",
-      "canal_name": "2R-38R-LMC",
-      "zone": 4,
-      "section_no": 2,
-      "area_rai": 0,
-      "from_km": "1+500",
-      "to_km": "2+300",
-      "geometry": {
-        "length_m": 800,
-        "cross_section": {
-          "type": "trapezoidal",
-          "bottom_width_m": 1.5,
-          "top_width_m": 2.5,
-          "depth_m": 1.0,
-          "side_slope": 0.06
-        },
-        "hydraulic_params": {
-          "manning_n": 0.018,
-          "bed_slope": 0.00015,
-          "lining_type": "concrete",
-          "q_max": 0.793
-        }
-      }
-    },
-    {
-      "comment": "ZONE 5 - 38R-LMC Lower Lateral System",
-      "from_node": "M(0,12;1,2)",
-      "to_node": "M(0,12;1,3)",
-      "canal_name": "38R-LMC",
-      "zone": 5,
-      "section_no": 3,
-      "area_rai": 0,
-      "from_km": "3+000",
-      "to_km": "4+200",
-      "geometry": {
-        "length_m": 1200,
-        "cross_section": {
-          "type": "trapezoidal",
-          "bottom_width_m": 1.5,
-          "top_width_m": 2.7,
-          "depth_m": 1.20,
-          "side_slope": 0.06
-        },
-        "hydraulic_params": {
-          "manning_n": 0.018,
-          "bed_slope": 0.00015,
-          "lining_type": "concrete",
-          "q_max": 1.37
-        }
-      }
-    },
-    {
-      "from_node": "M(0,12;1,3)",
-      "to_node": "M(0,12;1,4)",
-      "canal_name": "38R-LMC",
-      "zone": 5,
-      "section_no": 4,
-      "area_rai": 0,
-      "from_km": "4+200",
-      "to_km": "5+200",
-      "geometry": {
-        "length_m": 1000,
-        "cross_section": {
-          "type": "trapezoidal",
-          "bottom_width_m": 1.5,
-          "top_width_m": 2.7,
-          "depth_m": 1.20,
-          "side_slope": 0.06
-        },
-        "hydraulic_params": {
-          "manning_n": 0.018,
-          "bed_slope": 0.00015,
-          "lining_type": "concrete",
-          "q_max": 1.224
-        }
-      }
-    },
-    {
-      "from_node": "M(0,12;1,4)",
-      "to_node": "M(0,12;1,5)",
-      "canal_name": "38R-LMC",
-      "zone": 5,
-      "section_no": 5,
-      "area_rai": 0,
-      "from_km": "5+200",
-      "to_km": "6+000",
-      "geometry": {
-        "length_m": 800,
-        "cross_section": {
-          "type": "trapezoidal",
-          "bottom_width_m": 1.5,
-          "top_width_m": 2.7,
-          "depth_m": 1.20,
-          "side_slope": 0.06
-        },
-        "hydraulic_params": {
-          "manning_n": 0.018,
-          "bed_slope": 0.00015,
-          "lining_type": "concrete",
-          "q_max": 1.041
-        }
-      }
-    },
-    {
-      "from_node": "M(0,12;1,2;1,0)",
-      "to_node": "M(0,12;1,2;1,1)",
-      "canal_name": "4L-38R-LMC",
-      "zone": 5,
-      "section_no": 1,
-      "area_rai": 0,
-      "from_km": "0+000",
-      "to_km": "1+000",
-      "geometry": {
-        "length_m": 1000,
-        "cross_section": {
-          "type": "trapezoidal",
-          "bottom_width_m": 1.0,
-          "top_width_m": 2.0,
-          "depth_m": 1.0,
-          "side_slope": 0.06
-        },
-        "hydraulic_params": {
-          "manning_n": 0.018,
-          "bed_slope": 0.00015,
-          "lining_type": "concrete",
-          "q_max": 0.648
-        }
-      }
-    },
-    {
-      "from_node": "M(0,12;1,2;1,1)",
-      "to_node": "M(0,12;1,2;1,2)",
-      "canal_name": "4L-38R-LMC",
-      "zone": 5,
-      "section_no": 2,
-      "area_rai": 0,
-      "from_km": "1+000",
-      "to_km": "1+500",
-      "geometry": {
-        "length_m": 500,
-        "cross_section": {
-          "type": "trapezoidal",
-          "bottom_width_m": 1.0,
-          "top_width_m": 2.0,
-          "depth_m": 1.0,
-          "side_slope": 0.06
-        },
-        "hydraulic_params": {
-          "manning_n": 0.018,
-          "bed_slope": 0.00015,
-          "lining_type": "concrete",
-          "q_max": 0.648
-        }
-      }
-    },
-    {
-      "comment": "ZONE 6 - RMC System (Updated)",
-      "from_node": "M(0,1;1,0)",
-      "to_node": "M(0,1;1,1)",
+      "from_node": "M (0,1; 1,0)",
+      "to_node": "M (0,1; 1,1)",
       "canal_name": "RMC",
       "zone": 6,
       "section_no": 1,
-      "area_rai": 0,
       "from_km": "0+000",
+      "to_km": "2+420",
+      "geometry": {
+        "length_m": 2420,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 1.1,
+          "depth_m": 1,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "q_max": 1.375
+        }
+      }
+    },
+    {
+      "from_node": "M (0,1; 1,0)",
+      "to_node": "M (0,1; 1,1)",
+      "canal_name": "RMC",
+      "zone": 6,
+      "section_no": 2,
+      "from_km": "2+420",
       "to_km": "2+600",
       "geometry": {
-        "length_m": 2600,
+        "length_m": 180,
         "cross_section": {
           "type": "trapezoidal",
-          "bottom_width_m": 2.0,
-          "top_width_m": 3.2,
-          "depth_m": 1.20,
-          "side_slope": 0.06
+          "bottom_width_m": 1.1,
+          "depth_m": 0.95,
+          "side_slope": 1.5
         },
         "hydraulic_params": {
           "manning_n": 0.018,
           "bed_slope": 0.0002,
-          "lining_type": "concrete",
-          "q_max": 1.375
+          "q_max": 1.235
         }
       }
     },
     {
-      "from_node": "M(0,1;1,1)",
-      "to_node": "M(0,1;1,2)",
-      "canal_name": "RMC",
-      "zone": 6,
-      "section_no": 2,
-      "area_rai": 0,
-      "from_km": "2+600",
-      "to_km": "4+520",
-      "geometry": {
-        "length_m": 1920,
-        "cross_section": {
-          "type": "trapezoidal",
-          "bottom_width_m": 2.0,
-          "top_width_m": 3.2,
-          "depth_m": 1.20,
-          "side_slope": 0.06
-        },
-        "hydraulic_params": {
-          "manning_n": 0.018,
-          "bed_slope": 0.0002,
-          "lining_type": "concrete",
-          "q_max": 1.375
-        }
-      }
-    },
-    {
-      "from_node": "M(0,1;1,2)",
-      "to_node": "M(0,1;1,3)",
+      "from_node": "M (0,1; 1,1)",
+      "to_node": "M (0,1; 1,2)",
       "canal_name": "RMC",
       "zone": 6,
       "section_no": 3,
-      "area_rai": 0,
+      "from_km": "2+600",
+      "to_km": "3+500",
+      "geometry": {
+        "length_m": 900,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 1.1,
+          "depth_m": 0.95,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "q_max": 1.235
+        }
+      }
+    },
+    {
+      "from_node": "M (0,1; 1,1)",
+      "to_node": "M (0,1; 1,2)",
+      "canal_name": "RMC",
+      "zone": 6,
+      "section_no": 4,
+      "from_km": "3+500",
+      "to_km": "4+520",
+      "geometry": {
+        "length_m": 1020,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 1.1,
+          "depth_m": 0.95,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 1.235
+        }
+      }
+    },
+    {
+      "from_node": "M (0,1; 1,2)",
+      "to_node": "M (0,1; 1,3)",
+      "canal_name": "RMC",
+      "zone": 6,
+      "section_no": 5,
       "from_km": "4+520",
       "to_km": "5+500",
       "geometry": {
         "length_m": 980,
         "cross_section": {
           "type": "trapezoidal",
-          "bottom_width_m": 2.0,
-          "top_width_m": 3.2,
-          "depth_m": 1.20,
-          "side_slope": 0.06
+          "bottom_width_m": 0.5,
+          "depth_m": 0.55,
+          "side_slope": 1.5
         },
         "hydraulic_params": {
           "manning_n": 0.018,
           "bed_slope": 0.0002,
           "lining_type": "concrete",
-          "q_max": 1.234
+          "q_max": 0.253
         }
       }
     },
     {
-      "from_node": "M(0,1;1,3)",
-      "to_node": "M(0,1;1,4)",
+      "from_node": "M (0,1; 1,3)",
+      "to_node": "M (0,1; 1,4)",
       "canal_name": "RMC",
       "zone": 6,
-      "section_no": 4,
-      "area_rai": 0,
+      "section_no": 6,
       "from_km": "5+500",
-      "to_km": "6+780",
+      "to_km": "6+600",
       "geometry": {
-        "length_m": 1280,
+        "length_m": 1100,
         "cross_section": {
           "type": "trapezoidal",
-          "bottom_width_m": 1.5,
-          "top_width_m": 2.7,
-          "depth_m": 1.20,
-          "side_slope": 0.06
+          "bottom_width_m": 0.5,
+          "depth_m": 0.55,
+          "side_slope": 1.5
         },
         "hydraulic_params": {
           "manning_n": 0.018,
           "bed_slope": 0.0002,
           "lining_type": "concrete",
-          "q_max": 1.0
+          "q_max": 0.253
         }
       }
     },
     {
-      "from_node": "M(0,1;1,1;1,0)",
-      "to_node": "M(0,1;1,1;1,1)",
+      "from_node": "M (0,1; 1,3)",
+      "to_node": "M (0,1; 1,4)",
+      "canal_name": "RMC",
+      "zone": 6,
+      "section_no": 7,
+      "from_km": "6+600",
+      "to_km": "6+700",
+      "geometry": {
+        "length_m": 100,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.5,
+          "depth_m": 0.5,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.03,
+          "bed_slope": 0.0003,
+          "lining_type": "earth",
+          "q_max": 0.151
+        }
+      }
+    },
+    {
+      "from_node": "M(0,1; 1,1; 1,0)",
+      "to_node": "M(0,1; 1,1; 1,1)",
       "canal_name": "4L-RMC",
       "zone": 6,
       "section_no": 1,
-      "area_rai": 0,
       "from_km": "0+000",
       "to_km": "0+750",
       "geometry": {
         "length_m": 750,
         "cross_section": {
           "type": "trapezoidal",
-          "bottom_width_m": 1.5,
-          "top_width_m": 2.5,
-          "depth_m": 1.0,
-          "side_slope": 0.06
+          "bottom_width_m": 1,
+          "depth_m": 0.8,
+          "side_slope": 1.5
         },
         "hydraulic_params": {
           "manning_n": 0.018,
-          "bed_slope": 0.00015,
+          "bed_slope": 0.0002,
           "lining_type": "concrete",
           "q_max": 0.815
         }
       }
     },
     {
-      "from_node": "M(0,1;1,1;1,1)",
-      "to_node": "M(0,1;1,1;1,2)",
+      "from_node": "M(0,1; 1,1; 1,1)",
+      "to_node": "M(0,1; 1,1; 1,2)",
       "canal_name": "4L-RMC",
       "zone": 6,
       "section_no": 2,
-      "area_rai": 0,
       "from_km": "0+750",
-      "to_km": "1+850",
+      "to_km": "1+390",
       "geometry": {
-        "length_m": 1100,
+        "length_m": 640,
         "cross_section": {
           "type": "trapezoidal",
-          "bottom_width_m": 1.5,
-          "top_width_m": 2.5,
-          "depth_m": 1.0,
-          "side_slope": 0.06
+          "bottom_width_m": 0.9,
+          "depth_m": 0.75,
+          "side_slope": 1.5
         },
         "hydraulic_params": {
           "manning_n": 0.018,
-          "bed_slope": 0.00015,
+          "bed_slope": 0.0002,
           "lining_type": "concrete",
-          "q_max": 0.815
+          "q_max": 0.67
         }
       }
     },
     {
-      "from_node": "M(0,1;1,1;1,2)",
-      "to_node": "M(0,1;1,1;1,3)",
+      "from_node": "M(0,1; 1,1; 1,1)",
+      "to_node": "M(0,1; 1,1; 1,2)",
       "canal_name": "4L-RMC",
       "zone": 6,
       "section_no": 3,
-      "area_rai": 0,
+      "from_km": "1+390",
+      "to_km": "1+850",
+      "geometry": {
+        "length_m": 460,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.8,
+          "depth_m": 0.75,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 0.628
+        }
+      }
+    },
+    {
+      "from_node": "M(0,1; 1,1; 1,2)",
+      "to_node": "M(0,1; 1,1; 1,3)",
+      "canal_name": "4L-RMC",
+      "zone": 6,
+      "section_no": 4,
       "from_km": "1+850",
       "to_km": "2+600",
       "geometry": {
         "length_m": 750,
         "cross_section": {
           "type": "trapezoidal",
-          "bottom_width_m": 1.0,
-          "top_width_m": 2.0,
-          "depth_m": 1.0,
-          "side_slope": 0.06
+          "bottom_width_m": 0.6,
+          "depth_m": 0.65,
+          "side_slope": 1.5
         },
         "hydraulic_params": {
           "manning_n": 0.018,
-          "bed_slope": 0.00015,
+          "bed_slope": 0.0002,
           "lining_type": "concrete",
-          "q_max": 0.397
+          "q_max": 0.398
         }
       }
     },
     {
-      "from_node": "M(0,1;1,1;1,3)",
-      "to_node": "M(0,1;1,1;1,4)",
+      "from_node": "M(0,1; 1,1; 1,3)",
+      "to_node": "M(0,1; 1,1; 1,4)",
       "canal_name": "4L-RMC",
       "zone": 6,
-      "section_no": 4,
-      "area_rai": 0,
+      "section_no": 5,
       "from_km": "2+600",
       "to_km": "3+000",
       "geometry": {
         "length_m": 400,
         "cross_section": {
           "type": "trapezoidal",
-          "bottom_width_m": 1.0,
-          "top_width_m": 2.0,
-          "depth_m": 1.0,
-          "side_slope": 0.06
+          "bottom_width_m": 0.5,
+          "depth_m": 0.5,
+          "side_slope": 1.5
         },
         "hydraulic_params": {
           "manning_n": 0.018,
-          "bed_slope": 0.00015,
+          "bed_slope": 0.0002,
           "lining_type": "concrete",
-          "q_max": 0.205
+          "q_max": 0.206
+        }
+      }
+    },
+    {
+      "from_node": "M (0,3; 1,0)",
+      "to_node": "M (0,3; 1,1)",
+      "canal_name": "9R-LMC",
+      "zone": 3,
+      "section_no": 1,
+      "from_km": "0+000",
+      "to_km": "2+850",
+      "geometry": {
+        "length_m": 2850,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 1.5,
+          "depth_m": 1.2,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 2.408,
+          "q_rotation_plan": 2.408
+        }
+      }
+    },
+    {
+      "from_node": "M (0,3; 1,0)",
+      "to_node": "M (0,3; 1,1)",
+      "canal_name": "9R-LMC",
+      "zone": 3,
+      "section_no": 2,
+      "from_km": "2+850",
+      "to_km": "3+500",
+      "geometry": {
+        "length_m": 650,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 1.5,
+          "depth_m": 1.15,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 2.203
+        }
+      }
+    },
+    {
+      "from_node": "M (0,3; 1,0)",
+      "to_node": "M (0,3; 1,1)",
+      "canal_name": "9R-LMC",
+      "zone": 3,
+      "section_no": 3,
+      "from_km": "3+500",
+      "to_km": "4+465",
+      "geometry": {
+        "length_m": 965,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 1.5,
+          "depth_m": 1.15,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 2.203,
+          "q_rotation_plan": 2.201
+        }
+      }
+    },
+    {
+      "from_node": "M (0,3; 1,0)",
+      "to_node": "M (0,3; 1,1)",
+      "canal_name": "9R-LMC",
+      "zone": 3,
+      "section_no": 4,
+      "from_km": "4+465",
+      "to_km": "5+750",
+      "geometry": {
+        "length_m": 1285,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 1.5,
+          "depth_m": 1.15,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 2.203,
+          "q_rotation_plan": 2.201
+        }
+      }
+    },
+    {
+      "from_node": "M (0,3; 1,1)",
+      "to_node": "M (0,3; 1,2)",
+      "canal_name": "9R-LMC",
+      "zone": 3,
+      "section_no": 5,
+      "from_km": "5+750",
+      "to_km": "7+000",
+      "geometry": {
+        "length_m": 1250,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 1.4,
+          "depth_m": 1.1,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 1.926
+        }
+      }
+    },
+    {
+      "from_node": "M (0,3; 1,1)",
+      "to_node": "M (0,3; 1,2)",
+      "canal_name": "9R-LMC",
+      "zone": 3,
+      "section_no": 6,
+      "from_km": "7+000",
+      "to_km": "7+900",
+      "geometry": {
+        "length_m": 900,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 1.4,
+          "depth_m": 1.1,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 1.926,
+          "q_rotation_plan": 1.927
+        }
+      }
+    },
+    {
+      "from_node": "M (0,3; 1,2)",
+      "to_node": "M (0,3; 1,3)",
+      "canal_name": "9R-LMC",
+      "zone": 3,
+      "section_no": 7,
+      "from_km": "7+900",
+      "to_km": "10+050",
+      "geometry": {
+        "length_m": 2150,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 1,
+          "depth_m": 0.9,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 1.045,
+          "q_rotation_plan": 1.044
+        }
+      }
+    },
+    {
+      "from_node": "M (0,3; 1,2)",
+      "to_node": "M (0,3; 1,3)",
+      "canal_name": "9R-LMC",
+      "zone": 3,
+      "section_no": 8,
+      "from_km": "10+050",
+      "to_km": "10+500",
+      "geometry": {
+        "length_m": 450,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.8,
+          "depth_m": 0.7,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 0.543
+        }
+      }
+    },
+    {
+      "from_node": "M (0,3; 1,2)",
+      "to_node": "M (0,3; 1,3)",
+      "canal_name": "9R-LMC",
+      "zone": 3,
+      "section_no": 9,
+      "from_km": "10+500",
+      "to_km": "12+100",
+      "geometry": {
+        "length_m": 1600,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.8,
+          "depth_m": 0.7,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 0.543,
+          "q_rotation_plan": 0.542
+        }
+      }
+    },
+    {
+      "from_node": "M (0,3; 1,2)",
+      "to_node": "M (0,3; 1,3)",
+      "canal_name": "9R-LMC",
+      "zone": 3,
+      "section_no": 10,
+      "from_km": "12+100",
+      "to_km": "14+000",
+      "geometry": {
+        "length_m": 1900,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.6,
+          "depth_m": 0.55,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 0.278
+        }
+      }
+    },
+    {
+      "from_node": "M (0,3; 1,2)",
+      "to_node": "M (0,3; 1,3)",
+      "canal_name": "9R-LMC",
+      "zone": 3,
+      "section_no": 11,
+      "from_km": "14+000",
+      "to_km": "14+400",
+      "geometry": {
+        "length_m": 400,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.6,
+          "depth_m": 0.55,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 0.278,
+          "q_rotation_plan": 0.278
+        }
+      }
+    },
+    {
+      "from_node": "M (0,3; 1,2)",
+      "to_node": "M (0,3; 1,3)",
+      "canal_name": "9R-LMC",
+      "zone": 3,
+      "section_no": 12,
+      "from_km": "14+400",
+      "to_km": "14+500",
+      "geometry": {
+        "length_m": 100,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.5,
+          "depth_m": 0.5,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.03,
+          "bed_slope": 0.0003,
+          "lining_type": "earth",
+          "q_max": 0.151,
+          "q_rotation_plan": 0.159
+        }
+      }
+    },
+    {
+      "from_node": "M (0,3; 1,1; 1,0)",
+      "to_node": "M (0,3; 1,1; 1,1)",
+      "canal_name": "7R-9R-LMC",
+      "zone": 3,
+      "section_no": 1,
+      "from_km": "0+000",
+      "to_km": "1+500",
+      "geometry": {
+        "length_m": 1500,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.6,
+          "depth_m": 0.65,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 0.398,
+          "q_rotation_plan": 0.379
+        }
+      }
+    },
+    {
+      "from_node": "M (0,3; 1,1; 1,0)",
+      "to_node": "M (0,3; 1,1; 1,1)",
+      "canal_name": "7R-9R-LMC",
+      "zone": 3,
+      "section_no": 2,
+      "from_km": "1+500",
+      "to_km": "3+000",
+      "geometry": {
+        "length_m": 1500,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.6,
+          "depth_m": 0.6,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 0.335,
+          "q_rotation_plan": 0.334
+        }
+      }
+    },
+    {
+      "from_node": "M (0,3; 1,1; 2,0)",
+      "to_node": "M (0,3; 1,1; 2,1)",
+      "canal_name": "7L-9R-LMC",
+      "zone": 3,
+      "section_no": 1,
+      "from_km": "0+000",
+      "to_km": "0+800",
+      "geometry": {
+        "length_m": 800,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.6,
+          "depth_m": 0.6,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 0.335,
+          "q_rotation_plan": 0.334
+        }
+      }
+    },
+    {
+      "from_node": "M (0,3; 1,1; 2,0)",
+      "to_node": "M (0,3; 1,1; 2,1)",
+      "canal_name": "7L-9R-LMC",
+      "zone": 3,
+      "section_no": 2,
+      "from_km": "0+800",
+      "to_km": "2+500",
+      "geometry": {
+        "length_m": 1700,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.5,
+          "depth_m": 0.5,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 0.206,
+          "q_rotation_plan": 0.205
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,0)",
+      "to_node": "M (0,12; 1,1)",
+      "canal_name": "38R-LMC",
+      "zone": 4,
+      "section_no": 1,
+      "from_km": "0+000",
+      "to_km": "1+010",
+      "geometry": {
+        "length_m": 1010,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 2,
+          "depth_m": 1.35,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 3.652,
+          "q_rotation_plan": 3.652
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,0)",
+      "to_node": "M (0,12; 1,1)",
+      "canal_name": "38R-LMC",
+      "zone": 4,
+      "section_no": 2,
+      "from_km": "1+010",
+      "to_km": "1+200",
+      "geometry": {
+        "length_m": 190,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 2,
+          "depth_m": 1.35,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 3.652
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,0)",
+      "to_node": "M (0,12; 1,1)",
+      "canal_name": "38R-LMC",
+      "zone": 4,
+      "section_no": 3,
+      "from_km": "1+200",
+      "to_km": "1+720",
+      "geometry": {
+        "length_m": 520,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 2,
+          "depth_m": 1.35,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 3.652,
+          "q_rotation_plan": 3.652
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,1)",
+      "to_node": "M (0,12; 1,2)",
+      "canal_name": "38R-LMC",
+      "zone": 4,
+      "section_no": 4,
+      "from_km": "1+720",
+      "to_km": "3+000",
+      "geometry": {
+        "length_m": 1280,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 1.5,
+          "depth_m": 1.1,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 2.01,
+          "q_rotation_plan": 2.008
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,2)",
+      "to_node": "M (0,12; 1,3)",
+      "canal_name": "38R-LMC",
+      "zone": 5,
+      "section_no": 5,
+      "from_km": "3+000",
+      "to_km": "3+500",
+      "geometry": {
+        "length_m": 500,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 1.4,
+          "depth_m": 1.1,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 1.926
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,2)",
+      "to_node": "M (0,12; 1,3)",
+      "canal_name": "38R-LMC",
+      "zone": 5,
+      "section_no": 6,
+      "from_km": "3+500",
+      "to_km": "4+500",
+      "geometry": {
+        "length_m": 1000,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 1.4,
+          "depth_m": 1.1,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 1.926,
+          "q_rotation_plan": 1.927
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,3)",
+      "to_node": "M (0,12; 1,4)",
+      "canal_name": "38R-LMC",
+      "zone": 5,
+      "section_no": 7,
+      "from_km": "4+500",
+      "to_km": "5+260",
+      "geometry": {
+        "length_m": 760,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 1.1,
+          "depth_m": 0.9,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 1.103
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,3)",
+      "to_node": "M (0,12; 1,4)",
+      "canal_name": "38R-LMC",
+      "zone": 5,
+      "section_no": 8,
+      "from_km": "5+260",
+      "to_km": "6+620",
+      "geometry": {
+        "length_m": 1360,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 1.1,
+          "depth_m": 0.9,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 1.103,
+          "q_rotation_plan": 1.102
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,4)",
+      "to_node": "M (0,12; 1,5)",
+      "canal_name": "38R-LMC",
+      "zone": 5,
+      "section_no": 9,
+      "from_km": "6+620",
+      "to_km": "7+000",
+      "geometry": {
+        "length_m": 380,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.9,
+          "depth_m": 0.75,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 0.67
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,4)",
+      "to_node": "M (0,12; 1,5)",
+      "canal_name": "38R-LMC",
+      "zone": 5,
+      "section_no": 10,
+      "from_km": "7+000",
+      "to_km": "8+780",
+      "geometry": {
+        "length_m": 1780,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.9,
+          "depth_m": 0.75,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 0.67,
+          "q_rotation_plan": 0.67
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,4)",
+      "to_node": "M (0,12; 1,5)",
+      "canal_name": "38R-LMC",
+      "zone": 5,
+      "section_no": 11,
+      "from_km": "8+780",
+      "to_km": "8+900",
+      "geometry": {
+        "length_m": 120,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.5,
+          "depth_m": 0.5,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.03,
+          "bed_slope": 0.0003,
+          "lining_type": "earth",
+          "q_max": 0.151,
+          "q_rotation_plan": 0.159
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,0; 1,0)",
+      "to_node": "M (0,12; 1,0; 1,1)",
+      "canal_name": "1R-38R-LMC",
+      "zone": 4,
+      "section_no": 1,
+      "from_km": "0+000",
+      "to_km": "2+050",
+      "geometry": {
+        "length_m": 2050,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.7,
+          "depth_m": 0.654,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 0.436,
+          "q_rotation_plan": 0.431
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,0; 1,0)",
+      "to_node": "M (0,12; 1,0; 1,1)",
+      "canal_name": "1R-38R-LMC",
+      "zone": 4,
+      "section_no": 2,
+      "from_km": "2+050",
+      "to_km": "3+500",
+      "geometry": {
+        "length_m": 1450,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.55,
+          "depth_m": 0.55,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 0.265
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,0; 1,0)",
+      "to_node": "M (0,12; 1,0; 1,1)",
+      "canal_name": "1R-38R-LMC",
+      "zone": 4,
+      "section_no": 3,
+      "from_km": "3+500",
+      "to_km": "4+200",
+      "geometry": {
+        "length_m": 700,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.55,
+          "depth_m": 0.55,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 0.265,
+          "q_rotation_plan": 0.265
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,0; 1,0)",
+      "to_node": "M (0,12; 1,0; 1,1)",
+      "canal_name": "1R-38R-LMC",
+      "zone": 4,
+      "section_no": 4,
+      "from_km": "4+200",
+      "to_km": "4+550",
+      "geometry": {
+        "length_m": 350,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.5,
+          "depth_m": 0.5,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.03,
+          "bed_slope": 0.0003,
+          "lining_type": "earth",
+          "q_max": 0.151,
+          "q_rotation_plan": 0.159
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,1; 1,0)",
+      "to_node": "M (0,12; 1,1; 1,1)",
+      "canal_name": "2R-38R-LMC",
+      "zone": 4,
+      "section_no": 1,
+      "from_km": "0+000",
+      "to_km": "0+540",
+      "geometry": {
+        "length_m": 540,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 1.2,
+          "depth_m": 0.95,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 1.297,
+          "q_rotation_plan": 1.297
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,1; 1,1)",
+      "to_node": "M (0,12; 1,1; 1,2)",
+      "canal_name": "2R-38R-LMC",
+      "zone": 4,
+      "section_no": 2,
+      "from_km": "0+540",
+      "to_km": "1+200",
+      "geometry": {
+        "length_m": 660,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.7,
+          "depth_m": 0.7,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 0.505,
+          "q_rotation_plan": 0.504
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,1; 1,1)",
+      "to_node": "M (0,12; 1,1; 1,2)",
+      "canal_name": "2R-38R-LMC",
+      "zone": 4,
+      "section_no": 3,
+      "from_km": "1+200",
+      "to_km": "3+020",
+      "geometry": {
+        "length_m": 1820,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.65,
+          "depth_m": 0.65,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 0.414,
+          "q_rotation_plan": 0.414
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,1; 1,1)",
+      "to_node": "M (0,12; 1,1; 1,2)",
+      "canal_name": "2R-38R-LMC",
+      "zone": 4,
+      "section_no": 4,
+      "from_km": "3+020",
+      "to_km": "3+500",
+      "geometry": {
+        "length_m": 480,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.5,
+          "depth_m": 0.5,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 0.206
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,1; 1,1)",
+      "to_node": "M (0,12; 1,1; 1,2)",
+      "canal_name": "2R-38R-LMC",
+      "zone": 4,
+      "section_no": 5,
+      "from_km": "3+500",
+      "to_km": "3+650",
+      "geometry": {
+        "length_m": 150,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.5,
+          "depth_m": 0.5,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 0.206,
+          "q_rotation_plan": 0.205
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,1; 1,1)",
+      "to_node": "M (0,12; 1,1; 1,2)",
+      "canal_name": "2R-38R-LMC",
+      "zone": 4,
+      "section_no": 6,
+      "from_km": "3+650",
+      "to_km": "3+850",
+      "geometry": {
+        "length_m": 200,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.5,
+          "depth_m": 0.5,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.03,
+          "bed_slope": 0.0003,
+          "lining_type": "earth",
+          "q_max": 0.151,
+          "q_rotation_plan": 0.159
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,1; 1,0; 1,0)",
+      "to_node": "M (0,12; 1,1; 1,0; 1,1)",
+      "canal_name": "1R-2R-38R-LMC",
+      "zone": 4,
+      "section_no": 1,
+      "from_km": "0+000",
+      "to_km": "1+000",
+      "geometry": {
+        "length_m": 1000,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 1,
+          "depth_m": 0.85,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 0.926,
+          "q_rotation_plan": 0.925
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,1; 1,0; 1,0)",
+      "to_node": "M (0,12; 1,1; 1,0; 1,1)",
+      "canal_name": "1R-2R-38R-LMC",
+      "zone": 4,
+      "section_no": 2,
+      "from_km": "1+000",
+      "to_km": "3+200",
+      "geometry": {
+        "length_m": 2200,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.9,
+          "depth_m": 0.8,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 0.768,
+          "q_rotation_plan": 0.768
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,1; 1,0; 1,1)",
+      "to_node": "M (0,12; 1,1; 1,0; 1,2)",
+      "canal_name": "1R-2R-38R-LMC",
+      "zone": 4,
+      "section_no": 3,
+      "from_km": "3+200",
+      "to_km": "3+500",
+      "geometry": {
+        "length_m": 300,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.8,
+          "depth_m": 0.7,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 0.543
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,1; 1,0; 1,1)",
+      "to_node": "M (0,12; 1,1; 1,0; 1,2)",
+      "canal_name": "1R-2R-38R-LMC",
+      "zone": 4,
+      "section_no": 4,
+      "from_km": "3+500",
+      "to_km": "5+000",
+      "geometry": {
+        "length_m": 1500,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.8,
+          "depth_m": 0.7,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 0.543,
+          "q_rotation_plan": 0.542
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,1; 1,0; 1,1)",
+      "to_node": "M (0,12; 1,1; 1,0; 1,2)",
+      "canal_name": "1R-2R-38R-LMC",
+      "zone": 4,
+      "section_no": 5,
+      "from_km": "5+000",
+      "to_km": "6+280",
+      "geometry": {
+        "length_m": 1280,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.6,
+          "depth_m": 0.6,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 0.335,
+          "q_rotation_plan": 0.334
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,1; 1,0; 1,1)",
+      "to_node": "M (0,12; 1,1; 1,0; 1,2)",
+      "canal_name": "1R-2R-38R-LMC",
+      "zone": 4,
+      "section_no": 6,
+      "from_km": "6+280",
+      "to_km": "7+000",
+      "geometry": {
+        "length_m": 720,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.5,
+          "depth_m": 0.5,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 0.206
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,1; 1,0; 1,1)",
+      "to_node": "M (0,12; 1,1; 1,0; 1,2)",
+      "canal_name": "1R-2R-38R-LMC",
+      "zone": 4,
+      "section_no": 7,
+      "from_km": "7+000",
+      "to_km": "7+720",
+      "geometry": {
+        "length_m": 720,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.5,
+          "depth_m": 0.5,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 0.206,
+          "q_rotation_plan": 0.205
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,1; 1,0; 1,1)",
+      "to_node": "M (0,12; 1,1; 1,0; 1,2)",
+      "canal_name": "1R-2R-38R-LMC",
+      "zone": 4,
+      "section_no": 8,
+      "from_km": "7+720",
+      "to_km": "7+780",
+      "geometry": {
+        "length_m": 60,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.5,
+          "depth_m": 0.5,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.03,
+          "bed_slope": 0.0003,
+          "lining_type": "earth",
+          "q_max": 0.151,
+          "q_rotation_plan": 0.159
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,2; 1,0)",
+      "to_node": "M (0,12; 1,2; 1,1)",
+      "canal_name": "4L-38R-LMC",
+      "zone": 5,
+      "section_no": 1,
+      "from_km": "0+000",
+      "to_km": "1+310",
+      "geometry": {
+        "length_m": 1310,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.9,
+          "depth_m": 0.8,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 0.768,
+          "q_rotation_plan": 0.768
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,2; 1,0)",
+      "to_node": "M (0,12; 1,2; 1,1)",
+      "canal_name": "4L-38R-LMC",
+      "zone": 5,
+      "section_no": 2,
+      "from_km": "1+310",
+      "to_km": "2+450",
+      "geometry": {
+        "length_m": 1140,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.9,
+          "depth_m": 0.75,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 0.67,
+          "q_rotation_plan": 0.67
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,2; 1,0)",
+      "to_node": "M (0,12; 1,2; 1,1)",
+      "canal_name": "4L-38R-LMC",
+      "zone": 5,
+      "section_no": 3,
+      "from_km": "2+450",
+      "to_km": "3+300",
+      "geometry": {
+        "length_m": 850,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.8,
+          "depth_m": 0.75,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 0.628,
+          "q_rotation_plan": 0.628
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,2; 1,0)",
+      "to_node": "M (0,12; 1,2; 1,1)",
+      "canal_name": "4L-38R-LMC",
+      "zone": 5,
+      "section_no": 4,
+      "from_km": "3+300",
+      "to_km": "3+500",
+      "geometry": {
+        "length_m": 200,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.8,
+          "depth_m": 0.7,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 0.543
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,2; 1,0)",
+      "to_node": "M (0,12; 1,2; 1,1)",
+      "canal_name": "4L-38R-LMC",
+      "zone": 5,
+      "section_no": 5,
+      "from_km": "3+500",
+      "to_km": "4+000",
+      "geometry": {
+        "length_m": 500,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.8,
+          "depth_m": 0.7,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 0.543,
+          "q_rotation_plan": 0.542
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,2; 1,1)",
+      "to_node": "M (0,12; 1,2; 1,2)",
+      "canal_name": "4L-38R-LMC",
+      "zone": 5,
+      "section_no": 6,
+      "from_km": "4+000",
+      "to_km": "4+170",
+      "geometry": {
+        "length_m": 170,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.8,
+          "depth_m": 0.7,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 0.543,
+          "q_rotation_plan": 0.542
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,2; 1,1)",
+      "to_node": "M (0,12; 1,2; 1,2)",
+      "canal_name": "4L-38R-LMC",
+      "zone": 5,
+      "section_no": 7,
+      "from_km": "4+170",
+      "to_km": "4+800",
+      "geometry": {
+        "length_m": 630,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.7,
+          "depth_m": 0.65,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 0.431,
+          "q_rotation_plan": 0.431
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,2; 1,1)",
+      "to_node": "M (0,12; 1,2; 1,2)",
+      "canal_name": "4L-38R-LMC",
+      "zone": 5,
+      "section_no": 8,
+      "from_km": "4+800",
+      "to_km": "5+800",
+      "geometry": {
+        "length_m": 1000,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.5,
+          "depth_m": 0.55,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.003,
+          "lining_type": "concrete",
+          "q_max": 0.981,
+          "q_rotation_plan": 0.205
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,2; 1,0; 1,0)",
+      "to_node": "M (0,12; 1,2; 1,0; 1,1)",
+      "canal_name": "5R-4L-38R-LMC",
+      "zone": 5,
+      "section_no": 1,
+      "from_km": "0+000",
+      "to_km": "1+400",
+      "geometry": {
+        "length_m": 1400,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.5,
+          "depth_m": 0.5,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 0.206,
+          "q_rotation_plan": 0.205
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,2; 1,0; 1,0)",
+      "to_node": "M (0,12; 1,2; 1,0; 1,1)",
+      "canal_name": "5R-4L-38R-LMC",
+      "zone": 5,
+      "section_no": 2,
+      "from_km": "1+400",
+      "to_km": "1+540",
+      "geometry": {
+        "length_m": 140,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.5,
+          "depth_m": 0.5,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.03,
+          "bed_slope": 0.003,
+          "lining_type": "earth",
+          "q_max": 0.478,
+          "q_rotation_plan": 0.159
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,3; 1,0)",
+      "to_node": "M (0,12; 1,3; 1,1)",
+      "canal_name": "6R-38R-LMC",
+      "zone": 5,
+      "section_no": 1,
+      "from_km": "0+000",
+      "to_km": "1+100",
+      "geometry": {
+        "length_m": 1100,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.7,
+          "depth_m": 0.65,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 0.431,
+          "q_rotation_plan": 0.431
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,3; 1,0)",
+      "to_node": "M (0,12; 1,3; 1,1)",
+      "canal_name": "6R-38R-LMC",
+      "zone": 5,
+      "section_no": 2,
+      "from_km": "1+100",
+      "to_km": "2+250",
+      "geometry": {
+        "length_m": 1150,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.5,
+          "depth_m": 0.5,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 0.206,
+          "q_rotation_plan": 0.205
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,3; 1,0)",
+      "to_node": "M (0,12; 1,3; 1,1)",
+      "canal_name": "6R-38R-LMC",
+      "zone": 5,
+      "section_no": 3,
+      "from_km": "2+250",
+      "to_km": "2+550",
+      "geometry": {
+        "length_m": 300,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.5,
+          "depth_m": 0.5,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.03,
+          "bed_slope": 0.0003,
+          "lining_type": "earth",
+          "q_max": 0.151,
+          "q_rotation_plan": 0.159
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,4; 1,0)",
+      "to_node": "M (0,12; 1,4; 1,1)",
+      "canal_name": "8R-38R-LMC",
+      "zone": 5,
+      "section_no": 1,
+      "from_km": "0+000",
+      "to_km": "1+000",
+      "geometry": {
+        "length_m": 1000,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.7,
+          "depth_m": 0.65,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 0.431,
+          "q_rotation_plan": 0.431
+        }
+      }
+    },
+    {
+      "from_node": "M (0,12; 1,4; 1,0)",
+      "to_node": "M (0,12; 1,4; 1,1)",
+      "canal_name": "8R-38R-LMC",
+      "zone": 5,
+      "section_no": 2,
+      "from_km": "1+000",
+      "to_km": "2+500",
+      "geometry": {
+        "length_m": 1500,
+        "cross_section": {
+          "type": "trapezoidal",
+          "bottom_width_m": 0.6,
+          "depth_m": 0.6,
+          "side_slope": 1.5
+        },
+        "hydraulic_params": {
+          "manning_n": 0.018,
+          "bed_slope": 0.0002,
+          "lining_type": "concrete",
+          "q_max": 0.335,
+          "q_rotation_plan": 0.334
         }
       }
     }
   ],
-  "summary": {
-    "total_sections": 37,
-    "by_zone": {
-      "zone_1": 5,
-      "zone_2": 9,
-      "zone_3": 5,
-      "zone_4": 5,
-      "zone_5": 5,
-      "zone_6": 8
+  "reaches": [
+    {
+      "from_node": "M(0,0)",
+      "to_node": "M(0,1)",
+      "canal_name": "LMC",
+      "from_km": "0+000",
+      "to_km": "0+300",
+      "span_m": 300,
+      "covered_m": 130,
+      "gap_m": 170,
+      "segments": 1
     },
-    "by_canal_type": {
-      "main_canals": ["Outlet", "LMC", "RMC"],
-      "primary_laterals": ["9R-LMC", "38R-LMC"],
-      "secondary_laterals": ["7R-9R-LMC", "7L-9R-LMC", "1R-38R-LMC", "2R-38R-LMC", "4L-38R-LMC", "4L-RMC"],
-      "tertiary_laterals": ["1R-2R-38R-LMC", "5R-4L-38R-LMC", "6R-38R-LMC", "8R-38R-LMC"]
+    {
+      "from_node": "M(0,1)",
+      "to_node": "M(0,2)",
+      "canal_name": "LMC",
+      "from_km": "0+300",
+      "to_km": "1+620",
+      "span_m": 1320,
+      "covered_m": 1320,
+      "gap_m": 0,
+      "segments": 1
+    },
+    {
+      "from_node": "M(0,2)",
+      "to_node": "M(0,3)",
+      "canal_name": "LMC",
+      "from_km": "1+620",
+      "to_km": "6+880",
+      "span_m": 5260,
+      "covered_m": 5260,
+      "gap_m": 0,
+      "segments": 2
+    },
+    {
+      "from_node": "M(0,3)",
+      "to_node": "M(0,4)",
+      "canal_name": "LMC",
+      "from_km": "6+880",
+      "to_km": "9+200",
+      "span_m": 2320,
+      "covered_m": 2320,
+      "gap_m": 0,
+      "segments": 2
+    },
+    {
+      "from_node": "M(0,4)",
+      "to_node": "M(0,5)",
+      "canal_name": "LMC",
+      "from_km": "9+200",
+      "to_km": "11+800",
+      "span_m": 2600,
+      "covered_m": 2600,
+      "gap_m": 0,
+      "segments": 2
+    },
+    {
+      "from_node": "M(0,5)",
+      "to_node": "M(0,6)",
+      "canal_name": "LMC",
+      "from_km": "11+800",
+      "to_km": "17+000",
+      "span_m": 5200,
+      "covered_m": 5200,
+      "gap_m": 0,
+      "segments": 4
+    },
+    {
+      "from_node": "M(0,6)",
+      "to_node": "M(0,7)",
+      "canal_name": "LMC",
+      "from_km": "17+000",
+      "to_km": "21+000",
+      "span_m": 4000,
+      "covered_m": 4000,
+      "gap_m": 0,
+      "segments": 2
+    },
+    {
+      "from_node": "M(0,7)",
+      "to_node": "M(0,8)",
+      "canal_name": "LMC",
+      "from_km": "21+000",
+      "to_km": "23+315",
+      "span_m": 2315,
+      "covered_m": 2315,
+      "gap_m": 0,
+      "segments": 1
+    },
+    {
+      "from_node": "M(0,8)",
+      "to_node": "M(0,9)",
+      "canal_name": "LMC",
+      "from_km": "23+315",
+      "to_km": "25+700",
+      "span_m": 2385,
+      "covered_m": 2385,
+      "gap_m": 0,
+      "segments": 2
+    },
+    {
+      "from_node": "M(0,9)",
+      "to_node": "M(0,10)",
+      "canal_name": "LMC",
+      "from_km": "25+700",
+      "to_km": "28+300",
+      "span_m": 2600,
+      "covered_m": 2600,
+      "gap_m": 0,
+      "segments": 2
+    },
+    {
+      "from_node": "M(0,10)",
+      "to_node": "M(0,11)",
+      "canal_name": "LMC",
+      "from_km": "28+300",
+      "to_km": "36+010",
+      "span_m": 7710,
+      "covered_m": 7710,
+      "gap_m": 0,
+      "segments": 5
+    },
+    {
+      "from_node": "M(0,11)",
+      "to_node": "M(0,12)",
+      "canal_name": "LMC",
+      "from_km": "36+010",
+      "to_km": "37+859",
+      "span_m": 1849,
+      "covered_m": 1849,
+      "gap_m": 0,
+      "segments": 2
+    },
+    {
+      "from_node": "M(0,12)",
+      "to_node": "M(0,13)",
+      "canal_name": "LMC",
+      "from_km": "37+859",
+      "to_km": "38+100",
+      "span_m": 241,
+      "covered_m": 241,
+      "gap_m": 0,
+      "segments": 1
+    },
+    {
+      "from_node": "M(0,13)",
+      "to_node": "M(0,14)",
+      "canal_name": "LMC",
+      "from_km": "38+100",
+      "to_km": "39+050",
+      "span_m": 950,
+      "covered_m": 950,
+      "gap_m": 0,
+      "segments": 4
+    },
+    {
+      "from_node": "M (0,1; 1,0)",
+      "to_node": "M (0,1; 1,1)",
+      "canal_name": "RMC",
+      "from_km": "0+000",
+      "to_km": "2+600",
+      "span_m": 2600,
+      "covered_m": 2600,
+      "gap_m": 0,
+      "segments": 2
+    },
+    {
+      "from_node": "M (0,1; 1,1)",
+      "to_node": "M (0,1; 1,2)",
+      "canal_name": "RMC",
+      "from_km": "2+600",
+      "to_km": "4+520",
+      "span_m": 1920,
+      "covered_m": 1920,
+      "gap_m": 0,
+      "segments": 2
+    },
+    {
+      "from_node": "M (0,1; 1,2)",
+      "to_node": "M (0,1; 1,3)",
+      "canal_name": "RMC",
+      "from_km": "4+520",
+      "to_km": "5+500",
+      "span_m": 980,
+      "covered_m": 980,
+      "gap_m": 0,
+      "segments": 1
+    },
+    {
+      "from_node": "M (0,1; 1,3)",
+      "to_node": "M (0,1; 1,4)",
+      "canal_name": "RMC",
+      "from_km": "5+500",
+      "to_km": "6+780",
+      "span_m": 1280,
+      "covered_m": 1200,
+      "gap_m": 80,
+      "segments": 2
+    },
+    {
+      "from_node": "M(0,1; 1,1; 1,0)",
+      "to_node": "M(0,1; 1,1; 1,1)",
+      "canal_name": "4L-RMC",
+      "from_km": "0+000",
+      "to_km": "0+750",
+      "span_m": 750,
+      "covered_m": 750,
+      "gap_m": 0,
+      "segments": 1
+    },
+    {
+      "from_node": "M(0,1; 1,1; 1,1)",
+      "to_node": "M(0,1; 1,1; 1,2)",
+      "canal_name": "4L-RMC",
+      "from_km": "0+750",
+      "to_km": "1+850",
+      "span_m": 1100,
+      "covered_m": 1100,
+      "gap_m": 0,
+      "segments": 2
+    },
+    {
+      "from_node": "M(0,1; 1,1; 1,2)",
+      "to_node": "M(0,1; 1,1; 1,3)",
+      "canal_name": "4L-RMC",
+      "from_km": "1+850",
+      "to_km": "2+600",
+      "span_m": 750,
+      "covered_m": 750,
+      "gap_m": 0,
+      "segments": 1
+    },
+    {
+      "from_node": "M(0,1; 1,1; 1,3)",
+      "to_node": "M(0,1; 1,1; 1,4)",
+      "canal_name": "4L-RMC",
+      "from_km": "2+600",
+      "to_km": "3+000",
+      "span_m": 400,
+      "covered_m": 400,
+      "gap_m": 0,
+      "segments": 1
+    },
+    {
+      "from_node": "M (0,3; 1,0)",
+      "to_node": "M (0,3; 1,1)",
+      "canal_name": "9R-LMC",
+      "from_km": "0+000",
+      "to_km": "5+750",
+      "span_m": 5750,
+      "covered_m": 5750,
+      "gap_m": 0,
+      "segments": 4
+    },
+    {
+      "from_node": "M (0,3; 1,1)",
+      "to_node": "M (0,3; 1,2)",
+      "canal_name": "9R-LMC",
+      "from_km": "5+750",
+      "to_km": "7+900",
+      "span_m": 2150,
+      "covered_m": 2150,
+      "gap_m": 0,
+      "segments": 2
+    },
+    {
+      "from_node": "M (0,3; 1,2)",
+      "to_node": "M (0,3; 1,3)",
+      "canal_name": "9R-LMC",
+      "from_km": "7+900",
+      "to_km": "14+500",
+      "span_m": 6600,
+      "covered_m": 6600,
+      "gap_m": 0,
+      "segments": 6
+    },
+    {
+      "from_node": "M (0,3; 1,1; 1,0)",
+      "to_node": "M (0,3; 1,1; 1,1)",
+      "canal_name": "7R-9R-LMC",
+      "from_km": "0+000",
+      "to_km": "3+000",
+      "span_m": 3000,
+      "covered_m": 3000,
+      "gap_m": 0,
+      "segments": 2
+    },
+    {
+      "from_node": "M (0,3; 1,1; 2,0)",
+      "to_node": "M (0,3; 1,1; 2,1)",
+      "canal_name": "7L-9R-LMC",
+      "from_km": "0+000",
+      "to_km": "2+500",
+      "span_m": 2500,
+      "covered_m": 2500,
+      "gap_m": 0,
+      "segments": 2
+    },
+    {
+      "from_node": "M (0,12; 1,0)",
+      "to_node": "M (0,12; 1,1)",
+      "canal_name": "38R-LMC",
+      "from_km": "0+000",
+      "to_km": "1+720",
+      "span_m": 1720,
+      "covered_m": 1720,
+      "gap_m": 0,
+      "segments": 3
+    },
+    {
+      "from_node": "M (0,12; 1,1)",
+      "to_node": "M (0,12; 1,2)",
+      "canal_name": "38R-LMC",
+      "from_km": "1+720",
+      "to_km": "3+000",
+      "span_m": 1280,
+      "covered_m": 1280,
+      "gap_m": 0,
+      "segments": 1
+    },
+    {
+      "from_node": "M (0,12; 1,2)",
+      "to_node": "M (0,12; 1,3)",
+      "canal_name": "38R-LMC",
+      "from_km": "3+000",
+      "to_km": "4+500",
+      "span_m": 1500,
+      "covered_m": 1500,
+      "gap_m": 0,
+      "segments": 2
+    },
+    {
+      "from_node": "M (0,12; 1,3)",
+      "to_node": "M (0,12; 1,4)",
+      "canal_name": "38R-LMC",
+      "from_km": "4+500",
+      "to_km": "6+620",
+      "span_m": 2120,
+      "covered_m": 2120,
+      "gap_m": 0,
+      "segments": 2
+    },
+    {
+      "from_node": "M (0,12; 1,4)",
+      "to_node": "M (0,12; 1,5)",
+      "canal_name": "38R-LMC",
+      "from_km": "6+620",
+      "to_km": "8+900",
+      "span_m": 2280,
+      "covered_m": 2280,
+      "gap_m": 0,
+      "segments": 3
+    },
+    {
+      "from_node": "M (0,12; 1,0; 1,0)",
+      "to_node": "M (0,12; 1,0; 1,1)",
+      "canal_name": "1R-38R-LMC",
+      "from_km": "0+000",
+      "to_km": "4+550",
+      "span_m": 4550,
+      "covered_m": 4550,
+      "gap_m": 0,
+      "segments": 4
+    },
+    {
+      "from_node": "M (0,12; 1,1; 1,0)",
+      "to_node": "M (0,12; 1,1; 1,1)",
+      "canal_name": "2R-38R-LMC",
+      "from_km": "0+000",
+      "to_km": "0+540",
+      "span_m": 540,
+      "covered_m": 540,
+      "gap_m": 0,
+      "segments": 1
+    },
+    {
+      "from_node": "M (0,12; 1,1; 1,1)",
+      "to_node": "M (0,12; 1,1; 1,2)",
+      "canal_name": "2R-38R-LMC",
+      "from_km": "0+540",
+      "to_km": "3+880",
+      "span_m": 3340,
+      "covered_m": 3310,
+      "gap_m": 30,
+      "segments": 5
+    },
+    {
+      "from_node": "M (0,12; 1,1; 1,0; 1,0)",
+      "to_node": "M (0,12; 1,1; 1,0; 1,1)",
+      "canal_name": "1R-2R-38R-LMC",
+      "from_km": "0+000",
+      "to_km": "3+200",
+      "span_m": 3200,
+      "covered_m": 3200,
+      "gap_m": 0,
+      "segments": 2
+    },
+    {
+      "from_node": "M (0,12; 1,1; 1,0; 1,1)",
+      "to_node": "M (0,12; 1,1; 1,0; 1,2)",
+      "canal_name": "1R-2R-38R-LMC",
+      "from_km": "3+200",
+      "to_km": "7+780",
+      "span_m": 4580,
+      "covered_m": 4580,
+      "gap_m": 0,
+      "segments": 6
+    },
+    {
+      "from_node": "M (0,12; 1,2; 1,0)",
+      "to_node": "M (0,12; 1,2; 1,1)",
+      "canal_name": "4L-38R-LMC",
+      "from_km": "0+000",
+      "to_km": "4+000",
+      "span_m": 4000,
+      "covered_m": 4000,
+      "gap_m": 0,
+      "segments": 5
+    },
+    {
+      "from_node": "M (0,12; 1,2; 1,1)",
+      "to_node": "M (0,12; 1,2; 1,2)",
+      "canal_name": "4L-38R-LMC",
+      "from_km": "4+000",
+      "to_km": "7+000",
+      "span_m": 3000,
+      "covered_m": 1800,
+      "gap_m": 1200,
+      "segments": 3
+    },
+    {
+      "from_node": "M (0,12; 1,2; 1,0; 1,0)",
+      "to_node": "M (0,12; 1,2; 1,0; 1,1)",
+      "canal_name": "5R-4L-38R-LMC",
+      "from_km": "0+000",
+      "to_km": "1+950",
+      "span_m": 1950,
+      "covered_m": 1540,
+      "gap_m": 410,
+      "segments": 2
+    },
+    {
+      "from_node": "M (0,12; 1,3; 1,0)",
+      "to_node": "M (0,12; 1,3; 1,1)",
+      "canal_name": "6R-38R-LMC",
+      "from_km": "0+000",
+      "to_km": "2+550",
+      "span_m": 2550,
+      "covered_m": 2550,
+      "gap_m": 0,
+      "segments": 3
+    },
+    {
+      "from_node": "M (0,12; 1,4; 1,0)",
+      "to_node": "M (0,12; 1,4; 1,1)",
+      "canal_name": "8R-38R-LMC",
+      "from_km": "0+000",
+      "to_km": "2+500",
+      "span_m": 2500,
+      "covered_m": 2500,
+      "gap_m": 0,
+      "segments": 2
+    }
+  ],
+  "summary": {
+    "total_sections": 103,
+    "by_zone": {
+      "zone_1": 6,
+      "zone_2": 25,
+      "zone_6": 12,
+      "zone_3": 16,
+      "zone_4": 22,
+      "zone_5": 22
     }
   }
 }
