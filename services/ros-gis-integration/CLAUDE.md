@@ -21,7 +21,26 @@ No Dockerfile, README, pyproject, or Makefile in this service.
 ## Tests
 pytest + pytest-asyncio. `tests/conftest.py` puts `src` on the path (src-rooted imports);
 suite = `pytest tests/unit/` (settings + the 2.6b fail-closed/interface/query-shape locks
-for `daily_demand_calculator`). Tracked via a scoped `.gitignore` negation (Wave 2.6b).
+for `daily_demand_calculator` + the 2.5 dataset-version schema locks). Tracked via a
+scoped `.gitignore` negation (Wave 2.6b).
+
+## Migrations (Wave 2.5)
+Tracked DDL pairs in `migrations/` (`<id>.up.sql`/`<id>.down.sql`; a scoped negation
+allowlists only those suffixes past the blanket `*.sql` ignore). Commands:
+`python migrations/migrate.py apply|rollback <id>` and `status` — one transaction per
+migration, pair checksum registry in `ros_gis.schema_migrations`, drift refuses on apply
+or rollback (fail closed). The runner loads the service `.env`, parses reserved password
+characters into asyncpg keyword arguments, and keeps `status` read-only.
+`0001_dataset_version_parent`: dataset_versions parent + effective-dated
+section_master_history / gate_mapping_history (gist exclusions reject overlapping
+validity; primary-exclusivity scoped per dataset+section+interval) + `*_current` views +
+additive current-table hardening. Version tables use separate migration-owned SQLAlchemy
+metadata, so development `Base.metadata.create_all` cannot bypass the registry or require
+`btree_gist`. Rollback removes owned version objects but deliberately retains additive
+legacy-table columns/defaults/geometry widening because ownership-safe reversal is not
+possible. Canonical `M(i,j)` validation applies to versioned crosswalk rows; the legacy
+table still carries path-like IDs. NOT yet applied to the remote DB (E1 credential
+rotation first).
 
 ## Config / Ports / Env
 - Port: settings default 3022 but `.env`/`start.sh` force **3047** (effective). Endpoints: `/graphql`, `/health`, `/metrics`, `/api/v1/*` (sections/zones/sync trigger), `/api/v1/admin/*`.

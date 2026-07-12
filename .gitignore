@@ -293,6 +293,15 @@ services/flow-monitoring/docs/*
 !services/ros-gis-integration/tests/
 !services/ros-gis-integration/tests/**
 
+# Track ros-gis-integration schema migrations (Wave 2.5 dataset-version parent).
+# Exact allowlist exception to the blanket *.sql credential guard above.
+!services/ros-gis-integration/migrations/
+services/ros-gis-integration/migrations/*
+!services/ros-gis-integration/migrations/__init__.py
+!services/ros-gis-integration/migrations/migrate.py
+!services/ros-gis-integration/migrations/*.up.sql
+!services/ros-gis-integration/migrations/*.down.sql
+
 # Compiled python artifacts must never be tracked, even inside re-included trees
 # (gitignore is last-match-wins; keep these at the END of the file). Wave 1.8.
 **/__pycache__/
