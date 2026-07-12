@@ -16,6 +16,7 @@ from core.logging import setup_logging
 from core.metrics import setup_metrics
 from core.network_flow_controller import NetworkFlowController
 from db.connections import DatabaseManager
+from db.demand_store_postgres import PostgresDemandStore
 # Kafka consumer is optional; import lazily when configured
 from controllers.dual_mode_gate_controller import DualModeGateController
 
@@ -69,6 +70,14 @@ async def lifespan(app: FastAPI):
         # Wire the canonical demand->flow engine (A1-A3 / F-11b / B5) for /api/v1/control/plan.
         control_api.flow_controller = NetworkFlowController(network_file, geometry_file)
         logger.info("Flow controller (demand->reach aggregation) initialized")
+
+        # Wave 2.4: append-only versioned demand/allocation/delivery stores behind
+        # /api/v1/control/demands. ensure_schema is idempotent; a failure here
+        # aborts startup — booting without the contract store would fail open.
+        demand_store = PostgresDemandStore(db_manager.postgres.pool)
+        await demand_store.ensure_schema()
+        control_api.demand_store = demand_store
+        logger.info("Demand contract store initialized (append-only, ros_gis)")
 
         # App-scoped hydraulics service on the same canonical configs (Wave 1.3);
         # replaces per-request construction with a never-connected DatabaseManager.
