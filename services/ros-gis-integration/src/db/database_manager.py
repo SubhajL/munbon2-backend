@@ -355,6 +355,21 @@ class DatabaseManager:
         ]
         return path
     
+    @asynccontextmanager
+    async def get_connection(self) -> AsyncGenerator[asyncpg.Connection, None]:
+        """Yield a raw asyncpg connection from the pool (fail-closed).
+
+        Several services (daily_demand_calculator, query_optimizer) call this;
+        until Wave 2.6b it did not exist, so every one of those call sites
+        raised AttributeError and had never executed.
+        """
+        if self._pg_pool is None:
+            raise RuntimeError(
+                "DatabaseManager is not initialized - call initialize() first"
+            )
+        async with self._pg_pool.acquire() as conn:
+            yield conn
+
     # Repository access methods
     @asynccontextmanager
     async def get_session(self):

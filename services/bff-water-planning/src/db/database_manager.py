@@ -375,6 +375,21 @@ class DatabaseManager:
         ]
         return path
     
+    @asynccontextmanager
+    async def get_connection(self):
+        """Yield a raw asyncpg connection from the pool (fail-closed).
+
+        Until Wave 2.6b this method did not exist: daily_demand_calculator's
+        real-mode path raised AttributeError on every call and fell into its
+        fabricate-on-failure fallback.
+        """
+        if self._pg_pool is None:
+            raise RuntimeError(
+                "DatabaseManager is not initialized - call initialize() first"
+            )
+        async with self._pg_pool.acquire() as conn:
+            yield conn
+
     # Repository access methods
     @asynccontextmanager
     async def get_session(self):
