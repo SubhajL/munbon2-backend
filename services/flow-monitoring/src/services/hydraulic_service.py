@@ -13,7 +13,8 @@ from path_based_hydraulic_solver import PathBasedHydraulicSolver
 from db.connections import DatabaseManager
 from utils.gate_calibration_loader import GateCalibrationLoader
 from core.metrics import hydraulic_solver_iterations, hydraulic_verification_duration
-from core.config_loader import load_network_config
+from core.config_loader import load_canal_geometry_config, load_network_config
+from core.conveyance_loss import sections_by_edge_from_geometry
 from core.gate_flow import build_gate_flow_calibration, gate_flow_m3s, required_opening_m
 from core.network_topology import ROOT, load_validated_network
 from core.canal_capacity import build_capacity_index, reach_capacity
@@ -63,6 +64,8 @@ class HydraulicService:
             # Wave 1.1: warm the strict capacity index so a corrupt/drifted network
             # fails construction instead of the first capacity check.
             self._canal_capacity_index()
+            # Wave 2.1a: same for the surveyed segment bounds.
+            self._canal_sections_by_edge()
 
             logger.info("Hydraulic solvers initialized successfully")
         except Exception as e:
@@ -264,17 +267,32 @@ class HydraulicService:
 
 
     def _get_canal_capacity(self, canal_id: str) -> float:
-        """Rated capacity (m3/s) of a canal reach, from the downstream gate's q_max in the
-        canonical network (F-04). Falls back to a documented default (logged) when unknown."""
+        """Rated capacity (m3/s) of a canal reach: min of the downstream gate's q_max
+        (F-04) and the weakest surveyed canal segment (Wave 2.1a), over whichever is
+        known. Falls back to a documented default (logged) when neither is."""
         capacity, from_data = reach_capacity(
-            self._canal_capacity_index(), canal_id, DEFAULT_CANAL_CAPACITY_M3S
+            self._canal_capacity_index(), canal_id, DEFAULT_CANAL_CAPACITY_M3S,
+            sections_by_edge=self._canal_sections_by_edge(),
         )
         if not from_data:
             logger.warning(
-                "canal %s: no rated capacity in network; using default %.1f m3/s",
+                "canal %s: no rated capacity in network or survey; using default %.1f m3/s",
                 canal_id, DEFAULT_CANAL_CAPACITY_M3S,
             )
         return capacity
+
+    def _canal_sections_by_edge(self) -> dict:
+        """Lazily load & cache the surveyed segment lists keyed by normalized edge
+        (Wave 2.1a). Strict + fail-closed like the capacity index; warmed at
+        construction alongside it."""
+        cache = getattr(self, "_canal_sections_cache", None)
+        if cache is None:
+            path = os.path.join(
+                os.path.dirname(__file__), "..", "config", "canal_geometry.json"
+            )
+            cache = sections_by_edge_from_geometry(load_canal_geometry_config(path))
+            self._canal_sections_cache = cache
+        return cache
 
     def _canal_capacity_index(self) -> dict:
         """Lazily load & cache gate q_max capacities from the canonical network.json.

@@ -18,6 +18,7 @@ from .config_loader import load_canal_geometry_config
 from .conveyance_loss import (
     make_reach_loss,
     normalize_edge,
+    reach_chainage_gap_m,
     reach_has_geometry,
     sections_by_edge_from_geometry,
 )
@@ -65,6 +66,14 @@ class NetworkFlowController:
         self.reaches_missing_geometry = {
             edge for edge in self.edges
             if not reach_has_geometry(self.sections, edge[0], edge[1])
+        }
+        # Wave 2.1a: partial surveys are legal but never silent — reaches whose
+        # segments leave unsurveyed chainage between them (loss/capacity understate
+        # there) are surfaced for the coverage report (2.1b) and observability (2.8a).
+        self.reaches_with_chainage_gaps = {
+            edge: gap
+            for edge, segments in self.sections.items()
+            if (gap := reach_chainage_gap_m(segments)) is not None and gap > 0.0
         }
         self._normalized_edges = {normalize_edge(u, v) for u, v in self.edges}
         # Any-spacing id resolution (Wave 1.2): canonical compact form -> the exact

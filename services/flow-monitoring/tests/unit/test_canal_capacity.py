@@ -1,6 +1,8 @@
 """
 Unit tests for core.canal_capacity — real per-reach capacity from the canonical
-network (F-04), replacing the hardcoded 15.0. Pure/stdlib:
+network (F-04), replacing the hardcoded 15.0; Wave 2.1a adds the canal-segment
+q_max bound (WAVE_2-4_PLAN §1.5 amendment #2: reach capacity = min of the
+downstream gate rating and the weakest surveyed segment). Pure/stdlib:
     pytest --noconftest tests/unit/test_canal_capacity.py
 """
 import json
@@ -9,6 +11,7 @@ from pathlib import Path
 from core.canal_capacity import (
     build_capacity_index,
     downstream_node,
+    min_segment_q_max,
     reach_capacity,
 )
 
@@ -73,6 +76,69 @@ class TestReachCapacity:
         cap, from_data = reach_capacity(idx, "C_A_UNKNOWN", default=15.0)
         assert cap == 15.0
         assert from_data is False
+
+
+class TestMinSegmentQMax:
+    def test_minimum_of_valid_segment_ratings(self):
+        segments = [{"q_max": 6.5}, {"q_max": 3.2}, {"q_max": 8.0}]
+        assert min_segment_q_max(segments) == 3.2
+
+    def test_unrated_segments_are_ignored(self):
+        assert min_segment_q_max([{"q_max": None}, {"q_max": 4.0}]) == 4.0
+
+    def test_all_unrated_is_none(self):
+        assert min_segment_q_max([{"q_max": None}, {}]) is None
+        assert min_segment_q_max([]) is None
+
+    def test_invalid_ratings_are_ignored(self):
+        segments = [
+            {"q_max": float("nan")},
+            {"q_max": -1.0},
+            {"q_max": 0},
+            {"q_max": True},
+            {"q_max": 2.5},
+        ]
+        assert min_segment_q_max(segments) == 2.5
+
+
+class TestReachCapacityWithSegments:
+    # Segment lists are keyed by NORMALIZED (upstream, downstream), as produced by
+    # conveyance_loss.sections_by_edge_from_geometry.
+    IDX = {"M(0,3)": 5.0}
+
+    def test_weakest_segment_bounds_below_the_gate_rating(self):
+        sections = {("M(0,2)", "M(0,3)"): [{"q_max": 6.0}, {"q_max": 3.0}]}
+        cap, from_data = reach_capacity(
+            self.IDX, "C_M(0,2)_M(0,3)", default=15.0, sections_by_edge=sections
+        )
+        assert (cap, from_data) == (3.0, True)
+
+    def test_gate_rating_bounds_below_stronger_segments(self):
+        sections = {("M(0,2)", "M(0,3)"): [{"q_max": 9.0}]}
+        cap, from_data = reach_capacity(
+            self.IDX, "C_M(0,2)_M(0,3)", default=15.0, sections_by_edge=sections
+        )
+        assert (cap, from_data) == (5.0, True)
+
+    def test_segments_alone_provide_capacity_when_gate_is_unrated(self):
+        sections = {("M(0,0)", "M(0,1)"): [{"q_max": 11.2}]}
+        cap, from_data = reach_capacity(
+            {}, "C_M(0,0)_M(0,1)", default=15.0, sections_by_edge=sections
+        )
+        assert (cap, from_data) == (11.2, True)
+
+    def test_spaced_node_spellings_join_normalized_segment_keys(self):
+        sections = {("M(0,3;1,0)", "M(0,3;1,1)"): [{"q_max": 2.0}]}
+        cap, from_data = reach_capacity(
+            {}, "C_M (0,3; 1,0)_M (0,3; 1,1)", default=15.0, sections_by_edge=sections
+        )
+        assert (cap, from_data) == (2.0, True)
+
+    def test_neither_source_falls_back_flagged(self):
+        cap, from_data = reach_capacity(
+            {}, "C_M(0,2)_M(0,3)", default=15.0, sections_by_edge={}
+        )
+        assert (cap, from_data) == (15.0, False)
 
 
 class TestAgainstCanonicalNetwork:

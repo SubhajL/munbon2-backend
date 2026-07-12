@@ -172,8 +172,10 @@ class TestConveyanceLossWiring:
         flow = ctrl.required_flow_per_reach({tail: 8.737}, apply_losses=True)
         seepage_l_s = (sum(q for (u, _), q in flow.items() if u == "S") - 8.737) * 1000.0
         lmc_km = sum(
-            s["length_m"] for (u, v), s in ctrl.sections.items()
+            segment["length_m"]
+            for (u, v), segments in ctrl.sections.items()
             if re.fullmatch(r"M\(0,\d+\)", u) and re.fullmatch(r"M\(0,\d+\)", v)
+            for segment in segments
         ) / 1000.0
         per_km = seepage_l_s / lmc_km
         assert 20.0 < per_km < 120.0, f"{per_km:.1f} L/s/km outside aged-concrete field range"
@@ -205,6 +207,12 @@ class TestDryReachSemantics:
             node = parent[node]
         flowing = {edge for edge, q in flow.items() if q > 0.0}
         assert flowing == path  # nothing off the supply path is charged
+
+    def test_current_survey_has_no_intra_reach_chainage_gaps(self):
+        # Every current reach is a single surveyed segment, so no reach can have an
+        # internal gap; the attribute exists for the 2.1b multi-segment survey.
+        ctrl = self._ctrl()
+        assert ctrl.reaches_with_chainage_gaps == {}
 
     def test_charge_dry_reaches_restores_whole_network_seepage(self):
         from core.conveyance_loss import reach_seepage_m3s
