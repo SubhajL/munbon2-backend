@@ -31,12 +31,20 @@ so it is not used by default; it stays a per-section knob if a calibrated value 
 Pure (stdlib only). Reach keys join to the network by NORMALIZED gate id
 (`core.node_id.normalize_gate_id`), since geometry uses compact ids and the
 network edges use the exact (sometimes irregularly-spaced) gate-key strings.
+
+Wave 2.1a (WAVE_2-4_PLAN §1.5 amendment #2): a reach is an ORDERED LIST of
+surveyed segments, not a single record. Multiple survey rows for one (from, to)
+edge — which the 99-subsegment Characteristics sheet produces — are sorted by
+chainage and validated non-overlapping; seepage sums per segment. The pre-2.1a
+indexer silently kept only the LAST row.
 """
 from __future__ import annotations
 
 import math
+import re
 from typing import Callable, Optional
 
+from .config_loader import ConfigError
 from .node_id import NodeIdError, normalize_gate_id
 
 # Aged/deteriorated field seepage flux by lining (m/s), PROVISIONAL pending Tier-3
@@ -60,36 +68,130 @@ def wetted_perimeter(cross_section: dict, depth: float) -> float:
     return b + 2.0 * depth * math.sqrt(1.0 + m * m)
 
 
-def reach_seepage_m3s(section: dict) -> float:
+def parse_chainage_m(km_marker) -> Optional[float]:
+    """Survey chainage ``K+MMM`` (e.g. ``11+800``) in metres; None when absent or
+    unparseable — the caller decides whether ordering is required."""
+    if not isinstance(km_marker, str):
+        return None
+    match = re.fullmatch(r"(\d+)\+(\d+(?:\.\d+)?)", km_marker.strip())
+    if not match:
+        return None
+    return float(match.group(1)) * 1000.0 + float(match.group(2))
+
+
+def _segment_seepage_m3s(segment: dict) -> float:
     """Seepage flux ``rate * wetted_perimeter(cs, 0.7*depth) * length`` (m3/s)."""
-    cs = section["cross_section"]
+    cs = segment["cross_section"]
     depth = OPERATING_DEPTH_FRAC * cs["depth_m"]
-    return section["seepage_rate_m_s"] * wetted_perimeter(cs, depth) * section["length_m"]
+    return segment["seepage_rate_m_s"] * wetted_perimeter(cs, depth) * segment["length_m"]
 
 
-def reach_loss_uplift(section: dict, throughflow: float) -> float:
-    """Total loss to add upstream: seepage (fixed) + operational fraction of throughflow."""
-    op = section.get("operational_loss_frac", DEFAULT_OPERATIONAL_LOSS_FRAC)
-    return reach_seepage_m3s(section) + op * throughflow
+def reach_seepage_m3s(segments: list) -> float:
+    """Reach seepage: the sum over its ordered surveyed segments (m3/s)."""
+    return sum(_segment_seepage_m3s(segment) for segment in segments)
+
+
+def reach_loss_uplift(segments: list, throughflow: float) -> float:
+    """Total loss to add upstream: summed segment seepage (fixed) + the reach
+    operational fraction of throughflow.
+
+    The operational fraction is a REACH-level concept: explicit per-segment values
+    sum; when NO segment carries one, the default applies ONCE per reach — never
+    once per segment (a 99-subsegment reach must not charge 99x the default)."""
+    explicit = [
+        segment.get("operational_loss_frac")
+        for segment in segments
+        if segment.get("operational_loss_frac") is not None
+    ]
+    op = sum(explicit) if explicit else DEFAULT_OPERATIONAL_LOSS_FRAC
+    return reach_seepage_m3s(segments) + op * throughflow
+
+
+def reach_chainage_gap_m(segments: list) -> Optional[float]:
+    """Total unsurveyed chainage between consecutive segments of a reach (metres);
+    0.0 for a contiguous survey, None when any segment lacks parseable chainage.
+
+    Partial surveys are LEGAL (several gates lack lengths entirely) — but they must
+    be measurable so coverage consumers can surface incomplete reaches instead of
+    silently understating seepage and capacity."""
+    if any(
+        segment["from_km_m"] is None or segment["to_km_m"] is None
+        for segment in segments
+    ):
+        return None
+    gap = 0.0
+    for prev, nxt in zip(segments, segments[1:]):
+        gap += max(0.0, nxt["from_km_m"] - prev["to_km_m"])
+    return gap
+
+
+def _valid_q_max(value) -> Optional[float]:
+    if (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+        and value > 0
+    ):
+        return float(value)
+    return None
 
 
 def sections_by_edge_from_geometry(geometry: dict) -> dict:
-    """Index surveyed sections by NORMALIZED (from, to) gate id, enriching each with a
-    ``seepage_rate_m_s`` derived from its ``lining_type`` (the survey has lining, not rate)."""
-    sections: dict = {}
+    """Ordered surveyed segments per NORMALIZED (from, to) gate-id edge.
+
+    Each segment carries its own cross-section, a ``seepage_rate_m_s`` derived from
+    its ``lining_type`` (the survey has lining, not rate), the segment ``q_max``
+    when valid, and parsed chainage. Multiple rows for one edge are subsegments:
+    every row then needs parseable ``from_km``/``to_km`` (otherwise they are
+    un-orderable), spans must run forward, and segments must not overlap — each of
+    those used to be a silent last-row-wins overwrite."""
+    grouped: dict = {}
     for s in geometry.get("canal_sections", []):
         geo = s["geometry"]
         hp = geo.get("hydraulic_params", {})
         key = (normalize_gate_id(s["from_node"]), normalize_gate_id(s["to_node"]))
-        sections[key] = {
+        grouped.setdefault(key, []).append({
             "length_m": geo["length_m"],
             "cross_section": geo["cross_section"],
             "seepage_rate_m_s": seepage_rate_for_lining(hp.get("lining_type")),
-            "operational_loss_frac": hp.get(
-                "operational_loss_frac", DEFAULT_OPERATIONAL_LOSS_FRAC
-            ),
-        }
-    return sections
+            # None when the survey has no explicit value: reach_loss_uplift applies
+            # the reach default ONCE, never once per segment.
+            "operational_loss_frac": hp.get("operational_loss_frac"),
+            "q_max": _valid_q_max(hp.get("q_max")),
+            "from_km_m": parse_chainage_m(s.get("from_km")),
+            "to_km_m": parse_chainage_m(s.get("to_km")),
+        })
+    for key, segments in grouped.items():
+        # Span sanity applies to EVERY row whose chainage is parseable — single
+        # rows included (an inverted marker is bad survey data either way).
+        for segment in segments:
+            if (
+                segment["from_km_m"] is not None
+                and segment["to_km_m"] is not None
+                and segment["to_km_m"] <= segment["from_km_m"]
+            ):
+                raise ConfigError(
+                    f"edge {key}: segment span must run forward, got"
+                    f" {segment['from_km_m']}..{segment['to_km_m']}"
+                )
+        if len(segments) == 1:
+            continue
+        if any(
+            segment["from_km_m"] is None or segment["to_km_m"] is None
+            for segment in segments
+        ):
+            raise ConfigError(
+                f"edge {key}: multiple survey segments require parseable chainage"
+                " (from_km/to_km) on every row"
+            )
+        segments.sort(key=lambda segment: segment["from_km_m"])
+        for prev, nxt in zip(segments, segments[1:]):
+            if nxt["from_km_m"] < prev["to_km_m"] - 1e-9:
+                raise ConfigError(
+                    f"edge {key}: segments overlap at chainage"
+                    f" {nxt['from_km_m']} < {prev['to_km_m']}"
+                )
+    return grouped
 
 
 def normalize_edge(upstream: str, downstream: str) -> tuple:

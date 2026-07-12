@@ -7,11 +7,17 @@ rated capacity of the reach, taken from the downstream gate's `q_max` in the can
 terminates it passes; when a reach's capacity is unknown the caller falls back to a
 documented default and flags it (rather than silently assuming 15.0).
 
-Pure (stdlib only).
+Wave 2.1a (WAVE_2-4_PLAN §1.5 amendment #2): a reach is also bounded by its weakest
+surveyed canal segment — capacity = min(downstream gate rating, min segment q_max)
+over whichever of the two is known.
+
+Pure (stdlib + core.node_id only).
 """
 from __future__ import annotations
 
 import math
+
+from .node_id import NodeIdError, normalize_gate_id
 
 
 def downstream_node(canal_id: str) -> str | None:
@@ -46,14 +52,69 @@ def build_capacity_index(network: dict) -> dict:
     return index
 
 
-def reach_capacity(capacity_index: dict, canal_id: str, default: float) -> tuple[float, bool]:
+def reach_nodes(canal_id: str) -> tuple[str, str] | None:
+    """Extract (upstream, downstream) from a reach id `C_{upstream}_{downstream}`."""
+    if not canal_id.startswith("C_"):
+        return None
+    parts = canal_id[2:].split("_")
+    if len(parts) != 2:
+        return None
+    return parts[0], parts[1]
+
+
+def _normalize(node: str) -> str:
+    try:
+        return normalize_gate_id(node)
+    except NodeIdError:
+        return node
+
+
+def min_segment_q_max(segments: list) -> float | None:
+    """The weakest valid segment rating in a reach's surveyed segment list, or None.
+
+    Invalid ratings (missing, non-numeric, bool, NaN/inf, non-positive) are ignored so
+    a partially-rated reach still gets a bound from the segments that have one.
+    """
+    valid = [
+        float(q)
+        for segment in segments
+        for q in [segment.get("q_max")]
+        if isinstance(q, (int, float))
+        and not isinstance(q, bool)
+        and math.isfinite(q)
+        and q > 0
+    ]
+    return min(valid) if valid else None
+
+
+def reach_capacity(
+    capacity_index: dict,
+    canal_id: str,
+    default: float,
+    sections_by_edge: dict | None = None,
+) -> tuple[float, bool]:
     """Return (capacity_m3s, from_data) for a reach.
 
-    `from_data` is True when the capacity came from the downstream gate's rated q_max,
-    False when it fell back to `default` (unknown reach / missing q_max) — the caller
-    should log the fallback so a hardcoded default is never silent.
+    Capacity = min over the known bounds: the downstream gate's rated q_max and the
+    weakest surveyed canal segment (2.1a) when `sections_by_edge` (keyed by NORMALIZED
+    (upstream, downstream)) is supplied. `from_data` is False only when NO bound is
+    known and the value fell back to `default` — the caller should log that fallback
+    so a hardcoded default is never silent.
     """
+    bounds = []
     node = downstream_node(canal_id)
     if node is not None and node in capacity_index:
-        return capacity_index[node], True
+        bounds.append(capacity_index[node])
+    if sections_by_edge:
+        nodes = reach_nodes(canal_id)
+        if nodes is not None:
+            segments = sections_by_edge.get(
+                (_normalize(nodes[0]), _normalize(nodes[1]))
+            )
+            if segments:
+                segment_bound = min_segment_q_max(segments)
+                if segment_bound is not None:
+                    bounds.append(segment_bound)
+    if bounds:
+        return min(bounds), True
     return default, False

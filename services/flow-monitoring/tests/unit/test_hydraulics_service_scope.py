@@ -283,6 +283,13 @@ class TestHonestCapacities:
         service._get_gate_capacity("M(0,1)")  # default_by_size calibration
         assert any("calibration" in w for w in warnings)
 
+    def test_canal_capacity_is_bounded_by_the_weakest_surveyed_segment(self, service):
+        # M(0,1) has q_max=null in the canonical network (excluded from the gate
+        # index); before 2.1a this reach fell back to the 15.0 default. Its surveyed
+        # segment is rated 11.2 — the segment survey now bounds the reach with real
+        # data (WAVE_2-4_PLAN §1.5 amendment #2).
+        assert service._get_canal_capacity("C_M(0,0)_M(0,1)") == pytest.approx(11.2)
+
     def test_verify_schedule_utilization_uses_honest_capacity(self, service):
         result = asyncio.run(
             service.verify_schedule([{"node_id": "M(0,1)", "flow_rate": 3.0}])
