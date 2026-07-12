@@ -12,11 +12,10 @@ import structlog
 from config import settings
 from core import get_logger
 from db import DatabaseManager
-from api.schema import create_graphql_app
+from api.schema import create_graphql_app, register_graphql_context_cleanup
 from api.routes import admin
 from services.ros_sync_service import RosSyncService
 from services.daily_demand_scheduler import daily_demand_scheduler
-from services.weekly_demand_calculator import weekly_demand_calculator
 from config.redis import redis_config
 
 # Configure logging
@@ -45,11 +44,10 @@ async def lifespan(app: FastAPI):
     # Start daily demand scheduler
     await daily_demand_scheduler.start_scheduler()
     logger.info("Daily demand scheduler started")
-    
-    # Start weekly demand calculator
-    await weekly_demand_calculator.start_scheduler()
-    logger.info("Weekly demand calculator started")
-    
+
+    # No weekly demand producer runs here: production is owned by
+    # ros-gis-integration (ADR D5, Wave 2.6); the BFF serves read paths only.
+
     # Initialize Redis for event publishing
     try:
         await redis_config.create_redis_client()
@@ -67,7 +65,6 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down Water Planning BFF Service")
     ros_sync_service.stop_periodic_sync()
     daily_demand_scheduler.stop_scheduler()
-    weekly_demand_calculator.stop_scheduler()
     
     # Close Redis connection
     await redis_config.disconnect()
@@ -97,15 +94,15 @@ app.add_middleware(
 # Create and include GraphQL app with enhanced features
 graphql_app = create_graphql_app()
 app.include_router(graphql_app, prefix="")
+register_graphql_context_cleanup(app)
 
 # Include admin routes
 app.include_router(admin.router, prefix="/api/v1")
 
 # Include REST API routes
-from api.routes import crop_season, water_demand, crop_season_demand, water_demand_v2
+from api.routes import crop_season, water_demand, water_demand_v2
 app.include_router(crop_season.router)
 app.include_router(water_demand.router)
-app.include_router(crop_season_demand.router)
 app.include_router(water_demand_v2.router)
 
 # Add Prometheus metrics endpoint
