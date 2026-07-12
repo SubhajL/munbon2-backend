@@ -10,9 +10,12 @@
 >    program review of PRs #7–#24 plus the forward roadmap (Waves 0–4, maintainer
 >    decisions D1–D4, external actions E1–E6). The wave PRs themselves (#25 onward)
 >    carry their own detailed bodies on GitHub.
+> 3. **[WAVE_2-4_PLAN_2026-07-12.md](WAVE_2-4_PLAN_2026-07-12.md)** — the forward
+>    execution plan for Waves 2–4 (supersedes PROGRAM_REVIEW §2.2 ordering; its
+>    §1.5 adversarial-review amendments override its own §1 table on conflict).
 >
 > **Where things stand** is always derivable from: `git log origin/main` +
-> the roadmap tables in PROGRAM_REVIEW §2.2.
+> the WAVE_2-4_PLAN execution order + PROGRAM_REVIEW §2.2 (original scope).
 
 ## Standing facts that do not go stale
 
@@ -24,10 +27,12 @@
 - **Canonical configs**: `src/config/{network,canal_geometry,gate_calibrations,
   gate_configuration}.json`, strict-loaded and drift-guarded (`core/config_loader`);
   `network.json` is regenerated from the gate-id naming grammar and locked by test.
-- **External actions still open**: E1 rotate the leaked DB credential (its old value is redacted repo-wide as `__ROTATED_DB_PASSWORD__`) on all DBs, E2
-  `git filter-repo` history purge + team re-clone (after E1), E4 GIS shapefile
+- **External actions still open**: E1 rotate the leaked DB credential (its old value
+  is redacted repo-wide as `__ROTATED_DB_PASSWORD__`) on all DBs, E4 GIS shapefile
   export for crop_registry, E5 RID's authoritative auto-gate list, E6 GitHub
-  Actions billing lock (no CI runs until fixed). E3 (SCADA V1.0 Excel) is in-repo.
+  Actions billing lock (no CI runs until fixed). E2 (history purge) was **executed
+  2026-07-11** (all refs rewritten + force-pushed, 0 carriers in 14,594 blobs;
+  team re-clone comms still pending). E3 (SCADA V1.0 Excel) is in-repo.
 
 ## Historical audit context
 

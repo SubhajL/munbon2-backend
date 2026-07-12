@@ -18,8 +18,14 @@ the fix specs it produced. Read in this order:
    values (provisional pending Tier-3 inflow/outflow measurement).
 8. **PR_REVIEW_GUIDE.md** — how remediation PRs are reviewed; per-PR verdicts.
 9. **PROGRAM_REVIEW_2026-07-09.md** — full program review of PRs #7–#24 + the forward
-   roadmap (Waves 0–4, decisions D1–D4, externals E1–E6). **Current-status anchor.**
-10. **HANDOFF.md** — pointer to the two status documents above (kept deliberately thin).
+   roadmap (Waves 0–4, decisions D1–D4, externals E1–E6).
+10. **DATA_INVENTORY_2026-07-11.md** (rev. 4) — live-DB + workbook + section-master
+    evidence base for Wave 2 (what data exists, where, and what's broken).
+11. **WAVE_2-4_PLAN_2026-07-12.md** — the forward execution plan (Wave 2 per-PR scope +
+    §1.5 adversarial-review amendments, Waves 3–4 gates). **Current-status anchor.**
+12. **ADR-D5-DEMAND_PRODUCER_OWNERSHIP.md** — proposed D5: ros-gis-integration owns
+    demand production; BFF read-only; flow-monitoring consumer-only (drives 2.6a/2.6).
+13. **HANDOFF.md** — pointer to the status documents above (kept deliberately thin).
 
 ## P0 (do first — no hardware)
 F-01 gate law · F-11 single connected topology · F-04 real per-section capacity ·
