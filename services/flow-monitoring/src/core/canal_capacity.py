@@ -15,8 +15,7 @@ Pure (stdlib + core.node_id only).
 """
 from __future__ import annotations
 
-import math
-
+from .config_loader import is_positive_finite
 from .node_id import NodeIdError, normalize_gate_id
 
 
@@ -47,7 +46,7 @@ def build_capacity_index(network: dict) -> dict:
         if not isinstance(gate, dict):
             continue
         q = gate.get("q_max")
-        if isinstance(q, (int, float)) and not isinstance(q, bool) and math.isfinite(q) and q > 0:
+        if is_positive_finite(q):
             index[gate_id] = float(q)
     return index
 
@@ -79,10 +78,7 @@ def min_segment_q_max(segments: list) -> float | None:
         float(q)
         for segment in segments
         for q in [segment.get("q_max")]
-        if isinstance(q, (int, float))
-        and not isinstance(q, bool)
-        and math.isfinite(q)
-        and q > 0
+        if is_positive_finite(q)
     ]
     return min(valid) if valid else None
 

@@ -18,6 +18,7 @@ import pytest
 from core.gate_flow import (
     CS_MAX,
     CS_MIN,
+    NOMINAL_GATE_VELOCITY_MS,
     GateFlowCalibration,
     GateFlowError,
     build_gate_flow_calibration,
@@ -291,3 +292,26 @@ class TestBuilder:
         assert cal.width_m > 0
         assert cal.max_opening_m > 0
         assert cal.confidence < 0.80  # default geometry reduces confidence
+
+    def test_circular_capacity_fallback_uses_disc_area_not_bounding_box(self):
+        # 2.3-retro HIGH: an UNRATED circular gate (q_max absent) must estimate its
+        # capacity from the disc area (π/4·d²·v), not the d×d bounding box the
+        # rectangular model uses — over-reporting a small orifice's capacity is unsafe.
+        d = 0.4
+        cal = build_gate_flow_calibration(
+            k1=1.2, k2=-2.5, width_m=d, max_opening_m=d, q_max_m3s=None,
+            confidence=0.5, shape="circular",
+        )
+        assert cal.q_max_m3s == pytest.approx(
+            math.pi / 4 * d * d * NOMINAL_GATE_VELOCITY_MS
+        )
+        # strictly below the rectangular bounding-box estimate it replaces
+        assert cal.q_max_m3s < d * d * NOMINAL_GATE_VELOCITY_MS
+
+    def test_rectangular_capacity_fallback_uses_width_times_opening(self):
+        # Regression guard: non-circular gates keep the width×opening×v estimate.
+        cal = build_gate_flow_calibration(
+            k1=1.1, k2=-1.8, width_m=2.0, max_opening_m=1.5, q_max_m3s=None,
+            confidence=0.6, shape="rectangular",
+        )
+        assert cal.q_max_m3s == pytest.approx(2.0 * 1.5 * NOMINAL_GATE_VELOCITY_MS)

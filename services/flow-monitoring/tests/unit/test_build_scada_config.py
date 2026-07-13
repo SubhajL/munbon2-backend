@@ -419,6 +419,77 @@ class TestSimilarGateInference:
         with pytest.raises(bsc.WorkbookError, match="measured donor"):
             bsc.infer_calibration(self.TARGET, [], "version")
 
+    def test_zero_r2_donor_is_excluded_from_ranking_and_lineage(self):
+        # 2.3-retro MEDIUM: an r2=0 donor carries zero confidence, so the loader
+        # rejects any inference citing it (confidence can't sit below 0). The
+        # generator must therefore drop r2<=0 donors before ranking/lineage —
+        # here the highest-similarity donor (same shape/size/class) has r2=0.
+        zero_r2_twin = {
+            "gate_id": "TWIN",
+            "canal_class": self.TARGET["canal_class"],
+            "shape": self.TARGET["shape"],
+            "width_m": self.TARGET["width_m"],
+            "height_m": self.TARGET["height_m"],
+            "k1": 9.0,
+            "k2": -9.0,
+            "r2": 0.0,
+        }
+        with_zero = bsc.infer_calibration(
+            self.TARGET, [zero_r2_twin] + self.DONORS, "similar-gate-v1:source-sha"
+        )
+        assert "TWIN" not in with_zero["source_gate_ids"]
+        # dropping a zero-weight donor leaves the surviving inference untouched
+        assert with_zero == bsc.infer_calibration(
+            self.TARGET, self.DONORS, "similar-gate-v1:source-sha"
+        )
+
+    def test_all_zero_r2_donors_fail_closed(self):
+        zeros = [{**donor, "r2": 0.0} for donor in self.DONORS]
+        with pytest.raises(bsc.WorkbookError, match="measured donor"):
+            bsc.infer_calibration(self.TARGET, zeros, "version")
+
+    def test_zero_r2_same_shape_donor_fails_closed_not_cross_shape(self):
+        # QCHECK (workflow): dropping an r2<=0 donor must NOT let a circular target
+        # silently borrow a differently-shaped donor's flow law. When the only
+        # same-shape measured donor has r2<=0, fail closed exactly as the code did
+        # before the r2 filter (candidates=same_shape -> zero weight -> WorkbookError),
+        # rather than reaching for a rectangular donor's k1/k2 for a circular gate.
+        circular_target = {
+            "gate_id": "CIRC", "canal_class": "FTO",
+            "shape": "circular", "width_m": 0.4, "height_m": 0.4,
+        }
+        zero_r2_circular = {
+            "gate_id": "CDONOR", "canal_class": "FTO",
+            "shape": "circular", "width_m": 0.4, "height_m": 0.4,
+            "k1": 1.3, "k2": -3.0, "r2": 0.0,
+        }
+        valid_rectangular = {
+            "gate_id": "RECT", "canal_class": "FTO",
+            "shape": "rectangular", "width_m": 2.0, "height_m": 2.0,
+            "k1": 1.2, "k2": -1.3, "r2": 0.9,
+        }
+        with pytest.raises(bsc.WorkbookError, match="measured donor"):
+            bsc.infer_calibration(
+                circular_target, [zero_r2_circular, valid_rectangular], "version"
+            )
+
+    def test_subnormal_r2_weight_underflow_fails_closed(self):
+        # QCHECK LOW (gpt-5.6-sol): score>0 and r2>0 do not guarantee a positive
+        # product — a normal similarity times a subnormal r2 can underflow to 0.0.
+        # The generator must fail closed, not divide by zero. A far-off-dimension
+        # donor scores ~0.20, and 0.20 * 5e-324 rounds to 0.0.
+        target = {
+            "gate_id": "T", "canal_class": "SC", "shape": None,
+            "width_m": 1.0, "height_m": 1.0,
+        }
+        subnormal_donor = {
+            "gate_id": "D", "canal_class": "SC", "shape": "rectangular",
+            "width_m": 100.0, "height_m": 100.0,
+            "k1": 1.0, "k2": -1.0, "r2": 5e-324,
+        }
+        with pytest.raises(bsc.WorkbookError, match="underflow"):
+            bsc.infer_calibration(target, [subnormal_donor], "version")
+
 
 @pytest.fixture(scope="module")
 def artifacts():

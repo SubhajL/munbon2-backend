@@ -44,7 +44,7 @@ import math
 import re
 from typing import Callable, Optional
 
-from .config_loader import ConfigError
+from .config_loader import ConfigError, is_positive_finite
 from .node_id import NodeIdError, normalize_gate_id
 
 # Aged/deteriorated field seepage flux by lining (m/s), PROVISIONAL pending Tier-3
@@ -160,14 +160,7 @@ def reach_spans_from_geometry(geometry: dict) -> dict:
 
 
 def _valid_q_max(value) -> Optional[float]:
-    if (
-        isinstance(value, (int, float))
-        and not isinstance(value, bool)
-        and math.isfinite(value)
-        and value > 0
-    ):
-        return float(value)
-    return None
+    return float(value) if is_positive_finite(value) else None
 
 
 def sections_by_edge_from_geometry(geometry: dict) -> dict:

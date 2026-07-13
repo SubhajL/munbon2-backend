@@ -33,6 +33,9 @@ DEFAULT_MAX_OPENING_M = 2.0
 DEFAULT_SILL_M = 0.0
 # A gate built on default geometry is less trustworthy; scale its confidence down.
 DEFAULT_GEOMETRY_CONFIDENCE_FACTOR = 0.5
+# Nominal through-gate velocity (m/s) for the capacity estimate of an UNRATED gate
+# (no field q_max): capacity ≈ flow area × this velocity.
+NOMINAL_GATE_VELOCITY_MS = 3.0
 
 
 class GateFlowError(ValueError):
@@ -200,6 +203,7 @@ def build_gate_flow_calibration(
     sill_m: float | None = None,
     min_opening_m: float = 0.0,
     max_opening_m: float | None = None,
+    shape: str | None = None,
     range_min: float = 0.0,
     range_max: float = 100.0,
 ) -> GateFlowCalibration:
@@ -208,7 +212,9 @@ def build_gate_flow_calibration(
     K1/K2/confidence/width come from the calibration loader, q_max from the calibration
     table/network, and sill/opening bounds from gate geometry. Any geometry missing from
     config falls back to a documented default AND lowers the confidence, so downstream
-    consumers can see that the gate is running on assumed geometry.
+    consumers can see that the gate is running on assumed geometry. `shape` selects the
+    flow-area model for the UNRATED-gate capacity estimate (a circular gate passes flow
+    through its disc, not its bounding box).
     """
     defaulted = []
     if width_m is None or width_m <= 0:
@@ -221,8 +227,15 @@ def build_gate_flow_calibration(
         sill_m = DEFAULT_SILL_M
         defaulted.append("sill_m")
     if q_max_m3s is None or q_max_m3s <= 0:
-        # Rough capacity estimate when the gate has no rated q_max in config.
-        q_max_m3s = width_m * max_opening_m * 3.0
+        # Rough capacity estimate when the gate has no rated q_max in config: flow
+        # area × a nominal velocity. A circular gate's area is its disc (π/4·d², with
+        # width_m carrying the diameter), NOT the width×opening box a rectangular gate
+        # uses — the latter over-reports a small orifice's capacity (2.3-retro HIGH).
+        if shape == "circular":
+            flow_area_m2 = math.pi / 4.0 * width_m * width_m
+        else:
+            flow_area_m2 = width_m * max_opening_m
+        q_max_m3s = flow_area_m2 * NOMINAL_GATE_VELOCITY_MS
         defaulted.append("q_max_m3s")
 
     if defaulted:

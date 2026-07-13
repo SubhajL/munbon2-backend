@@ -18,9 +18,14 @@ import pytest
 
 np = pytest.importorskip("numpy")
 
+import math  # noqa: E402
+
+from controllers.dual_mode_gate_controller import DualModeGateController  # noqa: E402
+from core.gate_flow import NOMINAL_GATE_VELOCITY_MS, gate_flow_m3s  # noqa: E402
 from core.node_id import normalize_node_id  # noqa: E402
 from db.connections import DatabaseManager  # noqa: E402
 from services.hydraulic_service import HydraulicService  # noqa: E402
+from utils.gate_calibration_loader import GateCalibrationData  # noqa: E402
 
 SERVICE_ROOT = Path(__file__).resolve().parents[2]
 NETWORK = SERVICE_ROOT / "src" / "config" / "network.json"
@@ -342,6 +347,48 @@ class TestHonestCapacities:
             flow_calibration.width_m,
         ) == ("circular", 0.4, 0.4, 0.4)
 
+    def test_circular_gate_bounds_max_opening_capacity_and_flow_to_diameter(self, service):
+        # 2.3-retro HIGH: _build_gate_flow_cal forwarded the 0.4 m diameter as width
+        # but let max_opening_m default to 2.0 m, inflating the unrated gate's q_max
+        # to 2.4 m3/s and its full-open flow to 1.426 m3/s. Bounded to the diameter,
+        # the gate reports disc-area capacity and a far smaller, honest flow.
+        gate_id = "M(0,1;1,0;1,0)"
+        calibration = service.calibration_loader.get_calibration(gate_id)
+        cal = service._build_gate_flow_cal(gate_id, calibration)
+        d = calibration.height_m
+        assert cal.max_opening_m == pytest.approx(d)  # not the 2.0 m default
+        assert cal.q_max_m3s == pytest.approx(
+            math.pi / 4 * d * d * NOMINAL_GATE_VELOCITY_MS
+        )
+        upstream, downstream = service._resolve_gate_levels(gate_id, cal)
+        expected_capacity = gate_flow_m3s(cal, upstream, downstream, cal.max_opening_m)
+        capacity = service._get_gate_capacity(gate_id)
+        assert capacity == pytest.approx(expected_capacity)
+        assert capacity < 0.5  # far below the old inflated 1.426 m3/s
+
+    def test_max_opening_uses_geometry_height_for_any_shape(self, service):
+        # QCHECK HIGH (gpt-5.6-sol): the bound must key off real geometry, not the
+        # shape LABEL. A physically circular gate recorded as shape=None (or a
+        # rectangular gate) with a known leaf height must NOT fall back to the 2.0 m
+        # default that reinflates a small orifice.
+        unlabelled = GateCalibrationData(
+            gate_id="X", k1=1.2, k2=-2.5, calibration_method="inferred",
+            confidence=0.5, source_gate_ids=("M(0,1;1,1;1,0)",),
+            source_version="v", shape=None, width_m=0.4, height_m=0.4,
+        )
+        assert service._max_opening_from_geometry(unlabelled) == pytest.approx(0.4)
+        rectangular = GateCalibrationData(
+            gate_id="Y", k1=1.1, k2=-1.8, calibration_method="inferred",
+            confidence=0.5, source_gate_ids=("M(0,2)",),
+            source_version="v", shape="rectangular", width_m=3.6, height_m=1.8,
+        )
+        assert service._max_opening_from_geometry(rectangular) == pytest.approx(1.8)
+        no_geometry = GateCalibrationData(
+            gate_id="Z", k1=1.1, k2=-1.8, calibration_method="default",
+            confidence=0.6, source_gate_ids=(), source_version="v",
+        )
+        assert service._max_opening_from_geometry(no_geometry) is None
+
     def test_canal_capacity_is_bounded_by_the_weakest_surveyed_segment(self, service):
         # M(0,1) has q_max=null in the canonical network (excluded from the gate
         # index); before 2.1a this reach fell back to the 15.0 default. The 2.1b
@@ -367,6 +414,33 @@ class TestHonestCapacities:
         assert result["system_capacity"] == pytest.approx(11.2)
         # same field name as the full-verification response, not a divergent alias
         assert result["system_utilization"] == pytest.approx(15.0 / 11.2)
+
+
+class TestDualModeControllerHonestCircularCapacity:
+    def test_unrated_circular_gates_use_disc_area_capacity(self):
+        # QCHECK HIGH (workflow): the shape-aware disc-area fix must ALSO cover the
+        # parallel live caller (the /gates API path), not just hydraulic_service.
+        # Every unrated circular gate the controller builds must report π/4·d²·v
+        # capacity — not the width×opening bounding box that over-reports a small
+        # orifice by 4/π (2.3-retro HIGH).
+        controller = DualModeGateController(
+            DatabaseManager(), str(NETWORK), str(GEOMETRY)
+        )
+        loader = controller._calibration_loader
+        checked = 0
+        for props in controller.gate_properties.values():
+            downstream = props["location"]["downstream_node"]
+            calibration = loader.get_calibration(downstream)
+            if calibration.shape != "circular":
+                continue
+            if loader.rated_q_max(downstream) is not None:
+                continue
+            diameter = calibration.width_m
+            assert props["flow_cal"].q_max_m3s == pytest.approx(
+                math.pi / 4 * diameter * diameter * NOMINAL_GATE_VELOCITY_MS
+            )
+            checked += 1
+        assert checked > 0  # the canonical network really exercises this path
 
 
 class TestDependencyIsAppScoped:
