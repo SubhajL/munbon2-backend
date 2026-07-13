@@ -128,6 +128,45 @@ class TestGetGateData:
             loader.get_gate_data("M(0,1")
 
 
+class TestBuildFlowCalibration:
+    # The SINGLE home for GateFlowCalibration assembly (F-01): HydraulicService and
+    # NetworkFlowController both call it, never a re-implementation (C10). Oracle: the
+    # same build_gate_flow_calibration primitive fed the loader's own inputs.
+    def test_assembles_from_calibration_rated_capacity_and_geometry(self, loader):
+        from core.gate_flow import build_gate_flow_calibration
+
+        gate_id = "M(0,0)"  # measured, rated q_max 11.2 in the file
+        cal = loader.get_calibration(gate_id)
+        expected = build_gate_flow_calibration(
+            k1=cal.k1,
+            k2=cal.k2,
+            confidence=cal.confidence,
+            q_max_m3s=loader.rated_q_max(gate_id),
+            width_m=cal.width_m,
+            max_opening_m=loader._max_opening_from_geometry(cal),
+            shape=cal.shape,
+        )
+        assert loader.build_flow_calibration(gate_id) == expected
+        assert loader.build_flow_calibration(gate_id).q_max_m3s == pytest.approx(11.2)
+
+    def test_passed_calibration_is_used_not_relooked_up(self, loader):
+        # A DISTINCT calibration (different k1) must flow into the result — proving the
+        # supplied object is used, not silently refetched from the file.
+        import dataclasses
+
+        gate_id = "M(0,0)"
+        stored = loader.get_calibration(gate_id)
+        distinct = dataclasses.replace(stored, k1=stored.k1 + 0.5)
+        assert loader.build_flow_calibration(gate_id, distinct).k1 == pytest.approx(stored.k1 + 0.5)
+        assert loader.build_flow_calibration(gate_id).k1 == pytest.approx(stored.k1)
+
+    def test_max_opening_from_geometry_prefers_height_then_width(self, loader):
+        cal = loader.get_calibration("M(0,0)")
+        # A gate cannot open past its leaf height/diameter; None only when no geometry.
+        got = loader._max_opening_from_geometry(cal)
+        assert got is None or got > 0.0
+
+
 class TestGetAllCalibratedGates:
     def test_returns_all_59_measured_and_inferred_gates_keyed_canonically(self, loader):
         calibrated = loader.get_all_calibrated_gates()

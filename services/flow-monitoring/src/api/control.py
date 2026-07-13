@@ -40,15 +40,24 @@ from core.demand_store import (
     ImmutabilityViolation,
     VersionConflict,
 )
-from core.network_flow_controller import NetworkFlowController
+from core.branch_split import branch_split_summary
+from core.network_flow_controller import (
+    LevelReading,
+    NetworkFlowController,
+)
 from core.network_topology import NetworkTopologyError
 from core.node_id import NodeIdError, normalize_gate_id, normalize_node_id
 from schemas.control import (
+    OpeningsRequest,
+    OpeningsResponse,
+    OpeningsSummary,
     PlanCoverage,
     PlanRequest,
     PlanResponse,
     ReachChainageGap,
     ReachFlow,
+    ReachOpeningOut,
+    UnavailableReachOut,
 )
 from schemas.demand import (
     CurrentRecordsResponse,
@@ -135,6 +144,90 @@ async def plan(
         reaches_missing_geometry=missing,
         reaches_with_chainage_gaps=gaps,
         coverage=PlanCoverage(**controller.coverage_summary()),
+    )
+
+
+@router.post("/openings", response_model=OpeningsResponse)
+async def openings(
+    request: OpeningsRequest,
+    controller: NetworkFlowController = Depends(get_flow_controller),
+) -> OpeningsResponse:
+    """Per-gate openings for `request.demands`, using the supplied freshness-stamped real
+    levels (Wave 2.7 wiring). A reach is returned opening-unavailable — never commanded on
+    an assumed input (plan HIGH #11) — when its level is missing/stale/future, its canal
+    capacity is not fully surveyed, or the calibration bundle is not approved for actuation
+    (every current bundle is planning-only, so nothing is commanded until real field
+    calibrations + approved sills exist)."""
+    node_levels = {
+        node_id: LevelReading(value.water_level_m, value.observed_at)
+        for node_id, value in request.levels.items()
+    }
+    now = datetime.now(timezone.utc)
+    try:
+        result = controller.openings_for_demand(
+            request.demands,
+            node_levels,
+            now=now,
+            max_level_age_seconds=request.max_level_age_seconds,
+            apply_losses=request.apply_losses,
+            charge_dry_reaches=request.charge_dry_reaches,
+            always_wet=request.always_wet,
+        )
+    except NetworkTopologyError as exc:  # server/config topology error -> 503
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:  # bad demand / level / freshness input -> client error
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    rollup = branch_split_summary(result.openings)
+    return OpeningsResponse(
+        openings=[
+            ReachOpeningOut(
+                upstream=normalize_node_id(o.reach[0]),
+                downstream=normalize_node_id(o.reach[1]),
+                requested_m3s=o.requested_m3s,
+                capacity_m3s=o.capacity_m3s,
+                opening_m=o.opening_m,
+                commanded_opening_m=o.commanded_opening_m,
+                commanded_gate_flow_m3s=o.commanded_gate_flow_m3s,
+                achievable_m3s=o.achievable_m3s,
+                deficit_m3s=o.deficit_m3s,
+                feasible=o.feasible,
+                needs_pulsing=o.needs_pulsing,
+                reason=o.reason,
+                confidence=o.confidence,
+            )
+            for o in result.openings
+        ],
+        unavailable=[
+            UnavailableReachOut(
+                upstream=normalize_node_id(u.reach[0]),
+                downstream=normalize_node_id(u.reach[1]),
+                requested_m3s=u.requested_m3s,
+                reason=u.reason,
+                unavailable_nodes=[normalize_node_id(n) for n in u.unavailable_nodes],
+                detail=u.detail,
+            )
+            for u in result.unavailable
+        ],
+        summary=OpeningsSummary(
+            # An uncommandable reach (no fresh level / unknown capacity / not actuation-
+            # approved) makes the whole plan infeasible. Per-reach flows are NOT summed into
+            # a network total here: the same demand flows through every serial reach on its
+            # path, so a sum double-counts it (and would diverge from /plan's head_flow) —
+            # the true per-reach requested/achievable/deficit are on each reach record.
+            feasible=rollup["feasible"] and not result.unavailable,
+            commanded_reaches=len(result.openings),
+            unavailable_reaches=len(result.unavailable),
+            idle_reaches=result.idle_reaches,
+            infeasible_reaches=[
+                [normalize_node_id(u), normalize_node_id(v)]
+                for u, v in rollup["infeasible_reaches"]
+            ],
+            reaches_needing_pulsing=[
+                [normalize_node_id(u), normalize_node_id(v)]
+                for u, v in rollup["reaches_needing_pulsing"]
+            ],
+        ),
     )
 
 

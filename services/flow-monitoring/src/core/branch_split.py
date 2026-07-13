@@ -262,8 +262,15 @@ def _shut(
 
 
 def branch_split_summary(openings: Iterable[ReachOpening]) -> dict:
-    """Network-level roll-up of a solved set: totals plus the reaches that fell short.
-    `feasible` is True only when every reach was served within tolerance."""
+    """Roll-up of a solved reach-SET: the reaches that fell short plus per-reach-set flow
+    sums. `feasible` is True only when every reach was served within tolerance.
+
+    WARNING: `requested_m3s`/`achievable_m3s`/`deficit_m3s` are sums OVER THE REACH SET, not
+    network throughput totals. The same water flows through every serial reach on a supply
+    path, so on a serial chain these sums double-count the demand once per hop — do NOT
+    surface them as a network total (the /openings response deliberately omits them and
+    reports the true per-reach values on each ReachOpening instead). They are useful only as
+    per-reach-set diagnostics for a set known to be independent (parallel) reaches."""
     openings = list(openings)
     return {
         "requested_m3s": sum(o.requested_m3s for o in openings),
