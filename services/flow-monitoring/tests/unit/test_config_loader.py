@@ -626,6 +626,26 @@ class TestRuntimeWiring:
                 geometry_path=_write(tmp_path, geo, name="geo.json"),
             )
 
+    def test_network_flow_controller_rejects_calibration_gate_set_drift(self, tmp_path):
+        # Wave 2.8a fail-closed: a calibration file can be internally consistent (its
+        # metadata counts match its own gates) yet MISS a network gate and carry an
+        # extraneous one. The loader's per-gate fallback would then fabricate a generic
+        # default (confidence 0.6) for the missing gate — a silent number the confidence
+        # field exists to prevent. Construction must fail closed on that cross-file drift.
+        from core.network_flow_controller import NetworkFlowController
+
+        cal = _valid_calibrations()
+        # The network needs M(0,0)+M(0,1); swap the extraneous M(5,5) in for M(0,1),
+        # keeping total_gates and the per-method counts identical (both default).
+        extra = cal["gates"].pop("M(0,1)")
+        extra["gate_id"] = "M(5,5)"
+        cal["gates"]["M(5,5)"] = extra
+        with pytest.raises(ValueError, match="absent from the calibration file"):
+            NetworkFlowController(
+                _write(tmp_path, _valid_network(), name="net.json"),
+                calibration_path=_write(tmp_path, cal, name="cal.json"),
+            )
+
     def test_gate_calibration_loader_still_serves_canonical_file(self):
         from utils.gate_calibration_loader import GateCalibrationLoader
 

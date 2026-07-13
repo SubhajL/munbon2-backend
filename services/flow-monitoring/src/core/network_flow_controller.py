@@ -14,6 +14,9 @@ The controller loads and connectivity-guards the canonical network once at const
 """
 from __future__ import annotations
 
+from collections import Counter
+from dataclasses import dataclass
+
 from .config_loader import load_canal_geometry_config
 from .conveyance_loss import (
     make_reach_loss,
@@ -33,6 +36,23 @@ from .network_topology import (
 from .node_id import normalize_node_id
 
 
+@dataclass(frozen=True)
+class ReachCoverage:
+    """Wave 2.8a observability for one reach: how trustworthy its model is.
+
+    `calibration_method`/`confidence` come from the reach's terminating (downstream)
+    gate — a `measured` field-rated gate is worth more than an `inferred` similar-gate
+    estimate or a `default`. `has_geometry` says whether the reach has a surveyed cross
+    section (else its conveyance loss and capacity bound are not modelled). These are the
+    generic feasibility fields; data-lineage coverage (demand version, workbook version,
+    section→gate mapping) is 2.8b, gated on later waves.
+    """
+
+    calibration_method: str
+    confidence: float
+    has_geometry: bool
+
+
 class NetworkFlowController:
     """Loads the canonical network once (connectivity-guarded) and computes required
     per-reach flow from a per-node demand. This is the A1–A3 + B5 slice of the spec-§10
@@ -43,7 +63,12 @@ class NetworkFlowController:
     loss — never a fabricated seepage).
     """
 
-    def __init__(self, network_path: str, geometry_path: str | None = None):
+    def __init__(
+        self,
+        network_path: str,
+        geometry_path: str | None = None,
+        calibration_path: str | None = None,
+    ):
         self.edges = load_validated_network(network_path)
         # load_validated_network only guards connectivity; the subtree-per-reach aggregation
         # also needs a proper spanning tree (no node with two parents) — enforce it here so a
@@ -96,6 +121,54 @@ class NetworkFlowController:
                 f"{[list(edge) for edge in orphans[:5]]}"
                 f"{'...' if len(orphans) > 5 else ''}"
             )
+
+        # Wave 2.8a: per-reach coverage/confidence, computed once (a static network
+        # property). The calibration loader is strict (a missing/drifted file raises at
+        # construction, Wave 1.1) so a mis-built release fails closed at startup, not on
+        # a request. Every reach terminates at a real gate — the source S is only ever
+        # upstream — so get_calibration is always called with a valid gate id.
+        from utils.gate_calibration_loader import GateCalibrationLoader
+
+        self._calibration = GateCalibrationLoader(calibration_path)
+        # Cross-file gate-set consistency: a downstream gate ABSENT from the calibration
+        # file would silently get a fabricated generic default (confidence 0.6) — the
+        # loader's per-gate fallback is fail-OPEN, and its internal count guard does not
+        # see the network. That is exactly the "hardcode where real data exists" the
+        # confidence field is meant to prevent, so refuse it here: the two artifacts
+        # drifted (a network regen without a matching calibration regen). get_gate_data
+        # returns {} only when the gate is not in the file.
+        uncalibrated = sorted(
+            edge[1] for edge in self.edges if not self._calibration.get_gate_data(edge[1])
+        )
+        if uncalibrated:
+            raise ValueError(
+                "network gates absent from the calibration file (network/calibration "
+                f"drift; coverage would be fabricated): {uncalibrated[:5]}"
+                f"{'...' if len(uncalibrated) > 5 else ''}"
+            )
+        self.reach_coverage: dict = {}
+        for edge in self.edges:
+            cal = self._calibration.get_calibration(edge[1])
+            self.reach_coverage[edge] = ReachCoverage(
+                calibration_method=cal.calibration_method,
+                confidence=cal.confidence,
+                has_geometry=edge not in self.reaches_missing_geometry,
+            )
+
+    def coverage_summary(self) -> dict:
+        """Network-level roll-up of the per-reach coverage (Wave 2.8a): how much of the
+        model rests on surveyed geometry vs measured/inferred calibration. A request-
+        independent snapshot an operator can read before trusting a plan. Derived wholly
+        from `reach_coverage` so the roll-up and the per-reach values cannot drift apart."""
+        surveyed = sum(1 for cov in self.reach_coverage.values() if cov.has_geometry)
+        method_counts = Counter(cov.calibration_method for cov in self.reach_coverage.values())
+        return {
+            "total_reaches": len(self.edges),
+            "geometry_surveyed": surveyed,
+            "geometry_missing": len(self.edges) - surveyed,
+            "chainage_gaps": len(self.reaches_with_chainage_gaps),
+            "calibration_method_counts": dict(method_counts),
+        }
 
     def required_flow_per_reach(
         self,

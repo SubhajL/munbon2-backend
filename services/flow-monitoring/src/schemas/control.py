@@ -42,11 +42,20 @@ class PlanRequest(BaseModel):
 
 
 class ReachFlow(BaseModel):
-    """Required flow on one reach (the gate terminating it must pass this)."""
+    """Required flow on one reach (the gate terminating it must pass this).
+
+    The `calibration_method`/`confidence`/`has_geometry` fields are Wave 2.8a
+    observability: how trustworthy this reach's model is (measured vs inferred gate
+    rating; surveyed vs missing geometry), so a consumer never reads a low-confidence
+    number as authoritative.
+    """
 
     upstream: str
     downstream: str
     required_flow_m3s: float
+    calibration_method: str
+    confidence: float
+    has_geometry: bool
 
 
 class ReachChainageGap(BaseModel):
@@ -58,6 +67,18 @@ class ReachChainageGap(BaseModel):
     gap_m: float
 
 
+class PlanCoverage(BaseModel):
+    """Network-level Wave 2.8a roll-up: how much of the plan rests on surveyed geometry
+    and measured (vs inferred) gate calibration. Request-independent — a snapshot an
+    operator reads before trusting any plan."""
+
+    total_reaches: int
+    geometry_surveyed: int
+    geometry_missing: int
+    chainage_gaps: int
+    calibration_method_counts: dict[str, int]
+
+
 class PlanResponse(BaseModel):
     reaches: list[ReachFlow]
     head_flow_m3s: float
@@ -65,3 +86,4 @@ class PlanResponse(BaseModel):
     charge_dry_reaches: bool = False
     reaches_missing_geometry: list[list[str]] = Field(default_factory=list)
     reaches_with_chainage_gaps: list[ReachChainageGap] = Field(default_factory=list)
+    coverage: PlanCoverage

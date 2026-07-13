@@ -269,3 +269,47 @@ class TestDryReachSemantics:
             ctrl.required_flow_per_reach({}, charge_dry_reaches=True)
         with pytest.raises(ValueError, match="apply_losses"):
             ctrl.required_flow_per_reach({}, always_wet=[["M(0,0)", "M(0,1)"]])
+
+
+class TestReachCoverage:
+    # Wave 2.8a observability: each reach reports the calibration confidence/method of
+    # its terminating (downstream) gate and whether it has surveyed geometry — generic
+    # feasibility fields, independent of the request. The data-lineage half (demand
+    # version, workbook version, mapping) is 2.8b and gated on later waves.
+    def _ctrl(self):
+        return NetworkFlowController(str(CANONICAL), geometry_path=str(GEOMETRY_CFG))
+
+    def test_reach_coverage_has_one_entry_per_edge(self):
+        ctrl = self._ctrl()
+        assert set(ctrl.reach_coverage) == set(ctrl.edges)
+        assert len(ctrl.reach_coverage) == 59
+
+    def test_reach_confidence_and_method_come_from_the_downstream_gate(self):
+        # Oracle: an INDEPENDENT calibration loader keyed on the reach's downstream node —
+        # never the controller's own output. Every reach terminates at a real gate, so
+        # the confidence/method must match that gate's calibration exactly.
+        from utils.gate_calibration_loader import GateCalibrationLoader
+
+        ctrl = self._ctrl()
+        oracle = GateCalibrationLoader()
+        for (upstream, downstream), cov in ctrl.reach_coverage.items():
+            expected = oracle.get_calibration(downstream)
+            assert cov.calibration_method == expected.calibration_method
+            assert cov.confidence == pytest.approx(expected.confidence)
+
+    def test_has_geometry_flags_the_surveyed_reaches(self):
+        ctrl = self._ctrl()
+        for edge, cov in ctrl.reach_coverage.items():
+            assert cov.has_geometry == (edge not in ctrl.reaches_missing_geometry)
+        surveyed = sum(1 for cov in ctrl.reach_coverage.values() if cov.has_geometry)
+        assert surveyed == 42  # 59 edges - 17 missing (matches the /plan loss-coverage test)
+
+    def test_coverage_summary_counts_geometry_and_calibration_method(self):
+        summary = self._ctrl().coverage_summary()
+        assert summary == {
+            "total_reaches": 59,
+            "geometry_surveyed": 42,
+            "geometry_missing": 17,
+            "chainage_gaps": 5,
+            "calibration_method_counts": {"measured": 10, "inferred": 49},
+        }
