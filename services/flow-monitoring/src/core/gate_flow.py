@@ -58,6 +58,14 @@ class GateFlowCalibration:
     range_max: float
 
     def __post_init__(self) -> None:
+        # Reject non-finite fields first: NaN/inf silently pass every ordered check below
+        # (NaN comparisons are all False) and would propagate NaN flows downstream.
+        for name in (
+            "k1", "k2", "width_m", "sill_m", "min_opening_m",
+            "max_opening_m", "q_max_m3s", "confidence",
+        ):
+            if not math.isfinite(getattr(self, name)):
+                raise GateFlowError(f"{name} must be finite, got {getattr(self, name)}")
         if self.width_m <= 0:
             raise GateFlowError(f"width_m must be > 0, got {self.width_m}")
         if self.max_opening_m <= self.min_opening_m:
@@ -145,38 +153,42 @@ def required_opening_m(
     The forward law is monotone non-decreasing in Go, so bisection is used (it cannot
     diverge or oscillate the way the old Newton loop could). Returns (opening_m, info)
     where info carries feasibility, the achievable flow, the deliverable floor
-    (`min_deliverable`), and the calibration confidence. Targets below the Cs-floor
-    discharge fail CLOSED (opening 0.0): opening at all would overdeliver several-fold.
+    (`min_deliverable`), the calibration confidence, and a STRUCTURED `code`
+    (dry | no_demand | over_capacity | at_capacity | below_floor | floor_band | ok) so
+    callers classify outcomes without matching the human-readable `reason` prose.
+    Targets below the Cs-floor discharge fail CLOSED (opening 0.0): opening at all
+    would overdeliver several-fold.
     """
     Hu, _ = _heads(upstream_level, downstream_level, cal.sill_m)
     if Hu <= 0:
         return 0.0, {"feasible": False, "achievable": 0.0, "confidence": cal.confidence,
-                     "reason": "dry gate (no head over sill)"}
+                     "code": "dry", "reason": "dry gate (no head over sill)"}
     if q_target <= 0:
-        return 0.0, {"feasible": True, "achievable": 0.0, "confidence": cal.confidence}
+        return 0.0, {"feasible": True, "achievable": 0.0, "confidence": cal.confidence,
+                     "code": "no_demand"}
 
     lo, hi = cal.min_opening_m, cal.max_opening_m
     q_hi = gate_flow_m3s(cal, upstream_level, downstream_level, hi)
     q_floor = min_deliverable_flow_m3s(cal, upstream_level, downstream_level)
     if q_target > q_hi + tol:
         return hi, {"feasible": False, "achievable": q_hi, "min_deliverable": q_floor,
-                    "confidence": cal.confidence,
+                    "confidence": cal.confidence, "code": "over_capacity",
                     "reason": "exceeds gate capacity at current head"}
     if q_target >= q_hi - tol:
         # At capacity within tolerance: full open delivers the target (also covers the
         # constant-Cs case where the floor equals capacity and bisection cannot split).
         return hi, {"feasible": True, "achievable": q_hi, "min_deliverable": q_floor,
-                    "confidence": cal.confidence}
+                    "confidence": cal.confidence, "code": "at_capacity"}
     if q_target < q_floor - tol:
         return 0.0, {"feasible": False, "achievable": 0.0, "min_deliverable": q_floor,
-                     "confidence": cal.confidence,
+                     "confidence": cal.confidence, "code": "below_floor",
                      "reason": "below minimum deliverable flow at current head (Cs floor)"}
     if q_target <= q_floor + tol:
         # Floor-band target: the smallest legal opening already delivers it — return
         # that, not an arbitrary bisection point (minimizes actuator travel).
         go_min = max(cal.min_opening_m, _TINY_OPENING_M)
         return go_min, {"feasible": True, "achievable": q_floor, "min_deliverable": q_floor,
-                        "confidence": cal.confidence}
+                        "confidence": cal.confidence, "code": "floor_band"}
 
     q = q_hi
     mid = hi
@@ -190,7 +202,7 @@ def required_opening_m(
         else:
             hi = mid
     return mid, {"feasible": True, "achievable": q, "min_deliverable": q_floor,
-                 "confidence": cal.confidence}
+                 "confidence": cal.confidence, "code": "ok"}
 
 
 def build_gate_flow_calibration(

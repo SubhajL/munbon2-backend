@@ -195,6 +195,7 @@ class TestMinDeliverableFloor:
         assert info["achievable"] == 0.0
         assert info["min_deliverable"] > q_target
         assert "minimum deliverable" in info["reason"]
+        assert info["code"] == "below_floor"
 
     def test_floor_is_reported_on_feasible_solutions_too(self):
         cal = make_cal()
@@ -226,6 +227,7 @@ class TestCapacityAndFloorBoundaries:
         assert info["feasible"] is False
         assert opening == cal.max_opening_m
         assert info["reason"] == "exceeds gate capacity at current head"
+        assert info["code"] == "over_capacity"
 
     def test_constant_cs_floor_equals_capacity_exact_target_is_feasible(self):
         # k2=0 -> Cs constant -> every positive opening delivers the same flow, so the
@@ -270,6 +272,16 @@ class TestCalibrationValidation:
 
     def test_zero_k2_is_allowed(self):
         make_cal(k2=0.0)  # constant Cs: degenerate but monotone — no exception
+
+    @pytest.mark.parametrize(
+        "field", ["k1", "k2", "width_m", "sill_m", "max_opening_m", "q_max_m3s", "confidence"]
+    )
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf")])
+    def test_non_finite_fields_are_rejected(self, field, bad):
+        # NaN/inf pass every ordered check (all NaN comparisons are False) and would
+        # propagate NaN flows downstream — reject them at construction.
+        with pytest.raises(GateFlowError, match=field):
+            make_cal(**{field: bad})
 
 
 # --- build_gate_flow_calibration: 3-source assembly + documented defaults ------
