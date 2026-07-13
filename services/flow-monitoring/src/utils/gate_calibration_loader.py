@@ -12,6 +12,7 @@ from dataclasses import dataclass
 import logging
 
 from core.config_loader import is_positive_finite, load_gate_calibrations_config
+from core.gate_flow import GateFlowCalibration, build_gate_flow_calibration
 from core.node_id import normalize_gate_id
 
 logger = logging.getLogger(__name__)
@@ -163,6 +164,44 @@ class GateCalibrationLoader:
             source_gate_ids=(),
             source_version="runtime-default-v1",
         )
+
+    def build_flow_calibration(
+        self, gate_id: str, calibration: Optional[GateCalibrationData] = None
+    ) -> GateFlowCalibration:
+        """Assemble the GateFlowCalibration the flow law needs (F-01), from calibration +
+        rated capacity + gate geometry.
+
+        The SINGLE home for this assembly (C10) — HydraulicService and
+        NetworkFlowController both call it, never a re-implementation. Pass an
+        already-fetched GateCalibrationData to skip the re-lookup; otherwise it is fetched
+        via the documented default ladder. Missing geometry falls back to a documented
+        default AND lowers confidence inside build_gate_flow_calibration, so a gate on
+        assumed geometry is visibly less trustworthy.
+        """
+        if calibration is None:
+            calibration = self.get_calibration(gate_id)
+        return build_gate_flow_calibration(
+            k1=calibration.k1,
+            k2=calibration.k2,
+            confidence=calibration.confidence,
+            q_max_m3s=self.rated_q_max(gate_id),
+            width_m=calibration.width_m,
+            max_opening_m=self._max_opening_from_geometry(calibration),
+            shape=calibration.shape,
+        )
+
+    @staticmethod
+    def _max_opening_from_geometry(calibration: GateCalibrationData) -> Optional[float]:
+        """Max vertical opening (m) from workbook geometry: a gate cannot open past its
+        leaf height (rectangular) or diameter (circular, carried as height_m==width_m).
+        Bounded off the DIMENSION, not the shape label, so a circular gate mis-recorded as
+        shape=None is still bounded — keeping the flow law off the 2.0 m default that
+        over-reports a small orifice (2.3-retro HIGH). Falls back to width_m when height_m
+        is absent, and returns None only when no positive geometry is on record."""
+        for opening_m in (calibration.height_m, calibration.width_m):
+            if is_positive_finite(opening_m):
+                return float(opening_m)
+        return None
 
     def get_all_calibrated_gates(self) -> Dict[str, Tuple[float, float]]:
         """All measured/inferred gates, keyed by CANONICAL COMPACT id."""

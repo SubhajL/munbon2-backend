@@ -1,5 +1,26 @@
 """Pydantic schemas for the C9 control API (demand -> required per-reach flow)."""
-from pydantic import BaseModel, Field
+from datetime import datetime
+
+from pydantic import BaseModel, Field, field_validator
+
+
+def _reject_bool(value, field_name: str):
+    """A JSON boolean coerces to 1.0/0.0 under a float field, silently defeating the
+    core's finite-number guards. Reject it at the schema boundary (a bool serialises
+    cleanly in a 422, unlike a raw NaN)."""
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name} must be a number, not a boolean")
+    return value
+
+
+def _reject_bool_demand_values(demands):
+    """Same guard for the per-node demand map: `{"M(0,1)": true}` would otherwise coerce
+    to 1.0 m3/s of phantom demand before the engine's bool check ever runs."""
+    if isinstance(demands, dict):
+        for node_id, value in demands.items():
+            if isinstance(value, bool):
+                raise ValueError(f"demand for {node_id} must be a number, not a boolean")
+    return demands
 
 
 class PlanRequest(BaseModel):
@@ -39,6 +60,11 @@ class PlanRequest(BaseModel):
             "spacing; unknown reaches are rejected. Requires apply_losses=true."
         ),
     )
+
+    @field_validator("demands", mode="before")
+    @classmethod
+    def _demands_not_bool(cls, v):
+        return _reject_bool_demand_values(v)
 
 
 class ReachFlow(BaseModel):
@@ -87,3 +113,102 @@ class PlanResponse(BaseModel):
     reaches_missing_geometry: list[list[str]] = Field(default_factory=list)
     reaches_with_chainage_gaps: list[ReachChainageGap] = Field(default_factory=list)
     coverage: PlanCoverage
+
+
+class LevelValue(BaseModel):
+    """A freshness-stamped real water-surface elevation (m MSL) at one node. `observed_at`
+    is when it was measured — the wiring only commands a gate whose boundary levels are
+    recent enough, so the timestamp is part of the datum (Wave 2.7, plan HIGH #11)."""
+
+    water_level_m: float
+    observed_at: datetime
+
+    @field_validator("water_level_m", mode="before")
+    @classmethod
+    def _level_not_bool(cls, v):
+        return _reject_bool(v, "water_level_m")
+
+
+class OpeningsRequest(BaseModel):
+    """Turn a per-node demand into per-gate openings, using the supplied real levels.
+
+    `levels` is keyed by node id (any spacing). A reach whose upstream/downstream level is
+    absent from `levels` or older than `max_level_age_seconds` is NOT commanded — it is
+    returned opening-unavailable, never an assumed head.
+    """
+
+    demands: dict[str, float] = Field(default_factory=dict)
+    levels: dict[str, LevelValue] = Field(default_factory=dict)
+    max_level_age_seconds: float = Field(
+        ...,
+        description="Freshness SLA (seconds): a boundary level older than this is stale, "
+        "so its reach is opening-unavailable rather than commanded on a stale head. Must "
+        "be finite and > 0 (validated in the handler so a non-finite value returns a clean "
+        "400, not a NaN-echoing 422).",
+    )
+    apply_losses: bool = False
+    charge_dry_reaches: bool = False
+    always_wet: list[tuple[str, str]] = Field(default_factory=list)
+
+    @field_validator("max_level_age_seconds", mode="before")
+    @classmethod
+    def _sla_not_bool(cls, v):
+        return _reject_bool(v, "max_level_age_seconds")
+
+    @field_validator("demands", mode="before")
+    @classmethod
+    def _demands_not_bool(cls, v):
+        return _reject_bool_demand_values(v)
+
+
+class ReachOpeningOut(BaseModel):
+    """One commanded reach with the honest branch-split infeasibility surface: the flow
+    the commanded opening actually passes is forward-recomputed, so `feasible`/`deficit`/
+    `reason` never assume the target was met."""
+
+    upstream: str
+    downstream: str
+    requested_m3s: float
+    capacity_m3s: float
+    opening_m: float
+    commanded_opening_m: float
+    commanded_gate_flow_m3s: float
+    achievable_m3s: float
+    deficit_m3s: float
+    feasible: bool
+    needs_pulsing: bool
+    reason: str
+    confidence: float
+
+
+class UnavailableReachOut(BaseModel):
+    """A reach carrying demand that could NOT be commanded because its boundary levels
+    were not a fresh real measurement (missing / stale / future) — surfaced, never a
+    fabricated opening."""
+
+    upstream: str
+    downstream: str
+    requested_m3s: float
+    reason: str
+    unavailable_nodes: list[str]
+    detail: str
+
+
+class OpeningsSummary(BaseModel):
+    """Network roll-up. `feasible` is True only when every demand-carrying reach was both
+    commandable AND delivered within tolerance. Per-reach flows are deliberately NOT summed
+    into a network total: the same demand flows through every serial reach on its path, so a
+    sum double-counts it — the true requested/achievable/deficit live on each reach record."""
+
+    feasible: bool
+    commanded_reaches: int
+    unavailable_reaches: int
+    idle_reaches: int
+    infeasible_reaches: list[list[str]] = Field(default_factory=list)
+    reaches_needing_pulsing: list[list[str]] = Field(default_factory=list)
+
+
+class OpeningsResponse(BaseModel):
+    openings: list[ReachOpeningOut]
+    unavailable: list[UnavailableReachOut]
+    summary: OpeningsSummary

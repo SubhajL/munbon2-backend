@@ -260,6 +260,11 @@ class TestPlanEndpoint:
         resp = client.post("/api/v1/control/plan", json={"demands": {"M(0,2)": -1.0}})
         assert resp.status_code == 400
 
+    def test_boolean_demand_value_is_rejected_422(self, client):
+        # A JSON boolean coerces to 1.0 under the float map, phantom demand; reject it.
+        resp = client.post("/api/v1/control/plan", json={"demands": {"M(0,2)": True}})
+        assert resp.status_code == 422
+
     def test_demand_on_source_is_rejected_400(self, client):
         resp = client.post("/api/v1/control/plan", json={"demands": {"S": 1.0}})
         assert resp.status_code == 400
@@ -325,3 +330,159 @@ class TestFailClosed:
         controller.gate_states = {}
         with pytest.raises(RuntimeError, match="no demand source"):
             asyncio.run(controller.generate_manual_instructions())
+
+
+def _fresh_levels():
+    from datetime import datetime, timezone
+
+    now_iso = datetime.now(timezone.utc).isoformat()  # always fresh vs the handler's now
+    return {
+        node: {"water_level_m": level, "observed_at": now_iso}
+        for node, level in (("S", 3.0), ("M(0,0)", 2.5), ("M(0,1)", 2.0))
+    }
+
+
+class TestOpeningsEndpoint:
+    # Wave 2.7 /control wiring: POST /openings turns a demand + freshness-stamped real
+    # levels into per-gate openings, but fails closed (never an assumed command) when a
+    # reach's boundary level is missing/stale/future, its canal capacity is not fully
+    # surveyed, OR the calibration bundle is not approved for actuation. The default bundle
+    # is planning_only (defaulted sills; the strict loader ENFORCES planning_only), so with
+    # real data NOTHING is commanded — every demand-carrying reach is opening-unavailable.
+    def test_planning_only_bundle_commands_nothing(self, client):
+        resp = client.post(
+            "/api/v1/control/openings",
+            json={
+                "demands": {"M(0,1)": 5.0},
+                "levels": _fresh_levels(),
+                "max_level_age_seconds": 3600,
+            },
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["openings"] == []  # nothing commanded on planning-only calibration
+        unavailable = {(u["upstream"], u["downstream"]): u for u in body["unavailable"]}
+        # S->M(0,0) has fresh levels + a known (gate) bound, yet is still not commanded.
+        assert unavailable[("S", "M(0,0)")]["reason"] == "calibration_not_actuation_approved"
+        # M(0,0)->M(0,1) is a partial survey -> capacity blocks it before the actuation gate.
+        assert unavailable[("M(0,0)", "M(0,1)")]["reason"] == "capacity_unsurveyed"
+        assert body["summary"]["feasible"] is False
+        assert body["summary"]["commanded_reaches"] == 0
+        assert body["summary"]["idle_reaches"] == 57
+
+    def test_missing_level_is_reported_before_the_actuation_gate(self, client):
+        levels = _fresh_levels()
+        del levels["M(0,1)"]  # downstream boundary of M(0,0)->M(0,1) absent
+        body = client.post(
+            "/api/v1/control/openings",
+            json={
+                "demands": {"M(0,1)": 5.0},
+                "levels": levels,
+                "max_level_age_seconds": 3600,
+            },
+        ).json()
+        unavailable = {(u["upstream"], u["downstream"]): u for u in body["unavailable"]}
+        assert unavailable[("M(0,0)", "M(0,1)")]["reason"] == "level_missing"
+        assert body["summary"]["feasible"] is False
+
+    def test_stale_level_is_reported(self, client):
+        from datetime import datetime, timedelta, timezone
+
+        levels = _fresh_levels()
+        levels["M(0,0)"]["observed_at"] = (
+            datetime.now(timezone.utc) - timedelta(hours=2)
+        ).isoformat()
+        body = client.post(
+            "/api/v1/control/openings",
+            json={
+                "demands": {"M(0,1)": 5.0},
+                "levels": levels,
+                "max_level_age_seconds": 3600,
+            },
+        ).json()
+        reasons = {(u["upstream"], u["downstream"]): u["reason"] for u in body["unavailable"]}
+        # M(0,0) is a boundary of both active reaches; the stale level blocks both first.
+        assert reasons[("S", "M(0,0)")] == "level_stale"
+        assert reasons[("M(0,0)", "M(0,1)")] == "level_stale"
+
+    def test_summary_reports_counts_without_double_counted_flow_totals(self, client):
+        # The summary reports feasibility + counts, NOT a per-reach flow sum: the same 5
+        # m3/s flows through both serial reaches, so a network requested/deficit total would
+        # double-count it (10.0) and diverge from /plan's head_flow. Those fields are absent.
+        body = client.post(
+            "/api/v1/control/openings",
+            json={
+                "demands": {"M(0,1)": 5.0},
+                "levels": _fresh_levels(),
+                "max_level_age_seconds": 3600,
+            },
+        ).json()
+        summary = body["summary"]
+        assert summary["feasible"] is False
+        assert summary["commanded_reaches"] == 0
+        assert summary["unavailable_reaches"] == len(body["unavailable"]) == 2
+        assert summary["idle_reaches"] == 57
+        assert "requested_m3s" not in summary and "deficit_m3s" not in summary
+
+    def test_boolean_demand_value_is_rejected_422(self, client):
+        # A JSON boolean demand would coerce to 1.0 m3/s of phantom demand; reject it.
+        resp = client.post(
+            "/api/v1/control/openings",
+            json={
+                "demands": {"M(0,1)": True},
+                "levels": _fresh_levels(),
+                "max_level_age_seconds": 3600,
+            },
+        )
+        assert resp.status_code == 422
+
+    def test_boolean_water_level_is_rejected_422(self, client):
+        # A JSON boolean would coerce to 1.0 under a float field; reject at the boundary.
+        resp = client.post(
+            "/api/v1/control/openings",
+            json={
+                "demands": {},
+                "levels": {"M(0,0)": {"water_level_m": True, "observed_at": "2026-07-13T12:00:00Z"}},
+                "max_level_age_seconds": 3600,
+            },
+        )
+        assert resp.status_code == 422
+
+    def test_non_finite_sla_is_400_not_500(self, client):
+        # NaN passes the (constraint-free) schema and is rejected in the handler with a
+        # clean 400, never a NaN-echoing 422 that fails serialization with a 500.
+        resp = client.post(
+            "/api/v1/control/openings",
+            content='{"demands": {}, "levels": {}, "max_level_age_seconds": NaN}',
+            headers={"content-type": "application/json"},
+        )
+        assert resp.status_code == 400
+        assert "max_level_age_seconds" in resp.json()["detail"]
+
+    def test_missing_freshness_sla_is_rejected_422(self, client):
+        resp = client.post(
+            "/api/v1/control/openings",
+            json={"demands": {}, "levels": {}},  # no max_level_age_seconds
+        )
+        assert resp.status_code == 422
+
+    def test_unknown_level_key_is_rejected_400(self, client):
+        levels = _fresh_levels()
+        levels["M(9,9)"] = {"water_level_m": 2.0, "observed_at": _fresh_levels()["S"]["observed_at"]}
+        resp = client.post(
+            "/api/v1/control/openings",
+            json={"demands": {"M(0,1)": 5.0}, "levels": levels, "max_level_age_seconds": 3600},
+        )
+        assert resp.status_code == 400
+        assert "unknown node" in resp.json()["detail"]
+
+    def test_503_when_controller_not_initialized(self):
+        control = _load_control()
+        control.flow_controller = None
+        app = FastAPI()
+        app.include_router(control.router, prefix="/api/v1/control")
+        resp = TestClient(app).post(
+            "/api/v1/control/openings",
+            json={"demands": {}, "levels": {}, "max_level_age_seconds": 3600},
+        )
+        assert resp.status_code == 503
