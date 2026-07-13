@@ -13,7 +13,11 @@ from path_based_hydraulic_solver import PathBasedHydraulicSolver
 from db.connections import DatabaseManager
 from utils.gate_calibration_loader import GateCalibrationLoader
 from core.metrics import hydraulic_solver_iterations, hydraulic_verification_duration
-from core.config_loader import load_canal_geometry_config, load_network_config
+from core.config_loader import (
+    is_positive_finite,
+    load_canal_geometry_config,
+    load_network_config,
+)
 from core.conveyance_loss import sections_by_edge_from_geometry
 from core.gate_flow import build_gate_flow_calibration, gate_flow_m3s, required_opening_m
 from core.network_topology import ROOT, load_validated_network
@@ -324,15 +328,34 @@ class HydraulicService:
 
     def _build_gate_flow_cal(self, gate_id: str, calibration):
         """Assemble a GateFlowCalibration from calibration + rated capacity + geometry.
-        Sill/opening geometry sourcing is deferred to P1; build_gate_flow_calibration
-        applies documented defaults and lowers confidence when geometry is absent."""
+        Sill sourcing is deferred to P1; build_gate_flow_calibration applies documented
+        defaults and lowers confidence when geometry is absent. A circular gate's max
+        opening and disc-area capacity are bounded to its workbook diameter — omitting
+        the opening let it default to 2.0 m and over-report a 0.4 m orifice (2.3-retro
+        HIGH)."""
         return build_gate_flow_calibration(
             k1=calibration.k1,
             k2=calibration.k2,
             confidence=calibration.confidence,
             q_max_m3s=self._gate_rated_capacity(gate_id),
             width_m=calibration.width_m,
+            max_opening_m=self._max_opening_from_geometry(calibration),
+            shape=calibration.shape,
         )
+
+    @staticmethod
+    def _max_opening_from_geometry(calibration) -> Optional[float]:
+        """Max vertical opening (m) from workbook geometry: a gate cannot open past its
+        leaf height (rectangular) or diameter (circular, carried as height_m==width_m).
+        Bounding to real geometry — keyed off the DIMENSION, not the shape label, so a
+        circular gate mis-recorded as shape=None is still bounded — keeps the flow law
+        off the 2.0 m default that over-reports a small orifice (2.3-retro HIGH). Falls
+        back to width_m when height_m is absent, and returns None only when no positive
+        geometry is on record, leaving the documented default to apply."""
+        for opening_m in (calibration.height_m, calibration.width_m):
+            if is_positive_finite(opening_m):
+                return float(opening_m)
+        return None
 
     def _gate_rated_capacity(self, gate_id: str) -> Optional[float]:
         """Rated q_max (m3/s) for a gate from the calibration table, if any."""

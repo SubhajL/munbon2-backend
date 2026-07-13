@@ -22,6 +22,11 @@ from .node_id import NodeIdError, normalize_gate_id
 
 NETWORK_ROOT = "S"
 
+# Tolerance for the inferred-coefficient donor-range bound: wide enough to absorb the
+# generator's 6-decimal rounding of a weighted average, tight enough to still reject a
+# materially out-of-range coefficient.
+_RANGE_TOL = 1e-6
+
 
 class ConfigError(ValueError):
     """A canonical config file is unreadable, malformed, or self-inconsistent."""
@@ -79,6 +84,13 @@ def _is_finite_number(value) -> bool:
         and isinstance(value, (int, float))
         and math.isfinite(value)
     )
+
+
+def is_positive_finite(value) -> bool:
+    """A finite number strictly greater than zero (rejects None, bool, NaN, inf, <=0).
+    The canonical positive-magnitude predicate — reuse it rather than re-inlining the
+    isinstance/isfinite/>0 checks."""
+    return _is_finite_number(value) and value > 0
 
 
 def load_network_config(path: str) -> dict:
@@ -432,6 +444,23 @@ def load_gate_calibrations_config(path: str) -> dict:
                     f"{path}: {where}.confidence must be lower than every measured"
                     f" source, got {confidence!r} versus {source_confidences!r}"
                 )
+            # An inferred coefficient is a confidence-weighted blend of its measured
+            # donors, so each MUST lie within that donor set's [min, max] range for
+            # that coefficient. This per-axis range check (an axis-aligned bounding
+            # box on k1 and k2 independently, not a 2-D convex hull) rejects
+            # out-of-range values (e.g. k1=100, k2=-100) the old sign-only check let
+            # through. _RANGE_TOL absorbs 6-decimal generator rounding without
+            # admitting a materially out-of-range coefficient.
+            for key in ("k1", "k2"):
+                source_values = [
+                    gates[normalized_ids[source]][key] for source in normalized_sources
+                ]
+                low, high = min(source_values), max(source_values)
+                if not (low - _RANGE_TOL <= gate[key] <= high + _RANGE_TOL):
+                    raise ConfigError(
+                        f"{path}: {where}.{key} must lie within its measured donors'"
+                        f" [{low}, {high}] range, got {gate[key]!r}"
+                    )
     _check_drift(
         _declared_count(metadata, "total_gates", path, "metadata"),
         len(gates),

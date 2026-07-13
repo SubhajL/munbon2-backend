@@ -426,28 +426,70 @@ class TestLoadGateCalibrationsConfig:
         with pytest.raises(ConfigError, match="circular.*width_m"):
             load_gate_calibrations_config(_write(tmp_path, cal))
 
-    def test_accepts_inferred_coefficients_with_measured_lineage(self, tmp_path):
+    def _two_donor_bundle(self):
+        """A calibration bundle with two measured donors spanning k1∈[1.0693,1.30]
+        and k2∈[-1.80,-1.229], plus an inferred gate whose coefficients this suite
+        varies. Returned unloaded so tests can mutate the inferred record."""
         cal = _valid_calibrations()
+        cal["gates"]["M(0,2)"] = {
+            "gate_id": "M(0,2)",
+            "calibration_method": "measured",
+            "k1": 1.30,
+            "k2": -1.80,
+            "confidence": 0.95,
+            "source_gate_ids": ["M(0,2)"],
+            "source_version": "workbook-sha",
+        }
         inferred = cal["gates"]["M(0,1)"]
         inferred.update(
             calibration_method="inferred",
-            k1=1.05,
-            k2=-1.4,
+            k1=1.20,
+            k2=-1.50,
             confidence=0.75,
-            source_gate_ids=["M(0,0)"],
+            source_gate_ids=["M(0,0)", "M(0,2)"],
             source_version="similar-gate-v1:workbook-sha",
         )
-        counts = cal["metadata"]["gates_by_calibration_method"]
-        counts.update(inferred=1, default=0)
+        cal["metadata"]["total_gates"] = 3
+        cal["metadata"]["gates_by_calibration_method"] = {
+            "measured": 2,
+            "inferred": 1,
+            "default": 0,
+        }
+        return cal
+
+    def test_accepts_inferred_coefficients_within_donor_range(self, tmp_path):
+        cal = self._two_donor_bundle()  # k1=1.20, k2=-1.50 sit inside the range
         assert load_gate_calibrations_config(_write(tmp_path, cal)) == cal
+
+    def test_accepts_inferred_coefficients_on_the_exact_range_bounds(self, tmp_path):
+        cal = self._two_donor_bundle()
+        # k1 at the donor MAX, k2 at the donor MIN — the inclusive boundary.
+        cal["gates"]["M(0,1)"].update(k1=1.30, k2=-1.80)
+        assert load_gate_calibrations_config(_write(tmp_path, cal)) == cal
+
+    @pytest.mark.parametrize(
+        "k1,k2",
+        [
+            (1.31, -1.50),  # k1 above the donor max (1.30)
+            (1.05, -1.50),  # k1 below the donor min (1.0693)
+            (1.20, -1.90),  # k2 below the donor min (-1.80)
+            (1.20, -1.20),  # k2 above the donor max (-1.229)
+            (100.0, -100.0),  # both wildly outside — the retro's example
+        ],
+    )
+    def test_rejects_inferred_coefficients_outside_donor_range(self, tmp_path, k1, k2):
+        cal = self._two_donor_bundle()
+        cal["gates"]["M(0,1)"].update(k1=k1, k2=k2)
+        with pytest.raises(ConfigError, match="range"):
+            load_gate_calibrations_config(_write(tmp_path, cal))
 
     def test_rejects_inferred_confidence_not_below_measured_sources(self, tmp_path):
         cal = _valid_calibrations()
         inferred = cal["gates"]["M(0,1)"]
         inferred.update(
             calibration_method="inferred",
-            k1=1.05,
-            k2=-1.4,
+            k1=1.0693,  # in the single-donor hull, so the confidence check is reached
+            k2=-1.229,
             confidence=0.9986,
             source_gate_ids=["M(0,0)"],
             source_version="similar-gate-v1:workbook-sha",
@@ -462,8 +504,8 @@ class TestLoadGateCalibrationsConfig:
         inferred = cal["gates"]["M(0,1)"]
         inferred.update(
             calibration_method="inferred",
-            k1=1.05,
-            k2=-1.4,
+            k1=1.0693,  # in the single-donor hull, so the source_version check is reached
+            k2=-1.229,
             confidence=0.75,
             source_gate_ids=["M(0,0)"],
             source_version="similar-gate-v2:workbook-sha",

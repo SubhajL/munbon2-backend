@@ -96,6 +96,10 @@ class DualModeGateController:
                     width_m=calibration.width_m,
                     sill_m=props.sill_elevation_m,
                     max_opening_m=props.max_opening_m,
+                    # shape drives the UNRATED-gate capacity model: a circular gate
+                    # passes flow through its disc, not the width×opening box — omit it
+                    # and an unrated circular gate over-reports q_max (2.3-retro HIGH).
+                    shape=calibration.shape,
                 )
                 self.gate_properties[gate_id] = {
                     "type": SCHEMA_GATE_TYPE.get(props.gate_type, GateType.UNDERSHOT),

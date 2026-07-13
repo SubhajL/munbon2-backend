@@ -625,6 +625,14 @@ def infer_calibration(target: dict, measured: list[dict], source_version: str) -
             if gate.get("canal_class") == target.get("canal_class")
         ]
         candidates = same_class or measured
+    # Drop r2<=0 donors AFTER shape/class selection: such a donor carries zero
+    # confidence and zero coefficient weight, yet the runtime loader rejects any
+    # inference whose confidence is not below EVERY donor's (a zero-r2 donor makes
+    # that impossible), so it must never reach ranking/lineage (2.3-retro MEDIUM).
+    # Filtering here — not before selection — preserves fail-closed behavior: a
+    # target whose only same-shape donor has r2<=0 raises below instead of silently
+    # borrowing a differently-shaped donor's flow law.
+    candidates = [gate for gate in candidates if (gate.get("r2") or 0) > 0]
     ranked = sorted(
         ((calibration_similarity(target, donor), donor) for donor in candidates),
         key=lambda item: (-item[0], item[1]["gate_id"]),
@@ -634,13 +642,16 @@ def infer_calibration(target: dict, measured: list[dict], source_version: str) -
     ]
     if not selected:
         raise WorkbookError(
-            f"gate {target['gate_id']}: no similar measured donor available"
+            f"gate {target['gate_id']}: no similar measured donor with positive r2 available"
         )
     coefficient_weights = [score * donor["r2"] for score, donor in selected]
     total_weight = sum(coefficient_weights)
     if total_weight <= 0:
+        # Every selected donor has score>0 and r2>0, but the product of a normal
+        # score and a subnormal r2 can still underflow to 0.0; guard the division
+        # fail-closed rather than dividing by zero.
         raise WorkbookError(
-            f"gate {target['gate_id']}: measured donor confidence is zero"
+            f"gate {target['gate_id']}: donor coefficient weights underflowed to zero"
         )
     k1 = (
         sum(

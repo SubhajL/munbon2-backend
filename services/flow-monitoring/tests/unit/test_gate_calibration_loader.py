@@ -70,12 +70,14 @@ class TestGetCalibration:
     def test_inferred_gate_uses_supplied_coefficients_and_lineage(self, tmp_path):
         data = json.loads(Path(CALIBRATIONS).read_text())
         gate = data["gates"]["M(0,1)"]
+        # k1=1.20, k2=-1.40 sit inside the M(0,0)/M(0,2) donor hull
+        # (k1∈[1.0693,1.5675], k2∈[-1.654,-1.229]) so the strict loader accepts them.
         gate.update(
             calibration_method="inferred",
-            k1=1.05,
-            k2=-1.4,
+            k1=1.20,
+            k2=-1.40,
             confidence=0.75,
-            source_gate_ids=["M(0,0)"],
+            source_gate_ids=["M(0,0)", "M(0,2)"],
             source_version="similar-gate-v1:" + data["metadata"]["source_sha256"],
         )
         data["metadata"]["gates_by_calibration_method"] = {
@@ -90,11 +92,11 @@ class TestGetCalibration:
         inferred = GateCalibrationLoader(str(path)).get_calibration("M(0,1)")
         assert inferred == GateCalibrationData(
             gate_id="M(0,1)",
-            k1=1.05,
-            k2=-1.4,
+            k1=1.20,
+            k2=-1.40,
             calibration_method="inferred",
             confidence=0.75,
-            source_gate_ids=("M(0,0)",),
+            source_gate_ids=("M(0,0)", "M(0,2)"),
             source_version=gate["source_version"],
         )
 
