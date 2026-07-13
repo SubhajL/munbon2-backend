@@ -90,13 +90,64 @@ class TestPlanEndpoint:
             ("M(0,12;1,2;1,1)", "M(0,12;1,2;1,2)"): pytest.approx(1200.0),
             ("M(0,12;1,2;1,0;1,0)", "M(0,12;1,2;1,0;1,1)"): pytest.approx(410.0),
         }
+        # Geometry coverage is a static network property (Wave 2.8a): the SAME gaps
+        # surface without apply_losses — the itemized list must never contradict the
+        # coverage roll-up in the same payload.
         lossless = client.post("/api/v1/control/plan", json={"demands": {}}).json()
-        assert lossless["reaches_with_chainage_gaps"] == []
+        lossless_gaps = {
+            (g["upstream"], g["downstream"]): g["gap_m"]
+            for g in lossless["reaches_with_chainage_gaps"]
+        }
+        assert lossless_gaps == gaps
+
+    def test_geometry_lists_never_contradict_the_coverage_summary(self, client):
+        # QCHECK CONFIRMED: the always-on coverage roll-up must agree with the itemized
+        # geometry lists in the SAME payload, in both loss modes — a consumer reconciling
+        # len(list) == coverage.count must never see 17-missing/5-gaps in the summary but
+        # empty lists (the pre-fix default path).
+        for apply_losses in (False, True):
+            body = client.post(
+                "/api/v1/control/plan",
+                json={"demands": {}, "apply_losses": apply_losses},
+            ).json()
+            cov = body["coverage"]
+            assert len(body["reaches_missing_geometry"]) == cov["geometry_missing"] == 17
+            assert len(body["reaches_with_chainage_gaps"]) == cov["chainage_gaps"] == 5
 
     def test_empty_demand_yields_all_zero_reaches(self, client):
         resp = client.post("/api/v1/control/plan", json={"demands": {}})
         assert resp.status_code == 200
         assert all(r["required_flow_m3s"] == 0.0 for r in resp.json()["reaches"])
+
+    def test_each_reach_carries_2_8a_confidence_and_coverage(self, client):
+        # Wave 2.8a: every reach exposes the confidence/method of its terminating gate
+        # and whether it has surveyed geometry — surfaced regardless of apply_losses.
+        # Oracle: an independent calibration loader keyed on the downstream node.
+        from utils.gate_calibration_loader import GateCalibrationLoader
+
+        oracle = GateCalibrationLoader()
+        body = client.post("/api/v1/control/plan", json={"demands": {}}).json()
+        assert len(body["reaches"]) == 59
+        by_reach = {(r["upstream"], r["downstream"]): r for r in body["reaches"]}
+        for reach in body["reaches"]:
+            expected = oracle.get_calibration(reach["downstream"])
+            assert reach["calibration_method"] == expected.calibration_method
+            assert reach["confidence"] == pytest.approx(expected.confidence)
+        # Exact has_geometry on independently-known reaches (not just isinstance bool):
+        # the source edge has no surveyed cross-section; the RMC tail reach does (it is a
+        # partial survey that still carries geometry).
+        assert by_reach[("S", "M(0,0)")]["has_geometry"] is False
+        assert by_reach[("M(0,1;1,3)", "M(0,1;1,4)")]["has_geometry"] is True
+
+    def test_plan_reports_network_coverage_summary(self, client):
+        body = client.post("/api/v1/control/plan", json={"demands": {}}).json()
+        assert body["coverage"] == {
+            "total_reaches": 59,
+            "geometry_surveyed": 42,
+            "geometry_missing": 17,
+            "chainage_gaps": 5,
+            "calibration_method_counts": {"measured": 10, "inferred": 49},
+        }
 
     def test_unknown_node_is_rejected_400(self, client):
         resp = client.post("/api/v1/control/plan", json={"demands": {"Zone2": 5.0}})

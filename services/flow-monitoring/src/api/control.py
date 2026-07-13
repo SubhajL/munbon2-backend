@@ -43,7 +43,13 @@ from core.demand_store import (
 from core.network_flow_controller import NetworkFlowController
 from core.network_topology import NetworkTopologyError
 from core.node_id import NodeIdError, normalize_gate_id, normalize_node_id
-from schemas.control import PlanRequest, PlanResponse, ReachChainageGap, ReachFlow
+from schemas.control import (
+    PlanCoverage,
+    PlanRequest,
+    PlanResponse,
+    ReachChainageGap,
+    ReachFlow,
+)
 from schemas.demand import (
     CurrentRecordsResponse,
     DemandSubmissionRequest,
@@ -93,32 +99,33 @@ async def plan(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     head_flow = sum(flow for (upstream, _), flow in reach_flow.items() if upstream == "S")
-    # Response ids are CANONICAL COMPACT (Wave 1.2) — one stable contract for consumers,
-    # independent of the survey's irregular spacing in the network file.
-    missing = (
-        [
-            [normalize_node_id(u), normalize_node_id(v)]
-            for u, v in sorted(controller.reaches_missing_geometry)
-        ]
-        if request.apply_losses
-        else []
-    )
-    # Partially surveyed reaches take zero loss on their unsurveyed chainage —
-    # say so, or the head-gate figure reads as full loss coverage (2.1b).
-    gaps = (
-        [
-            ReachChainageGap(upstream=u, downstream=v, gap_m=gap)
-            for (u, v), gap in sorted(controller.reaches_with_chainage_gaps.items())
-        ]
-        if request.apply_losses
-        else []
-    )
+    # Geometry coverage is a STATIC network property, not a loss artifact, so it is
+    # reported unconditionally (Wave 2.8a): the itemized lists must agree with the
+    # `coverage` roll-up in the SAME payload — gating them on apply_losses made the
+    # default response claim "17 missing / 5 gaps" in the summary while the lists read
+    # empty. Response ids are CANONICAL COMPACT (Wave 1.2), independent of the survey's
+    # irregular spacing. Under apply_losses these are also the reaches that take zero loss
+    # on their unsurveyed chainage (the head-gate figure is not full loss coverage, 2.1b).
+    missing = [
+        [normalize_node_id(u), normalize_node_id(v)]
+        for u, v in sorted(controller.reaches_missing_geometry)
+    ]
+    gaps = [
+        ReachChainageGap(upstream=u, downstream=v, gap_m=gap)
+        for (u, v), gap in sorted(controller.reaches_with_chainage_gaps.items())
+    ]
+    # Wave 2.8a: carry each reach's coverage/confidence (terminating-gate calibration +
+    # geometry survey) through, plus a network roll-up, so consumers can weigh the plan.
+    coverage = controller.reach_coverage
     return PlanResponse(
         reaches=[
             ReachFlow(
                 upstream=normalize_node_id(u),
                 downstream=normalize_node_id(v),
                 required_flow_m3s=q,
+                calibration_method=coverage[(u, v)].calibration_method,
+                confidence=coverage[(u, v)].confidence,
+                has_geometry=coverage[(u, v)].has_geometry,
             )
             for (u, v), q in reach_flow.items()
         ],
@@ -127,6 +134,7 @@ async def plan(
         charge_dry_reaches=request.charge_dry_reaches,
         reaches_missing_geometry=missing,
         reaches_with_chainage_gaps=gaps,
+        coverage=PlanCoverage(**controller.coverage_summary()),
     )
 
 
