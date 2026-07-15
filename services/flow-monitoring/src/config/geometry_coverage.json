@@ -1,7 +1,7 @@
 {
   "metadata": {
-    "source_workbook": "SCADA Section Detailed Information 2025-08-23 V1.0 SL.xlsx",
-    "source_sha256": "b796361cb19a76074e10da9e0a4ed46eb50b26b556192c37738a4490a230be11",
+    "source_workbook": "SCADA Section Detailed Information 2026-07-14 V2.0 SL.xlsx",
+    "source_sha256": "d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
     "generator": "scripts/build_scada_config.py",
     "description": "Per-edge survey coverage of the 59-edge network: which reaches carry geometry, which chainage is unmapped and why. Junction heads sit at their offtake (zero chainage span); offtakes (Waste Way, FTOs) have no surveyed canal of their own."
   },
@@ -188,7 +188,7 @@
     },
     {
       "upstream": "M(0,0)",
-      "downstream": "M(0,0; 1,0)",
+      "downstream": "M(0,0;1,0)",
       "category": "offtake",
       "status": "not_applicable",
       "canal": "Waste Way",
@@ -196,14 +196,14 @@
     },
     {
       "upstream": "M(0,1)",
-      "downstream": "M (0,1; 1,0)",
+      "downstream": "M(0,1;1,0)",
       "category": "junction_head",
       "status": "not_applicable",
       "canal": "RMC"
     },
     {
-      "upstream": "M (0,1; 1,0)",
-      "downstream": "M (0,1; 1,1)",
+      "upstream": "M(0,1;1,0)",
+      "downstream": "M(0,1;1,1)",
       "category": "serial",
       "span_m": 2600,
       "covered_m": 2600,
@@ -214,8 +214,8 @@
       "canal": "RMC"
     },
     {
-      "upstream": "M (0,1; 1,1)",
-      "downstream": "M (0,1; 1,2)",
+      "upstream": "M(0,1;1,1)",
+      "downstream": "M(0,1;1,2)",
       "category": "serial",
       "span_m": 1920,
       "covered_m": 1920,
@@ -226,8 +226,8 @@
       "canal": "RMC"
     },
     {
-      "upstream": "M (0,1; 1,2)",
-      "downstream": "M (0,1; 1,3)",
+      "upstream": "M(0,1;1,2)",
+      "downstream": "M(0,1;1,3)",
       "category": "serial",
       "span_m": 980,
       "covered_m": 980,
@@ -238,8 +238,8 @@
       "canal": "RMC"
     },
     {
-      "upstream": "M (0,1; 1,3)",
-      "downstream": "M (0,1; 1,4)",
+      "upstream": "M(0,1;1,3)",
+      "downstream": "M(0,1;1,4)",
       "category": "serial",
       "span_m": 1280,
       "covered_m": 1200,
@@ -256,23 +256,23 @@
       "canal": "RMC"
     },
     {
-      "upstream": "M (0,1; 1,0)",
-      "downstream": "M(0,1; 1,0; 1,0)",
+      "upstream": "M(0,1;1,0)",
+      "downstream": "M(0,1;1,0;1,0)",
       "category": "offtake",
       "status": "not_applicable",
       "canal": "FTO 2+450",
       "km": "2+450"
     },
     {
-      "upstream": "M (0,1; 1,1)",
-      "downstream": "M(0,1; 1,1; 1,0)",
+      "upstream": "M(0,1;1,1)",
+      "downstream": "M(0,1;1,1;1,0)",
       "category": "junction_head",
       "status": "not_applicable",
       "canal": "4L-RMC"
     },
     {
-      "upstream": "M(0,1; 1,1; 1,0)",
-      "downstream": "M(0,1; 1,1; 1,1)",
+      "upstream": "M(0,1;1,1;1,0)",
+      "downstream": "M(0,1;1,1;1,1)",
       "category": "serial",
       "span_m": 750,
       "covered_m": 750,
@@ -283,8 +283,8 @@
       "canal": "4L-RMC"
     },
     {
-      "upstream": "M(0,1; 1,1; 1,1)",
-      "downstream": "M(0,1; 1,1; 1,2)",
+      "upstream": "M(0,1;1,1;1,1)",
+      "downstream": "M(0,1;1,1;1,2)",
       "category": "serial",
       "span_m": 1100,
       "covered_m": 1100,
@@ -295,8 +295,8 @@
       "canal": "4L-RMC"
     },
     {
-      "upstream": "M(0,1; 1,1; 1,2)",
-      "downstream": "M(0,1; 1,1; 1,3)",
+      "upstream": "M(0,1;1,1;1,2)",
+      "downstream": "M(0,1;1,1;1,3)",
       "category": "serial",
       "span_m": 750,
       "covered_m": 750,
@@ -307,8 +307,8 @@
       "canal": "4L-RMC"
     },
     {
-      "upstream": "M(0,1; 1,1; 1,3)",
-      "downstream": "M(0,1; 1,1; 1,4)",
+      "upstream": "M(0,1;1,1;1,3)",
+      "downstream": "M(0,1;1,1;1,4)",
       "category": "serial",
       "span_m": 400,
       "covered_m": 400,
@@ -319,8 +319,8 @@
       "canal": "4L-RMC"
     },
     {
-      "upstream": "M(0,1; 1,1; 1,2)",
-      "downstream": "M(0,1; 1,1; 1,2; 1,0)",
+      "upstream": "M(0,1;1,1;1,2)",
+      "downstream": "M(0,1;1,1;1,2;1,0)",
       "category": "offtake",
       "status": "not_applicable",
       "canal": "FTO337 Rai",
@@ -328,14 +328,14 @@
     },
     {
       "upstream": "M(0,3)",
-      "downstream": "M (0,3; 1,0)",
+      "downstream": "M(0,3;1,0)",
       "category": "junction_head",
       "status": "not_applicable",
       "canal": "9R-LMC"
     },
     {
-      "upstream": "M (0,3; 1,0)",
-      "downstream": "M (0,3; 1,1)",
+      "upstream": "M(0,3;1,0)",
+      "downstream": "M(0,3;1,1)",
       "category": "serial",
       "span_m": 5750,
       "covered_m": 5750,
@@ -346,8 +346,8 @@
       "canal": "9R-LMC"
     },
     {
-      "upstream": "M (0,3; 1,1)",
-      "downstream": "M (0,3; 1,2)",
+      "upstream": "M(0,3;1,1)",
+      "downstream": "M(0,3;1,2)",
       "category": "serial",
       "span_m": 2150,
       "covered_m": 2150,
@@ -358,8 +358,8 @@
       "canal": "9R-LMC"
     },
     {
-      "upstream": "M (0,3; 1,2)",
-      "downstream": "M (0,3; 1,3)",
+      "upstream": "M(0,3;1,2)",
+      "downstream": "M(0,3;1,3)",
       "category": "serial",
       "span_m": 6600,
       "covered_m": 6600,
@@ -370,15 +370,15 @@
       "canal": "9R-LMC"
     },
     {
-      "upstream": "M (0,3; 1,1)",
-      "downstream": "M (0,3; 1,1; 1,0)",
+      "upstream": "M(0,3;1,1)",
+      "downstream": "M(0,3;1,1;1,0)",
       "category": "junction_head",
       "status": "not_applicable",
       "canal": "7R-9R-LMC"
     },
     {
-      "upstream": "M (0,3; 1,1; 1,0)",
-      "downstream": "M (0,3; 1,1; 1,1)",
+      "upstream": "M(0,3;1,1;1,0)",
+      "downstream": "M(0,3;1,1;1,1)",
       "category": "serial",
       "span_m": 3000,
       "covered_m": 3000,
@@ -389,15 +389,15 @@
       "canal": "7R-9R-LMC"
     },
     {
-      "upstream": "M (0,3; 1,1)",
-      "downstream": "M (0,3; 1,1; 2,0)",
+      "upstream": "M(0,3;1,1)",
+      "downstream": "M(0,3;1,1;2,0)",
       "category": "junction_head",
       "status": "not_applicable",
       "canal": "7L-9R-LMC"
     },
     {
-      "upstream": "M (0,3; 1,1; 2,0)",
-      "downstream": "M (0,3; 1,1; 2,1)",
+      "upstream": "M(0,3;1,1;2,0)",
+      "downstream": "M(0,3;1,1;2,1)",
       "category": "serial",
       "span_m": 2500,
       "covered_m": 2500,
@@ -409,14 +409,14 @@
     },
     {
       "upstream": "M(0,12)",
-      "downstream": "M (0,12; 1,0)",
+      "downstream": "M(0,12;1,0)",
       "category": "junction_head",
       "status": "not_applicable",
       "canal": "38R-LMC"
     },
     {
-      "upstream": "M (0,12; 1,0)",
-      "downstream": "M (0,12; 1,1)",
+      "upstream": "M(0,12;1,0)",
+      "downstream": "M(0,12;1,1)",
       "category": "serial",
       "span_m": 1720,
       "covered_m": 1720,
@@ -427,8 +427,8 @@
       "canal": "38R-LMC"
     },
     {
-      "upstream": "M (0,12; 1,1)",
-      "downstream": "M (0,12; 1,2)",
+      "upstream": "M(0,12;1,1)",
+      "downstream": "M(0,12;1,2)",
       "category": "serial",
       "span_m": 1280,
       "covered_m": 1280,
@@ -439,8 +439,8 @@
       "canal": "38R-LMC"
     },
     {
-      "upstream": "M (0,12; 1,2)",
-      "downstream": "M (0,12; 1,3)",
+      "upstream": "M(0,12;1,2)",
+      "downstream": "M(0,12;1,3)",
       "category": "serial",
       "span_m": 1500,
       "covered_m": 1500,
@@ -451,8 +451,8 @@
       "canal": "38R-LMC"
     },
     {
-      "upstream": "M (0,12; 1,3)",
-      "downstream": "M (0,12; 1,4)",
+      "upstream": "M(0,12;1,3)",
+      "downstream": "M(0,12;1,4)",
       "category": "serial",
       "span_m": 2120,
       "covered_m": 2120,
@@ -463,8 +463,8 @@
       "canal": "38R-LMC"
     },
     {
-      "upstream": "M (0,12; 1,4)",
-      "downstream": "M (0,12; 1,5)",
+      "upstream": "M(0,12;1,4)",
+      "downstream": "M(0,12;1,5)",
       "category": "serial",
       "span_m": 2280,
       "covered_m": 2280,
@@ -475,15 +475,15 @@
       "canal": "38R-LMC"
     },
     {
-      "upstream": "M (0,12; 1,0)",
-      "downstream": "M (0,12; 1,0; 1,0)",
+      "upstream": "M(0,12;1,0)",
+      "downstream": "M(0,12;1,0;1,0)",
       "category": "junction_head",
       "status": "not_applicable",
       "canal": "1R-38R-LMC"
     },
     {
-      "upstream": "M (0,12; 1,0; 1,0)",
-      "downstream": "M (0,12; 1,0; 1,1)",
+      "upstream": "M(0,12;1,0;1,0)",
+      "downstream": "M(0,12;1,0;1,1)",
       "category": "serial",
       "span_m": 4550,
       "covered_m": 4550,
@@ -494,15 +494,15 @@
       "canal": "1R-38R-LMC"
     },
     {
-      "upstream": "M (0,12; 1,1)",
-      "downstream": "M (0,12; 1,1; 1,0)",
+      "upstream": "M(0,12;1,1)",
+      "downstream": "M(0,12;1,1;1,0)",
       "category": "junction_head",
       "status": "not_applicable",
       "canal": "2R-38R-LMC"
     },
     {
-      "upstream": "M (0,12; 1,1; 1,0)",
-      "downstream": "M (0,12; 1,1; 1,1)",
+      "upstream": "M(0,12;1,1;1,0)",
+      "downstream": "M(0,12;1,1;1,1)",
       "category": "serial",
       "span_m": 540,
       "covered_m": 540,
@@ -513,8 +513,8 @@
       "canal": "2R-38R-LMC"
     },
     {
-      "upstream": "M (0,12; 1,1; 1,1)",
-      "downstream": "M (0,12; 1,1; 1,2)",
+      "upstream": "M(0,12;1,1;1,1)",
+      "downstream": "M(0,12;1,1;1,2)",
       "category": "serial",
       "span_m": 3340,
       "covered_m": 3310,
@@ -531,15 +531,15 @@
       "canal": "2R-38R-LMC"
     },
     {
-      "upstream": "M (0,12; 1,1; 1,0)",
-      "downstream": "M (0,12; 1,1; 1,0; 1,0)",
+      "upstream": "M(0,12;1,1;1,0)",
+      "downstream": "M(0,12;1,1;1,0;1,0)",
       "category": "junction_head",
       "status": "not_applicable",
       "canal": "1R-2R-38R-LMC"
     },
     {
-      "upstream": "M (0,12; 1,1; 1,0; 1,0)",
-      "downstream": "M (0,12; 1,1; 1,0; 1,1)",
+      "upstream": "M(0,12;1,1;1,0;1,0)",
+      "downstream": "M(0,12;1,1;1,0;1,1)",
       "category": "serial",
       "span_m": 3200,
       "covered_m": 3200,
@@ -550,8 +550,8 @@
       "canal": "1R-2R-38R-LMC"
     },
     {
-      "upstream": "M (0,12; 1,1; 1,0; 1,1)",
-      "downstream": "M (0,12; 1,1; 1,0; 1,2)",
+      "upstream": "M(0,12;1,1;1,0;1,1)",
+      "downstream": "M(0,12;1,1;1,0;1,2)",
       "category": "serial",
       "span_m": 4580,
       "covered_m": 4580,
@@ -562,15 +562,15 @@
       "canal": "1R-2R-38R-LMC"
     },
     {
-      "upstream": "M (0,12; 1,2)",
-      "downstream": "M (0,12; 1,2; 1,0)",
+      "upstream": "M(0,12;1,2)",
+      "downstream": "M(0,12;1,2;1,0)",
       "category": "junction_head",
       "status": "not_applicable",
       "canal": "4L-38R-LMC"
     },
     {
-      "upstream": "M (0,12; 1,2; 1,0)",
-      "downstream": "M (0,12; 1,2; 1,1)",
+      "upstream": "M(0,12;1,2;1,0)",
+      "downstream": "M(0,12;1,2;1,1)",
       "category": "serial",
       "span_m": 4000,
       "covered_m": 4000,
@@ -581,8 +581,8 @@
       "canal": "4L-38R-LMC"
     },
     {
-      "upstream": "M (0,12; 1,2; 1,1)",
-      "downstream": "M (0,12; 1,2; 1,2)",
+      "upstream": "M(0,12;1,2;1,1)",
+      "downstream": "M(0,12;1,2;1,2)",
       "category": "serial",
       "span_m": 3000,
       "covered_m": 1800,
@@ -599,15 +599,15 @@
       "canal": "4L-38R-LMC"
     },
     {
-      "upstream": "M (0,12; 1,2; 1,0)",
-      "downstream": "M (0,12; 1,2; 1,0; 1,0)",
+      "upstream": "M(0,12;1,2;1,0)",
+      "downstream": "M(0,12;1,2;1,0;1,0)",
       "category": "junction_head",
       "status": "not_applicable",
       "canal": "5R-4L-38R-LMC"
     },
     {
-      "upstream": "M (0,12; 1,2; 1,0; 1,0)",
-      "downstream": "M (0,12; 1,2; 1,0; 1,1)",
+      "upstream": "M(0,12;1,2;1,0;1,0)",
+      "downstream": "M(0,12;1,2;1,0;1,1)",
       "category": "serial",
       "span_m": 1950,
       "covered_m": 1540,
@@ -624,15 +624,15 @@
       "canal": "5R-4L-38R-LMC"
     },
     {
-      "upstream": "M (0,12; 1,3)",
-      "downstream": "M (0,12; 1,3; 1,0)",
+      "upstream": "M(0,12;1,3)",
+      "downstream": "M(0,12;1,3;1,0)",
       "category": "junction_head",
       "status": "not_applicable",
       "canal": "6R-38R-LMC"
     },
     {
-      "upstream": "M (0,12; 1,3; 1,0)",
-      "downstream": "M (0,12; 1,3; 1,1)",
+      "upstream": "M(0,12;1,3;1,0)",
+      "downstream": "M(0,12;1,3;1,1)",
       "category": "serial",
       "span_m": 2550,
       "covered_m": 2550,
@@ -643,15 +643,15 @@
       "canal": "6R-38R-LMC"
     },
     {
-      "upstream": "M (0,12; 1,4)",
-      "downstream": "M (0,12; 1,4; 1,0)",
+      "upstream": "M(0,12;1,4)",
+      "downstream": "M(0,12;1,4;1,0)",
       "category": "junction_head",
       "status": "not_applicable",
       "canal": "8R-38R-LMC"
     },
     {
-      "upstream": "M (0,12; 1,4; 1,0)",
-      "downstream": "M (0,12; 1,4; 1,1)",
+      "upstream": "M(0,12;1,4;1,0)",
+      "downstream": "M(0,12;1,4;1,1)",
       "category": "serial",
       "span_m": 2500,
       "covered_m": 2500,

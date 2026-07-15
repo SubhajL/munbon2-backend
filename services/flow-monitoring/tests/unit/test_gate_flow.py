@@ -21,6 +21,7 @@ from core.gate_flow import (
     NOMINAL_GATE_VELOCITY_MS,
     GateFlowCalibration,
     GateFlowError,
+    binding_flow_capacity,
     build_gate_flow_calibration,
     discharge_coeff,
     gate_flow_m3s,
@@ -51,6 +52,19 @@ def make_cal(**overrides):
     return GateFlowCalibration(**params)
 
 
+class TestBindingFlowCapacity:
+    @pytest.mark.parametrize(
+        "bounds,expected",
+        [
+            ((1.375, 1.2), 1.2),
+            ((None, 0.252), 0.252),
+            ((None, 0.0, float("nan"), float("inf")), None),
+        ],
+    )
+    def test_returns_the_minimum_positive_finite_capacity(self, bounds, expected):
+        assert binding_flow_capacity(*bounds) == expected
+
+
 # Submerged operating point: Hu=1.5, Hd=1.3 -> sigma=0.867 >= 0.80 (submerged),
 # driving head dH=0.2 m. With these levels the gate cannot reach its 11.2 cap.
 SUB_UP, SUB_DOWN = 219.5, 219.3  # sill 218.0 -> Hu=1.5, Hd=1.3
@@ -62,10 +76,19 @@ HIGH_UP, HIGH_DOWN = 220.0, 218.5  # sill 218.0 -> Hu=2.0, Hd=0.5
 
 # --- discharge_coeff -----------------------------------------------------------
 
+
 class TestDischargeCoeff:
     @pytest.mark.parametrize(
         "Hs, Go",
-        [(1.3, 0.05), (1.3, 0.2), (1.3, 0.6), (1.3, 1.0), (1.3, 1.5), (2.0, 0.01), (2.0, 5.0)],
+        [
+            (1.3, 0.05),
+            (1.3, 0.2),
+            (1.3, 0.6),
+            (1.3, 1.0),
+            (1.3, 1.5),
+            (2.0, 0.01),
+            (2.0, 5.0),
+        ],
     )
     def test_coeff_always_within_physical_bounds(self, Hs, Go):
         cs = discharge_coeff(M00["k1"], M00["k2"], Hs, Go)
@@ -83,6 +106,7 @@ class TestDischargeCoeff:
 
 
 # --- gate_flow_m3s: the F-01 regression + invariants ---------------------------
+
 
 class TestGateFlow:
     def test_287_regression_flow_never_blows_up_at_small_opening(self):
@@ -138,6 +162,7 @@ class TestGateFlow:
 
 # --- required_opening_m: inverse via bisection ---------------------------------
 
+
 class TestRequiredOpening:
     def test_round_trip_opening_recovers_target_flow(self):
         cal = make_cal()
@@ -150,7 +175,9 @@ class TestRequiredOpening:
 
     def test_target_over_capacity_is_infeasible(self):
         cal = make_cal()
-        opening, info = required_opening_m(cal, HIGH_UP, HIGH_DOWN, q_target=cal.q_max_m3s + 5.0)
+        opening, info = required_opening_m(
+            cal, HIGH_UP, HIGH_DOWN, q_target=cal.q_max_m3s + 5.0
+        )
         assert info["feasible"] is False
         assert opening == cal.max_opening_m
         assert info["achievable"] <= cal.q_max_m3s
@@ -173,6 +200,7 @@ class TestRequiredOpening:
 # CS_MIN*width*Hs*sqrt(2g*dH) ~= 3.09 m3/s. The inverse used to return an ~0
 # opening with feasible=True for targets below that floor — a 3-15x overdelivery
 # reported as success, with no caller checking `achievable`.
+
 
 class TestMinDeliverableFloor:
     def test_min_deliverable_matches_tiny_opening_flow(self):
@@ -245,9 +273,13 @@ class TestCapacityAndFloorBoundaries:
         # SMALLEST legal opening (not an arbitrary bisection point), not rejected.
         cal = make_cal()
         q_floor = min_deliverable_flow_m3s(cal, SUB_UP, SUB_DOWN)
-        opening, info = required_opening_m(cal, SUB_UP, SUB_DOWN, q_target=q_floor + offset)
+        opening, info = required_opening_m(
+            cal, SUB_UP, SUB_DOWN, q_target=q_floor + offset
+        )
         assert info["feasible"] is True
-        assert 0.0 < opening <= 1e-5  # minimal positive opening for a min_opening_m=0 gate
+        assert (
+            0.0 < opening <= 1e-5
+        )  # minimal positive opening for a min_opening_m=0 gate
         assert info["achievable"] == pytest.approx(q_floor, abs=2e-3)
 
     def test_floor_band_target_respects_a_positive_min_opening(self):
@@ -274,7 +306,8 @@ class TestCalibrationValidation:
         make_cal(k2=0.0)  # constant Cs: degenerate but monotone — no exception
 
     @pytest.mark.parametrize(
-        "field", ["k1", "k2", "width_m", "sill_m", "max_opening_m", "q_max_m3s", "confidence"]
+        "field",
+        ["k1", "k2", "width_m", "sill_m", "max_opening_m", "q_max_m3s", "confidence"],
     )
     @pytest.mark.parametrize("bad", [float("nan"), float("inf")])
     def test_non_finite_fields_are_rejected(self, field, bad):
@@ -286,20 +319,36 @@ class TestCalibrationValidation:
 
 # --- build_gate_flow_calibration: 3-source assembly + documented defaults ------
 
+
 class TestBuilder:
     def test_builds_from_full_inputs(self):
         cal = build_gate_flow_calibration(
-            k1=1.0693, k2=-1.229, width_m=4.0, sill_m=218.0,
-            max_opening_m=2.0, q_max_m3s=11.2, confidence=0.95,
+            k1=1.0693,
+            k2=-1.229,
+            width_m=4.0,
+            sill_m=218.0,
+            max_opening_m=2.0,
+            q_max_m3s=11.2,
+            confidence=0.95,
         )
-        assert (cal.k1, cal.k2, cal.width_m, cal.q_max_m3s) == (1.0693, -1.229, 4.0, 11.2)
+        assert (cal.k1, cal.k2, cal.width_m, cal.q_max_m3s) == (
+            1.0693,
+            -1.229,
+            4.0,
+            11.2,
+        )
         assert cal.confidence == 0.95
 
     def test_missing_geometry_uses_documented_defaults_and_lowers_confidence(self):
         # A gate with K1/K2 but no sill/opening/width geometry.
         cal = build_gate_flow_calibration(
-            k1=1.0693, k2=-1.229, width_m=None, sill_m=None,
-            max_opening_m=None, q_max_m3s=11.2, confidence=0.80,
+            k1=1.0693,
+            k2=-1.229,
+            width_m=None,
+            sill_m=None,
+            max_opening_m=None,
+            q_max_m3s=11.2,
+            confidence=0.80,
         )
         assert cal.width_m > 0
         assert cal.max_opening_m > 0
@@ -311,8 +360,13 @@ class TestBuilder:
         # rectangular model uses — over-reporting a small orifice's capacity is unsafe.
         d = 0.4
         cal = build_gate_flow_calibration(
-            k1=1.2, k2=-2.5, width_m=d, max_opening_m=d, q_max_m3s=None,
-            confidence=0.5, shape="circular",
+            k1=1.2,
+            k2=-2.5,
+            width_m=d,
+            max_opening_m=d,
+            q_max_m3s=None,
+            confidence=0.5,
+            shape="circular",
         )
         assert cal.q_max_m3s == pytest.approx(
             math.pi / 4 * d * d * NOMINAL_GATE_VELOCITY_MS
@@ -323,7 +377,12 @@ class TestBuilder:
     def test_rectangular_capacity_fallback_uses_width_times_opening(self):
         # Regression guard: non-circular gates keep the width×opening×v estimate.
         cal = build_gate_flow_calibration(
-            k1=1.1, k2=-1.8, width_m=2.0, max_opening_m=1.5, q_max_m3s=None,
-            confidence=0.6, shape="rectangular",
+            k1=1.1,
+            k2=-1.8,
+            width_m=2.0,
+            max_opening_m=1.5,
+            q_max_m3s=None,
+            confidence=0.6,
+            shape="rectangular",
         )
         assert cal.q_max_m3s == pytest.approx(2.0 * 1.5 * NOMINAL_GATE_VELOCITY_MS)

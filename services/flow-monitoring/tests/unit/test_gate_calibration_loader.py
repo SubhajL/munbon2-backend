@@ -98,6 +98,8 @@ class TestGetCalibration:
             confidence=0.75,
             source_gate_ids=("M(0,0)", "M(0,2)"),
             source_version=gate["source_version"],
+            structure_data_status="unavailable",
+            structure_role="junction",
         )
 
     def test_committed_unmeasured_gate_uses_provisional_inference(self, loader):
@@ -127,6 +129,29 @@ class TestGetGateData:
         with pytest.raises(NodeIdError):
             loader.get_gate_data("M(0,1")
 
+    @pytest.mark.parametrize(
+        "gate_id,sheet1_capacity,structure_capacity,binding_capacity",
+        [
+            ("M(0,1;1,0)", 1.375, 1.2, 1.2),
+            ("M(0,1;1,3)", None, 0.252, 0.252),
+            ("M(0,1;1,1;1,1)", None, 0.67, 0.67),
+        ],
+    )
+    def test_rated_capacity_binds_distinct_sheet1_and_structure_sources(
+        self,
+        loader,
+        gate_id,
+        sheet1_capacity,
+        structure_capacity,
+        binding_capacity,
+    ):
+        stored = loader.get_gate_data(gate_id)
+        assert (
+            stored.get("q_max_m3s"),
+            stored["structure_max_flow_m3s"],
+        ) == (sheet1_capacity, structure_capacity)
+        assert loader.rated_q_max(gate_id) == pytest.approx(binding_capacity)
+
 
 class TestBuildFlowCalibration:
     # The SINGLE home for GateFlowCalibration assembly (F-01): HydraulicService and
@@ -143,11 +168,31 @@ class TestBuildFlowCalibration:
             confidence=cal.confidence,
             q_max_m3s=loader.rated_q_max(gate_id),
             width_m=cal.width_m,
+            sill_m=cal.sill_msl_m,
             max_opening_m=loader._max_opening_from_geometry(cal),
             shape=cal.shape,
         )
         assert loader.build_flow_calibration(gate_id) == expected
         assert loader.build_flow_calibration(gate_id).q_max_m3s == pytest.approx(11.2)
+
+    @pytest.mark.parametrize(
+        "gate_id,expected_sill,expected_capacity",
+        [
+            ("M(0,1;1,0)", 203.712, 1.2),
+            ("M(0,1;1,3)", 197.258, 0.252),
+            ("M(0,1;1,1;1,1)", 199.254, 0.67),
+        ],
+    )
+    def test_v2_structure_data_supplies_real_sill_and_binding_capacity(
+        self, loader, gate_id, expected_sill, expected_capacity
+    ):
+        calibration = loader.get_calibration(gate_id)
+        flow_calibration = loader.build_flow_calibration(gate_id)
+        assert (
+            calibration.sill_msl_m,
+            flow_calibration.sill_m,
+            flow_calibration.q_max_m3s,
+        ) == pytest.approx((expected_sill, expected_sill, expected_capacity))
 
     def test_passed_calibration_is_used_not_relooked_up(self, loader):
         # A DISTINCT calibration (different k1) must flow into the result — proving the
@@ -157,7 +202,9 @@ class TestBuildFlowCalibration:
         gate_id = "M(0,0)"
         stored = loader.get_calibration(gate_id)
         distinct = dataclasses.replace(stored, k1=stored.k1 + 0.5)
-        assert loader.build_flow_calibration(gate_id, distinct).k1 == pytest.approx(stored.k1 + 0.5)
+        assert loader.build_flow_calibration(gate_id, distinct).k1 == pytest.approx(
+            stored.k1 + 0.5
+        )
         assert loader.build_flow_calibration(gate_id).k1 == pytest.approx(stored.k1)
 
     def test_max_opening_from_geometry_prefers_height_then_width(self, loader):

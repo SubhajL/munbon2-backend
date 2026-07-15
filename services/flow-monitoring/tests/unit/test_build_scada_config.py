@@ -42,7 +42,14 @@ from core.network_topology import edges_from_names
 
 SERVICE_ROOT = Path(__file__).resolve().parents[2]
 REPO_ROOT = SERVICE_ROOT.parents[1]
-WORKBOOK = REPO_ROOT / "SCADA Section Detailed Information 2025-08-23 V1.0 SL.xlsx"
+WORKBOOK = (
+    SERVICE_ROOT
+    / "data"
+    / "sources"
+    / "scada"
+    / "SCADA Section Detailed Information 2026-07-14 V2.0 SL.xlsx"
+)
+WORKBOOK_SHA256 = "d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167"
 CONFIG_DIR = SERVICE_ROOT / "src" / "config"
 
 _SPEC = importlib.util.spec_from_file_location(
@@ -53,10 +60,16 @@ _SPEC.loader.exec_module(bsc)
 
 
 class TestParseKmMarker:
-    @pytest.mark.parametrize("text,metres", [
-        ("0+000", 0.0), ("0+300", 300.0), ("6+880", 6880.0),
-        ("39+050", 39050.0), ("1+620.5", 1620.5),
-    ])
+    @pytest.mark.parametrize(
+        "text,metres",
+        [
+            ("0+000", 0.0),
+            ("0+300", 300.0),
+            ("6+880", 6880.0),
+            ("39+050", 39050.0),
+            ("1+620.5", 1620.5),
+        ],
+    )
     def test_parses_km_plus_metres(self, text, metres):
         assert bsc.parse_km_marker(text) == metres
 
@@ -67,10 +80,16 @@ class TestParseKmMarker:
         with pytest.raises(bsc.WorkbookError):
             bsc.parse_km_marker(bad)
 
-    @pytest.mark.parametrize("metres,text", [
-        (0.0, "0+000"), (300.0, "0+300"), (50.0, "0+050"),
-        (6880.0, "6+880"), (39050.0, "39+050"),
-    ])
+    @pytest.mark.parametrize(
+        "metres,text",
+        [
+            (0.0, "0+000"),
+            (300.0, "0+300"),
+            (50.0, "0+050"),
+            (6880.0, "6+880"),
+            (39050.0, "39+050"),
+        ],
+    )
     def test_formats_zero_padded_markers(self, metres, text):
         assert bsc.format_km_marker(metres) == text
 
@@ -111,26 +130,40 @@ class TestDeriveSideSlope:
 
 
 class TestLiningFromNote:
-    @pytest.mark.parametrize("note,lining", [
-        ("คลองดาดคอนกรีต", "concrete"),
-        ("คลองคาดคอนกรีต", "concrete"),  # the 5R-4L-38R-LMC typo spelling
-        ("คลองดิน", "earth"),
-        (None, None),
-        ("Hl=3.00-6.00", None),   # a remark, not a lining statement
-        ("Flume", None),
-    ])
+    @pytest.mark.parametrize(
+        "note,lining",
+        [
+            ("คลองดาดคอนกรีต", "concrete"),
+            ("คลองคาดคอนกรีต", "concrete"),  # the 5R-4L-38R-LMC typo spelling
+            ("คลองดิน", "earth"),
+            (None, None),
+            ("Hl=3.00-6.00", None),  # a remark, not a lining statement
+            ("Flume", None),
+        ],
+    )
     def test_maps_survey_notes_to_lining(self, note, lining):
         assert bsc.lining_from_note(note) == lining
 
 
-GATES_SYNTH = ["M(0,0)", "M(0,1)", "M(0,2)", "M(0,1;1,0)", "M(0,1;1,1)",
-               "M(0,1;1,1;1,0)", "M(0,1;1,1;2,0)"]
+GATES_SYNTH = [
+    "M(0,0)",
+    "M(0,1)",
+    "M(0,2)",
+    "M(0,1;1,0)",
+    "M(0,1;1,1)",
+    "M(0,1;1,1;1,0)",
+    "M(0,1;1,1;2,0)",
+]
 
 
 class TestBuildSerialChains:
     def test_groups_gates_into_serial_chains(self):
         chains = bsc.build_serial_chains(GATES_SYNTH)
-        assert sorted(chains, key=len, reverse=True)[0] == ["M(0,0)", "M(0,1)", "M(0,2)"]
+        assert sorted(chains, key=len, reverse=True)[0] == [
+            "M(0,0)",
+            "M(0,1)",
+            "M(0,2)",
+        ]
         assert ["M(0,1;1,0)", "M(0,1;1,1)"] in chains
 
     def test_distinct_branch_indexes_are_distinct_chains(self):
@@ -152,8 +185,13 @@ class TestBuildSerialChains:
 
 class TestMatchChainsToSurvey:
     CHAINS = [["M(0,0)", "M(0,1)", "M(0,2)"], ["M(0,1;1,0)", "M(0,1;1,1)"]]
-    CANALS = {"M(0,0)": "Outlet", "M(0,1)": None, "M(0,2)": "LMC",
-              "M(0,1;1,0)": "RMC", "M(0,1;1,1)": "RMC"}
+    CANALS = {
+        "M(0,0)": "Outlet",
+        "M(0,1)": None,
+        "M(0,2)": "LMC",
+        "M(0,1;1,0)": "RMC",
+        "M(0,1;1,1)": "RMC",
+    }
 
     def test_matches_survey_canals_by_member_gate_names(self):
         matched = bsc.match_chains_to_survey(self.CHAINS, self.CANALS, ["LMC", "RMC"])
@@ -175,10 +213,17 @@ class TestMatchChainsToSurvey:
 
 def _row(from_m, to_m, **over):
     row = {
-        "canal": "LMC", "from_m": float(from_m), "to_m": float(to_m),
-        "length_m": float(to_m - from_m), "qd": 5.0, "area_m2": 7.84,
-        "manning_n": 0.018, "bed_slope": 0.0002,
-        "bottom_width_m": 2.5, "depth_m": 1.6, "note": "คลองดาดคอนกรีต",
+        "canal": "LMC",
+        "from_m": float(from_m),
+        "to_m": float(to_m),
+        "length_m": float(to_m - from_m),
+        "qd": 5.0,
+        "area_m2": 7.84,
+        "manning_n": 0.018,
+        "bed_slope": 0.0002,
+        "bottom_width_m": 2.5,
+        "depth_m": 1.6,
+        "note": "คลองดาดคอนกรีต",
         "excel_row": 99,
     }
     row.update(over)
@@ -197,9 +242,7 @@ class TestAssignRowsToEdges:
         assert all(e["status"] == "full" for e in coverage)
 
     def test_row_crossing_a_gate_splits_at_the_gate(self):
-        pieces, skipped, _ = bsc.assign_rows_to_edges(
-            self.POSITIONS, [_row(0, 1620)]
-        )
+        pieces, skipped, _ = bsc.assign_rows_to_edges(self.POSITIONS, [_row(0, 1620)])
         first = pieces[("M(0,0)", "M(0,1)")]
         second = pieces[("M(0,1)", "M(0,2)")]
         assert [(p["from_m"], p["to_m"]) for p in first] == [(0.0, 300.0)]
@@ -223,8 +266,16 @@ class TestAssignRowsToEdges:
 
     def test_row_without_cross_section_is_reported_not_defaulted(self):
         # The real case: LMC 0+000-0+170 is a Flume with no B/D/n/s survey.
-        flume = _row(0, 170, bottom_width_m=None, depth_m=None,
-                     manning_n=None, bed_slope=None, area_m2=None, note="Flume")
+        flume = _row(
+            0,
+            170,
+            bottom_width_m=None,
+            depth_m=None,
+            manning_n=None,
+            bed_slope=None,
+            area_m2=None,
+            note="Flume",
+        )
         pieces, skipped, coverage = bsc.assign_rows_to_edges(
             self.POSITIONS, [flume, _row(170, 1620)]
         )
@@ -234,8 +285,11 @@ class TestAssignRowsToEdges:
         assert first_edge["covered_m"] == 130.0
         assert first_edge["gap_m"] == 170.0
         assert first_edge["missing"] == [
-            {"from_km": "0+000", "to_km": "0+170",
-             "reason": "survey_row_missing_cross_section"}
+            {
+                "from_km": "0+000",
+                "to_km": "0+170",
+                "reason": "survey_row_missing_cross_section",
+            }
         ]
 
     def test_unsurveyed_interior_and_trailing_chainage_is_measured(self):
@@ -270,16 +324,37 @@ class TestAssignRowsToEdges:
         # default divergently (0.0 vs 1.0) and silently lose the capacity bound.
         no_area = _row(0, 300, area_m2=None)
         no_qd = _row(300, 1620, qd=None)
-        pieces, skipped, _ = bsc.assign_rows_to_edges(
-            self.POSITIONS, [no_area, no_qd]
-        )
+        pieces, skipped, _ = bsc.assign_rows_to_edges(self.POSITIONS, [no_area, no_qd])
         assert pieces == {}
         assert [s["reason"] for s in skipped] == [
-            "missing_design_values", "missing_design_values",
+            "missing_design_values",
+            "missing_design_values",
         ]
 
 
 class TestExtractionValidation:
+    def test_gate_ids_that_collide_after_normalization_fail_closed(self):
+        import openpyxl
+
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        for column, header in bsc.SHEET1_HEADERS.items():
+            sheet.cell(row=2, column=column, value=header)
+        for row_number, gate_id, chainage in (
+            (3, "M(0,0)", "0+000"),
+            (4, "M (0,0)", "0+300"),
+        ):
+            sheet.cell(row=row_number, column=2, value="Outlet")
+            sheet.cell(row=row_number, column=3, value=row_number - 2)
+            sheet.cell(row=row_number, column=5, value=gate_id)
+            sheet.cell(row=row_number, column=14, value=1)
+            sheet.cell(row=row_number, column=15, value="PC")
+            sheet.cell(row=row_number, column=16, value=chainage)
+            sheet.cell(row=row_number, column=21, value=1.0)
+
+        with pytest.raises(bsc.WorkbookError, match="collide"):
+            bsc.extract_gates(sheet)
+
     def test_overlapping_survey_rows_fail_closed(self):
         with pytest.raises(bsc.WorkbookError):
             bsc.validate_survey_rows([_row(0, 300), _row(200, 500)])
@@ -303,6 +378,18 @@ class TestExtractionValidation:
         assert bsc.cell_number("-", "x") is None
         assert bsc.cell_number(" ", "x") is None
         assert bsc.cell_number(9.961, "x") == 9.961
+
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [("+198.504", 198.504), ("0.815", 0.815), (197.258, 197.258)],
+    )
+    def test_structure_numeric_text_is_normalized(self, raw, expected):
+        assert bsc.structure_number(raw, "Sheet1 structure value") == expected
+
+    @pytest.mark.parametrize("raw", [True, "198.5 m", "1e3", "--1", float("inf")])
+    def test_malformed_structure_numeric_fails_closed(self, raw):
+        with pytest.raises(bsc.WorkbookError):
+            bsc.structure_number(raw, "Sheet1 structure value")
 
     def test_separator_row_with_stray_hydraulic_cells_fails_closed(self, tmp_path):
         # A row whose chainage cells were cleared but that still carries ANY
@@ -455,18 +542,31 @@ class TestSimilarGateInference:
         # before the r2 filter (candidates=same_shape -> zero weight -> WorkbookError),
         # rather than reaching for a rectangular donor's k1/k2 for a circular gate.
         circular_target = {
-            "gate_id": "CIRC", "canal_class": "FTO",
-            "shape": "circular", "width_m": 0.4, "height_m": 0.4,
+            "gate_id": "CIRC",
+            "canal_class": "FTO",
+            "shape": "circular",
+            "width_m": 0.4,
+            "height_m": 0.4,
         }
         zero_r2_circular = {
-            "gate_id": "CDONOR", "canal_class": "FTO",
-            "shape": "circular", "width_m": 0.4, "height_m": 0.4,
-            "k1": 1.3, "k2": -3.0, "r2": 0.0,
+            "gate_id": "CDONOR",
+            "canal_class": "FTO",
+            "shape": "circular",
+            "width_m": 0.4,
+            "height_m": 0.4,
+            "k1": 1.3,
+            "k2": -3.0,
+            "r2": 0.0,
         }
         valid_rectangular = {
-            "gate_id": "RECT", "canal_class": "FTO",
-            "shape": "rectangular", "width_m": 2.0, "height_m": 2.0,
-            "k1": 1.2, "k2": -1.3, "r2": 0.9,
+            "gate_id": "RECT",
+            "canal_class": "FTO",
+            "shape": "rectangular",
+            "width_m": 2.0,
+            "height_m": 2.0,
+            "k1": 1.2,
+            "k2": -1.3,
+            "r2": 0.9,
         }
         with pytest.raises(bsc.WorkbookError, match="measured donor"):
             bsc.infer_calibration(
@@ -479,13 +579,21 @@ class TestSimilarGateInference:
         # The generator must fail closed, not divide by zero. A far-off-dimension
         # donor scores ~0.20, and 0.20 * 5e-324 rounds to 0.0.
         target = {
-            "gate_id": "T", "canal_class": "SC", "shape": None,
-            "width_m": 1.0, "height_m": 1.0,
+            "gate_id": "T",
+            "canal_class": "SC",
+            "shape": None,
+            "width_m": 1.0,
+            "height_m": 1.0,
         }
         subnormal_donor = {
-            "gate_id": "D", "canal_class": "SC", "shape": "rectangular",
-            "width_m": 100.0, "height_m": 100.0,
-            "k1": 1.0, "k2": -1.0, "r2": 5e-324,
+            "gate_id": "D",
+            "canal_class": "SC",
+            "shape": "rectangular",
+            "width_m": 100.0,
+            "height_m": 100.0,
+            "k1": 1.0,
+            "k2": -1.0,
+            "r2": 5e-324,
         }
         with pytest.raises(bsc.WorkbookError, match="underflow"):
             bsc.infer_calibration(target, [subnormal_donor], "version")
@@ -497,6 +605,11 @@ def artifacts():
 
 
 class TestRealWorkbookGeneration:
+    def test_v2_source_path_and_hash_are_exact(self):
+        assert WORKBOOK.is_file()
+        assert hashlib.sha256(WORKBOOK.read_bytes()).hexdigest() == WORKBOOK_SHA256
+        assert bsc.DEFAULT_WORKBOOK == WORKBOOK
+
     def test_all_artifacts_carry_the_workbook_sha256(self, artifacts):
         digest = hashlib.sha256(WORKBOOK.read_bytes()).hexdigest()
         for name in (
@@ -528,6 +641,82 @@ class TestRealWorkbookGeneration:
             "canal_class": "PC",
             "q_max_m3s": 11.2,
             "zone": 1,
+            "design_fsl_msl_m": 221,
+            "sill_msl_m": 204.5,
+            "structure_max_flow_m3s": 11.2,
+            "design_fsl_reference_side": "upstream",
+            "structure_data_status": "complete",
+            "structure_role": "control",
+        }
+
+    def test_all_generated_gate_ids_are_compact_and_collision_free(self, artifacts):
+        from core.node_id import normalize_gate_id
+
+        for artifact_name in ("network", "gate_calibrations"):
+            gate_ids = list(artifacts[artifact_name]["gates"])
+            assert len(gate_ids) == 59
+            assert all(gate_id == normalize_gate_id(gate_id) for gate_id in gate_ids)
+
+    def test_eight_complete_rmc_controls_carry_exact_v2_structure_fields(
+        self, artifacts
+    ):
+        gates = artifacts["gate_calibrations"]["gates"]
+        expected = {
+            "M(0,1;1,0)": (205.561, 203.712, 1.2),
+            "M(0,1;1,1)": (203.888, 202.938, 1.234),
+            "M(0,1;1,2)": (198.504, 197.954, 1.234),
+            "M(0,1;1,3)": (198.308, 197.258, 0.252),
+            "M(0,1;1,1;1,0)": (200.204, 199.404, 0.815),
+            "M(0,1;1,1;1,1)": (200.054, 199.254, 0.67),
+            "M(0,1;1,1;1,2)": (198.084, 197.334, 0.397),
+            "M(0,1;1,1;1,3)": (196.934, 196.284, 0.205),
+        }
+        assert {
+            gate_id: (
+                gates[gate_id]["design_fsl_msl_m"],
+                gates[gate_id]["sill_msl_m"],
+                gates[gate_id]["structure_max_flow_m3s"],
+            )
+            for gate_id in expected
+        } == expected
+        assert all(
+            gates[gate_id]["design_fsl_reference_side"] == "upstream"
+            and gates[gate_id]["structure_data_status"] == "complete"
+            and gates[gate_id]["structure_role"] == "control"
+            for gate_id in expected
+        )
+
+    def test_junction_tail_and_turnout_structure_statuses_are_explicit(self, artifacts):
+        gates = artifacts["gate_calibrations"]["gates"]
+        assert {
+            gate_id: (
+                gates[gate_id]["structure_role"],
+                gates[gate_id]["structure_data_status"],
+                gates[gate_id]["design_fsl_msl_m"],
+                gates[gate_id]["sill_msl_m"],
+                gates[gate_id]["structure_max_flow_m3s"],
+            )
+            for gate_id in (
+                "M(0,1)",
+                "M(0,1;1,1;1,4)",
+                "M(0,1;1,1;1,2;1,0)",
+            )
+        } == {
+            "M(0,1)": ("junction", "unavailable", None, None, None),
+            "M(0,1;1,1;1,4)": (
+                "tail",
+                "incomplete",
+                195.354,
+                194.854,
+                None,
+            ),
+            "M(0,1;1,1;1,2;1,0)": (
+                "turnout",
+                "unavailable",
+                None,
+                None,
+                None,
+            ),
         }
 
     def test_gate_calibrations_mark_unmeasured_rows_as_provisional_inferences(
@@ -577,7 +766,7 @@ class TestRealWorkbookGeneration:
         } == {gate_id: gate.get("q_max") for gate_id, gate in network_gates.items()}
 
     def test_circular_gate_height_is_used_as_its_hydraulic_width(self, artifacts):
-        gate = artifacts["gate_calibrations"]["gates"]["M(0,1; 1,0; 1,0)"]
+        gate = artifacts["gate_calibrations"]["gates"]["M(0,1;1,0;1,0)"]
         assert (gate["shape"], gate["width_m"], gate["height_m"]) == (
             "circular",
             0.4,
@@ -648,7 +837,10 @@ class TestRealWorkbookGeneration:
         for e in edges:
             by_category[e["category"]] = by_category.get(e["category"], 0) + 1
         assert by_category == {
-            "serial": 42, "junction_head": 13, "offtake": 3, "source": 1,
+            "serial": 42,
+            "junction_head": 13,
+            "offtake": 3,
+            "source": 1,
         }
 
     def test_partial_reaches_and_gaps_match_the_survey(self, artifacts):
@@ -658,22 +850,23 @@ class TestRealWorkbookGeneration:
             if e["status"] == "partial"
         }
         assert gaps == {
-            ("M(0,0)", "M(0,1)"): 170.0,            # flume, no cross-section
-            ("M (0,12; 1,1; 1,1)", "M (0,12; 1,1; 1,2)"): 30.0,
-            ("M (0,12; 1,2; 1,1)", "M (0,12; 1,2; 1,2)"): 1200.0,
-            ("M (0,12; 1,2; 1,0; 1,0)", "M (0,12; 1,2; 1,0; 1,1)"): 410.0,
-            ("M (0,1; 1,3)", "M (0,1; 1,4)"): 80.0,
+            ("M(0,0)", "M(0,1)"): 170.0,  # flume, no cross-section
+            ("M(0,12;1,1;1,1)", "M(0,12;1,1;1,2)"): 30.0,
+            ("M(0,12;1,2;1,1)", "M(0,12;1,2;1,2)"): 1200.0,
+            ("M(0,12;1,2;1,0;1,0)", "M(0,12;1,2;1,0;1,1)"): 410.0,
+            ("M(0,1;1,3)", "M(0,1;1,4)"): 80.0,
         }
 
     def test_skipped_rows_are_reported(self, artifacts):
         skipped = artifacts["geometry_coverage"]["summary"]["skipped_rows"]
         assert skipped == {"missing_cross_section": 1, "beyond_last_gate": 1}
 
-    def test_sills_and_control_structures_are_never_emitted(self, artifacts):
-        # RID-gated (WAVE_2-4_PLAN §1.5 HIGH #1): the สบ.1 join is unapproved.
-        text = json.dumps(artifacts)
-        assert "control_structures" not in text
-        assert "sill" not in text
+    def test_structure_fields_are_scoped_to_the_planning_only_bundle(self, artifacts):
+        for name in ("network", "canal_geometry", "geometry_coverage"):
+            assert "sill_msl_m" not in json.dumps(artifacts[name])
+        assert artifacts["gate_calibrations"]["metadata"]["intended_use"] == (
+            "planning_only"
+        )
 
     def test_reaches_block_carries_every_serial_span(self, artifacts):
         # The runtime needs the gate-to-gate span to measure head/tail survey
@@ -720,9 +913,11 @@ class TestRealWorkbookGeneration:
 
 class TestCoverageClassifier:
     GATES = {
-        "M(0,0)": {"canal": "Outlet"}, "M(0,1)": {"canal": "LMC"},
+        "M(0,0)": {"canal": "Outlet"},
+        "M(0,1)": {"canal": "LMC"},
         "M(0,0;1,0)": {"canal": "WW"},
-        "M(0,1;1,0)": {"canal": "New"}, "M(0,1;1,1)": {"canal": "New"},
+        "M(0,1;1,0)": {"canal": "New"},
+        "M(0,1;1,1)": {"canal": "New"},
     }
 
     def test_unmatched_multi_gate_chain_edges_are_serial_none_not_offtake(self):
@@ -732,13 +927,24 @@ class TestCoverageClassifier:
         entries = bsc.classify_edges(
             gate_ids=list(self.GATES),
             canal_by_gate={k: v["canal"] for k, v in self.GATES.items()},
-            km_by_gate={"M(0,0)": "0+000", "M(0,1)": "0+300", "M(0,0;1,0)": "0+160",
-                        "M(0,1;1,0)": "0+000", "M(0,1;1,1)": "2+600"},
+            km_by_gate={
+                "M(0,0)": "0+000",
+                "M(0,1)": "0+300",
+                "M(0,0;1,0)": "0+160",
+                "M(0,1;1,0)": "0+000",
+                "M(0,1;1,1)": "2+600",
+            },
             matched_head_canals={"M(0,0)": "LMC"},
-            serial_coverage={("M(0,0)", "M(0,1)"): {
-                "span_m": 300, "covered_m": 300, "gap_m": 0, "segments": 1,
-                "status": "full", "missing": [],
-            }},
+            serial_coverage={
+                ("M(0,0)", "M(0,1)"): {
+                    "span_m": 300,
+                    "covered_m": 300,
+                    "gap_m": 0,
+                    "segments": 1,
+                    "status": "full",
+                    "missing": [],
+                }
+            },
         )
         by_edge = {(e["upstream"], e["downstream"]): e for e in entries}
         assert by_edge[("S", "M(0,0)")]["category"] == "source"

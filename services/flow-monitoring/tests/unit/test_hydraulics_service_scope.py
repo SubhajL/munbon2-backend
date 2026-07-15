@@ -73,34 +73,47 @@ class TestAppScopedConstruction:
 
         def piece(from_km, to_km, length, width, q_max):
             return {
-                "from_node": "M(0,0)", "to_node": "M(0,1)",
-                "canal_name": "LMC", "section_no": 1,
-                "from_km": from_km, "to_km": to_km,
+                "from_node": "M(0,0)",
+                "to_node": "M(0,1)",
+                "canal_name": "LMC",
+                "section_no": 1,
+                "from_km": from_km,
+                "to_km": to_km,
                 "geometry": {
                     "length_m": length,
-                    "cross_section": {"bottom_width_m": width, "depth_m": 1.5,
-                                      "side_slope": 1.5},
-                    "hydraulic_params": {"manning_n": 0.018, "bed_slope": 0.0002,
-                                         "q_max": q_max},
+                    "cross_section": {
+                        "bottom_width_m": width,
+                        "depth_m": 1.5,
+                        "side_slope": 1.5,
+                    },
+                    "hydraulic_params": {
+                        "manning_n": 0.018,
+                        "bed_slope": 0.0002,
+                        "q_max": q_max,
+                    },
                 },
             }
 
         geometry = {
             "canal_sections": [
-                piece("0+400", "0+800", 400, 2.0, 4.0),   # downstream, weakest
-                piece("0+100", "0+400", 300, 3.5, 9.0),   # upstream
+                piece("0+400", "0+800", 400, 2.0, 4.0),  # downstream, weakest
+                piece("0+100", "0+400", 300, 3.5, 9.0),  # upstream
             ],
-            "reaches": [{
-                "from_node": "M(0,0)", "to_node": "M(0,1)",
-                "from_km": "0+000", "to_km": "1+000",
-            }],
+            "reaches": [
+                {
+                    "from_node": "M(0,0)",
+                    "to_node": "M(0,1)",
+                    "from_km": "0+000",
+                    "to_km": "1+000",
+                }
+            ],
         }
         path = tmp_path / "geometry.json"
         path.write_text(json.dumps(geometry), encoding="utf-8")
         ctrl = WaterGateControllerIntegrated(str(NETWORK), str(path))
         section = ctrl.canal_sections["M(0,0)->M(0,1)"]
-        assert section.length_m == 1000       # physical span, not 700 covered
-        assert section.q_max == 4.0           # weakest piece
+        assert section.length_m == 1000  # physical span, not 700 covered
+        assert section.q_max == 4.0  # weakest piece
         assert section.bottom_width_m == 3.5  # upstream piece by chainage
 
     def test_head_loss_lookup_joins_spaced_network_ids(self, service):
@@ -123,12 +136,12 @@ class TestAppScopedConstruction:
 
 
 class TestFindDeliveryPaths:
-    def test_path_from_source_with_downstream_gate_ids(self, service):
+    def test_spaced_demand_alias_returns_canonical_downstream_gate_ids(self, service):
         paths = service.path_solver.find_delivery_paths({"M (0,3; 1,0)": 2.0})
-        assert set(paths) == {"M (0,3; 1,0)"}
-        info = paths["M (0,3; 1,0)"]
+        assert set(paths) == {"M(0,3;1,0)"}
+        info = paths["M(0,3;1,0)"]
         assert info["nodes"][0] == "S"
-        assert info["nodes"][-1] == "M (0,3; 1,0)"
+        assert info["nodes"][-1] == "M(0,3;1,0)"
         # Each reach's physical gate is its downstream valve.
         assert info["gates"] == info["nodes"][1:]
         assert info["total_flow"] == pytest.approx(2.0)
@@ -150,21 +163,17 @@ class TestFindDeliveryPaths:
 
 
 class TestTravelTimeJoin:
-    def test_travel_time_joins_spaced_ids_to_surveyed_section(self, service):
-        # Same normalized-join requirement as head loss: a surveyed reach queried
-        # with the network's survey-spaced spelling must use its real geometry,
-        # not the no-geometry default estimate.
+    def test_travel_time_joins_canonical_ids_to_surveyed_section(self, service):
         controller = service.hydraulic_solver.controller
         edges = json.loads(NETWORK.read_text())["edges"]
-        spaced = [
+        surveyed = [
             (u, v)
             for u, v in edges
-            if " " in v
-            and f"{normalize_node_id(u)}->{normalize_node_id(v)}"
+            if f"{normalize_node_id(u)}->{normalize_node_id(v)}"
             in controller.canal_sections
         ]
-        assert spaced, "no spaced surveyed reach found"
-        u, v = spaced[0]
+        assert surveyed, "no canonical surveyed reach found"
+        u, v = surveyed[0]
         key = f"{normalize_node_id(u)}->{normalize_node_id(v)}"
         length = controller.canal_sections[key].length_m
         travel_s = controller.calculate_travel_time(u, v, 2.0)
@@ -205,9 +214,7 @@ class TestVerifySchedule:
             )
         )
         assert combined["total_demand"] == pytest.approx(4.0)
-        assert (
-            combined["required_gate_settings"] == single["required_gate_settings"]
-        )
+        assert combined["required_gate_settings"] == single["required_gate_settings"]
 
     def test_simulation_unavailable_is_fail_closed_not_a_crash(self, service):
         # The legacy solver-simulation seam returns None (its API never matched);
@@ -297,7 +304,9 @@ class TestModelFacadesAre501(object):
     def test_verify_schedule_stays_alive(self, client):
         resp = client.post(
             "/api/v1/hydraulics/verify-schedule",
-            json={"schedule": {"deliveries": [{"node_id": "M(0,1)", "flow_rate": 3.0}]}},
+            json={
+                "schedule": {"deliveries": [{"node_id": "M(0,1)", "flow_rate": 3.0}]}
+            },
         )
         assert resp.status_code == 200
 
@@ -331,7 +340,9 @@ class TestHonestCapacities:
 
         warnings = []
         monkeypatch.setattr(
-            hs.logger, "warning", lambda msg, *a, **k: warnings.append(msg % a if a else msg)
+            hs.logger,
+            "warning",
+            lambda msg, *a, **k: warnings.append(msg % a if a else msg),
         )
         service._get_gate_capacity("M(0,1)")
         assert any("calibration" in w for w in warnings)
@@ -347,7 +358,9 @@ class TestHonestCapacities:
             flow_calibration.width_m,
         ) == ("circular", 0.4, 0.4, 0.4)
 
-    def test_circular_gate_bounds_max_opening_capacity_and_flow_to_diameter(self, service):
+    def test_circular_gate_bounds_max_opening_capacity_and_flow_to_diameter(
+        self, service
+    ):
         # 2.3-retro HIGH: _build_gate_flow_cal forwarded the 0.4 m diameter as width
         # but let max_opening_m default to 2.0 m, inflating the unrated gate's q_max
         # to 2.4 m3/s and its full-open flow to 1.426 m3/s. Bounded to the diameter,
@@ -372,20 +385,39 @@ class TestHonestCapacities:
         # rectangular gate) with a known leaf height must NOT fall back to the 2.0 m
         # default that reinflates a small orifice.
         unlabelled = GateCalibrationData(
-            gate_id="X", k1=1.2, k2=-2.5, calibration_method="inferred",
-            confidence=0.5, source_gate_ids=("M(0,1;1,1;1,0)",),
-            source_version="v", shape=None, width_m=0.4, height_m=0.4,
+            gate_id="X",
+            k1=1.2,
+            k2=-2.5,
+            calibration_method="inferred",
+            confidence=0.5,
+            source_gate_ids=("M(0,1;1,1;1,0)",),
+            source_version="v",
+            shape=None,
+            width_m=0.4,
+            height_m=0.4,
         )
         assert service._max_opening_from_geometry(unlabelled) == pytest.approx(0.4)
         rectangular = GateCalibrationData(
-            gate_id="Y", k1=1.1, k2=-1.8, calibration_method="inferred",
-            confidence=0.5, source_gate_ids=("M(0,2)",),
-            source_version="v", shape="rectangular", width_m=3.6, height_m=1.8,
+            gate_id="Y",
+            k1=1.1,
+            k2=-1.8,
+            calibration_method="inferred",
+            confidence=0.5,
+            source_gate_ids=("M(0,2)",),
+            source_version="v",
+            shape="rectangular",
+            width_m=3.6,
+            height_m=1.8,
         )
         assert service._max_opening_from_geometry(rectangular) == pytest.approx(1.8)
         no_geometry = GateCalibrationData(
-            gate_id="Z", k1=1.1, k2=-1.8, calibration_method="default",
-            confidence=0.6, source_gate_ids=(), source_version="v",
+            gate_id="Z",
+            k1=1.1,
+            k2=-1.8,
+            calibration_method="default",
+            confidence=0.6,
+            source_gate_ids=(),
+            source_version="v",
         )
         assert service._max_opening_from_geometry(no_geometry) is None
 

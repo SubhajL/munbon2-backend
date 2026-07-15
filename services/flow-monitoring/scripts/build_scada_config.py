@@ -7,7 +7,7 @@ KILOMETRES and was written straight into `length_m` (the 1000x bug), and whose
 missing survey columns silently became invented defaults (10 m widths, 0.5 m
 freeboards, fabricated sills).
 
-Sources (workbook `SCADA Section Detailed Information 2025-08-23 V1.0 SL.xlsx`):
+Sources (workbook `SCADA Section Detailed Information 2026-07-14 V2.0 SL.xlsx`):
 - Sheet1 — the 59 gates: exact network ids, canal, zone, per-gate chainage
   (`km`), rated q_max, service area. The `km` column is the gate-position
   authority: the `Km. -> Km.` span text disagrees with it on 4L-38R-LMC and on
@@ -15,8 +15,9 @@ Sources (workbook `SCADA Section Detailed Information 2025-08-23 V1.0 SL.xlsx`):
 - Characteristics — 99 surveyed hydraulic segments keyed canal + chainage span
   (NOT gate ids), lengths in true metres (validated == chainage delta). The
   right-hand water-volume table (col >= 28) is ignored.
-- สบ. 1 / สบ. 2 (sills/FSL) are RID-GATED (WAVE_2-4_PLAN §1.5 HIGH #1: the
-  canal/station join has no M-id and needs RID review) — NEVER emitted here.
+- Sheet1 AH-AJ — approved design FSL, structure sill, and structure maximum
+  flow. FSL is the upstream-of-structure design reference, not a live level;
+  structure sill is never treated as the canal bed.
 
 Semantics:
 - A survey row crossing a gate position is split at the gate; every emitted
@@ -44,6 +45,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
+import re
 import sys
 from pathlib import Path
 
@@ -52,11 +55,14 @@ sys.path.insert(0, str(SERVICE_ROOT / "src"))
 
 from core.conveyance_loss import parse_chainage_m  # noqa: E402
 from core.network_topology import ROOT, edges_from_names  # noqa: E402
-from core.node_id import parse_gate_id  # noqa: E402
+from core.node_id import normalize_gate_id, parse_gate_id  # noqa: E402
 
 DEFAULT_WORKBOOK = (
-    SERVICE_ROOT.parents[1]
-    / "SCADA Section Detailed Information 2025-08-23 V1.0 SL.xlsx"
+    SERVICE_ROOT
+    / "data"
+    / "sources"
+    / "scada"
+    / "SCADA Section Detailed Information 2026-07-14 V2.0 SL.xlsx"
 )
 DEFAULT_OUT_DIR = SERVICE_ROOT / "src" / "config"
 GENERATOR = "scripts/build_scada_config.py"
@@ -76,6 +82,9 @@ SHEET1_HEADERS = {
     24: "r2",
     25: "width (m)",
     26: "height (m)",
+    34: "FSL (m-MSL)",
+    35: "Sill Level (m-MSL)",
+    36: "Max Flow (m^3/s)",
 }
 CHAR_HEADERS_R2 = {
     2: "คลอง",
@@ -102,6 +111,8 @@ INFERENCE_CONFIDENCE_PENALTY = 0.7
 SHAPE_SIMILARITY_WEIGHT = 0.45
 DIMENSION_SIMILARITY_WEIGHT = 0.35
 CANAL_CLASS_SIMILARITY_WEIGHT = 0.2
+DESIGN_FSL_REFERENCE_SIDE = "upstream"
+_STRUCTURE_NUMBER = re.compile(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)\Z")
 
 
 class WorkbookError(ValueError):
@@ -186,6 +197,42 @@ def cell_number(value, where: str):
     raise WorkbookError(f"{where}: non-numeric cell {value!r} in a numeric column")
 
 
+def structure_number(value, where: str):
+    """Finite AH-AJ number, accepting the V2 workbook's decimal-text cells."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise WorkbookError(f"{where}: boolean cell in a structure numeric column")
+    if isinstance(value, (int, float)):
+        number = float(value)
+    elif isinstance(value, str):
+        text = value.strip()
+        if text in ("", "-"):
+            return None
+        if _STRUCTURE_NUMBER.fullmatch(text) is None:
+            raise WorkbookError(f"{where}: malformed structure numeric cell {value!r}")
+        number = float(text)
+    else:
+        raise WorkbookError(f"{where}: invalid structure numeric cell {value!r}")
+    if not math.isfinite(number):
+        raise WorkbookError(f"{where}: non-finite structure numeric cell {value!r}")
+    return number
+
+
+def classify_structure_role(
+    gate_id: str, canal_class: str, section_number: float | None
+) -> str:
+    if gate_id == "M(0,1)":
+        return "junction"
+    if canal_class == "FTO":
+        return "turnout"
+    if section_number is None and canal_class in {"PC", "SC", "TC", "QC"}:
+        return "tail"
+    if canal_class in {"PC", "SC", "TC", "QC", "WW"}:
+        return "control"
+    return "unknown"
+
+
 def _intish(value: float):
     """Integral floats as ints, so emitted JSON matches the survey's integers."""
     return int(value) if float(value).is_integer() else value
@@ -206,14 +253,21 @@ def extract_gates(ws) -> list[dict]:
     """Sheet1 gate rows: exact ids, geometry, ratings and calibration triplets."""
     _validate_headers(ws, 2, SHEET1_HEADERS, "Sheet1")
     gates = []
-    for row in ws.iter_rows(min_row=3, max_col=26):
+    seen_gate_ids = set()
+    for row in ws.iter_rows(min_row=3, max_col=36):
         cell = lambda col: row[col - 1].value  # noqa: E731
         raw_id = cell(5)
         if raw_id is None:
             continue
-        gate_id = str(raw_id).strip()
+        gate_id = normalize_gate_id(str(raw_id).strip())
+        if gate_id in seen_gate_ids:
+            raise WorkbookError(
+                f"Sheet1 gate ids collide after normalization at {gate_id}"
+            )
+        seen_gate_ids.add(gate_id)
         parsed = parse_gate_id(gate_id)  # NodeIdError propagates: bad id = bad workbook
         canal = str(cell(2)).strip() if cell(2) is not None else None
+        section_number = cell_number(cell(3), f"Sheet1 gate {gate_id} Section")
         zone = cell_number(cell(14), f"Sheet1 gate {gate_id} Zone")
         canal_class = str(cell(15)).strip() if cell(15) is not None else None
         if not canal_class:
@@ -238,6 +292,38 @@ def extract_gates(ws) -> list[dict]:
                     f"gate {gate_id}: circular gate requires a numeric diameter"
                 )
             width_m = height_m
+        design_fsl_msl_m = structure_number(
+            cell(34), f"Sheet1 gate {gate_id} design FSL"
+        )
+        sill_msl_m = structure_number(cell(35), f"Sheet1 gate {gate_id} structure sill")
+        structure_max_flow_m3s = structure_number(
+            cell(36), f"Sheet1 gate {gate_id} structure max flow"
+        )
+        if structure_max_flow_m3s is not None and structure_max_flow_m3s <= 0:
+            raise WorkbookError(
+                f"gate {gate_id}: structure max flow must be > 0,"
+                f" got {structure_max_flow_m3s}"
+            )
+        if (
+            design_fsl_msl_m is not None
+            and sill_msl_m is not None
+            and design_fsl_msl_m <= sill_msl_m
+        ):
+            raise WorkbookError(
+                f"gate {gate_id}: design FSL must exceed structure sill"
+            )
+        structure_presence = (
+            design_fsl_msl_m is not None,
+            sill_msl_m is not None,
+            structure_max_flow_m3s is not None,
+        )
+        structure_data_status = (
+            "complete"
+            if all(structure_presence)
+            else "unavailable"
+            if not any(structure_presence)
+            else "incomplete"
+        )
         gates.append(
             {
                 "gate_id": gate_id,
@@ -255,6 +341,16 @@ def extract_gates(ws) -> list[dict]:
                 "shape": shape,
                 "width_m": width_m,
                 "height_m": height_m,
+                "design_fsl_msl_m": design_fsl_msl_m,
+                "sill_msl_m": sill_msl_m,
+                "structure_max_flow_m3s": structure_max_flow_m3s,
+                "design_fsl_reference_side": (
+                    DESIGN_FSL_REFERENCE_SIDE if design_fsl_msl_m is not None else None
+                ),
+                "structure_data_status": structure_data_status,
+                "structure_role": classify_structure_role(
+                    gate_id, canal_class, section_number
+                ),
             }
         )
     return gates
@@ -278,7 +374,8 @@ def extract_survey_rows(ws) -> list[dict]:
         from_raw, to_raw, length = cell(3), cell(4), cell_number(cell(5), where)
         if from_raw is None and to_raw is None and length is None:
             stray = [
-                c for c in CHAR_HYDRAULIC_COLS
+                c
+                for c in CHAR_HYDRAULIC_COLS
                 if cell(c) is not None and str(cell(c)).strip() not in ("", "-")
             ]
             if stray:
@@ -292,21 +389,23 @@ def extract_survey_rows(ws) -> list[dict]:
         from_m, to_m = parse_km_marker(from_raw), parse_km_marker(to_raw)
         if length is None:
             raise WorkbookError(f"{where}: missing length")
-        rows.append({
-            "canal": canal,
-            "from_m": from_m,
-            "to_m": to_m,
-            "length_m": length,
-            "q_rotation": cell_number(cell(7), f"{where} Qmax"),
-            "qd": cell_number(cell(8), f"{where} Qd"),
-            "area_m2": cell_number(cell(9), f"{where} A"),
-            "manning_n": cell_number(cell(13), f"{where} n"),
-            "bed_slope": cell_number(cell(14), f"{where} s"),
-            "bottom_width_m": cell_number(cell(15), f"{where} B"),
-            "depth_m": cell_number(cell(16), f"{where} D"),
-            "note": str(cell(26)).strip() if cell(26) is not None else None,
-            "excel_row": rn,
-        })
+        rows.append(
+            {
+                "canal": canal,
+                "from_m": from_m,
+                "to_m": to_m,
+                "length_m": length,
+                "q_rotation": cell_number(cell(7), f"{where} Qmax"),
+                "qd": cell_number(cell(8), f"{where} Qd"),
+                "area_m2": cell_number(cell(9), f"{where} A"),
+                "manning_n": cell_number(cell(13), f"{where} n"),
+                "bed_slope": cell_number(cell(14), f"{where} s"),
+                "bottom_width_m": cell_number(cell(15), f"{where} B"),
+                "depth_m": cell_number(cell(16), f"{where} D"),
+                "note": str(cell(26)).strip() if cell(26) is not None else None,
+                "excel_row": rn,
+            }
+        )
     return rows
 
 
@@ -369,6 +468,7 @@ def match_chains_to_survey(
     a surveyed canal, or one chain claimed by two surveyed canals, all fail
     closed — a misassigned axis would hang real geometry on the wrong reaches.
     """
+
     def norm(name):
         return " ".join(str(name).split()) if name is not None else None
 
@@ -376,7 +476,8 @@ def match_chains_to_survey(
     claimed: dict = {}
     for canal in survey_canals:
         candidates = [
-            chain for chain in chains
+            chain
+            for chain in chains
             if any(norm(canal_by_gate.get(g)) == norm(canal) for g in chain)
         ]
         if len(candidates) != 1:
@@ -452,26 +553,36 @@ def assign_rows_to_edges(positions: list, rows: list) -> tuple:
     for row in rows:
         reason = skip_reason(row)
         if reason is not None:
-            skipped.append({
-                "reason": reason, "canal": row["canal"],
-                "from_m": row["from_m"], "to_m": row["to_m"],
-                "excel_row": row["excel_row"],
-            })
+            skipped.append(
+                {
+                    "reason": reason,
+                    "canal": row["canal"],
+                    "from_m": row["from_m"],
+                    "to_m": row["to_m"],
+                    "excel_row": row["excel_row"],
+                }
+            )
             continue
         for lo, hi, reason in (
             (row["from_m"], min(row["to_m"], axis_start), "before_first_gate"),
             (max(row["from_m"], axis_end), row["to_m"], "beyond_last_gate"),
         ):
             if hi > lo + CHAINAGE_EPS:
-                skipped.append({
-                    "reason": reason, "canal": row["canal"],
-                    "from_m": lo, "to_m": hi, "excel_row": row["excel_row"],
-                })
+                skipped.append(
+                    {
+                        "reason": reason,
+                        "canal": row["canal"],
+                        "from_m": lo,
+                        "to_m": hi,
+                        "excel_row": row["excel_row"],
+                    }
+                )
         if min(row["to_m"], axis_end) > max(row["from_m"], axis_start) + CHAINAGE_EPS:
             usable.append(row)
 
     unemittable_spans = [
-        (s["from_m"], s["to_m"], s["reason"]) for s in skipped
+        (s["from_m"], s["to_m"], s["reason"])
+        for s in skipped
         if s["reason"] in ("missing_cross_section", "missing_design_values")
     ]
     pieces_by_edge: dict = {}
@@ -499,20 +610,30 @@ def assign_rows_to_edges(positions: list, rows: list) -> tuple:
                 if sub_hi > sub_lo + CHAINAGE_EPS:
                     missing.append((sub_lo, sub_hi, f"survey_row_{hole_reason}"))
         missing.sort()
-        status = "full" if span - covered <= CHAINAGE_EPS else (
-            "none" if covered <= CHAINAGE_EPS else "partial"
+        status = (
+            "full"
+            if span - covered <= CHAINAGE_EPS
+            else ("none" if covered <= CHAINAGE_EPS else "partial")
         )
-        coverage.append({
-            "upstream": up_id, "downstream": down_id,
-            "span_m": _intish(span), "covered_m": _intish(covered),
-            "gap_m": _intish(span - covered), "segments": len(pieces),
-            "status": status,
-            "missing": [
-                {"from_km": format_km_marker(lo), "to_km": format_km_marker(hi),
-                 "reason": reason}
-                for lo, hi, reason in missing
-            ],
-        })
+        coverage.append(
+            {
+                "upstream": up_id,
+                "downstream": down_id,
+                "span_m": _intish(span),
+                "covered_m": _intish(covered),
+                "gap_m": _intish(span - covered),
+                "segments": len(pieces),
+                "status": status,
+                "missing": [
+                    {
+                        "from_km": format_km_marker(lo),
+                        "to_km": format_km_marker(hi),
+                        "reason": reason,
+                    }
+                    for lo, hi, reason in missing
+                ],
+            }
+        )
     return pieces_by_edge, skipped, coverage
 
 
@@ -547,29 +668,50 @@ def classify_edges(
     for parent, child in edges_from_names(gate_ids):
         head = gate_chain_head.get(child)
         if parent == ROOT:
-            entry = {"upstream": parent, "downstream": child,
-                     "category": "source", "status": "not_applicable"}
+            entry = {
+                "upstream": parent,
+                "downstream": child,
+                "category": "source",
+                "status": "not_applicable",
+            }
         elif (parent, child) in serial_coverage:
-            entry = {"upstream": parent, "downstream": child,
-                     "category": "serial", **{
-                         k: v for k, v in serial_coverage[(parent, child)].items()
-                         if k not in ("upstream", "downstream")
-                     }}
+            entry = {
+                "upstream": parent,
+                "downstream": child,
+                "category": "serial",
+                **{
+                    k: v
+                    for k, v in serial_coverage[(parent, child)].items()
+                    if k not in ("upstream", "downstream")
+                },
+            }
         elif head == child and head in matched_head_canals:
-            entry = {"upstream": parent, "downstream": child,
-                     "category": "junction_head", "status": "not_applicable",
-                     "canal": matched_head_canals[head]}
+            entry = {
+                "upstream": parent,
+                "downstream": child,
+                "category": "junction_head",
+                "status": "not_applicable",
+                "canal": matched_head_canals[head],
+            }
         elif head == child and head in single_gate_chains:
-            entry = {"upstream": parent, "downstream": child,
-                     "category": "offtake", "status": "not_applicable",
-                     "canal": canal_by_gate.get(child),
-                     "km": km_by_gate.get(child)}
+            entry = {
+                "upstream": parent,
+                "downstream": child,
+                "category": "offtake",
+                "status": "not_applicable",
+                "canal": canal_by_gate.get(child),
+                "km": km_by_gate.get(child),
+            }
         elif head == child:
             # head of an UNSURVEYED multi-gate chain: the junction itself has no
             # span, but the canal's serial reaches below will show as holes.
-            entry = {"upstream": parent, "downstream": child,
-                     "category": "junction_head", "status": "not_applicable",
-                     "canal": canal_by_gate.get(head)}
+            entry = {
+                "upstream": parent,
+                "downstream": child,
+                "category": "junction_head",
+                "status": "not_applicable",
+                "canal": canal_by_gate.get(head),
+            }
         else:
             entry = {
                 "upstream": parent,
@@ -736,6 +878,18 @@ def build_gate_calibrations(
                     if source_key not in ("shape", "canal_class")
                     else gate[source_key]
                 )
+        for structure_key in (
+            "design_fsl_msl_m",
+            "sill_msl_m",
+            "structure_max_flow_m3s",
+            "design_fsl_reference_side",
+            "structure_data_status",
+            "structure_role",
+        ):
+            value = gate[structure_key]
+            record[structure_key] = (
+                _intish(value) if isinstance(value, (int, float)) else value
+            )
         records[gate_id] = record
     return {
         "metadata": {
@@ -750,6 +904,7 @@ def build_gate_calibrations(
             "total_gates": len(records),
             "gates_by_calibration_method": counts,
             "intended_use": "planning_only",
+            "design_fsl_reference_side": DESIGN_FSL_REFERENCE_SIDE,
         },
         "gates": records,
     }

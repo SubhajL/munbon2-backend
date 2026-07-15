@@ -285,6 +285,11 @@ def load_gate_calibrations_config(path: str) -> dict:
             f"{path}: metadata.intended_use must be 'planning_only',"
             f" got {metadata.get('intended_use')!r}"
         )
+    if metadata.get("design_fsl_reference_side") != "upstream":
+        raise ConfigError(
+            f"{path}: metadata.design_fsl_reference_side must be 'upstream',"
+            f" got {metadata.get('design_fsl_reference_side')!r}"
+        )
     normalized_ids: dict = {}
     for gate_id, gate in gates.items():
         where = f"gates[{gate_id!r}]"
@@ -298,6 +303,11 @@ def load_gate_calibrations_config(path: str) -> dict:
             raise ConfigError(
                 f"{path}: gate ids collide when normalized:"
                 f" {normalized_ids[normalized]!r} and {gate_id!r}"
+            )
+        if gate_id != normalized:
+            raise ConfigError(
+                f"{path}: {where}: gate id must use canonical compact form"
+                f" {normalized!r}"
             )
         normalized_ids[normalized] = gate_id
         if not isinstance(gate, dict):
@@ -333,9 +343,7 @@ def load_gate_calibrations_config(path: str) -> dict:
             )
         for dimension in ("width_m", "height_m"):
             value = gate.get(dimension)
-            if value is not None and (
-                not _is_finite_number(value) or value <= 0
-            ):
+            if value is not None and (not _is_finite_number(value) or value <= 0):
                 raise ConfigError(
                     f"{path}: {where}.{dimension} must be a finite number > 0,"
                     f" got {value!r}"
@@ -347,6 +355,66 @@ def load_gate_calibrations_config(path: str) -> dict:
         ):
             raise ConfigError(
                 f"{path}: {where}: circular width_m must equal height_m (diameter)"
+            )
+        structure_role = gate.get("structure_role")
+        structure_roles = ("control", "junction", "tail", "turnout", "unknown")
+        if structure_role not in structure_roles:
+            raise ConfigError(
+                f"{path}: {where}.structure_role must be one of"
+                f" {structure_roles}, got {structure_role!r}"
+            )
+        structure_values = {}
+        for key in (
+            "design_fsl_msl_m",
+            "sill_msl_m",
+            "structure_max_flow_m3s",
+        ):
+            if key not in gate:
+                raise ConfigError(f"{path}: {where}.{key} is required")
+            value = gate[key]
+            if value is not None and not _is_finite_number(value):
+                raise ConfigError(
+                    f"{path}: {where}.{key} must be a finite number or null,"
+                    f" got {value!r}"
+                )
+            structure_values[key] = value
+        if (
+            structure_values["structure_max_flow_m3s"] is not None
+            and structure_values["structure_max_flow_m3s"] <= 0
+        ):
+            raise ConfigError(
+                f"{path}: {where}.structure_max_flow_m3s must be > 0 when present,"
+                f" got {structure_values['structure_max_flow_m3s']!r}"
+            )
+        if (
+            structure_values["design_fsl_msl_m"] is not None
+            and structure_values["sill_msl_m"] is not None
+            and structure_values["design_fsl_msl_m"] <= structure_values["sill_msl_m"]
+        ):
+            raise ConfigError(
+                f"{path}: {where}.design_fsl_msl_m must exceed sill_msl_m"
+            )
+        expected_side = (
+            "upstream" if structure_values["design_fsl_msl_m"] is not None else None
+        )
+        if gate.get("design_fsl_reference_side") != expected_side:
+            raise ConfigError(
+                f"{path}: {where}.design_fsl_reference_side must be"
+                f" {expected_side!r}, got"
+                f" {gate.get('design_fsl_reference_side')!r}"
+            )
+        presence = tuple(value is not None for value in structure_values.values())
+        expected_status = (
+            "complete"
+            if all(presence)
+            else "unavailable"
+            if not any(presence)
+            else "incomplete"
+        )
+        if gate.get("structure_data_status") != expected_status:
+            raise ConfigError(
+                f"{path}: {where}.structure_data_status must be"
+                f" {expected_status!r}, got {gate.get('structure_data_status')!r}"
             )
         source_version = gate.get("source_version")
         if not isinstance(source_version, str) or not source_version.strip():
@@ -373,6 +441,10 @@ def load_gate_calibrations_config(path: str) -> dict:
                     f"{path}: {where}.source_gate_ids contains an invalid gate id:"
                     f" {source_gate_id!r}"
                 ) from exc
+            if source_gate_id != normalized_source:
+                raise ConfigError(
+                    f"{path}: {where}.source_gate_ids must use canonical compact ids"
+                )
             if normalized_source not in normalized_ids:
                 raise ConfigError(
                     f"{path}: {where}.source_gate_ids contains unknown gate"

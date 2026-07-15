@@ -18,7 +18,9 @@ from core.network_flow_controller import NetworkFlowController
 NOW = datetime(2026, 7, 13, 12, 0, 0, tzinfo=timezone.utc)
 
 CANONICAL = Path(__file__).resolve().parents[2] / "src" / "config" / "network.json"
-GEOMETRY_CFG = Path(__file__).resolve().parents[2] / "src" / "config" / "canal_geometry.json"
+GEOMETRY_CFG = (
+    Path(__file__).resolve().parents[2] / "src" / "config" / "canal_geometry.json"
+)
 
 
 def _area_demand():
@@ -41,11 +43,23 @@ class TestConstruction:
         # Schema-valid (Wave 1.1 strict loader passes) but graph-invalid: the B<->C
         # cycle hangs free of the source.
         bad = tmp_path / "fragmented.json"
-        bad.write_text(json.dumps({
-            "metadata": {"canonical": True, "total_gates": 3, "total_connections": 3},
-            "gates": {"M(0,0)": {}, "M(5,0)": {}, "M(5,1)": {}},
-            "edges": [["S", "M(0,0)"], ["M(5,0)", "M(5,1)"], ["M(5,1)", "M(5,0)"]],
-        }))
+        bad.write_text(
+            json.dumps(
+                {
+                    "metadata": {
+                        "canonical": True,
+                        "total_gates": 3,
+                        "total_connections": 3,
+                    },
+                    "gates": {"M(0,0)": {}, "M(5,0)": {}, "M(5,1)": {}},
+                    "edges": [
+                        ["S", "M(0,0)"],
+                        ["M(5,0)", "M(5,1)"],
+                        ["M(5,1)", "M(5,0)"],
+                    ],
+                }
+            )
+        )
         with pytest.raises(NetworkTopologyError):
             NetworkFlowController(str(bad))
 
@@ -53,14 +67,24 @@ class TestConstruction:
         # A diamond is fully reachable from S but not a spanning tree (C has two parents);
         # aggregation would double-count it, so it must fail at construction, not per-request.
         diamond = tmp_path / "diamond.json"
-        diamond.write_text(json.dumps({
-            "metadata": {"canonical": True, "total_gates": 3, "total_connections": 4},
-            "gates": {"M(0,1)": {}, "M(0,2)": {}, "M(9,9)": {}},
-            "edges": [
-                ["S", "M(0,1)"], ["S", "M(0,2)"],
-                ["M(0,1)", "M(9,9)"], ["M(0,2)", "M(9,9)"],
-            ],
-        }))
+        diamond.write_text(
+            json.dumps(
+                {
+                    "metadata": {
+                        "canonical": True,
+                        "total_gates": 3,
+                        "total_connections": 4,
+                    },
+                    "gates": {"M(0,1)": {}, "M(0,2)": {}, "M(9,9)": {}},
+                    "edges": [
+                        ["S", "M(0,1)"],
+                        ["S", "M(0,2)"],
+                        ["M(0,1)", "M(9,9)"],
+                        ["M(0,2)", "M(9,9)"],
+                    ],
+                }
+            )
+        )
         with pytest.raises(NetworkTopologyError):
             NetworkFlowController(str(diamond))
 
@@ -71,11 +95,23 @@ class TestConstruction:
         from core.config_loader import ConfigError
 
         twin = tmp_path / "twin.json"
-        twin.write_text(json.dumps({
-            "metadata": {"canonical": True, "total_gates": 3, "total_connections": 3},
-            "gates": {"M(0,0)": {}, "M(0,1)": {}, "M (0,1)": {}},
-            "edges": [["S", "M(0,0)"], ["M(0,0)", "M(0,1)"], ["M(0,0)", "M (0,1)"]],
-        }))
+        twin.write_text(
+            json.dumps(
+                {
+                    "metadata": {
+                        "canonical": True,
+                        "total_gates": 3,
+                        "total_connections": 3,
+                    },
+                    "gates": {"M(0,0)": {}, "M(0,1)": {}, "M (0,1)": {}},
+                    "edges": [
+                        ["S", "M(0,0)"],
+                        ["M(0,0)", "M(0,1)"],
+                        ["M(0,0)", "M (0,1)"],
+                    ],
+                }
+            )
+        )
         with pytest.raises(ConfigError, match="collide"):
             NetworkFlowController(str(twin))
 
@@ -107,12 +143,10 @@ class TestRequiredFlowPerReach:
         with pytest.raises(ValueError):
             ctrl.required_flow_per_reach({"Zone2": 10.0})
 
-    def test_accepts_compact_demand_alias_for_spaced_network_node(self):
-        # 44/59 network ids carry survey spacing ("M (0,3; 1,0)"); a C12-style producer
-        # sends the compact canonical form — it must land on the same node (Wave 1.2).
+    def test_accepts_spaced_demand_alias_for_canonical_network_node(self):
         ctrl = NetworkFlowController(str(CANONICAL))
-        flow = ctrl.required_flow_per_reach({"M(0,3;1,0)": 2.0})
-        assert flow[("M(0,3)", "M (0,3; 1,0)")] == pytest.approx(2.0)
+        flow = ctrl.required_flow_per_reach({"M (0,3; 1,0)": 2.0})
+        assert flow[("M(0,3)", "M(0,3;1,0)")] == pytest.approx(2.0)
 
     def test_spaced_and_compact_demands_produce_identical_plans(self):
         ctrl = NetworkFlowController(str(CANONICAL))
@@ -148,11 +182,17 @@ class TestConveyanceLossWiring:
         ctrl = NetworkFlowController(str(CANONICAL), geometry_path=str(GEOMETRY_CFG))
         demand = _area_demand()
         head_lossy = sum(
-            q for (u, _), q in ctrl.required_flow_per_reach(demand, apply_losses=True).items()
+            q
+            for (u, _), q in ctrl.required_flow_per_reach(
+                demand, apply_losses=True
+            ).items()
             if u == "S"
         )
         head_lossless = sum(
-            q for (u, _), q in ctrl.required_flow_per_reach(demand, apply_losses=False).items()
+            q
+            for (u, _), q in ctrl.required_flow_per_reach(
+                demand, apply_losses=False
+            ).items()
             if u == "S"
         )
         assert head_lossy > head_lossless
@@ -170,21 +210,31 @@ class TestConveyanceLossWiring:
         # field range (new concrete ~10 L/s/km; aged Menemen main ~108 L/s/km). Rejects both
         # the too-low new-concrete standard (~2 L/s/km) and an implausibly high rate.
         ctrl = NetworkFlowController(str(CANONICAL), geometry_path=str(GEOMETRY_CFG))
-        tail = next(g for g in json.loads(CANONICAL.read_text())["gates"]
-                    if re.sub(r"\s+", "", g) == "M(0,12)")
+        tail = next(
+            g
+            for g in json.loads(CANONICAL.read_text())["gates"]
+            if re.sub(r"\s+", "", g) == "M(0,12)"
+        )
         # M(0,12) is the only demand node, and dry reaches take no loss (D1), so seepage
         # accrues ONLY on the S->M(0,12) mainstem supply path — numerator and the LMC-km
         # denominator now measure the same canal (the pre-D1 hybrid overstated this ~68).
         flow = ctrl.required_flow_per_reach({tail: 8.737}, apply_losses=True)
-        seepage_l_s = (sum(q for (u, _), q in flow.items() if u == "S") - 8.737) * 1000.0
-        lmc_km = sum(
-            segment["length_m"]
-            for (u, v), segments in ctrl.sections.items()
-            if re.fullmatch(r"M\(0,\d+\)", u) and re.fullmatch(r"M\(0,\d+\)", v)
-            for segment in segments
-        ) / 1000.0
+        seepage_l_s = (
+            sum(q for (u, _), q in flow.items() if u == "S") - 8.737
+        ) * 1000.0
+        lmc_km = (
+            sum(
+                segment["length_m"]
+                for (u, v), segments in ctrl.sections.items()
+                if re.fullmatch(r"M\(0,\d+\)", u) and re.fullmatch(r"M\(0,\d+\)", v)
+                for segment in segments
+            )
+            / 1000.0
+        )
         per_km = seepage_l_s / lmc_km
-        assert 20.0 < per_km < 120.0, f"{per_km:.1f} L/s/km outside aged-concrete field range"
+        assert (
+            20.0 < per_km < 120.0
+        ), f"{per_km:.1f} L/s/km outside aged-concrete field range"
 
 
 class TestDryReachSemantics:
@@ -203,8 +253,11 @@ class TestDryReachSemantics:
 
     def test_single_tail_demand_charges_only_its_supply_path(self):
         ctrl = self._ctrl()
-        tail = next(g for g in json.loads(CANONICAL.read_text())["gates"]
-                    if re.sub(r"\s+", "", g) == "M(0,12)")
+        tail = next(
+            g
+            for g in json.loads(CANONICAL.read_text())["gates"]
+            if re.sub(r"\s+", "", g) == "M(0,12)"
+        )
         flow = ctrl.required_flow_per_reach({tail: 1.0}, apply_losses=True)
         parent = {c: p for p, c in ctrl.edges}
         path, node = set(), tail
@@ -220,12 +273,14 @@ class TestDryReachSemantics:
         # geometry's `reaches` spans make them measurable. These values match
         # geometry_coverage.json's per-edge gap_m (same generator, same lock).
         ctrl = self._ctrl()
-        gaps = {edge: round(gap, 3) for edge, gap in ctrl.reaches_with_chainage_gaps.items()}
+        gaps = {
+            edge: round(gap, 3) for edge, gap in ctrl.reaches_with_chainage_gaps.items()
+        }
         assert gaps == {
-            ("M(0,0)", "M(0,1)"): 170.0,                        # flume, no cross-section
-            ("M(0,1;1,3)", "M(0,1;1,4)"): 80.0,                 # RMC tail
-            ("M(0,12;1,1;1,1)", "M(0,12;1,1;1,2)"): 30.0,       # 2R-38R tail
-            ("M(0,12;1,2;1,1)", "M(0,12;1,2;1,2)"): 1200.0,     # 4L-38R unsurveyed
+            ("M(0,0)", "M(0,1)"): 170.0,  # flume, no cross-section
+            ("M(0,1;1,3)", "M(0,1;1,4)"): 80.0,  # RMC tail
+            ("M(0,12;1,1;1,1)", "M(0,12;1,1;1,2)"): 30.0,  # 2R-38R tail
+            ("M(0,12;1,2;1,1)", "M(0,12;1,2;1,2)"): 1200.0,  # 4L-38R unsurveyed
             ("M(0,12;1,2;1,0;1,0)", "M(0,12;1,2;1,0;1,1)"): 410.0,  # 5R-4L tail
         }
 
@@ -244,8 +299,7 @@ class TestDryReachSemantics:
         from core.conveyance_loss import normalize_edge, reach_seepage_m3s
 
         ctrl = self._ctrl()
-        edge = next(e for e in ctrl.edges
-                    if normalize_edge(*e) == ("M(0,0)", "M(0,1)"))
+        edge = next(e for e in ctrl.edges if normalize_edge(*e) == ("M(0,0)", "M(0,1)"))
         flow = ctrl.required_flow_per_reach(
             {}, apply_losses=True, always_wet=[list(edge)]
         )
@@ -306,7 +360,9 @@ class TestReachCoverage:
         for edge, cov in ctrl.reach_coverage.items():
             assert cov.has_geometry == (edge not in ctrl.reaches_missing_geometry)
         surveyed = sum(1 for cov in ctrl.reach_coverage.values() if cov.has_geometry)
-        assert surveyed == 42  # 59 edges - 17 missing (matches the /plan loss-coverage test)
+        assert (
+            surveyed == 42
+        )  # 59 edges - 17 missing (matches the /plan loss-coverage test)
 
     def test_coverage_summary_counts_geometry_and_calibration_method(self):
         summary = self._ctrl().coverage_summary()
@@ -317,8 +373,6 @@ class TestReachCoverage:
             "chainage_gaps": 5,
             "calibration_method_counts": {"measured": 10, "inferred": 49},
         }
-
-
 
 
 class TestOpeningsForDemand:
@@ -356,12 +410,21 @@ class TestOpeningsForDemand:
 
         ctrl = self._ctrl()
         reach_flow = ctrl.required_flow_per_reach({"M(0,1)": 5.0})
-        levels = ctrl._resolve_levels(self._readings(S=3.0, **{"M(0,0)": 2.5, "M(0,1)": 2.0}), NOW, 3600)
+        levels = ctrl._resolve_levels(
+            self._readings(S=3.0, **{"M(0,0)": 2.5, "M(0,1)": 2.0}), NOW, 3600
+        )
         targets, unavailable, idle = ctrl._reach_targets(reach_flow, levels)
-        assert {t.reach for t in targets} == {("S", "M(0,0)")}  # no geometry -> gate-bounded
-        assert next(t for t in targets if t.reach == ("S", "M(0,0)")).capacity_m3s is None
+        assert {t.reach for t in targets} == {
+            ("S", "M(0,0)")
+        }  # no geometry -> gate-bounded
+        assert (
+            next(t for t in targets if t.reach == ("S", "M(0,0)")).capacity_m3s is None
+        )
         assert {u.reach: u.reason for u in unavailable} == {
-            ("M(0,0)", "M(0,1)"): REASON_CAPACITY_UNSURVEYED  # partial survey (170 m gap)
+            (
+                "M(0,0)",
+                "M(0,1)",
+            ): REASON_CAPACITY_UNSURVEYED  # partial survey (170 m gap)
         }
         assert idle == 57
 
@@ -375,14 +438,20 @@ class TestOpeningsForDemand:
         target = next(
             e for e in ctrl.edges if normalize_edge(*e) == ("M(0,1;1,0)", "M(0,1;1,1)")
         )
-        assert ctrl._reach_capacity[target] == pytest.approx(1.235, abs=1e-2)  # precompute
+        assert ctrl._reach_capacity[target] == pytest.approx(
+            1.235, abs=1e-2
+        )  # precompute
         reach_flow = ctrl.required_flow_per_reach({"M(0,1;1,1)": 5.0})
         levels = ctrl._resolve_levels(self._all_fresh(ctrl), NOW, 3600)
         targets, _, _ = ctrl._reach_targets(reach_flow, levels)
         built = next(t for t in targets if t.reach == target)
-        assert built.capacity_m3s == pytest.approx(1.235, abs=1e-2)  # flows into the target
+        assert built.capacity_m3s == pytest.approx(
+            1.235, abs=1e-2
+        )  # flows into the target
 
-    def test_surveyed_reach_without_a_valid_rating_is_capacity_unavailable(self, tmp_path):
+    def test_surveyed_reach_without_a_valid_rating_is_capacity_unavailable(
+        self, tmp_path
+    ):
         # A reach that IS surveyed (in self.sections, no chainage gap) but whose segments
         # carry NO valid q_max -> min_segment_q_max() None -> must be flagged capacity-
         # uncertain (fail closed), never left gate-bounded (fail open). Synthetic geometry
@@ -427,7 +496,9 @@ class TestOpeningsForDemand:
 
         ctrl = self._ctrl()
         reach_flow = ctrl.required_flow_per_reach({"M(0,1)": 5.0})
-        levels = ctrl._resolve_levels(self._readings(S=3.0, **{"M(0,0)": 2.5}), NOW, 3600)
+        levels = ctrl._resolve_levels(
+            self._readings(S=3.0, **{"M(0,0)": 2.5}), NOW, 3600
+        )
         _, unavailable, _ = ctrl._reach_targets(reach_flow, levels)
         reasons = {u.reach: u for u in unavailable}
         assert reasons[("M(0,0)", "M(0,1)")].reason == REASON_LEVEL_MISSING
@@ -446,19 +517,29 @@ class TestOpeningsForDemand:
         classify = NetworkFlowController._classify_level
         assert classify(LevelReading(2.0, NOW), NOW, 3600) == (2.0, None)
         # Exact-SLA boundary is fresh; one second older is stale.
-        assert classify(LevelReading(2.0, NOW - timedelta(seconds=3600)), NOW, 3600) == (2.0, None)
-        assert classify(LevelReading(2.0, NOW - timedelta(seconds=3601)), NOW, 3600) == (
-            None, REASON_LEVEL_STALE,
+        assert classify(
+            LevelReading(2.0, NOW - timedelta(seconds=3600)), NOW, 3600
+        ) == (2.0, None)
+        assert classify(
+            LevelReading(2.0, NOW - timedelta(seconds=3601)), NOW, 3600
+        ) == (
+            None,
+            REASON_LEVEL_STALE,
         )
         # Any future stamp (even 1 s) is not a current measurement.
         assert classify(LevelReading(2.0, NOW + timedelta(seconds=1)), NOW, 3600) == (
-            None, REASON_LEVEL_FUTURE,
+            None,
+            REASON_LEVEL_FUTURE,
         )
         # Naive timestamp and non-finite level are malformed -> per-reach invalid (no raise).
         assert classify(LevelReading(2.0, _dt(2026, 7, 13, 12, 0, 0)), NOW, 3600) == (
-            None, REASON_LEVEL_INVALID,
+            None,
+            REASON_LEVEL_INVALID,
         )
-        assert classify(LevelReading(float("nan"), NOW), NOW, 3600) == (None, REASON_LEVEL_INVALID)
+        assert classify(LevelReading(float("nan"), NOW), NOW, 3600) == (
+            None,
+            REASON_LEVEL_INVALID,
+        )
 
     def test_one_bad_reading_does_not_abort_the_whole_request(self):
         from datetime import datetime as _dt
@@ -492,7 +573,9 @@ class TestOpeningsForDemand:
         )
         assert result.openings == []  # nothing commanded on planning-only calibration
         reasons = {u.reach: u.reason for u in result.unavailable}
-        assert reasons[("S", "M(0,0)")] == REASON_NOT_ACTUATION_APPROVED  # commandable, blocked
+        assert (
+            reasons[("S", "M(0,0)")] == REASON_NOT_ACTUATION_APPROVED
+        )  # commandable, blocked
         assert reasons[("M(0,0)", "M(0,1)")] == REASON_CAPACITY_UNSURVEYED
 
     def test_all_or_nothing_blocks_a_partially_commandable_plan(self, monkeypatch):
@@ -516,7 +599,9 @@ class TestOpeningsForDemand:
         assert reasons[("S", "M(0,0)")] == REASON_PLAN_INCOMPLETE
         assert reasons[("M(0,0)", "M(0,1)")] == REASON_CAPACITY_UNSURVEYED
 
-    def test_fully_commandable_plan_matches_an_independent_branch_split(self, monkeypatch):
+    def test_fully_commandable_plan_matches_an_independent_branch_split(
+        self, monkeypatch
+    ):
         from core.branch_split import ReachTarget, branch_split_openings
         from core.network_flow_controller import LevelReading
 
@@ -526,7 +611,10 @@ class TestOpeningsForDemand:
         # bounded), so the whole plan is commandable. A decreasing profile gives a driving
         # head so the single reach solves feasibly. Oracle: branch_split on the hand-
         # assembled target with the loader's calibration.
-        levels = {"S": LevelReading(3.0, NOW), "M(0,0)": LevelReading(2.5, NOW)}
+        levels = {
+            "S": LevelReading(206.0, NOW),
+            "M(0,0)": LevelReading(205.5, NOW),
+        }
         result = ctrl.openings_for_demand(
             {"M(0,0)": 5.0}, levels, now=NOW, max_level_age_seconds=3600
         )
@@ -537,8 +625,8 @@ class TestOpeningsForDemand:
                 ReachTarget(
                     reach=("S", "M(0,0)"),
                     calibration=ctrl._calibration.build_flow_calibration("M(0,0)"),
-                    upstream_level_m=3.0,
-                    downstream_level_m=2.5,
+                    upstream_level_m=206.0,
+                    downstream_level_m=205.5,
                     target_flow_m3s=5.0,
                     capacity_m3s=None,
                 )
@@ -555,7 +643,10 @@ class TestOpeningsForDemand:
 
         self._approve(monkeypatch)
         ctrl = self._ctrl()
-        flat = {"S": LevelReading(2.0, NOW), "M(0,0)": LevelReading(2.0, NOW)}  # no head
+        flat = {
+            "S": LevelReading(2.0, NOW),
+            "M(0,0)": LevelReading(2.0, NOW),
+        }  # no head
         result = ctrl.openings_for_demand(
             {"M(0,0)": 5.0}, flat, now=NOW, max_level_age_seconds=3600
         )
@@ -565,7 +656,9 @@ class TestOpeningsForDemand:
         }
 
     def test_idle_reaches_need_no_levels_and_are_only_counted(self):
-        result = self._ctrl().openings_for_demand({}, {}, now=NOW, max_level_age_seconds=3600)
+        result = self._ctrl().openings_for_demand(
+            {}, {}, now=NOW, max_level_age_seconds=3600
+        )
         assert result.openings == []
         assert result.unavailable == []
         assert result.idle_reaches == 59
