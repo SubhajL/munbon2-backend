@@ -160,6 +160,14 @@ async def test_publication_is_immutable_and_correction_replaces_only_current_rea
             [second_requirement],
             published_at=_instant(5),
         )
+        with pytest.raises(asyncpg.UniqueViolationError):
+            async with conn.transaction():
+                await start_requirement_run(
+                    conn,
+                    **run_args,
+                    content_hash="a" * 64,
+                    computed_at=_instant(6),
+                )
         failed = await start_requirement_run(
             conn,
             **run_args,

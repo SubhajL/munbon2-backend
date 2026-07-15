@@ -16,7 +16,7 @@ pytest                        # unit + integration (DB contract skips without it
 No Dockerfile, README, pyproject, or Makefile in this service.
 
 ## Structure (`src/`)
-`main.py` (REST + sync-trigger endpoints), `config/settings.py`, `api/graphql_schema.py` + `api/routes/admin.py`, `services/` (`ros_sync_service.py`, `daily_demand_calculator.py`, `demand_aggregator.py`, `priority_engine.py`, `spatial_mapping.py`, `integration_client.py`, …), `clients/` (`ros_client.py`, `gis_client.py`, both mock-capable), `db/database_manager.py` (asyncpg + SQLAlchemy async + redis), `db/water_requirement_repository.py` (append-only canonical requirement runs), `schemas/`.
+`main.py` (REST + scheduled-job lifecycle), `config/settings.py`, `api/graphql_schema.py` + `api/routes/admin.py`, `services/` (`daily_requirement_producer.py`, `daily_requirement_job.py`, `requirement_source_loader.py`, `flow_monitoring_publisher.py`, legacy sync/calculation services), `clients/` (`ros_client.py`, `gis_client.py`, both mock-capable), `db/database_manager.py` (local/source asyncpg + SQLAlchemy async + redis), `db/water_requirement_repository.py` and `db/daily_requirement_run_store.py` (append-only canonical requirement runs), `schemas/`.
 
 ## Tests
 pytest + pytest-asyncio. `tests/conftest.py` puts `src` on the path (src-rooted imports);
@@ -52,16 +52,30 @@ and immutable item rows are enforced both in PostgreSQL and by
 `db/water_requirement_repository.py`. Apply `0001` before `0002`; test the pair with
 apply, rollback, reapply on disposable PostGIS before shipping.
 
+`0003_daily_requirement_producer` adds append-only, section-level FE crop settings
+and a database uniqueness guard for non-failed runs with the same operational day and
+input hash. The runtime source manifest in `data/requirement_sources.json` pins the
+approved SCADA V2 crosswalk, GIS 47,385-rai section master contract, and corrected
+annual-plan sheet/hash/unit. The source loader reads `gis.zone` and
+`water_planning.zone_planting_dates` from the separately configured `postgres`
+database, activates immutable local section/crosswalk datasets, and fails a run when
+crop, planting-date, area, mapping, ET0, Kc, or rainfall inputs are incomplete.
+
 Canonical reads are served by `GET /api/v1/water-requirements/daily` and
 `GET /api/v1/water-requirements/sections/{section_id}`. Daily reads select the
 latest published run whose horizon covers the requested service date; section
 reads include immutable published and superseded versions. A published run is
 reported as stale after the next 02:00 Bangkok publication boundary. Missing rows return
 `dataStatus=no_publication` with an empty requirement list, never a zero demand.
+`POST /api/v1/water-requirements/crop-settings/{section_id}` appends an FE/operator
+crop configuration after checking planted area against the active D1/D3 section.
+`POST /api/v1/water-requirements/runs` manually invokes the same advisory-locked,
+idempotent path used by the scheduled job.
 
 ## Config / Ports / Env
 - Port: settings default 3022 but `.env`/`start.sh` force **3047** (effective). Endpoints: `/graphql`, `/health`, `/metrics`, `/api/v1/*` (sections/zones/sync trigger), `/api/v1/admin/*`.
 - `POSTGRES_URL` (`.env` → remote `43.208.201.191:5432/munbon_dev`), `REDIS_URL`, `USE_MOCK_SERVER`, `DEMAND_COMBINATION_STRATEGY=aquacrop_priority`, service URLs (`FLOW_MONITORING_URL`, `SCHEDULER_URL`, `ROS_SERVICE_URL`, `GIS_SERVICE_URL`).
+- Canonical producer: `DAILY_REQUIREMENT_ENABLED=false`, `DAILY_REQUIREMENT_CRON="0 2 * * *"`, `DAILY_REQUIREMENT_TIMEZONE=Asia/Bangkok`, `DAILY_REQUIREMENT_HORIZON_DAYS=7`, `DAILY_REQUIREMENT_INPUT_MAX_AGE_HOURS=4320`. Enabling it requires `REQUIREMENT_SOURCE_POSTGRES_URL` to point at the database containing `gis.zone` and `water_planning.zone_planting_dates`.
 - Schemas: `ros_gis` (`aquacrop_results`, `sections`, `plots`, `daily_demands`, `gate_mappings`).
 
 ## Integration

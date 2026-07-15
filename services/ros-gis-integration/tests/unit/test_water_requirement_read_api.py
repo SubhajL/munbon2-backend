@@ -63,9 +63,9 @@ def _client(conn: _ReadConnection, now: datetime = NOW) -> TestClient:
     async def connection_override():
         yield conn
 
-    app.dependency_overrides[
-        water_requirements.get_requirement_connection
-    ] = connection_override
+    app.dependency_overrides[water_requirements.get_requirement_connection] = (
+        connection_override
+    )
     app.dependency_overrides[water_requirements.get_current_time] = lambda: now
     return TestClient(app)
 
@@ -222,11 +222,160 @@ def test_section_endpoint_rejects_reverse_date_range():
     assert response.status_code == 422
 
 
+class _ManualJob:
+    def __init__(self):
+        self.calls = []
+
+    async def run_once(self, as_of_date):
+        self.calls.append(as_of_date)
+        return type(
+            "Result",
+            (),
+            {
+                "status": "published",
+                "run_id": RUN_ID,
+                "as_of_date": as_of_date,
+                "requirement_count": 287,
+            },
+        )()
+
+
+def test_manual_run_endpoint_calls_the_registered_daily_requirement_job():
+    conn = _ReadConnection()
+    job = _ManualJob()
+    app = FastAPI()
+    app.include_router(water_requirements.router)
+
+    async def connection_override():
+        yield conn
+
+    app.dependency_overrides[water_requirements.get_requirement_connection] = (
+        connection_override
+    )
+    app.dependency_overrides[water_requirements.get_daily_requirement_job] = lambda: job
+
+    response = TestClient(app).post(
+        "/api/v1/water-requirements/runs", json={"asOfDate": "2026-07-16"}
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "published",
+        "runId": str(RUN_ID),
+        "asOfDate": "2026-07-16",
+        "requirementCount": 287,
+    }
+    assert job.calls == [SERVICE_DATE]
+
+
+class _CropSettingConnection:
+    def __init__(self, area_rai=Decimal("953")):
+        self.area_rai = area_rai
+        self.insert = None
+
+    async def fetchrow(self, sql, *args):
+        if "sections_current" in sql:
+            return {"area_rai": self.area_rai}
+        if "INSERT INTO ros_gis.section_crop_settings" in sql:
+            self.insert = (sql, args)
+            return {
+                "setting_id": args[0],
+                "section_id": args[1],
+                "crop_type": args[2],
+                "planted_area_rai": args[3],
+                "expected_harvest_date": args[4],
+                "source": args[5],
+                "as_of_date": args[6],
+                "updated_by": args[7],
+            }
+        raise AssertionError(f"unexpected query: {sql}")
+
+
+def _crop_client(conn):
+    app = FastAPI()
+    app.include_router(water_requirements.router)
+
+    async def connection_override():
+        yield conn
+
+    app.dependency_overrides[water_requirements.get_requirement_connection] = (
+        connection_override
+    )
+    return TestClient(app)
+
+
+def test_crop_setting_endpoint_appends_fe_configuration_linked_to_d1_section():
+    conn = _CropSettingConnection()
+    response = _crop_client(conn).post(
+        "/api/v1/water-requirements/crop-settings/01-01-01-03",
+        json={
+            "cropType": "rice",
+            "plantedAreaRai": "900",
+            "expectedHarvestDate": "2026-11-01",
+            "source": "operator-fe",
+            "asOfDate": "2026-07-16",
+            "updatedBy": "rid-operator",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() | {"settingId": "ignored"} == {
+        "settingId": "ignored",
+        "sectionId": "01-01-01-03",
+        "cropType": "rice",
+        "plantedAreaRai": "900",
+        "expectedHarvestDate": "2026-11-01",
+        "source": "operator-fe",
+        "asOfDate": "2026-07-16",
+        "updatedBy": "rid-operator",
+    }
+    assert conn.insert is not None
+
+
+def test_crop_setting_endpoint_rejects_area_above_authoritative_gis_section():
+    response = _crop_client(_CropSettingConnection()).post(
+        "/api/v1/water-requirements/crop-settings/01-01-01-03",
+        json={
+            "cropType": "rice",
+            "plantedAreaRai": "954",
+            "expectedHarvestDate": "2026-11-01",
+            "source": "operator-fe",
+            "asOfDate": "2026-07-16",
+            "updatedBy": "rid-operator",
+        },
+    )
+
+    assert response.status_code == 422
+    assert "953" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("field", ["cropType", "source", "updatedBy"])
+def test_crop_setting_endpoint_rejects_whitespace_only_provenance(field):
+    payload = {
+        "cropType": "rice",
+        "plantedAreaRai": "900",
+        "expectedHarvestDate": "2026-11-01",
+        "source": "operator-fe",
+        "asOfDate": "2026-07-16",
+        "updatedBy": "rid-operator",
+    }
+    payload[field] = "   "
+
+    response = _crop_client(_CropSettingConnection()).post(
+        "/api/v1/water-requirements/crop-settings/01-01-01-03",
+        json=payload,
+    )
+
+    assert response.status_code == 422
+
+
 def test_ros_gis_main_registers_canonical_requirement_read_routes():
     main = importlib.import_module("main")
     route_paths = {route.path for route in main.app.routes}
 
     assert {
+        "/api/v1/water-requirements/runs",
+        "/api/v1/water-requirements/crop-settings/{section_id}",
         "/api/v1/water-requirements/daily",
         "/api/v1/water-requirements/sections/{section_id}",
     }.issubset(route_paths)

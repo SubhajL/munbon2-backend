@@ -1,10 +1,11 @@
 from datetime import date, datetime, timedelta, timezone
-from typing import Literal, Mapping
-from uuid import UUID
+from decimal import Decimal
+from typing import Annotated, Literal, Mapping
+from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from db.water_requirement_repository import (
     get_daily_requirements,
@@ -12,6 +13,7 @@ from db.water_requirement_repository import (
 )
 
 DataStatus = Literal["no_publication", "stale", "published", "superseded"]
+NonBlankString = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 BANGKOK = ZoneInfo("Asia/Bangkok")
 PUBLICATION_ROLLOVER_HOUR = 2
 
@@ -60,13 +62,118 @@ class SectionWaterRequirementResponse(BaseModel):
     requirements: list[WaterRequirementItem]
 
 
+class ManualRequirementRunRequest(BaseModel):
+    asOfDate: date
+
+
+class ManualRequirementRunResponse(BaseModel):
+    status: Literal["published", "deduplicated"]
+    runId: UUID
+    asOfDate: date
+    requirementCount: int
+
+
+class SectionCropSettingRequest(BaseModel):
+    cropType: NonBlankString
+    plantedAreaRai: Decimal = Field(gt=0)
+    expectedHarvestDate: date
+    source: NonBlankString
+    asOfDate: date
+    updatedBy: NonBlankString
+
+
+class SectionCropSettingResponse(SectionCropSettingRequest):
+    settingId: UUID
+    sectionId: str
+
+
 async def get_requirement_connection(request: Request):
     async with request.app.state.db_manager.get_connection() as conn:
         yield conn
 
 
+def get_daily_requirement_job(request: Request):
+    job = getattr(request.app.state, "daily_requirement_job", None)
+    if job is None:
+        raise HTTPException(status_code=503, detail="daily requirement job is disabled")
+    return job
+
+
 def get_current_time() -> datetime:
     return datetime.now(timezone.utc)
+
+
+@router.post("/runs", response_model=ManualRequirementRunResponse)
+async def trigger_daily_requirement_run(
+    request: ManualRequirementRunRequest,
+    job=Depends(get_daily_requirement_job),
+) -> ManualRequirementRunResponse:
+    result = await job.run_once(request.asOfDate)
+    return ManualRequirementRunResponse(
+        status=result.status,
+        runId=result.run_id,
+        asOfDate=result.as_of_date,
+        requirementCount=result.requirement_count,
+    )
+
+
+@router.post("/crop-settings/{section_id}", response_model=SectionCropSettingResponse)
+async def create_section_crop_setting(
+    section_id: str,
+    request: SectionCropSettingRequest,
+    conn=Depends(get_requirement_connection),
+) -> SectionCropSettingResponse:
+    section = await conn.fetchrow(
+        """
+        SELECT area_rai
+        FROM ros_gis.sections_current
+        WHERE section_id = $1
+        """,
+        section_id,
+    )
+    if section is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"section {section_id} is not in the active D1 master",
+        )
+    maximum_area = Decimal(str(section["area_rai"]))
+    if request.plantedAreaRai > maximum_area:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"plantedAreaRai exceeds authoritative GIS section area "
+                f"{maximum_area} rai"
+            ),
+        )
+    setting_id = uuid4()
+    row = await conn.fetchrow(
+        """
+        INSERT INTO ros_gis.section_crop_settings (
+            setting_id, section_id, crop_type, planted_area_rai,
+            expected_harvest_date, source, as_of_date, updated_by
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        RETURNING setting_id, section_id, crop_type, planted_area_rai,
+                  expected_harvest_date, source, as_of_date, updated_by
+        """,
+        setting_id,
+        section_id,
+        request.cropType,
+        request.plantedAreaRai,
+        request.expectedHarvestDate,
+        request.source,
+        request.asOfDate,
+        request.updatedBy,
+    )
+    return SectionCropSettingResponse(
+        settingId=row["setting_id"],
+        sectionId=row["section_id"],
+        cropType=row["crop_type"],
+        plantedAreaRai=row["planted_area_rai"],
+        expectedHarvestDate=row["expected_harvest_date"],
+        source=row["source"],
+        asOfDate=row["as_of_date"],
+        updatedBy=row["updated_by"],
+    )
 
 
 def _expected_operational_date(now: datetime) -> date:
