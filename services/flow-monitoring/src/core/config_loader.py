@@ -271,6 +271,12 @@ def load_gate_calibrations_config(path: str) -> dict:
     """
     data = load_strict_json_object(path)
     metadata = _require_dict(data, "metadata", path)
+    source_workbook = metadata.get("source_workbook")
+    if not isinstance(source_workbook, str) or not source_workbook.strip():
+        raise ConfigError(
+            f"{path}: metadata.source_workbook must be a non-empty string,"
+            f" got {source_workbook!r}"
+        )
     gates = _require_dict(data, "gates", path)
     if not gates:
         raise ConfigError(f"{path}: 'gates' is empty")
@@ -554,4 +560,126 @@ def load_gate_calibrations_config(path: str) -> dict:
             path,
             f"gates_by_calibration_method.{method}",
         )
+    return data
+
+
+def load_zone_topology_config(path: str) -> dict:
+    """Load the approved outlet/canal/zone topology."""
+    data = load_strict_json_object(path)
+    metadata = _require_dict(data, "metadata", path)
+    source = metadata.get("source")
+    if not isinstance(source, str) or not source.strip():
+        raise ConfigError(
+            f"{path}: metadata.source must be a non-empty string, got {source!r}"
+        )
+    total_zones = _declared_count(metadata, "total_zones", path, "metadata")
+    if total_zones <= 0:
+        raise ConfigError(f"{path}: metadata.total_zones must be > 0")
+    outlet_gate_id = metadata.get("outlet_gate_id")
+    if not isinstance(outlet_gate_id, str):
+        raise ConfigError(f"{path}: metadata.outlet_gate_id must be a gate-id string")
+    try:
+        normalized_outlet = normalize_gate_id(outlet_gate_id)
+    except NodeIdError as exc:
+        raise ConfigError(f"{path}: invalid outlet gate id: {exc}") from exc
+    if outlet_gate_id != normalized_outlet:
+        raise ConfigError(
+            f"{path}: metadata.outlet_gate_id must use canonical id {normalized_outlet!r}"
+        )
+
+    canals = _require_dict(data, "canals", path)
+    if not canals:
+        raise ConfigError(f"{path}: canals must not be empty")
+    canal_zones = {}
+    for canal, record in canals.items():
+        if not isinstance(canal, str) or not canal:
+            raise ConfigError(f"{path}: canal names must be non-empty strings")
+        if not isinstance(record, dict) or not isinstance(record.get("zones"), list):
+            raise ConfigError(f"{path}: canals[{canal!r}].zones must be an array")
+        zones_for_canal = record["zones"]
+        if any(
+            isinstance(zone, bool) or not isinstance(zone, int)
+            for zone in zones_for_canal
+        ):
+            raise ConfigError(f"{path}: canals[{canal!r}].zones must contain integers")
+        if len(set(zones_for_canal)) != len(zones_for_canal):
+            raise ConfigError(f"{path}: canals[{canal!r}].zones contains duplicates")
+        canal_zones[canal] = set(zones_for_canal)
+
+    zones = data.get("zones")
+    if not isinstance(zones, list):
+        raise ConfigError(f"{path}: zones must be an array")
+    if len(zones) != total_zones:
+        raise ConfigError(
+            f"{path}: zones count {len(zones)} does not match metadata.total_zones"
+        )
+    by_zone = {}
+    entrance_ids = set()
+    for index, record in enumerate(zones):
+        where = f"zones[{index}]"
+        if not isinstance(record, dict):
+            raise ConfigError(f"{path}: {where} must be an object")
+        zone = record.get("zone")
+        if isinstance(zone, bool) or not isinstance(zone, int):
+            raise ConfigError(f"{path}: {where}.zone must be an integer")
+        if zone in by_zone:
+            raise ConfigError(f"{path}: zones contains duplicate zone {zone}")
+        canal = record.get("canal")
+        if canal not in canals:
+            raise ConfigError(f"{path}: {where}.canal names unknown canal {canal!r}")
+        entrance_gate_id = record.get("entrance_gate_id")
+        if not isinstance(entrance_gate_id, str):
+            raise ConfigError(f"{path}: {where}.entrance_gate_id must be a string")
+        try:
+            normalized = normalize_gate_id(entrance_gate_id)
+        except NodeIdError as exc:
+            raise ConfigError(
+                f"{path}: {where}.entrance_gate_id is invalid: {exc}"
+            ) from exc
+        if entrance_gate_id != normalized:
+            raise ConfigError(
+                f"{path}: {where}.entrance_gate_id must use canonical id {normalized!r}"
+            )
+        if normalized in entrance_ids:
+            raise ConfigError(f"{path}: zone entrance gate ids must be unique")
+        entrance_ids.add(normalized)
+        parent = record.get("branches_from_zone")
+        if parent is not None and (
+            isinstance(parent, bool) or not isinstance(parent, int)
+        ):
+            raise ConfigError(
+                f"{path}: {where}.branches_from_zone must be null or integer"
+            )
+        by_zone[zone] = record
+
+    expected_zones = set(range(1, total_zones + 1))
+    if set(by_zone) != expected_zones:
+        raise ConfigError(
+            f"{path}: zones must contain exactly {sorted(expected_zones)},"
+            f" got {sorted(by_zone)}"
+        )
+    partition = [zone for members in canal_zones.values() for zone in members]
+    if len(partition) != total_zones or set(partition) != expected_zones:
+        raise ConfigError(
+            f"{path}: canal zone partition must cover every zone exactly once"
+        )
+    for zone, record in by_zone.items():
+        if zone not in canal_zones[record["canal"]]:
+            raise ConfigError(
+                f"{path}: zone {zone} disagrees with the canal zone partition"
+            )
+        parent = record["branches_from_zone"]
+        if parent is not None and parent not in by_zone:
+            raise ConfigError(
+                f"{path}: zone {zone} references unknown parent zone {parent}"
+            )
+
+    for zone in by_zone:
+        seen = set()
+        current = zone
+        while current is not None:
+            if current in seen:
+                raise ConfigError(f"{path}: branch cycle includes zone {current}")
+            seen.add(current)
+            current = by_zone[current]["branches_from_zone"]
     return data

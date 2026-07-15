@@ -1,0 +1,53 @@
+{
+  "metadata": {
+    "source": "operator-approved topology 2026-07-15",
+    "total_zones": 6,
+    "outlet_gate_id": "M(0,0)"
+  },
+  "canals": {
+    "LMC": {
+      "zones": [1, 2, 3, 4, 5]
+    },
+    "RMC": {
+      "zones": [6]
+    }
+  },
+  "zones": [
+    {
+      "zone": 1,
+      "canal": "LMC",
+      "entrance_gate_id": "M(0,2)",
+      "branches_from_zone": null
+    },
+    {
+      "zone": 2,
+      "canal": "LMC",
+      "entrance_gate_id": "M(0,7)",
+      "branches_from_zone": null
+    },
+    {
+      "zone": 3,
+      "canal": "LMC",
+      "entrance_gate_id": "M(0,3;1,0)",
+      "branches_from_zone": 1
+    },
+    {
+      "zone": 4,
+      "canal": "LMC",
+      "entrance_gate_id": "M(0,12;1,0)",
+      "branches_from_zone": 2
+    },
+    {
+      "zone": 5,
+      "canal": "LMC",
+      "entrance_gate_id": "M(0,12;1,2)",
+      "branches_from_zone": 2
+    },
+    {
+      "zone": 6,
+      "canal": "RMC",
+      "entrance_gate_id": "M(0,1;1,0)",
+      "branches_from_zone": null
+    }
+  ]
+}

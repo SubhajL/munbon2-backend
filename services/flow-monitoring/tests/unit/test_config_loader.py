@@ -16,12 +16,14 @@ from core.config_loader import (
     load_gate_calibrations_config,
     load_network_config,
     load_strict_json_object,
+    load_zone_topology_config,
 )
 
 SERVICE_ROOT = Path(__file__).resolve().parents[2]
 NETWORK = str(SERVICE_ROOT / "src" / "config" / "network.json")
 GEOMETRY = str(SERVICE_ROOT / "src" / "config" / "canal_geometry.json")
 CALIBRATIONS = str(SERVICE_ROOT / "src" / "config" / "gate_calibrations.json")
+ZONE_TOPOLOGY = str(SERVICE_ROOT / "src" / "config" / "zone_topology.json")
 
 
 def _unavailable_structure(role):
@@ -75,6 +77,7 @@ def _valid_geometry():
 def _valid_calibrations():
     return {
         "metadata": {
+            "source_workbook": "fixture.xlsx",
             "source_sha256": "workbook-sha",
             "intended_use": "planning_only",
             "design_fsl_reference_side": "upstream",
@@ -110,6 +113,33 @@ def _valid_calibrations():
                 **_unavailable_structure("junction"),
             },
         },
+    }
+
+
+def _valid_zone_topology():
+    return {
+        "metadata": {
+            "source": "operator-approved topology 2026-07-15",
+            "total_zones": 6,
+            "outlet_gate_id": "M(0,0)",
+        },
+        "canals": {"LMC": {"zones": [1, 2, 3, 4, 5]}, "RMC": {"zones": [6]}},
+        "zones": [
+            {
+                "zone": zone,
+                "canal": "RMC" if zone == 6 else "LMC",
+                "entrance_gate_id": gate,
+                "branches_from_zone": parent,
+            }
+            for zone, gate, parent in (
+                (1, "M(0,2)", None),
+                (2, "M(0,7)", None),
+                (3, "M(0,3;1,0)", 1),
+                (4, "M(0,12;1,0)", 2),
+                (5, "M(0,12;1,2)", 2),
+                (6, "M(0,1;1,0)", None),
+            )
+        ],
     }
 
 
@@ -395,6 +425,15 @@ class TestLoadGateCalibrationsConfig:
         data = load_gate_calibrations_config(_write(tmp_path, _valid_calibrations()))
         assert data["gates"]["M(0,0)"]["k1"] == 1.0693
 
+    @pytest.mark.parametrize("source_workbook", [None, "", True])
+    def test_rejects_missing_or_invalid_source_workbook(
+        self, tmp_path, source_workbook
+    ):
+        calibrations = _valid_calibrations()
+        calibrations["metadata"]["source_workbook"] = source_workbook
+        with pytest.raises(ConfigError, match="source_workbook"):
+            load_gate_calibrations_config(_write(tmp_path, calibrations))
+
     def test_rejects_total_gates_drift(self, tmp_path):
         cal = _valid_calibrations()
         cal["metadata"]["total_gates"] = 59
@@ -635,6 +674,54 @@ class TestLoadGateCalibrationsConfig:
         cal["metadata"]["total_gates"] = 3
         with pytest.raises(ConfigError, match="collide"):
             load_gate_calibrations_config(_write(tmp_path, cal))
+
+
+class TestLoadZoneTopologyConfig:
+    def test_accepts_committed_approved_topology(self):
+        data = load_zone_topology_config(ZONE_TOPOLOGY)
+        assert data == _valid_zone_topology()
+
+    def test_accepts_minimal_consistent_topology(self, tmp_path):
+        data = load_zone_topology_config(_write(tmp_path, _valid_zone_topology()))
+        assert [zone["zone"] for zone in data["zones"]] == [1, 2, 3, 4, 5, 6]
+
+    @pytest.mark.parametrize("source", [None, "", True])
+    def test_rejects_missing_or_invalid_source(self, tmp_path, source):
+        topology = _valid_zone_topology()
+        topology["metadata"]["source"] = source
+        with pytest.raises(ConfigError, match="metadata.source"):
+            load_zone_topology_config(_write(tmp_path, topology))
+
+    @pytest.mark.parametrize("zones", [[1, 2, 3, 4, 5], [1, 2, 3, 4, 5, 5]])
+    def test_rejects_missing_or_duplicate_zone(self, tmp_path, zones):
+        topology = _valid_zone_topology()
+        topology["zones"] = [topology["zones"][zone - 1] for zone in zones]
+        with pytest.raises(ConfigError, match="zones"):
+            load_zone_topology_config(_write(tmp_path, topology))
+
+    def test_rejects_canal_partition_drift(self, tmp_path):
+        topology = _valid_zone_topology()
+        topology["canals"]["LMC"]["zones"] = [1, 2, 3, 4]
+        with pytest.raises(ConfigError, match="partition"):
+            load_zone_topology_config(_write(tmp_path, topology))
+
+    def test_rejects_noncanonical_entrance_gate(self, tmp_path):
+        topology = _valid_zone_topology()
+        topology["zones"][5]["entrance_gate_id"] = "M (0,1; 1,0)"
+        with pytest.raises(ConfigError, match="canonical"):
+            load_zone_topology_config(_write(tmp_path, topology))
+
+    def test_rejects_unknown_parent_zone(self, tmp_path):
+        topology = _valid_zone_topology()
+        topology["zones"][2]["branches_from_zone"] = 9
+        with pytest.raises(ConfigError, match="parent"):
+            load_zone_topology_config(_write(tmp_path, topology))
+
+    def test_rejects_branch_cycle(self, tmp_path):
+        topology = _valid_zone_topology()
+        topology["zones"][0]["branches_from_zone"] = 3
+        with pytest.raises(ConfigError, match="cycle"):
+            load_zone_topology_config(_write(tmp_path, topology))
 
 
 def test_calibration_ids_match_network_ids_when_normalized():

@@ -1,5 +1,6 @@
 """Pydantic schemas for the C9 control API (demand -> required per-reach flow)."""
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -19,7 +20,9 @@ def _reject_bool_demand_values(demands):
     if isinstance(demands, dict):
         for node_id, value in demands.items():
             if isinstance(value, bool):
-                raise ValueError(f"demand for {node_id} must be a number, not a boolean")
+                raise ValueError(
+                    f"demand for {node_id} must be a number, not a boolean"
+                )
     return demands
 
 
@@ -115,6 +118,69 @@ class PlanResponse(BaseModel):
     coverage: PlanCoverage
 
 
+class DesignProfileRequest(BaseModel):
+    zones: list[int] = Field(default_factory=lambda: [1, 2, 3, 4, 5, 6])
+    flow_fraction: float = Field(default=1.0, ge=0.0, allow_inf_nan=False)
+
+    @field_validator("zones", mode="before")
+    @classmethod
+    def _validate_zones(cls, value):
+        if not isinstance(value, list):
+            raise ValueError("zones must be an array")
+        if not value:
+            raise ValueError("zones must not be empty")
+        if any(isinstance(zone, bool) for zone in value):
+            raise ValueError("zones must contain integers, not booleans")
+        if any(not isinstance(zone, int) or zone not in range(1, 7) for zone in value):
+            raise ValueError("zones must contain only zone numbers 1 through 6")
+        if len(set(value)) != len(value):
+            raise ValueError("zones must not contain duplicates")
+        return value
+
+    @field_validator("flow_fraction", mode="before")
+    @classmethod
+    def _flow_fraction_not_bool(cls, value):
+        return _reject_bool(value, "flow_fraction")
+
+
+class ZoneDesignProfileOut(BaseModel):
+    zone: int
+    canal: str
+    entrance_gate_id: str
+    branches_from_zone: int | None
+    status: Literal["available", "unavailable", "over_capacity", "incompatible"]
+    reason: str | None
+    detail: str | None
+    structure_data_status: Literal["complete", "incomplete", "unavailable"]
+    calibration_method: str
+    confidence: float
+    design_fsl_reference_side: str | None
+    design_fsl_msl_m: float | None
+    sill_msl_m: float | None
+    design_flow_m3s: float | None
+    binding_capacity_m3s: float | None
+    flow_m3s: float | None
+    reference_upstream: str | None
+    reference_downstream: str | None
+    effective_bed_msl_m: float | None
+    normal_depth_m: float | None
+    forecast_level_msl_m: float | None
+
+
+class DesignProfileResponse(BaseModel):
+    mode: Literal["design_profile"]
+    flow_fraction: float
+    open_loop: Literal[True]
+    actual_state_known: Literal[False]
+    commandable: Literal[False]
+    outlet_gate_id: str
+    canals: dict[str, list[int]]
+    source_workbook: str
+    source_sha256: str
+    config_sha256: dict[str, str]
+    zones: list[ZoneDesignProfileOut]
+
+
 class LevelValue(BaseModel):
     """A freshness-stamped real water-surface elevation (m MSL) at one node. `observed_at`
     is when it was measured — the wiring only commands a gate whose boundary levels are
@@ -198,7 +264,8 @@ class OpeningsSummary(BaseModel):
     """Network roll-up. `feasible` is True only when every demand-carrying reach was both
     commandable AND delivered within tolerance. Per-reach flows are deliberately NOT summed
     into a network total: the same demand flows through every serial reach on its path, so a
-    sum double-counts it — the true requested/achievable/deficit live on each reach record."""
+    sum double-counts it — the true requested/achievable/deficit live on each reach record.
+    """
 
     feasible: bool
     commanded_reaches: int
