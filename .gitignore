@@ -248,6 +248,10 @@ mobile-apps/
 scripts/
 # flow-monitoring keeps provenance/generator scripts tracked (Wave 1.8)
 !services/flow-monitoring/scripts/
+
+# Only the approved, content-addressed SCADA workbook is a tracked build input.
+services/flow-monitoring/data/sources/scada/*
+!services/flow-monitoring/data/sources/scada/SCADA Section Detailed Information 2026-07-14 V2.0 SL.xlsx
 !services/flow-monitoring/scripts/**
 
 # Task management

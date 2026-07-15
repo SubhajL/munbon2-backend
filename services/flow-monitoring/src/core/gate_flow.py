@@ -42,6 +42,19 @@ class GateFlowError(ValueError):
     """Raised on structurally invalid gate configuration."""
 
 
+def binding_flow_capacity(*bounds: float | None) -> float | None:
+    """Smallest positive finite capacity bound, or None when none are usable."""
+    valid = [
+        float(bound)
+        for bound in bounds
+        if not isinstance(bound, bool)
+        and isinstance(bound, (int, float))
+        and math.isfinite(bound)
+        and bound > 0
+    ]
+    return min(valid) if valid else None
+
+
 @dataclass(frozen=True)
 class GateFlowCalibration:
     """Everything the flow law needs for one gate (assembled from 3 sources)."""
@@ -61,8 +74,14 @@ class GateFlowCalibration:
         # Reject non-finite fields first: NaN/inf silently pass every ordered check below
         # (NaN comparisons are all False) and would propagate NaN flows downstream.
         for name in (
-            "k1", "k2", "width_m", "sill_m", "min_opening_m",
-            "max_opening_m", "q_max_m3s", "confidence",
+            "k1",
+            "k2",
+            "width_m",
+            "sill_m",
+            "min_opening_m",
+            "max_opening_m",
+            "q_max_m3s",
+            "confidence",
         ):
             if not math.isfinite(getattr(self, name)):
                 raise GateFlowError(f"{name} must be finite, got {getattr(self, name)}")
@@ -78,7 +97,9 @@ class GateFlowCalibration:
             # k2>0 makes Cs (and so flow) DECREASE as the gate opens — the bisection
             # inverse assumes a non-decreasing forward law. All field/default
             # calibrations have k2<=0; a positive one is a data error, not physics.
-            raise GateFlowError(f"k2 must be <= 0 (flow must not decrease as the gate opens), got {self.k2}")
+            raise GateFlowError(
+                f"k2 must be <= 0 (flow must not decrease as the gate opens), got {self.k2}"
+            )
 
 
 def discharge_coeff(k1: float, k2: float, Hs: float, Go: float) -> float:
@@ -89,7 +110,9 @@ def discharge_coeff(k1: float, k2: float, Hs: float, Go: float) -> float:
     return max(CS_MIN, min(CS_MAX, cs))
 
 
-def _heads(upstream_level: float, downstream_level: float, sill_m: float) -> tuple[float, float]:
+def _heads(
+    upstream_level: float, downstream_level: float, sill_m: float
+) -> tuple[float, float]:
     return upstream_level - sill_m, downstream_level - sill_m
 
 
@@ -161,34 +184,63 @@ def required_opening_m(
     """
     Hu, _ = _heads(upstream_level, downstream_level, cal.sill_m)
     if Hu <= 0:
-        return 0.0, {"feasible": False, "achievable": 0.0, "confidence": cal.confidence,
-                     "code": "dry", "reason": "dry gate (no head over sill)"}
+        return 0.0, {
+            "feasible": False,
+            "achievable": 0.0,
+            "confidence": cal.confidence,
+            "code": "dry",
+            "reason": "dry gate (no head over sill)",
+        }
     if q_target <= 0:
-        return 0.0, {"feasible": True, "achievable": 0.0, "confidence": cal.confidence,
-                     "code": "no_demand"}
+        return 0.0, {
+            "feasible": True,
+            "achievable": 0.0,
+            "confidence": cal.confidence,
+            "code": "no_demand",
+        }
 
     lo, hi = cal.min_opening_m, cal.max_opening_m
     q_hi = gate_flow_m3s(cal, upstream_level, downstream_level, hi)
     q_floor = min_deliverable_flow_m3s(cal, upstream_level, downstream_level)
     if q_target > q_hi + tol:
-        return hi, {"feasible": False, "achievable": q_hi, "min_deliverable": q_floor,
-                    "confidence": cal.confidence, "code": "over_capacity",
-                    "reason": "exceeds gate capacity at current head"}
+        return hi, {
+            "feasible": False,
+            "achievable": q_hi,
+            "min_deliverable": q_floor,
+            "confidence": cal.confidence,
+            "code": "over_capacity",
+            "reason": "exceeds gate capacity at current head",
+        }
     if q_target >= q_hi - tol:
         # At capacity within tolerance: full open delivers the target (also covers the
         # constant-Cs case where the floor equals capacity and bisection cannot split).
-        return hi, {"feasible": True, "achievable": q_hi, "min_deliverable": q_floor,
-                    "confidence": cal.confidence, "code": "at_capacity"}
+        return hi, {
+            "feasible": True,
+            "achievable": q_hi,
+            "min_deliverable": q_floor,
+            "confidence": cal.confidence,
+            "code": "at_capacity",
+        }
     if q_target < q_floor - tol:
-        return 0.0, {"feasible": False, "achievable": 0.0, "min_deliverable": q_floor,
-                     "confidence": cal.confidence, "code": "below_floor",
-                     "reason": "below minimum deliverable flow at current head (Cs floor)"}
+        return 0.0, {
+            "feasible": False,
+            "achievable": 0.0,
+            "min_deliverable": q_floor,
+            "confidence": cal.confidence,
+            "code": "below_floor",
+            "reason": "below minimum deliverable flow at current head (Cs floor)",
+        }
     if q_target <= q_floor + tol:
         # Floor-band target: the smallest legal opening already delivers it — return
         # that, not an arbitrary bisection point (minimizes actuator travel).
         go_min = max(cal.min_opening_m, _TINY_OPENING_M)
-        return go_min, {"feasible": True, "achievable": q_floor, "min_deliverable": q_floor,
-                        "confidence": cal.confidence, "code": "floor_band"}
+        return go_min, {
+            "feasible": True,
+            "achievable": q_floor,
+            "min_deliverable": q_floor,
+            "confidence": cal.confidence,
+            "code": "floor_band",
+        }
 
     q = q_hi
     mid = hi
@@ -201,8 +253,13 @@ def required_opening_m(
             lo = mid
         else:
             hi = mid
-    return mid, {"feasible": True, "achievable": q, "min_deliverable": q_floor,
-                 "confidence": cal.confidence, "code": "ok"}
+    return mid, {
+        "feasible": True,
+        "achievable": q,
+        "min_deliverable": q_floor,
+        "confidence": cal.confidence,
+        "code": "ok",
+    }
 
 
 def build_gate_flow_calibration(
@@ -253,7 +310,9 @@ def build_gate_flow_calibration(
     if defaulted:
         confidence = confidence * DEFAULT_GEOMETRY_CONFIDENCE_FACTOR
         logger.warning(
-            "gate_flow: using default geometry %s; confidence lowered to %.3f", defaulted, confidence
+            "gate_flow: using default geometry %s; confidence lowered to %.3f",
+            defaulted,
+            confidence,
         )
 
     return GateFlowCalibration(

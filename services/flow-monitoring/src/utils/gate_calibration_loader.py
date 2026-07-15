@@ -12,7 +12,11 @@ from dataclasses import dataclass
 import logging
 
 from core.config_loader import is_positive_finite, load_gate_calibrations_config
-from core.gate_flow import GateFlowCalibration, build_gate_flow_calibration
+from core.gate_flow import (
+    GateFlowCalibration,
+    binding_flow_capacity,
+    build_gate_flow_calibration,
+)
 from core.node_id import normalize_gate_id
 
 logger = logging.getLogger(__name__)
@@ -32,6 +36,12 @@ class GateCalibrationData:
     shape: Optional[str] = None
     width_m: Optional[float] = None
     height_m: Optional[float] = None
+    design_fsl_msl_m: Optional[float] = None
+    sill_msl_m: Optional[float] = None
+    structure_max_flow_m3s: Optional[float] = None
+    design_fsl_reference_side: Optional[str] = None
+    structure_data_status: str = "unavailable"
+    structure_role: str = "unknown"
 
 
 class GateCalibrationLoader:
@@ -79,10 +89,11 @@ class GateCalibrationLoader:
         return self.calibrations.get(stored_id, {}) if stored_id is not None else {}
 
     def rated_q_max(self, gate_id: str) -> Optional[float]:
-        """Rated q_max (m3/s) from the table — finite positive numbers only; anything
-        else means "no rating", never a capacity of 0/None/garbage."""
-        raw = self.get_gate_data(gate_id).get("q_max_m3s")
-        return float(raw) if is_positive_finite(raw) else None
+        """Binding Sheet1/structure capacity, preserving both raw source fields."""
+        gate_data = self.get_gate_data(gate_id)
+        return binding_flow_capacity(
+            gate_data.get("q_max_m3s"), gate_data.get("structure_max_flow_m3s")
+        )
 
     def get_calibration(self, gate_id: str) -> Optional[GateCalibrationData]:
         """Calibration for a gate id in ANY spacing (compact or survey-spaced).
@@ -109,6 +120,12 @@ class GateCalibrationLoader:
                     shape=gate_data.get("shape"),
                     width_m=gate_data.get("width_m"),
                     height_m=gate_data.get("height_m"),
+                    design_fsl_msl_m=gate_data["design_fsl_msl_m"],
+                    sill_msl_m=gate_data["sill_msl_m"],
+                    structure_max_flow_m3s=gate_data["structure_max_flow_m3s"],
+                    design_fsl_reference_side=gate_data["design_fsl_reference_side"],
+                    structure_data_status=gate_data["structure_data_status"],
+                    structure_role=gate_data["structure_role"],
                 )
             return self._get_default_calibration(gate_id, gate_data)
 
@@ -149,6 +166,12 @@ class GateCalibrationLoader:
             shape=shape,
             width_m=gate_data.get("width_m"),
             height_m=gate_data.get("height_m"),
+            design_fsl_msl_m=gate_data["design_fsl_msl_m"],
+            sill_msl_m=gate_data["sill_msl_m"],
+            structure_max_flow_m3s=gate_data["structure_max_flow_m3s"],
+            design_fsl_reference_side=gate_data["design_fsl_reference_side"],
+            structure_data_status=gate_data["structure_data_status"],
+            structure_role=gate_data["structure_role"],
         )
 
     def _get_generic_default(self, gate_id: str) -> GateCalibrationData:
@@ -186,6 +209,7 @@ class GateCalibrationLoader:
             confidence=calibration.confidence,
             q_max_m3s=self.rated_q_max(gate_id),
             width_m=calibration.width_m,
+            sill_m=calibration.sill_msl_m,
             max_opening_m=self._max_opening_from_geometry(calibration),
             shape=calibration.shape,
         )

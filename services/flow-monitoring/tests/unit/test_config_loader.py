@@ -24,6 +24,17 @@ GEOMETRY = str(SERVICE_ROOT / "src" / "config" / "canal_geometry.json")
 CALIBRATIONS = str(SERVICE_ROOT / "src" / "config" / "gate_calibrations.json")
 
 
+def _unavailable_structure(role):
+    return {
+        "design_fsl_msl_m": None,
+        "sill_msl_m": None,
+        "structure_max_flow_m3s": None,
+        "design_fsl_reference_side": None,
+        "structure_data_status": "unavailable",
+        "structure_role": role,
+    }
+
+
 def _write(tmp_path, payload, name="cfg.json"):
     p = tmp_path / name
     p.write_text(payload if isinstance(payload, str) else json.dumps(payload))
@@ -66,6 +77,7 @@ def _valid_calibrations():
         "metadata": {
             "source_sha256": "workbook-sha",
             "intended_use": "planning_only",
+            "design_fsl_reference_side": "upstream",
             "total_gates": 2,
             "gates_by_calibration_method": {
                 "measured": 1,
@@ -82,6 +94,12 @@ def _valid_calibrations():
                 "confidence": 0.9986,
                 "source_gate_ids": ["M(0,0)"],
                 "source_version": "workbook-sha",
+                "design_fsl_msl_m": 221.0,
+                "sill_msl_m": 204.5,
+                "structure_max_flow_m3s": 11.2,
+                "design_fsl_reference_side": "upstream",
+                "structure_data_status": "complete",
+                "structure_role": "control",
             },
             "M(0,1)": {
                 "gate_id": "M(0,1)",
@@ -89,6 +107,7 @@ def _valid_calibrations():
                 "confidence": 0.8,
                 "source_gate_ids": [],
                 "source_version": "workbook-sha",
+                **_unavailable_structure("junction"),
             },
         },
     }
@@ -250,31 +269,48 @@ class TestLoadCanalGeometryConfig:
 
     def test_accepts_valid_reaches_block(self, tmp_path):
         geo = _valid_geometry()
-        geo["reaches"] = [{
-            "from_node": "M(0,0)", "to_node": "M(0,1)",
-            "from_km": "0+000", "to_km": "1+000",
-            "span_m": 1000, "covered_m": 1000, "gap_m": 0,
-        }]
+        geo["reaches"] = [
+            {
+                "from_node": "M(0,0)",
+                "to_node": "M(0,1)",
+                "from_km": "0+000",
+                "to_km": "1+000",
+                "span_m": 1000,
+                "covered_m": 1000,
+                "gap_m": 0,
+            }
+        ]
         data = load_canal_geometry_config(_write(tmp_path, geo))
         assert data["reaches"][0]["span_m"] == 1000
 
     def test_rejects_reach_without_span(self, tmp_path):
         geo = _valid_geometry()
-        geo["reaches"] = [{
-            "from_node": "M(0,0)", "to_node": "M(0,1)",
-            "from_km": "0+000", "to_km": "1+000",
-            "covered_m": 1000, "gap_m": 0,
-        }]
+        geo["reaches"] = [
+            {
+                "from_node": "M(0,0)",
+                "to_node": "M(0,1)",
+                "from_km": "0+000",
+                "to_km": "1+000",
+                "covered_m": 1000,
+                "gap_m": 0,
+            }
+        ]
         with pytest.raises(ConfigError, match="span_m"):
             load_canal_geometry_config(_write(tmp_path, geo))
 
     def test_rejects_reach_with_blank_node(self, tmp_path):
         geo = _valid_geometry()
-        geo["reaches"] = [{
-            "from_node": "", "to_node": "M(0,1)",
-            "from_km": "0+000", "to_km": "1+000",
-            "span_m": 1000, "covered_m": 1000, "gap_m": 0,
-        }]
+        geo["reaches"] = [
+            {
+                "from_node": "",
+                "to_node": "M(0,1)",
+                "from_km": "0+000",
+                "to_km": "1+000",
+                "span_m": 1000,
+                "covered_m": 1000,
+                "gap_m": 0,
+            }
+        ]
         with pytest.raises(ConfigError, match="from_node"):
             load_canal_geometry_config(_write(tmp_path, geo))
 
@@ -439,6 +475,7 @@ class TestLoadGateCalibrationsConfig:
             "confidence": 0.95,
             "source_gate_ids": ["M(0,2)"],
             "source_version": "workbook-sha",
+            **_unavailable_structure("control"),
         }
         inferred = cal["gates"]["M(0,1)"]
         inferred.update(
@@ -519,6 +556,47 @@ class TestLoadGateCalibrationsConfig:
         cal = _valid_calibrations()
         cal["metadata"]["intended_use"] = "actuation"
         with pytest.raises(ConfigError, match="intended_use"):
+            load_gate_calibrations_config(_write(tmp_path, cal))
+
+    @pytest.mark.parametrize(
+        "key,value",
+        [
+            ("design_fsl_msl_m", "221"),
+            ("sill_msl_m", True),
+            ("structure_max_flow_m3s", 0.0),
+        ],
+    )
+    def test_rejects_invalid_structure_numbers(self, tmp_path, key, value):
+        cal = _valid_calibrations()
+        cal["gates"]["M(0,0)"][key] = value
+        with pytest.raises(ConfigError, match=key):
+            load_gate_calibrations_config(_write(tmp_path, cal))
+
+    def test_rejects_structure_status_that_disagrees_with_fields(self, tmp_path):
+        cal = _valid_calibrations()
+        cal["gates"]["M(0,0)"]["structure_max_flow_m3s"] = None
+        with pytest.raises(ConfigError, match="structure_data_status"):
+            load_gate_calibrations_config(_write(tmp_path, cal))
+
+    @pytest.mark.parametrize("side", [None, "downstream"])
+    def test_rejects_design_fsl_without_upstream_reference_side(self, tmp_path, side):
+        cal = _valid_calibrations()
+        cal["gates"]["M(0,0)"]["design_fsl_reference_side"] = side
+        with pytest.raises(ConfigError, match="design_fsl_reference_side"):
+            load_gate_calibrations_config(_write(tmp_path, cal))
+
+    def test_rejects_unknown_structure_role(self, tmp_path):
+        cal = _valid_calibrations()
+        cal["gates"]["M(0,1)"]["structure_role"] = "valve"
+        with pytest.raises(ConfigError, match="structure_role"):
+            load_gate_calibrations_config(_write(tmp_path, cal))
+
+    def test_rejects_noncanonical_stored_gate_id(self, tmp_path):
+        cal = _valid_calibrations()
+        gate = cal["gates"].pop("M(0,1)")
+        gate["gate_id"] = "M (0,1)"
+        cal["gates"]["M (0,1)"] = gate
+        with pytest.raises(ConfigError, match="canonical"):
             load_gate_calibrations_config(_write(tmp_path, cal))
 
     @pytest.mark.parametrize("gate_id", ["M(0,0)", "M(0,1)"])
