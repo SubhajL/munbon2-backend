@@ -12,6 +12,7 @@ import pytest
 from db.water_requirement_repository import (
     RequirementRepositoryError,
     fail_requirement_run,
+    get_flow_records_for_run,
     get_published_requirements,
     publish_requirement_run,
     start_requirement_run,
@@ -297,6 +298,36 @@ class TestWaterRequirementMigration:
 
 
 class TestWaterRequirementRepository:
+    @pytest.mark.asyncio
+    async def test_flow_records_use_monotonic_version_per_section_service_day(self):
+        run_id = uuid4()
+
+        class _FlowConnection:
+            def __init__(self):
+                self.call = None
+
+            async def fetch(self, sql, *args):
+                self.call = (sql, args)
+                return [
+                    {
+                        "requirement_id": uuid4(),
+                        "run_id": run_id,
+                        "input_versions": '{"crop":"v1"}',
+                        "downstream_version": 2,
+                    }
+                ]
+
+        conn = _FlowConnection()
+
+        records = await get_flow_records_for_run(conn, run_id)
+
+        assert records[0]["input_versions"] == {"crop": "v1"}
+        sql, args = conn.call
+        assert "PARTITION BY requirement.service_date, requirement.section_id" in sql
+        assert "ROW_NUMBER() OVER" in sql
+        assert "run.status IN ('published', 'superseded')" in sql
+        assert args == (run_id,)
+
     @pytest.mark.asyncio
     async def test_failed_run_is_not_readable_as_published(self):
         conn = _PublicationConn()

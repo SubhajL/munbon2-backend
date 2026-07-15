@@ -7,14 +7,16 @@ from fastapi.responses import JSONResponse
 from typing import List, Optional
 from strawberry.fastapi import GraphQLRouter
 from prometheus_client import make_asgi_app
-import structlog
-
 from config import settings
 from core import get_logger
 from db import DatabaseManager
+from db.daily_requirement_run_store import PostgresDailyRequirementRunStore
 from api import schema
 from api.routes import admin, water_requirements
 from services.ros_sync_service import RosSyncService
+from services.daily_requirement_job import DailyRequirementJob
+from services.flow_monitoring_publisher import FlowMonitoringDemandPublisher
+from services.requirement_source_loader import AuthoritativeRequirementSourceLoader
 
 # Configure logging
 logger = get_logger(__name__)
@@ -25,6 +27,20 @@ db_manager = DatabaseManager()
 # ROS sync service instance
 ros_sync_service = RosSyncService()
 
+daily_requirement_job = None
+if settings.daily_requirement_enabled:
+    daily_requirement_job = DailyRequirementJob(
+        run_store=PostgresDailyRequirementRunStore(db_manager),
+        source_loader=AuthoritativeRequirementSourceLoader(
+            db_manager.get_requirement_source_connection,
+            max_input_age_hours=settings.daily_requirement_input_max_age_hours,
+        ),
+        publisher=FlowMonitoringDemandPublisher(settings.flow_monitoring_url),
+        cron=settings.daily_requirement_cron,
+        timezone_name=settings.daily_requirement_timezone,
+        horizon_days=settings.daily_requirement_horizon_days,
+    )
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -33,16 +49,28 @@ async def lifespan(app: FastAPI):
     logger.info("Starting ROS/GIS Integration Service", port=settings.port)
     await db_manager.initialize()
     logger.info("Database connections initialized")
-    
+
+    if daily_requirement_job is not None:
+        try:
+            await daily_requirement_job.start()
+        except Exception as exc:
+            logger.error(
+                "Daily requirement startup catch-up failed",
+                error=str(exc),
+                exc_info=exc,
+            )
+
     # Start ROS sync service if not using mock
     if not settings.use_mock_server:
         asyncio.create_task(ros_sync_service.start_periodic_sync())
         logger.info("ROS sync service started")
-    
+
     yield
-    
+
     # Shutdown
     logger.info("Shutting down ROS/GIS Integration Service")
+    if daily_requirement_job is not None:
+        await daily_requirement_job.stop()
     ros_sync_service.stop_periodic_sync()
     await db_manager.close()
     logger.info("Database connections closed")
@@ -53,9 +81,10 @@ app = FastAPI(
     title="ROS/GIS Integration Service",
     description="Bridges agricultural needs with hydraulic delivery for Munbon Irrigation System",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 app.state.db_manager = db_manager
+app.state.daily_requirement_job = daily_requirement_job
 
 # Add CORS middleware
 app.add_middleware(
@@ -68,9 +97,7 @@ app.add_middleware(
 
 # Create GraphQL router
 graphql_app = GraphQLRouter(
-    schema,
-    path="/graphql",
-    graphiql=settings.environment == "development"
+    schema, path="/graphql", graphiql=settings.environment == "development"
 )
 
 # Include GraphQL router
@@ -89,23 +116,23 @@ app.mount("/metrics", metrics_app)
 async def health_check():
     """Health check endpoint"""
     health_status = await db_manager.check_health()
-    
+
     # Check external service connectivity
     external_health = {
         "flow_monitoring": True,  # Would check actual service
         "scheduler": True,
         "ros": True,
-        "gis": True
+        "gis": True,
     }
-    
+
     all_healthy = all(health_status.values()) and all(external_health.values())
-    
+
     return {
         "status": "healthy" if all_healthy else "unhealthy",
         "service": settings.service_name,
         "version": "1.0.0",
         "databases": health_status,
-        "external_services": external_health
+        "external_services": external_health,
     }
 
 
@@ -121,8 +148,8 @@ async def root():
             "health": "/health",
             "metrics": "/metrics",
             "docs": "/docs",
-            "graphiql": "/graphql" if settings.environment == "development" else None
-        }
+            "graphiql": "/graphql" if settings.environment == "development" else None,
+        },
     }
 
 
@@ -140,10 +167,10 @@ async def service_status():
                 "crop_stage": settings.crop_stage_weight,
                 "moisture_deficit": settings.moisture_deficit_weight,
                 "economic_value": settings.economic_value_weight,
-                "stress_indicator": settings.stress_indicator_weight
-            }
+                "stress_indicator": settings.stress_indicator_weight,
+            },
         },
-        "mock_mode": settings.use_mock_server
+        "mock_mode": settings.use_mock_server,
     }
 
 
@@ -155,8 +182,7 @@ async def get_section(section_id: str):
     if section:
         return section
     return JSONResponse(
-        status_code=404,
-        content={"error": f"Section {section_id} not found"}
+        status_code=404, content={"error": f"Section {section_id} not found"}
     )
 
 
@@ -164,11 +190,7 @@ async def get_section(section_id: str):
 async def get_zone_sections(zone: int):
     """REST endpoint for sections by zone"""
     sections = await db_manager.get_sections_by_zone(zone)
-    return {
-        "zone": zone,
-        "sections": sections,
-        "count": len(sections)
-    }
+    return {"zone": zone, "sections": sections, "count": len(sections)}
 
 
 @app.post("/api/v1/sync/trigger")
@@ -178,7 +200,7 @@ async def trigger_sync(section_ids: Optional[List[str]] = None):
         result = await ros_sync_service.sync_ros_calculations(section_ids)
     else:
         result = await ros_sync_service.sync_all_sections()
-    
+
     return result
 
 
@@ -194,24 +216,18 @@ async def start_periodic_sync():
     if ros_sync_service.is_running:
         return {
             "status": "already_running",
-            "message": "Sync service is already running"
+            "message": "Sync service is already running",
         }
-    
+
     asyncio.create_task(ros_sync_service.start_periodic_sync())
-    return {
-        "status": "started",
-        "message": "Periodic sync service started"
-    }
+    return {"status": "started", "message": "Periodic sync service started"}
 
 
 @app.post("/api/v1/sync/stop")
 async def stop_periodic_sync():
     """Stop the periodic sync service"""
     ros_sync_service.stop_periodic_sync()
-    return {
-        "status": "stopped",
-        "message": "Periodic sync service stopped"
-    }
+    return {"status": "stopped", "message": "Periodic sync service stopped"}
 
 
 # Error handling
@@ -222,14 +238,18 @@ async def global_exception_handler(request: Request, exc: Exception):
         path=request.url.path,
         method=request.method,
         error=str(exc),
-        exc_info=exc
+        exc_info=exc,
     )
     return JSONResponse(
         status_code=500,
         content={
             "error": "Internal server error",
-            "message": str(exc) if settings.environment == "development" else "An error occurred"
-        }
+            "message": (
+                str(exc)
+                if settings.environment == "development"
+                else "An error occurred"
+            ),
+        },
     )
 
 
@@ -239,5 +259,5 @@ if __name__ == "__main__":
         host=settings.host,
         port=settings.port,
         reload=settings.environment == "development",
-        log_level=settings.log_level.lower()
+        log_level=settings.log_level.lower(),
     )

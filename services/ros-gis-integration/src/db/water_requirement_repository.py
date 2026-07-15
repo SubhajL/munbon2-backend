@@ -138,6 +138,28 @@ WHERE requirement.section_id = $1
 ORDER BY requirement.service_date, run.as_of_date, run.version
 """
 
+SELECT_FLOW_RECORDS_FOR_RUN = """
+WITH versioned_requirements AS (
+    SELECT requirement.requirement_id,
+           ROW_NUMBER() OVER (
+               PARTITION BY requirement.service_date, requirement.section_id
+               ORDER BY run.published_at, run.run_id
+           )::INTEGER AS downstream_version
+    FROM ros_gis.daily_water_requirements AS requirement
+    JOIN ros_gis.water_requirement_runs AS run USING (run_id)
+    WHERE run.status IN ('published', 'superseded')
+)
+SELECT requirement.*,
+       run.computed_at,
+       versioned.downstream_version
+FROM ros_gis.daily_water_requirements AS requirement
+JOIN ros_gis.water_requirement_runs AS run USING (run_id)
+JOIN versioned_requirements AS versioned USING (requirement_id)
+WHERE requirement.run_id = $1
+  AND run.status IN ('published', 'superseded')
+ORDER BY requirement.service_date, requirement.zone, requirement.section_id
+"""
+
 
 class RequirementRepositoryError(ValueError):
     """A requirement run cannot make the requested state transition."""
@@ -514,6 +536,11 @@ async def get_published_requirements(conn, as_of_date: date) -> list[dict]:
     rows = await conn.fetch(
         SELECT_PUBLISHED_REQUIREMENTS, _date(as_of_date, "as_of_date")
     )
+    return [_row_dict(row) for row in rows]
+
+
+async def get_flow_records_for_run(conn, run_id: UUID) -> list[dict]:
+    rows = await conn.fetch(SELECT_FLOW_RECORDS_FOR_RUN, _uuid(run_id, "run_id"))
     return [_row_dict(row) for row in rows]
 
 
