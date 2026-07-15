@@ -85,6 +85,59 @@ WHERE run.as_of_date = $1 AND run.status = 'published'
 ORDER BY requirement.service_date, requirement.zone, requirement.section_id
 """
 
+SELECT_DAILY_REQUIREMENTS = """
+WITH versioned_runs AS (
+    SELECT run.*,
+           ROW_NUMBER() OVER (
+               PARTITION BY run.as_of_date
+               ORDER BY run.published_at, run.run_id
+           )::INTEGER AS version
+    FROM ros_gis.water_requirement_runs AS run
+    WHERE run.status IN ('published', 'superseded')
+),
+latest_run AS (
+    SELECT run.*
+    FROM versioned_runs AS run
+    WHERE run.status = 'published'
+      AND run.horizon_start <= $1
+      AND run.horizon_end >= $1
+    ORDER BY run.as_of_date DESC, run.published_at DESC, run.run_id DESC
+    LIMIT 1
+)
+SELECT requirement.*,
+       run.as_of_date,
+       run.published_at,
+       run.status AS run_status,
+       run.version
+FROM latest_run AS run
+JOIN ros_gis.daily_water_requirements AS requirement USING (run_id)
+WHERE requirement.service_date = $1
+  AND requirement.zone = $2
+ORDER BY requirement.section_id
+"""
+
+SELECT_SECTION_REQUIREMENT_HISTORY = """
+WITH versioned_runs AS (
+    SELECT run.*,
+           ROW_NUMBER() OVER (
+               PARTITION BY run.as_of_date
+               ORDER BY run.published_at, run.run_id
+           )::INTEGER AS version
+    FROM ros_gis.water_requirement_runs AS run
+    WHERE run.status IN ('published', 'superseded')
+)
+SELECT requirement.*,
+       run.as_of_date,
+       run.published_at,
+       run.status AS run_status,
+       run.version
+FROM versioned_runs AS run
+JOIN ros_gis.daily_water_requirements AS requirement USING (run_id)
+WHERE requirement.section_id = $1
+  AND requirement.service_date BETWEEN $2 AND $3
+ORDER BY requirement.service_date, run.as_of_date, run.version
+"""
+
 
 class RequirementRepositoryError(ValueError):
     """A requirement run cannot make the requested state transition."""
@@ -460,5 +513,34 @@ async def fail_requirement_run(conn, run_id: UUID, failure_reason: str) -> dict:
 async def get_published_requirements(conn, as_of_date: date) -> list[dict]:
     rows = await conn.fetch(
         SELECT_PUBLISHED_REQUIREMENTS, _date(as_of_date, "as_of_date")
+    )
+    return [_row_dict(row) for row in rows]
+
+
+async def get_daily_requirements(conn, service_date: date, zone: int) -> list[dict]:
+    day = _date(service_date, "service_date")
+    zone_number = _positive_int(zone, "zone")
+    if zone_number > 6:
+        raise RequirementRepositoryError("zone must be between 1 and 6")
+    rows = await conn.fetch(SELECT_DAILY_REQUIREMENTS, day, zone_number)
+    return [_row_dict(row) for row in rows]
+
+
+async def get_section_requirement_history(
+    conn,
+    section_id: str,
+    from_date: date,
+    to_date: date,
+) -> list[dict]:
+    section = _nonblank(section_id, "section_id")
+    start = _date(from_date, "from_date")
+    end = _date(to_date, "to_date")
+    if start > end:
+        raise RequirementRepositoryError("from_date must not follow to_date")
+    rows = await conn.fetch(
+        SELECT_SECTION_REQUIREMENT_HISTORY,
+        section,
+        start,
+        end,
     )
     return [_row_dict(row) for row in rows]

@@ -52,6 +52,13 @@ and immutable item rows are enforced both in PostgreSQL and by
 `db/water_requirement_repository.py`. Apply `0001` before `0002`; test the pair with
 apply, rollback, reapply on disposable PostGIS before shipping.
 
+Canonical reads are served by `GET /api/v1/water-requirements/daily` and
+`GET /api/v1/water-requirements/sections/{section_id}`. Daily reads select the
+latest published run whose horizon covers the requested service date; section
+reads include immutable published and superseded versions. A published run is
+reported as stale after the next 02:00 Bangkok publication boundary. Missing rows return
+`dataStatus=no_publication` with an empty requirement list, never a zero demand.
+
 ## Config / Ports / Env
 - Port: settings default 3022 but `.env`/`start.sh` force **3047** (effective). Endpoints: `/graphql`, `/health`, `/metrics`, `/api/v1/*` (sections/zones/sync trigger), `/api/v1/admin/*`.
 - `POSTGRES_URL` (`.env` → remote `43.208.201.191:5432/munbon_dev`), `REDIS_URL`, `USE_MOCK_SERVER`, `DEMAND_COMBINATION_STRATEGY=aquacrop_priority`, service URLs (`FLOW_MONITORING_URL`, `SCHEDULER_URL`, `ROS_SERVICE_URL`, `GIS_SERVICE_URL`).

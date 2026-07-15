@@ -23,7 +23,7 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       
       # External Service URLs
-      ROS_SERVICE_URL: ${ROS_SERVICE_URL:-http://ros:3012}
+      ROS_SERVICE_URL: ${ROS_SERVICE_URL:-http://ros-gis-integration:3047}
       GIS_SERVICE_URL: ${GIS_SERVICE_URL:-http://gis:3007}
       AWD_CONTROL_URL: ${AWD_CONTROL_URL:-http://awd-control:3010}
       

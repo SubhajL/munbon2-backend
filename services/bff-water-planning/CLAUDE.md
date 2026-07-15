@@ -33,6 +33,14 @@ pytest + pytest-asyncio + pytest-cov. Real tests in `tests/` (`unit/`; `integrat
 ## Integration
 Reads/writes `ros_gis.weekly_water_demands`, queries `gis.crop_registry`; talks to ROS/GIS/AWD/Flow/Scheduler/Weather/Sensor via `src/clients/`; publishes Redis demand events.
 
+Canonical daily reads are projections of ros-gis-integration:
+`GET /api/v1/water-demand/daily` and
+`GET /api/v1/water-demand/sections/{section_id}/daily`. They preserve immutable
+run/requirement lineage and `no_publication|stale|published|superseded` status;
+upstream failures never fall back to zero or mutable rows. The former mutable
+section query remains temporarily at the deprecated
+`/api/v1/water-demand/legacy/sections/{section_id}/daily` path.
+
 ## Gotchas / Watch-outs
 - 🚨🚨 **CONFIRMED hardcoded PRODUCTION DB credentials** in `scripts/populate_weekly_demands_with_events.py` (`GIS_DB_CONFIG`/`BFF_DB_CONFIG`: host `43.208.201.191`, plaintext password). The **same password appears in ~34 `scripts/` files** and the prod IP in ~40 files — this is the **SEC / F-07** remediation item. Rotate the password, move to env/secrets, add secret-scanning. Do **not** copy this pattern.
 - `/health` external-service checks are **stubbed** (hardcoded `True`, no real probing); `/health` reports version `1.0.0` while the app is `2.0.0`.

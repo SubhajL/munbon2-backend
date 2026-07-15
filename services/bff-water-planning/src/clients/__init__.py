@@ -7,6 +7,10 @@ from .scheduler_client import SchedulerClient
 from .weather_client import WeatherClient
 from .rid_ms_client import RIDMSClient
 from .sensor_data_client import SensorDataClient
+from .water_requirement_client import (
+    WaterRequirementClient,
+    WaterRequirementClientError,
+)
 
 __all__ = [
     "ROSClient", 
@@ -18,4 +22,6 @@ __all__ = [
     "WeatherClient",
     "RIDMSClient",
     "SensorDataClient",
+    "WaterRequirementClient",
+    "WaterRequirementClientError",
 ]

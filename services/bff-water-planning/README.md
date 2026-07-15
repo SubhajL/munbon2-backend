@@ -223,7 +223,7 @@ kubectl apply -f k8s/
 | `GIS_DATABASE_URL` | GIS database URL | - |
 | `TIMESCALE_URL` | TimescaleDB URL | - |
 | `REDIS_URL` | Redis connection URL | redis://localhost:6379/0 |
-| `ROS_SERVICE_URL` | ROS service endpoint | http://localhost:3012 |
+| `ROS_SERVICE_URL` | ROS-GIS integration endpoint | http://localhost:3047 |
 | `GIS_SERVICE_URL` | GIS service endpoint | http://localhost:3007 |
 | `AWD_CONTROL_URL` | AWD control endpoint | http://localhost:3010 |
 | `DB_POOL_MIN_SIZE` | Min DB connections | 10 |
