@@ -40,6 +40,7 @@ from core.demand_store import (
     ImmutabilityViolation,
     VersionConflict,
 )
+from core.design_profile import DesignProfileError
 from core.branch_split import branch_split_summary
 from core.network_flow_controller import (
     LevelReading,
@@ -48,6 +49,8 @@ from core.network_flow_controller import (
 from core.network_topology import NetworkTopologyError
 from core.node_id import NodeIdError, normalize_gate_id, normalize_node_id
 from schemas.control import (
+    DesignProfileRequest,
+    DesignProfileResponse,
     OpeningsRequest,
     OpeningsResponse,
     OpeningsSummary,
@@ -66,13 +69,17 @@ from schemas.demand import (
     RecordResult,
     StoredRecordEnvelope,
 )
+from services.design_profile_service import DesignProfileService
 
 logger = structlog.get_logger()
 router = APIRouter()
 
 # Initialized in main.py lifespan; None until then.
 flow_controller: Optional[NetworkFlowController] = None
-demand_store = None  # PostgresDemandStore at runtime; any core.demand_store twin in tests
+design_profile_service: Optional[DesignProfileService] = None
+demand_store = (
+    None  # PostgresDemandStore at runtime; any core.demand_store twin in tests
+)
 
 
 def get_flow_controller() -> NetworkFlowController:
@@ -80,6 +87,14 @@ def get_flow_controller() -> NetworkFlowController:
     if flow_controller is None:
         raise HTTPException(status_code=503, detail="Flow controller not initialized")
     return flow_controller
+
+
+def get_design_profile_service() -> DesignProfileService:
+    if design_profile_service is None:
+        raise HTTPException(
+            status_code=503, detail="Design profile service not initialized"
+        )
+    return design_profile_service
 
 
 def get_demand_store():
@@ -102,12 +117,18 @@ async def plan(
             charge_dry_reaches=request.charge_dry_reaches,
             always_wet=request.always_wet,
         )
-    except NetworkTopologyError as exc:  # server/config error (subclass of ValueError) -> 503
+    except (
+        NetworkTopologyError
+    ) as exc:  # server/config error (subclass of ValueError) -> 503
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except ValueError as exc:  # unknown / negative / non-finite / source demand -> client error
+    except (
+        ValueError
+    ) as exc:  # unknown / negative / non-finite / source demand -> client error
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    head_flow = sum(flow for (upstream, _), flow in reach_flow.items() if upstream == "S")
+    head_flow = sum(
+        flow for (upstream, _), flow in reach_flow.items() if upstream == "S"
+    )
     # Geometry coverage is a STATIC network property, not a loss artifact, so it is
     # reported unconditionally (Wave 2.8a): the itemized lists must agree with the
     # `coverage` roll-up in the SAME payload — gating them on apply_losses made the
@@ -145,6 +166,19 @@ async def plan(
         reaches_with_chainage_gaps=gaps,
         coverage=PlanCoverage(**controller.coverage_summary()),
     )
+
+
+@router.post("/hydraulic-forecast/design", response_model=DesignProfileResponse)
+async def design_profile(
+    request: DesignProfileRequest,
+    service: DesignProfileService = Depends(get_design_profile_service),
+) -> DesignProfileResponse:
+    """Static design levels under explicit V2 assumptions; never observed or commandable."""
+    try:
+        result = service.calculate(sorted(request.zones), request.flow_fraction)
+    except DesignProfileError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return DesignProfileResponse(**result)
 
 
 @router.post("/openings", response_model=OpeningsResponse)
@@ -280,7 +314,9 @@ def _prepare_demand(record, now: datetime) -> tuple[str, dict, float]:
     start, end = validate_period_bounds(record.period_start, record.period_end)
     intervals = [(i.start, i.end) for i in record.scheduled_delivery_intervals]
     validate_intervals_within_period(start, end, intervals)
-    required_flow = flow_rate_m3s(record.volume_m3, scheduled_delivery_seconds(intervals))
+    required_flow = flow_rate_m3s(
+        record.volume_m3, scheduled_delivery_seconds(intervals)
+    )
     payload = record.model_dump(mode="json")
     payload["area_id"] = area_id
     return _logical_key(record, area_id, start, end), payload, required_flow

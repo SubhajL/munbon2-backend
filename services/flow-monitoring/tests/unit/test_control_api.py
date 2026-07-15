@@ -18,12 +18,16 @@ from core.network_flow_controller import NetworkFlowController
 SERVICE_ROOT = Path(__file__).resolve().parents[2]
 NETWORK = str(SERVICE_ROOT / "src" / "config" / "network.json")
 GEOMETRY = str(SERVICE_ROOT / "src" / "config" / "canal_geometry.json")
+CALIBRATIONS = str(SERVICE_ROOT / "src" / "config" / "gate_calibrations.json")
+ZONE_TOPOLOGY = str(SERVICE_ROOT / "src" / "config" / "zone_topology.json")
 CONTROL_PY = SERVICE_ROOT / "src" / "api" / "control.py"
 
 
 def _load_control():
     """Load src/api/control.py in isolation (bypasses api/__init__ + its DB/settings imports)."""
-    spec = importlib.util.spec_from_file_location("flowmon_control_under_test", str(CONTROL_PY))
+    spec = importlib.util.spec_from_file_location(
+        "flowmon_control_under_test", str(CONTROL_PY)
+    )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -48,6 +52,20 @@ def _area_demand():
 @pytest.fixture
 def client():
     control = _load_control()  # fresh module per test -> no flow_controller leakage
+    return TestClient(_app(control, NetworkFlowController(NETWORK, GEOMETRY)))
+
+
+@pytest.fixture
+def design_client():
+    from services.design_profile_service import DesignProfileService
+
+    control = _load_control()
+    control.design_profile_service = DesignProfileService(
+        NETWORK,
+        GEOMETRY,
+        CALIBRATIONS,
+        ZONE_TOPOLOGY,
+    )
     return TestClient(_app(control, NetworkFlowController(NETWORK, GEOMETRY)))
 
 
@@ -111,7 +129,9 @@ class TestPlanEndpoint:
                 json={"demands": {}, "apply_losses": apply_losses},
             ).json()
             cov = body["coverage"]
-            assert len(body["reaches_missing_geometry"]) == cov["geometry_missing"] == 17
+            assert (
+                len(body["reaches_missing_geometry"]) == cov["geometry_missing"] == 17
+            )
             assert len(body["reaches_with_chainage_gaps"]) == cov["chainage_gaps"] == 5
 
     def test_empty_demand_yields_all_zero_reaches(self, client):
@@ -192,7 +212,9 @@ class TestPlanEndpoint:
         missing = {tuple(edge) for edge in resp.json()["reaches_missing_geometry"]}
         expected = {
             (normalize_node_id(u), normalize_node_id(v))
-            for u, v in NetworkFlowController(NETWORK, GEOMETRY).reaches_missing_geometry
+            for u, v in NetworkFlowController(
+                NETWORK, GEOMETRY
+            ).reaches_missing_geometry
         }
         assert missing == expected
         assert len(missing) == 17
@@ -227,8 +249,11 @@ class TestPlanEndpoint:
     def test_always_wet_keeps_named_trunk_charged(self, client):
         resp = client.post(
             "/api/v1/control/plan",
-            json={"demands": {}, "apply_losses": True,
-                  "always_wet": [["M(0,0)", "M(0,1)"]]},
+            json={
+                "demands": {},
+                "apply_losses": True,
+                "always_wet": [["M(0,0)", "M(0,1)"]],
+            },
         )
         assert resp.status_code == 200
         assert 0.0 < resp.json()["head_flow_m3s"] < 1.0  # one reach's seepage only
@@ -236,16 +261,18 @@ class TestPlanEndpoint:
     def test_unknown_always_wet_reach_is_rejected_400(self, client):
         resp = client.post(
             "/api/v1/control/plan",
-            json={"demands": {}, "apply_losses": True,
-                  "always_wet": [["M(0,0)", "M(9,9)"]]},
+            json={
+                "demands": {},
+                "apply_losses": True,
+                "always_wet": [["M(0,0)", "M(9,9)"]],
+            },
         )
         assert resp.status_code == 400
 
     def test_always_wet_reach_without_geometry_is_rejected_400(self, client):
         resp = client.post(
             "/api/v1/control/plan",
-            json={"demands": {}, "apply_losses": True,
-                  "always_wet": [["S", "M(0,0)"]]},
+            json={"demands": {}, "apply_losses": True, "always_wet": [["S", "M(0,0)"]]},
         )
         assert resp.status_code == 400
         assert "no surveyed geometry" in resp.json()["detail"]
@@ -281,6 +308,70 @@ class TestPlanEndpoint:
         assert "not finite" in resp.json()["detail"]
 
 
+class TestDesignProfileEndpoint:
+    def test_returns_all_zones_with_non_actuating_truth_labels(self, design_client):
+        response = design_client.post(
+            "/api/v1/control/hydraulic-forecast/design", json={}
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert {
+            "mode": body["mode"],
+            "open_loop": body["open_loop"],
+            "actual_state_known": body["actual_state_known"],
+            "commandable": body["commandable"],
+        } == {
+            "mode": "design_profile",
+            "open_loop": True,
+            "actual_state_known": False,
+            "commandable": False,
+        }
+        assert [zone["zone"] for zone in body["zones"]] == [1, 2, 3, 4, 5, 6]
+        assert [
+            zone["zone"] for zone in body["zones"] if zone["status"] == "unavailable"
+        ] == [
+            2,
+            3,
+            4,
+            5,
+        ]
+
+    def test_subset_is_canonicalized_to_zone_order(self, design_client):
+        response = design_client.post(
+            "/api/v1/control/hydraulic-forecast/design",
+            json={"zones": [6, 1], "flow_fraction": 0.5},
+        )
+        assert response.status_code == 200
+        assert [zone["zone"] for zone in response.json()["zones"]] == [1, 6]
+
+    @pytest.mark.parametrize("zones", [[], [True], [0], [7], [1, 1]])
+    def test_rejects_invalid_zone_selection(self, design_client, zones):
+        response = design_client.post(
+            "/api/v1/control/hydraulic-forecast/design",
+            json={"zones": zones},
+        )
+        assert response.status_code == 422
+
+    @pytest.mark.parametrize("flow_fraction", [True, -0.1])
+    def test_rejects_invalid_flow_fraction(self, design_client, flow_fraction):
+        response = design_client.post(
+            "/api/v1/control/hydraulic-forecast/design",
+            json={"flow_fraction": flow_fraction},
+        )
+        assert response.status_code == 422
+
+    def test_returns_503_when_design_service_is_not_initialized(self):
+        control = _load_control()
+        control.design_profile_service = None
+        app = FastAPI()
+        app.include_router(control.router, prefix="/api/v1/control")
+        response = TestClient(app).post(
+            "/api/v1/control/hydraulic-forecast/design",
+            json={"zones": [6]},
+        )
+        assert response.status_code == 503
+
+
 class TestErrorMapping:
     def test_topology_error_maps_to_503_not_400(self):
         # NetworkTopologyError subclasses ValueError; a server/config topology error must
@@ -298,7 +389,9 @@ class TestErrorMapping:
         control.flow_controller = _BadController()
         app = FastAPI()
         app.include_router(control.router, prefix="/api/v1/control")
-        resp = TestClient(app).post("/api/v1/control/plan", json={"demands": {"M(0,2)": 1.0}})
+        resp = TestClient(app).post(
+            "/api/v1/control/plan", json={"demands": {"M(0,2)": 1.0}}
+        )
         assert resp.status_code == 503
 
 
@@ -308,13 +401,17 @@ class TestFailClosed:
         control.flow_controller = None
         app = FastAPI()
         app.include_router(control.router, prefix="/api/v1/control")
-        resp = TestClient(app).post("/api/v1/control/plan", json={"demands": {"M(0,2)": 1.0}})
+        resp = TestClient(app).post(
+            "/api/v1/control/plan", json={"demands": {"M(0,2)": 1.0}}
+        )
         assert resp.status_code == 503
 
     def test_get_system_demand_no_longer_fabricates_25(self):
         # The 25.0 stub must be gone and replaced with a fail-closed raise (verified on source
         # to avoid importing the DB/settings-coupled controller module).
-        src = (SERVICE_ROOT / "src" / "controllers" / "dual_mode_gate_controller.py").read_text()
+        src = (
+            SERVICE_ROOT / "src" / "controllers" / "dual_mode_gate_controller.py"
+        ).read_text()
         assert 'return {"total_demand": 25.0}' not in src
         assert "no demand source wired" in src
 
@@ -326,7 +423,9 @@ class TestFailClosed:
         # lazy import so this file's other tests don't depend on the DB/settings import chain
         from controllers.dual_mode_gate_controller import DualModeGateController
 
-        controller = DualModeGateController.__new__(DualModeGateController)  # skip heavy __init__
+        controller = DualModeGateController.__new__(
+            DualModeGateController
+        )  # skip heavy __init__
         controller.gate_states = {}
         with pytest.raises(RuntimeError, match="no demand source"):
             asyncio.run(controller.generate_manual_instructions())
@@ -335,7 +434,9 @@ class TestFailClosed:
 def _fresh_levels():
     from datetime import datetime, timezone
 
-    now_iso = datetime.now(timezone.utc).isoformat()  # always fresh vs the handler's now
+    now_iso = datetime.now(
+        timezone.utc
+    ).isoformat()  # always fresh vs the handler's now
     return {
         node: {"water_level_m": level, "observed_at": now_iso}
         for node, level in (("S", 3.0), ("M(0,0)", 2.5), ("M(0,1)", 2.0))
@@ -363,7 +464,10 @@ class TestOpeningsEndpoint:
         assert body["openings"] == []  # nothing commanded on planning-only calibration
         unavailable = {(u["upstream"], u["downstream"]): u for u in body["unavailable"]}
         # S->M(0,0) has fresh levels + a known (gate) bound, yet is still not commanded.
-        assert unavailable[("S", "M(0,0)")]["reason"] == "calibration_not_actuation_approved"
+        assert (
+            unavailable[("S", "M(0,0)")]["reason"]
+            == "calibration_not_actuation_approved"
+        )
         # M(0,0)->M(0,1) is a partial survey -> capacity blocks it before the actuation gate.
         assert unavailable[("M(0,0)", "M(0,1)")]["reason"] == "capacity_unsurveyed"
         assert body["summary"]["feasible"] is False
@@ -400,7 +504,9 @@ class TestOpeningsEndpoint:
                 "max_level_age_seconds": 3600,
             },
         ).json()
-        reasons = {(u["upstream"], u["downstream"]): u["reason"] for u in body["unavailable"]}
+        reasons = {
+            (u["upstream"], u["downstream"]): u["reason"] for u in body["unavailable"]
+        }
         # M(0,0) is a boundary of both active reaches; the stale level blocks both first.
         assert reasons[("S", "M(0,0)")] == "level_stale"
         assert reasons[("M(0,0)", "M(0,1)")] == "level_stale"
@@ -442,7 +548,12 @@ class TestOpeningsEndpoint:
             "/api/v1/control/openings",
             json={
                 "demands": {},
-                "levels": {"M(0,0)": {"water_level_m": True, "observed_at": "2026-07-13T12:00:00Z"}},
+                "levels": {
+                    "M(0,0)": {
+                        "water_level_m": True,
+                        "observed_at": "2026-07-13T12:00:00Z",
+                    }
+                },
                 "max_level_age_seconds": 3600,
             },
         )
@@ -468,10 +579,17 @@ class TestOpeningsEndpoint:
 
     def test_unknown_level_key_is_rejected_400(self, client):
         levels = _fresh_levels()
-        levels["M(9,9)"] = {"water_level_m": 2.0, "observed_at": _fresh_levels()["S"]["observed_at"]}
+        levels["M(9,9)"] = {
+            "water_level_m": 2.0,
+            "observed_at": _fresh_levels()["S"]["observed_at"],
+        }
         resp = client.post(
             "/api/v1/control/openings",
-            json={"demands": {"M(0,1)": 5.0}, "levels": levels, "max_level_age_seconds": 3600},
+            json={
+                "demands": {"M(0,1)": 5.0},
+                "levels": levels,
+                "max_level_age_seconds": 3600,
+            },
         )
         assert resp.status_code == 400
         assert "unknown node" in resp.json()["detail"]
