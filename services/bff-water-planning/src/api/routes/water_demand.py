@@ -1,16 +1,26 @@
 from fastapi import APIRouter, Query, HTTPException, Depends
-from typing import List, Optional, Dict
+from typing import Dict, List, Literal, Optional
 from datetime import date, datetime, timedelta
-from pydantic import BaseModel
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from core import get_logger
 from services.daily_demand_calculator import DailyDemandCalculator
 from database import Database
 from api.water_demand_queries import WaterDemandQueries
 from api.crop_season_queries import CropSeasonQueries
+from clients.water_requirement_client import (
+    WaterRequirementClient,
+    WaterRequirementClientError,
+)
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api/v1/water-demand", tags=["water-demand"])
+
+
+def get_water_requirement_client() -> WaterRequirementClient:
+    return WaterRequirementClient()
 
 
 # Response Models
@@ -55,9 +65,98 @@ class SpatialDemandResponse(BaseModel):
     label: str
 
 
-# Section Level Endpoints
-@router.get("/sections/{section_id}/daily")
+class CanonicalDeliveryWindow(BaseModel):
+    start: datetime
+    end: datetime
+
+
+class CanonicalFreshness(BaseModel):
+    asOfDate: date
+    publishedAgeSeconds: int
+
+
+class CanonicalWaterRequirement(BaseModel):
+    requirementId: UUID
+    runId: UUID
+    version: int
+    serviceDate: date
+    sectionId: str
+    zone: int
+    requiredVolumeM3: float
+    deliveryWindow: CanonicalDeliveryWindow
+    quality: Literal["estimated", "forecast"]
+    publishedAt: datetime
+    freshness: CanonicalFreshness
+    dataStatus: Literal["stale", "published", "superseded"]
+
+
+class CanonicalDailyDemandResponse(BaseModel):
+    serviceDate: date
+    zone: int
+    dataStatus: Literal["no_publication", "stale", "published"]
+    requirements: List[CanonicalWaterRequirement]
+
+
+class CanonicalSectionDemandResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    sectionId: str
+    from_date: date = Field(alias="from")
+    to_date: date = Field(alias="to")
+    dataStatus: Literal["no_publication", "stale", "published", "superseded"]
+    requirements: List[CanonicalWaterRequirement]
+
+
+@router.get("/daily", response_model=CanonicalDailyDemandResponse)
+async def get_daily_demand(
+    date: date = Query(..., description="Requirement service date"),
+    zone: int = Query(..., ge=1, le=6),
+    client: WaterRequirementClient = Depends(get_water_requirement_client),
+) -> CanonicalDailyDemandResponse:
+    try:
+        payload = await client.get_daily_requirements(date, zone)
+    except WaterRequirementClientError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Canonical water requirements unavailable",
+        ) from exc
+    try:
+        return CanonicalDailyDemandResponse.model_validate(payload)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Invalid canonical water requirement response",
+        ) from exc
+
+
+@router.get(
+    "/sections/{section_id}/daily",
+    response_model=CanonicalSectionDemandResponse,
+)
 async def get_section_daily_demand(
+    section_id: str,
+    date: date = Query(..., description="Requirement service date"),
+    client: WaterRequirementClient = Depends(get_water_requirement_client),
+) -> CanonicalSectionDemandResponse:
+    try:
+        payload = await client.get_section_requirement_history(section_id, date, date)
+    except WaterRequirementClientError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Canonical water requirements unavailable",
+        ) from exc
+    try:
+        return CanonicalSectionDemandResponse.model_validate(payload)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Invalid canonical water requirement response",
+        ) from exc
+
+
+# Section Level Endpoints
+@router.get("/legacy/sections/{section_id}/daily", deprecated=True)
+async def get_legacy_section_daily_demand(
     section_id: str,
     date: date = Query(..., description="Date for demand data"),
     method: Optional[str] = Query(None, regex="^(ros|rid_ms|awd|combined)$")

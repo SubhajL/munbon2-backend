@@ -13,7 +13,7 @@ from config import settings
 from core import get_logger
 from db import DatabaseManager
 from api import schema
-from api.routes import admin
+from api.routes import admin, water_requirements
 from services.ros_sync_service import RosSyncService
 
 # Configure logging
@@ -55,6 +55,7 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
+app.state.db_manager = db_manager
 
 # Add CORS middleware
 app.add_middleware(
@@ -77,6 +78,7 @@ app.include_router(graphql_app, prefix="")
 
 # Include admin routes
 app.include_router(admin.router, prefix="/api/v1")
+app.include_router(water_requirements.router)
 
 # Add Prometheus metrics endpoint
 metrics_app = make_asgi_app()

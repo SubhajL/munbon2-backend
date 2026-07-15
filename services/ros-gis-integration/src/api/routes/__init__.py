@@ -1,5 +1,5 @@
 """API Routes"""
 
-from . import admin
+from . import admin, water_requirements
 
-__all__ = ["admin"]
+__all__ = ["admin", "water_requirements"]

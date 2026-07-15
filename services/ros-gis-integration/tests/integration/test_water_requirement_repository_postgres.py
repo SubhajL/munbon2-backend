@@ -11,7 +11,9 @@ import pytest
 
 from db.water_requirement_repository import (
     fail_requirement_run,
+    get_daily_requirements,
     get_published_requirements,
+    get_section_requirement_history,
     publish_requirement_run,
     start_requirement_run,
 )
@@ -191,6 +193,42 @@ async def test_publication_is_immutable_and_correction_replaces_only_current_rea
                 "published_at": _instant(5),
                 "created_at": ANY,
             }
+        ]
+        assert await get_daily_requirements(conn, AS_OF, 1) == [
+            {
+                **second_requirement,
+                "run_id": second["run_id"],
+                "as_of_date": AS_OF,
+                "published_at": _instant(5),
+                "run_status": "published",
+                "version": 2,
+                "created_at": ANY,
+            }
+        ]
+        assert await get_section_requirement_history(
+            conn,
+            "section-1",
+            AS_OF,
+            AS_OF,
+        ) == [
+            {
+                **first_requirement,
+                "run_id": first["run_id"],
+                "as_of_date": AS_OF,
+                "published_at": _instant(3),
+                "run_status": "superseded",
+                "version": 1,
+                "created_at": ANY,
+            },
+            {
+                **second_requirement,
+                "run_id": second["run_id"],
+                "as_of_date": AS_OF,
+                "published_at": _instant(5),
+                "run_status": "published",
+                "version": 2,
+                "created_at": ANY,
+            },
         ]
     finally:
         await transaction.rollback()
