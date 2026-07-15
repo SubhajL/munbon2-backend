@@ -5,6 +5,7 @@ loaded against the real canonical network. Pure/stdlib; run in isolation:
     pytest --noconftest tests/unit/test_network_flow_controller.py
 """
 import json
+import hashlib
 import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -21,6 +22,9 @@ CANONICAL = Path(__file__).resolve().parents[2] / "src" / "config" / "network.js
 GEOMETRY_CFG = (
     Path(__file__).resolve().parents[2] / "src" / "config" / "canal_geometry.json"
 )
+CALIBRATIONS_CFG = (
+    Path(__file__).resolve().parents[2] / "src" / "config" / "gate_calibrations.json"
+)
 
 
 def _area_demand():
@@ -33,6 +37,19 @@ def _area_demand():
 
 
 class TestConstruction:
+    def test_config_sha256_pins_loaded_network_geometry_and_calibrations(self):
+        controller = NetworkFlowController(
+            str(CANONICAL), str(GEOMETRY_CFG), str(CALIBRATIONS_CFG)
+        )
+
+        assert controller.config_sha256 == {
+            "network": hashlib.sha256(CANONICAL.read_bytes()).hexdigest(),
+            "canal_geometry": hashlib.sha256(GEOMETRY_CFG.read_bytes()).hexdigest(),
+            "gate_calibrations": hashlib.sha256(
+                CALIBRATIONS_CFG.read_bytes()
+            ).hexdigest(),
+        }
+
     def test_loads_and_guards_canonical_network(self):
         ctrl = NetworkFlowController(str(CANONICAL))
         assert len(ctrl.edges) == 59

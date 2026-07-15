@@ -21,10 +21,12 @@ from typing import Literal, Optional
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import ValidationError
 
 from core.demand_contract import (
     MAX_CLOCK_SKEW,
     DemandContractError,
+    demand_flow_at,
     flow_rate_m3s,
     scheduled_delivery_seconds,
     validate_computed_at,
@@ -38,6 +40,7 @@ from core.demand_store import (
     DemandStoreUnavailable,
     DuplicateIdempotencyKey,
     ImmutabilityViolation,
+    semantic_content_hash,
     VersionConflict,
 )
 from core.design_profile import DesignProfileError
@@ -49,8 +52,11 @@ from core.network_flow_controller import (
 from core.network_topology import NetworkTopologyError
 from core.node_id import NodeIdError, normalize_gate_id, normalize_node_id
 from schemas.control import (
+    ControlConfigSha256,
     DesignProfileRequest,
     DesignProfileResponse,
+    DemandPlanInput,
+    DemandVersionRef,
     OpeningsRequest,
     OpeningsResponse,
     OpeningsSummary,
@@ -60,10 +66,13 @@ from schemas.control import (
     ReachChainageGap,
     ReachFlow,
     ReachOpeningOut,
+    StoredDemandPlanRequest,
+    StoredDemandPlanResponse,
     UnavailableReachOut,
 )
 from schemas.demand import (
     CurrentRecordsResponse,
+    DemandRecord,
     DemandSubmissionRequest,
     DemandSubmissionResponse,
     RecordResult,
@@ -104,28 +113,15 @@ def get_demand_store():
     return demand_store
 
 
-@router.post("/plan", response_model=PlanResponse)
-async def plan(
-    request: PlanRequest,
-    controller: NetworkFlowController = Depends(get_flow_controller),
+def _build_plan_response(
+    request: PlanRequest, controller: NetworkFlowController
 ) -> PlanResponse:
-    """Required flow on every reach to serve `request.demands` (fail-closed on bad demand)."""
-    try:
-        reach_flow = controller.required_flow_per_reach(
-            request.demands,
-            apply_losses=request.apply_losses,
-            charge_dry_reaches=request.charge_dry_reaches,
-            always_wet=request.always_wet,
-        )
-    except (
-        NetworkTopologyError
-    ) as exc:  # server/config error (subclass of ValueError) -> 503
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except (
-        ValueError
-    ) as exc:  # unknown / negative / non-finite / source demand -> client error
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
+    reach_flow = controller.required_flow_per_reach(
+        request.demands,
+        apply_losses=request.apply_losses,
+        charge_dry_reaches=request.charge_dry_reaches,
+        always_wet=request.always_wet,
+    )
     head_flow = sum(
         flow for (upstream, _), flow in reach_flow.items() if upstream == "S"
     )
@@ -165,6 +161,150 @@ async def plan(
         reaches_missing_geometry=missing,
         reaches_with_chainage_gaps=gaps,
         coverage=PlanCoverage(**controller.coverage_summary()),
+    )
+
+
+@router.post("/plan", response_model=PlanResponse)
+async def plan(
+    request: PlanRequest,
+    controller: NetworkFlowController = Depends(get_flow_controller),
+) -> PlanResponse:
+    """Required flow on every reach to serve `request.demands` (fail-closed on bad demand)."""
+    try:
+        return _build_plan_response(request, controller)
+    except (
+        NetworkTopologyError
+    ) as exc:  # server/config error (subclass of ValueError) -> 503
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except (
+        ValueError
+    ) as exc:  # unknown / negative / non-finite / source demand -> client error
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _validated_stored_demand(
+    ref: DemandVersionRef, stored: dict, now: datetime
+) -> tuple[StoredRecordEnvelope, DemandRecord]:
+    try:
+        envelope = StoredRecordEnvelope.model_validate(stored)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"stored demand {ref.logical_key!r} version {ref.version} is invalid",
+        ) from exc
+    if (envelope.logical_key, envelope.version) != (ref.logical_key, ref.version):
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"stored demand {ref.logical_key!r} version {ref.version} "
+                "identity does not match the requested version"
+            ),
+        )
+    if envelope.content_hash != ref.content_hash:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"demand {ref.logical_key!r} version {ref.version} "
+                "content hash does not match"
+            ),
+        )
+    try:
+        record = DemandRecord.model_validate(envelope.record)
+        stored_logical_key, payload, _ = _prepare_demand(record, now)
+        recomputed_hash = semantic_content_hash(payload)
+    except (ValidationError, DemandContractError, NodeIdError) as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"stored demand {ref.logical_key!r} version {ref.version} is invalid",
+        ) from exc
+    if stored_logical_key != envelope.logical_key:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"stored demand {ref.logical_key!r} version {ref.version} "
+                "logical key does not match its payload"
+            ),
+        )
+    if recomputed_hash != envelope.content_hash:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"stored demand {ref.logical_key!r} version {ref.version} "
+                "content hash does not match its payload"
+            ),
+        )
+    if record.area_type != "node":
+        raise HTTPException(
+            status_code=400,
+            detail="stored demand must use area_type 'node' until mapping is versioned",
+        )
+    return envelope, record
+
+
+@router.post("/plan/from-demands", response_model=StoredDemandPlanResponse)
+async def plan_from_stored_demands(
+    request: StoredDemandPlanRequest,
+    controller: NetworkFlowController = Depends(get_flow_controller),
+    store=Depends(get_demand_store),
+) -> StoredDemandPlanResponse:
+    identities = [(ref.logical_key, ref.version) for ref in request.demand_refs]
+    if len(set(identities)) != len(identities):
+        raise HTTPException(status_code=400, detail="duplicate demand reference")
+
+    now = datetime.now(timezone.utc)
+    demands: dict[str, float] = {}
+    inputs: list[DemandPlanInput] = []
+    for ref in request.demand_refs:
+        try:
+            stored = await store.get_version("demand", ref.logical_key, ref.version)
+        except DemandStoreUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        if stored is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"demand {ref.logical_key!r} version {ref.version} not found",
+            )
+        envelope, record = _validated_stored_demand(ref, stored, now)
+        active, required_flow = demand_flow_at(record, request.effective_at)
+        node_id = normalize_gate_id(record.area_id)
+        demands[node_id] = demands.get(node_id, 0.0) + required_flow
+        inputs.append(
+            DemandPlanInput(
+                logical_key=envelope.logical_key,
+                version=envelope.version,
+                content_hash=envelope.content_hash,
+                node_id=node_id,
+                active=active,
+                required_flow_m3s=required_flow,
+            )
+        )
+
+    plan_request = PlanRequest(
+        demands=demands,
+        apply_losses=request.apply_losses,
+        charge_dry_reaches=request.charge_dry_reaches,
+        always_wet=request.always_wet,
+    )
+    try:
+        result = _build_plan_response(plan_request, controller)
+    except NetworkTopologyError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    logger.info(
+        "planned from exact demand versions",
+        effective_at=request.effective_at.isoformat(),
+        input_count=len(inputs),
+        active_count=sum(item.active for item in inputs),
+        input_flow_m3s=sum(item.required_flow_m3s for item in inputs),
+        head_flow_m3s=result.head_flow_m3s,
+        config_sha256=controller.config_sha256,
+    )
+    return StoredDemandPlanResponse(
+        effective_at=request.effective_at,
+        inputs=inputs,
+        config_sha256=ControlConfigSha256(**controller.config_sha256),
+        plan=result,
     )
 
 

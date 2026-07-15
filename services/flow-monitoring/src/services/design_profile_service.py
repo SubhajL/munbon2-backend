@@ -1,10 +1,10 @@
 """Canonical-config orchestration for the static design-profile oracle."""
 
-import hashlib
 import math
 
 from core.config_loader import (
     ConfigError,
+    file_sha256,
     load_canal_geometry_config,
     load_gate_calibrations_config,
     load_network_config,
@@ -65,10 +65,10 @@ class DesignProfileService:
             )
             self.sections_by_edge.setdefault(edge, []).append(record)
         self.config_sha256 = {
-            "network": _sha256(network_path),
-            "canal_geometry": _sha256(geometry_path),
-            "gate_calibrations": _sha256(calibration_path),
-            "zone_topology": _sha256(topology_path),
+            "network": file_sha256(network_path),
+            "canal_geometry": file_sha256(geometry_path),
+            "gate_calibrations": file_sha256(calibration_path),
+            "zone_topology": file_sha256(topology_path),
         }
 
     def calculate(self, zones: list[int], flow_fraction: float) -> dict:
@@ -201,11 +201,3 @@ class DesignProfileService:
         upstream_edge = (grandparent, parent)
         upstream = self.sections_by_edge.get(upstream_edge)
         return (upstream_edge, upstream[-1]) if upstream else None
-
-
-def _sha256(path: str) -> str:
-    digest = hashlib.sha256()
-    with open(path, "rb") as file:
-        for chunk in iter(lambda: file.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()

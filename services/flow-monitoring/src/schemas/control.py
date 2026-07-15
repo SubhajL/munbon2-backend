@@ -1,8 +1,10 @@
 """Pydantic schemas for the C9 control API (demand -> required per-reach flow)."""
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, StrictInt, StringConstraints, field_validator
+
+from schemas.demand import AwareUtc
 
 
 def _reject_bool(value, field_name: str):
@@ -116,6 +118,46 @@ class PlanResponse(BaseModel):
     reaches_missing_geometry: list[list[str]] = Field(default_factory=list)
     reaches_with_chainage_gaps: list[ReachChainageGap] = Field(default_factory=list)
     coverage: PlanCoverage
+
+
+Sha256Hex = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
+LogicalKey = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+class DemandVersionRef(BaseModel):
+    logical_key: LogicalKey
+    version: StrictInt = Field(ge=1)
+    content_hash: Sha256Hex
+
+
+class StoredDemandPlanRequest(BaseModel):
+    effective_at: AwareUtc
+    demand_refs: list[DemandVersionRef] = Field(min_length=1)
+    apply_losses: bool = False
+    charge_dry_reaches: bool = False
+    always_wet: list[tuple[str, str]] = Field(default_factory=list)
+
+
+class DemandPlanInput(BaseModel):
+    logical_key: str
+    version: int
+    content_hash: Sha256Hex
+    node_id: str
+    active: bool
+    required_flow_m3s: float
+
+
+class ControlConfigSha256(BaseModel):
+    network: Sha256Hex
+    canal_geometry: Sha256Hex
+    gate_calibrations: Sha256Hex
+
+
+class StoredDemandPlanResponse(BaseModel):
+    effective_at: AwareUtc
+    inputs: list[DemandPlanInput]
+    config_sha256: ControlConfigSha256
+    plan: PlanResponse
 
 
 class DesignProfileRequest(BaseModel):
