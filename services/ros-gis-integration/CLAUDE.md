@@ -11,17 +11,19 @@ python3.11 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 ./start.sh                    # venv uvicorn src.main:app --port 3047
 python src/main.py            # dev (reload when environment=development)
-pytest                        # tests/unit/ (currently only test_settings.py)
+pytest                        # unit + integration (DB contract skips without its URL)
 ```
 No Dockerfile, README, pyproject, or Makefile in this service.
 
 ## Structure (`src/`)
-`main.py` (REST + sync-trigger endpoints), `config/settings.py`, `api/graphql_schema.py` + `api/routes/admin.py`, `services/` (`ros_sync_service.py`, `daily_demand_calculator.py`, `demand_aggregator.py`, `priority_engine.py`, `spatial_mapping.py`, `integration_client.py`, …), `clients/` (`ros_client.py`, `gis_client.py`, both mock-capable), `db/database_manager.py` (asyncpg + SQLAlchemy async + redis), `schemas/`.
+`main.py` (REST + sync-trigger endpoints), `config/settings.py`, `api/graphql_schema.py` + `api/routes/admin.py`, `services/` (`ros_sync_service.py`, `daily_demand_calculator.py`, `demand_aggregator.py`, `priority_engine.py`, `spatial_mapping.py`, `integration_client.py`, …), `clients/` (`ros_client.py`, `gis_client.py`, both mock-capable), `db/database_manager.py` (asyncpg + SQLAlchemy async + redis), `db/water_requirement_repository.py` (append-only canonical requirement runs), `schemas/`.
 
 ## Tests
 pytest + pytest-asyncio. `tests/conftest.py` puts `src` on the path (src-rooted imports);
-suite = `pytest tests/unit/` (settings + the 2.6b fail-closed/interface/query-shape locks
-for `daily_demand_calculator` + the 2.5 dataset-version schema locks). Tracked via a
+suite = `pytest` (settings + the 2.6b fail-closed/interface/query-shape locks
+for `daily_demand_calculator` + the 2.5 dataset-version and requirement-publication
+schema/repository locks). The PostgreSQL contract test under `tests/integration/` skips
+unless `WATER_REQUIREMENT_TEST_POSTGRES_URL` names a disposable migrated database. Tracked via a
 scoped `.gitignore` negation (Wave 2.6b).
 
 ## Migrations (Wave 2.5)
@@ -41,6 +43,14 @@ legacy-table columns/defaults/geometry widening because ownership-safe reversal 
 possible. Canonical `M(i,j)` validation applies to versioned crosswalk rows; the legacy
 table still carries path-like IDs. NOT yet applied to the remote DB (E1 credential
 rotation first).
+
+`0002_water_requirement_publication` adds append-only `water_requirement_runs`,
+`daily_water_requirements`, and `water_requirement_contributions`. Run lineage uses the
+integer/composite dataset-version keys created by `0001`; run and requirement identities
+are UUIDs. Publication, correction supersession, failure, horizon/quality/volume checks,
+and immutable item rows are enforced both in PostgreSQL and by
+`db/water_requirement_repository.py`. Apply `0001` before `0002`; test the pair with
+apply, rollback, reapply on disposable PostGIS before shipping.
 
 ## Config / Ports / Env
 - Port: settings default 3022 but `.env`/`start.sh` force **3047** (effective). Endpoints: `/graphql`, `/health`, `/metrics`, `/api/v1/*` (sections/zones/sync trigger), `/api/v1/admin/*`.
