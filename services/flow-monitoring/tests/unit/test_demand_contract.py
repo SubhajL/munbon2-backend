@@ -18,6 +18,7 @@ from core.demand_contract import (
     DemandContractError,
     canonical_json,
     content_hash,
+    demand_flow_at,
     ensure_aware_utc,
     flow_rate_m3s,
     scheduled_delivery_seconds,
@@ -27,6 +28,7 @@ from core.demand_contract import (
     validate_period_bounds,
     validate_timezone_name,
 )
+from schemas.demand import DemandRecord
 
 UTC = timezone.utc
 
@@ -247,3 +249,48 @@ class TestEnsureAwareUtc:
     def test_naive_is_rejected_with_the_labelled_field(self):
         with pytest.raises(DemandContractError, match="computed_at"):
             ensure_aware_utc(datetime(2026, 7, 1), "computed_at")
+
+
+def _demand_record(intervals: list[tuple[datetime, datetime]]) -> DemandRecord:
+    return DemandRecord(
+        area_type="node",
+        area_id="M(0,3)",
+        timezone="Asia/Bangkok",
+        method="daily_requirement",
+        source_service="ros-gis-integration",
+        source_version="run-2026-07-01-v1",
+        synthetic=False,
+        computed_at=_utc(1),
+        version=1,
+        idempotency_key="requirement-M(0,3)-2026-07-01-v1",
+        period_start=_utc(1),
+        period_end=_utc(3),
+        volume_m3=43_200.0,
+        scheduled_delivery_intervals=[
+            {"start": start, "end": end} for start, end in intervals
+        ],
+        quality="estimated",
+    )
+
+
+class TestDemandFlowAt:
+    def test_active_interval_uses_total_scheduled_seconds(self):
+        record = _demand_record([(_utc(1, 6), _utc(1, 12)), (_utc(2, 6), _utc(2, 12))])
+
+        assert demand_flow_at(record, _utc(1, 9)) == (True, 1.0)
+
+    def test_interval_end_is_inactive(self):
+        record = _demand_record([(_utc(1, 6), _utc(1, 12))])
+
+        assert demand_flow_at(record, _utc(1, 12)) == (False, 0.0)
+
+    def test_time_between_split_intervals_contributes_zero(self):
+        record = _demand_record([(_utc(1, 6), _utc(1, 12)), (_utc(2, 6), _utc(2, 12))])
+
+        assert demand_flow_at(record, _utc(1, 18)) == (False, 0.0)
+
+    def test_naive_effective_at_is_rejected(self):
+        record = _demand_record([(_utc(1, 6), _utc(1, 12))])
+
+        with pytest.raises(DemandContractError, match="effective_at"):
+            demand_flow_at(record, datetime(2026, 7, 1, 9))

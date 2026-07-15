@@ -14,13 +14,18 @@ import hashlib
 import json
 import math
 from datetime import datetime, timedelta, timezone
+from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+if TYPE_CHECKING:
+    from schemas.demand import DemandRecord
 
 __all__ = [
     "DemandContractError",
     "MAX_CLOCK_SKEW",
     "canonical_json",
     "content_hash",
+    "demand_flow_at",
     "ensure_aware_utc",
     "flow_rate_m3s",
     "scheduled_delivery_seconds",
@@ -156,3 +161,20 @@ def canonical_json(record: dict) -> str:
 def content_hash(record: dict) -> str:
     """sha256 of the canonical serialization: key-order independent."""
     return hashlib.sha256(canonical_json(record).encode("utf-8")).hexdigest()
+
+
+def demand_flow_at(
+    record: "DemandRecord", effective_at: datetime
+) -> tuple[bool, float]:
+    effective_utc = ensure_aware_utc(effective_at, "effective_at")
+    intervals = [
+        validate_period_bounds(interval.start, interval.end)
+        for interval in record.scheduled_delivery_intervals
+    ]
+    scheduled_seconds = scheduled_delivery_seconds(intervals)
+    active = any(start <= effective_utc < end for start, end in intervals)
+    return (
+        (True, flow_rate_m3s(record.volume_m3, scheduled_seconds))
+        if active
+        else (False, 0.0)
+    )

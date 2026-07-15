@@ -28,6 +28,7 @@ from core.demand_store import (
     require_known_kind,
     semantic_content_hash,
     validate_put_args,
+    validate_version,
 )
 
 logger = structlog.get_logger()
@@ -101,6 +102,10 @@ INSERT_IDEMPOTENCY = (
 SELECT_LATEST = (
     "SELECT logical_key, version, content_hash, record FROM {table} "
     "WHERE logical_key = $1 ORDER BY version DESC LIMIT 1"
+)
+SELECT_VERSION = (
+    "SELECT logical_key, version, content_hash, record FROM {table} "
+    "WHERE logical_key = $1 AND version = $2"
 )
 SELECT_CURRENT = (
     "SELECT DISTINCT ON (logical_key) logical_key, version, content_hash, record "
@@ -243,6 +248,21 @@ class PostgresDemandStore:
             async with self._pool.acquire() as conn:
                 row = await conn.fetchrow(
                     SELECT_LATEST.format(table=TABLES[kind]), logical_key
+                )
+        except Exception as exc:
+            logger.error("demand store read failed", kind=kind, error=str(exc))
+            raise DemandStoreUnavailable(f"demand store unavailable: {exc}") from exc
+        return _envelope(row) if row is not None else None
+
+    async def get_version(
+        self, kind: str, logical_key: str, version: int
+    ) -> dict | None:
+        require_known_kind(kind)
+        validate_version(version)
+        try:
+            async with self._pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    SELECT_VERSION.format(table=TABLES[kind]), logical_key, version
                 )
         except Exception as exc:
             logger.error("demand store read failed", kind=kind, error=str(exc))

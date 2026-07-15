@@ -74,7 +74,9 @@ async def lifespan(app: FastAPI):
             logger.info("Legacy gates API disabled (GATES_API_ENABLED=false)")
 
         # Wire the canonical demand->flow engine (A1-A3 / F-11b / B5) for /api/v1/control/plan.
-        control_api.flow_controller = NetworkFlowController(network_file, geometry_file)
+        control_api.flow_controller = NetworkFlowController(
+            network_file, geometry_file, calibration_file
+        )
         logger.info("Flow controller (demand->reach aggregation) initialized")
 
         control_api.design_profile_service = DesignProfileService(

@@ -61,6 +61,46 @@ class TestInMemoryAppendOnlySemantics:
         assert history[0]["record"] == RECORD_V1  # v1 survives immutably
 
     @pytest.mark.asyncio
+    async def test_get_version_returns_exact_older_record_not_latest(self, store):
+        await store.put("demand", KEY, 1, "idem-1", RECORD_V1)
+        await store.put("demand", KEY, 2, "idem-2", RECORD_V2)
+
+        exact = await store.get_version("demand", KEY, 1)
+
+        assert exact == {
+            "logical_key": KEY,
+            "version": 1,
+            "content_hash": semantic_content_hash(RECORD_V1),
+            "record": RECORD_V1,
+        }
+
+    @pytest.mark.asyncio
+    async def test_get_version_returns_defensive_copy(self, store):
+        await store.put("demand", KEY, 1, "idem-1", RECORD_V1)
+
+        exact = await store.get_version("demand", KEY, 1)
+        exact["record"]["volume_m3"] = 0.0
+
+        assert await store.get_version("demand", KEY, 1) == {
+            "logical_key": KEY,
+            "version": 1,
+            "content_hash": semantic_content_hash(RECORD_V1),
+            "record": RECORD_V1,
+        }
+
+    @pytest.mark.asyncio
+    async def test_get_version_returns_none_when_exact_version_is_missing(self, store):
+        await store.put("demand", KEY, 1, "idem-1", RECORD_V1)
+
+        assert await store.get_version("demand", KEY, 2) is None
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("version", [0, -1, True])
+    async def test_get_version_rejects_invalid_version(self, store, version):
+        with pytest.raises(DemandStoreError, match="version"):
+            await store.get_version("demand", KEY, version)
+
+    @pytest.mark.asyncio
     async def test_version_gap_is_rejected(self, store):
         await store.put("demand", KEY, 1, "idem-1", RECORD_V1)
         with pytest.raises(VersionConflict, match="expected version 2"):
@@ -190,7 +230,9 @@ class TestInMemoryAppendOnlySemantics:
 class TestInterfacePinning:
     """2.6b lesson: a fake encoding a wrong interface makes the suite false assurance."""
 
-    @pytest.mark.parametrize("method", ["put", "latest", "current", "history"])
+    @pytest.mark.parametrize(
+        "method", ["put", "latest", "get_version", "current", "history"]
+    )
     def test_postgres_store_pins_the_reference_interface(self, method):
         mem = getattr(InMemoryDemandStore, method)
         pg = getattr(PostgresDemandStore, method)
@@ -267,6 +309,8 @@ class _StubConn:
             }
         if "ORDER BY version DESC" in sql:
             return self.state.get("latest_row")
+        if "logical_key = $1 AND version = $2" in sql:
+            return self.state.get("version_row")
         raise AssertionError(f"unexpected fetchrow: {sql}")
 
     async def fetch(self, sql, *args):
@@ -449,6 +493,46 @@ class TestPostgresStoreBehaviour:
         }
         latest = await _pg(state).latest("demand", KEY)
         assert latest["version"] == 2 and latest["record"] == RECORD_V2
+
+    @pytest.mark.asyncio
+    async def test_get_version_queries_logical_key_and_exact_version(self):
+        import json
+
+        state = {
+            "version_row": {
+                "logical_key": KEY,
+                "version": 1,
+                "content_hash": "x" * 64,
+                "record": json.dumps(RECORD_V1),
+            }
+        }
+
+        exact = await _pg(state).get_version("demand", KEY, 1)
+
+        assert exact == {
+            "logical_key": KEY,
+            "version": 1,
+            "content_hash": "x" * 64,
+            "record": RECORD_V1,
+        }
+        fetch = [call for call in state["calls"] if call[0] == "fetchrow"]
+        assert len(fetch) == 1
+        assert "logical_key = $1 AND version = $2" in fetch[0][1]
+        assert fetch[0][2] == (KEY, 1)
+
+    @pytest.mark.asyncio
+    async def test_get_version_returns_none_when_exact_version_is_missing(self):
+        assert await _pg({"version_row": None}).get_version("demand", KEY, 1) is None
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("stage", ["acquire", "fetchrow"])
+    async def test_get_version_failure_fails_closed(self, stage):
+        def maybe_raise(at):
+            if at == stage:
+                raise ConnectionError("down")
+
+        with pytest.raises(DemandStoreUnavailable):
+            await _pg({"maybe_raise": maybe_raise}).get_version("demand", KEY, 1)
 
     @pytest.mark.asyncio
     async def test_current_uses_distinct_on_latest_version_per_key(self):

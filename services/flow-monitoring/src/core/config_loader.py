@@ -15,6 +15,7 @@ is how this system silently misdelivers water.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 
@@ -30,6 +31,14 @@ _RANGE_TOL = 1e-6
 
 class ConfigError(ValueError):
     """A canonical config file is unreadable, malformed, or self-inconsistent."""
+
+
+def file_sha256(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _reject_constant(name: str):

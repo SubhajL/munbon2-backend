@@ -27,6 +27,7 @@ __all__ = [
     "VersionConflict",
     "semantic_content_hash",
     "validate_put_args",
+    "validate_version",
 ]
 
 KINDS = ("demand", "allocation", "delivery")
@@ -75,12 +76,15 @@ class PutResult:
 
 
 def validate_put_args(kind: str, version: int, idempotency_key: str) -> None:
-    if kind not in KINDS:
-        raise DemandStoreError(f"unknown kind {kind!r}; expected one of {KINDS}")
-    if not isinstance(version, int) or isinstance(version, bool) or version < 1:
-        raise DemandStoreError("version must be a positive integer")
+    require_known_kind(kind)
+    validate_version(version)
     if not idempotency_key or not idempotency_key.strip():
         raise DemandStoreError("idempotency key must be non-empty")
+
+
+def validate_version(version: int) -> None:
+    if not isinstance(version, int) or isinstance(version, bool) or version < 1:
+        raise DemandStoreError("version must be a positive integer")
 
 
 def require_known_kind(kind: str) -> None:
@@ -152,6 +156,15 @@ class InMemoryDemandStore:
         require_known_kind(kind)
         history = self._records[kind].get(logical_key)
         return deepcopy(history[-1]) if history else None
+
+    async def get_version(
+        self, kind: str, logical_key: str, version: int
+    ) -> dict | None:
+        require_known_kind(kind)
+        validate_version(version)
+        history = self._records[kind].get(logical_key, [])
+        exact = next((item for item in history if item["version"] == version), None)
+        return deepcopy(exact) if exact is not None else None
 
     async def current(self, kind: str) -> list[dict]:
         require_known_kind(kind)

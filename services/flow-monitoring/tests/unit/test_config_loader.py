@@ -6,12 +6,14 @@ metadata<->content drift. Pure/stdlib; run in isolation:
     PYTHONPATH=src pytest --noconftest -o addopts="" tests/unit/test_config_loader.py
 """
 import json
+import hashlib
 from pathlib import Path
 
 import pytest
 
 from core.config_loader import (
     ConfigError,
+    file_sha256,
     load_canal_geometry_config,
     load_gate_calibrations_config,
     load_network_config,
@@ -41,6 +43,15 @@ def _write(tmp_path, payload, name="cfg.json"):
     p = tmp_path / name
     p.write_text(payload if isinstance(payload, str) else json.dumps(payload))
     return str(p)
+
+
+class TestFileSha256:
+    def test_returns_lowercase_sha256_of_file_bytes(self, tmp_path):
+        content = "canonical config contents\n".encode()
+        path = tmp_path / "config.json"
+        path.write_bytes(content)
+
+        assert file_sha256(str(path)) == hashlib.sha256(content).hexdigest()
 
 
 def _valid_network():

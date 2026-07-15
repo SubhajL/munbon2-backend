@@ -21,7 +21,7 @@ from datetime import datetime
 
 from .branch_split import ReachOpening, ReachTarget, branch_split_openings
 from .canal_capacity import min_segment_q_max
-from .config_loader import load_canal_geometry_config
+from .config_loader import file_sha256, load_canal_geometry_config
 from .conveyance_loss import (
     make_reach_loss,
     normalize_edge,
@@ -51,7 +51,9 @@ REASON_LEVEL_MISSING = "level_missing"  # no level reading for a boundary node
 REASON_LEVEL_STALE = "level_stale"  # a boundary level is older than the freshness SLA
 REASON_LEVEL_FUTURE = "level_future"  # a boundary level is timestamped ahead of now
 REASON_LEVEL_INVALID = "level_invalid"  # naive timestamp / non-finite level (bad datum)
-REASON_CAPACITY_UNSURVEYED = "capacity_unsurveyed"  # partial survey: canal limit not known
+REASON_CAPACITY_UNSURVEYED = (
+    "capacity_unsurveyed"  # partial survey: canal limit not known
+)
 # The reach's inputs are trustworthy, but the calibration bundle is not approved for
 # actuation (planning-only: inferred coefficients on defaulted sills) — so the opening it
 # would compute is a planning estimate, never a command.
@@ -158,14 +160,16 @@ class NetworkFlowController:
         # geometry's `reaches` spans make HEAD/TAIL gaps measurable too; all five
         # real partial reaches gap at a boundary, not between segments.
         self.reaches_missing_geometry = {
-            edge for edge in self.edges
+            edge
+            for edge in self.edges
             if not reach_has_geometry(self.sections, edge[0], edge[1])
         }
         self.reaches_with_chainage_gaps = {
             edge: gap
             for edge, segments in self.sections.items()
             if (gap := reach_chainage_gap_m(segments, span=reach_spans.get(edge)))
-            is not None and gap > 0.0
+            is not None
+            and gap > 0.0
         }
         self._normalized_edges = {normalize_edge(u, v) for u, v in self.edges}
         # Any-spacing id resolution (Wave 1.2): canonical compact form -> the exact
@@ -193,6 +197,12 @@ class NetworkFlowController:
         from utils.gate_calibration_loader import GateCalibrationLoader
 
         self._calibration = GateCalibrationLoader(calibration_path)
+        self.config_sha256 = {
+            "network": file_sha256(network_path),
+            "gate_calibrations": file_sha256(self._calibration.calibration_file),
+        }
+        if geometry_path is not None:
+            self.config_sha256["canal_geometry"] = file_sha256(geometry_path)
         # Cross-file gate-set consistency: a downstream gate ABSENT from the calibration
         # file would silently get a fabricated generic default (confidence 0.6) — the
         # loader's per-gate fallback is fail-OPEN, and its internal count guard does not
@@ -201,7 +211,9 @@ class NetworkFlowController:
         # drifted (a network regen without a matching calibration regen). get_gate_data
         # returns {} only when the gate is not in the file.
         uncalibrated = sorted(
-            edge[1] for edge in self.edges if not self._calibration.get_gate_data(edge[1])
+            edge[1]
+            for edge in self.edges
+            if not self._calibration.get_gate_data(edge[1])
         )
         if uncalibrated:
             raise ValueError(
@@ -228,7 +240,11 @@ class NetworkFlowController:
                 has_geometry=edge not in self.reaches_missing_geometry,
             )
             norm = normalize_edge(u, v)
-            capacity = min_segment_q_max(self.sections[norm]) if norm in self.sections else None
+            capacity = (
+                min_segment_q_max(self.sections[norm])
+                if norm in self.sections
+                else None
+            )
             if norm in self.reaches_with_chainage_gaps or (
                 norm in self.sections and capacity is None
             ):
@@ -248,9 +264,12 @@ class NetworkFlowController:
         """Network-level roll-up of the per-reach coverage (Wave 2.8a): how much of the
         model rests on surveyed geometry vs measured/inferred calibration. A request-
         independent snapshot an operator can read before trusting a plan. Derived wholly
-        from `reach_coverage` so the roll-up and the per-reach values cannot drift apart."""
+        from `reach_coverage` so the roll-up and the per-reach values cannot drift apart.
+        """
         surveyed = sum(1 for cov in self.reach_coverage.values() if cov.has_geometry)
-        method_counts = Counter(cov.calibration_method for cov in self.reach_coverage.values())
+        method_counts = Counter(
+            cov.calibration_method for cov in self.reach_coverage.values()
+        )
         return {
             "total_reaches": len(self.edges),
             "geometry_surveyed": surveyed,
@@ -269,7 +288,8 @@ class NetworkFlowController:
         planning-only bundle (plan HIGH #11 / Codex). A real, immutable, validated
         actuation-capability mechanism (with field-validated calibrations + approved sills)
         is a future wave; until then /openings commands nothing (every reach is
-        opening-unavailable). See ACTUATION_APPROVED_USE for the intended bundle marker."""
+        opening-unavailable). See ACTUATION_APPROVED_USE for the intended bundle marker.
+        """
         return False
 
     def openings_for_demand(
@@ -325,22 +345,32 @@ class NetworkFlowController:
             # Planning-only bundle: computing a command would command on assumed (defaulted
             # sill) geometry — surface every otherwise-commandable reach, never emit it.
             unavailable = unavailable + [
-                self._blocked(t, REASON_NOT_ACTUATION_APPROVED,
-                              "calibration bundle is not approved for actuation "
-                              "(planning-only: inferred coefficients on defaulted sills)")
+                self._blocked(
+                    t,
+                    REASON_NOT_ACTUATION_APPROVED,
+                    "calibration bundle is not approved for actuation "
+                    "(planning-only: inferred coefficients on defaulted sills)",
+                )
                 for t in targets
             ]
-            return OpeningsResult(openings=[], unavailable=unavailable, idle_reaches=idle)
+            return OpeningsResult(
+                openings=[], unavailable=unavailable, idle_reaches=idle
+            )
         if unavailable:
             # Partial actuation is unsafe: releasing water through a commandable reach toward
             # a reach that could NOT be commanded risks flooding it. Fail the whole plan.
             unavailable = unavailable + [
-                self._blocked(t, REASON_PLAN_INCOMPLETE,
-                              "another reach in this plan is uncommandable; partial "
-                              "actuation is unsafe, so the whole plan fails closed")
+                self._blocked(
+                    t,
+                    REASON_PLAN_INCOMPLETE,
+                    "another reach in this plan is uncommandable; partial "
+                    "actuation is unsafe, so the whole plan fails closed",
+                )
                 for t in targets
             ]
-            return OpeningsResult(openings=[], unavailable=unavailable, idle_reaches=idle)
+            return OpeningsResult(
+                openings=[], unavailable=unavailable, idle_reaches=idle
+            )
         openings = branch_split_openings(targets)
         if not all(o.feasible for o in openings):
             # A reach that looked commandable turned infeasible at solve time (e.g. no
@@ -357,8 +387,12 @@ class NetworkFlowController:
                 )
                 for o in openings
             ]
-            return OpeningsResult(openings=[], unavailable=unavailable + blocked, idle_reaches=idle)
-        return OpeningsResult(openings=openings, unavailable=unavailable, idle_reaches=idle)
+            return OpeningsResult(
+                openings=[], unavailable=unavailable + blocked, idle_reaches=idle
+            )
+        return OpeningsResult(
+            openings=openings, unavailable=unavailable, idle_reaches=idle
+        )
 
     def _reach_targets(self, reach_flow: dict, levels: dict) -> tuple:
         """Split the demand-carrying reaches into commandable ReachTargets and
@@ -392,7 +426,9 @@ class NetworkFlowController:
                         requested_m3s=target,
                         reason=problems[0][1],
                         unavailable_nodes=tuple(node for node, _ in problems),
-                        detail="; ".join(f"{node}: {reason}" for node, reason in problems),
+                        detail="; ".join(
+                            f"{node}: {reason}" for node, reason in problems
+                        ),
                     )
                 )
                 continue
@@ -462,7 +498,9 @@ class NetworkFlowController:
                     f" {alias_of[key]!r} and {node_id!r} both name {key!r}"
                 )
             alias_of[key] = node_id
-            resolved[key] = self._classify_level(reading, now_utc, max_level_age_seconds)
+            resolved[key] = self._classify_level(
+                reading, now_utc, max_level_age_seconds
+            )
         return resolved
 
     @staticmethod
@@ -478,7 +516,11 @@ class NetworkFlowController:
         except DemandContractError:
             return (None, REASON_LEVEL_INVALID)  # naive / non-datetime timestamp
         level = reading.water_level_m
-        if isinstance(level, bool) or not isinstance(level, (int, float)) or not math.isfinite(level):
+        if (
+            isinstance(level, bool)
+            or not isinstance(level, (int, float))
+            or not math.isfinite(level)
+        ):
             return (None, REASON_LEVEL_INVALID)
         age = (now_utc - observed).total_seconds()
         # A timestamp ahead of `now` is not a current measurement — a fast/unsynchronised
