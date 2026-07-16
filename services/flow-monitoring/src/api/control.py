@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from typing import Literal, Optional
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import ValidationError
 
 from core.demand_contract import (
@@ -44,6 +44,8 @@ from core.demand_store import (
     VersionConflict,
 )
 from core.design_profile import DesignProfileError
+from core.model_release import HydraulicModelRelease
+from core.model_snapshot import ModelSnapshotError
 from core.branch_split import branch_split_summary
 from core.network_flow_controller import (
     LevelReading,
@@ -60,6 +62,7 @@ from schemas.control import (
     OpeningsRequest,
     OpeningsResponse,
     OpeningsSummary,
+    ModelSnapshotResponse,
     PlanCoverage,
     PlanRequest,
     PlanResponse,
@@ -79,6 +82,7 @@ from schemas.demand import (
     StoredRecordEnvelope,
 )
 from services.design_profile_service import DesignProfileService
+from services.control_prediction_service import ControlPredictionService
 
 logger = structlog.get_logger()
 router = APIRouter()
@@ -111,6 +115,40 @@ def get_demand_store():
     if demand_store is None:
         raise HTTPException(status_code=503, detail="Demand store not initialized")
     return demand_store
+
+
+def get_control_prediction_service(
+    request: Request,
+) -> ControlPredictionService:
+    service = getattr(request.app.state, "control_prediction_service", None)
+    if service is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Control prediction service not initialized",
+        )
+    if not isinstance(service, ControlPredictionService):
+        raise HTTPException(
+            status_code=503,
+            detail="Control prediction service state is invalid",
+        )
+    return service
+
+
+def get_hydraulic_model_release(
+    request: Request,
+) -> HydraulicModelRelease | None:
+    if not hasattr(request.app.state, "hydraulic_model_release"):
+        raise HTTPException(
+            status_code=503,
+            detail="Hydraulic model release state not initialized",
+        )
+    release = request.app.state.hydraulic_model_release
+    if release is not None and not isinstance(release, HydraulicModelRelease):
+        raise HTTPException(
+            status_code=503,
+            detail="Hydraulic model release state is invalid",
+        )
+    return release
 
 
 def _build_plan_response(
@@ -319,6 +357,23 @@ async def design_profile(
     except DesignProfileError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return DesignProfileResponse(**result)
+
+
+@router.post("/model-snapshots", response_model=ModelSnapshotResponse)
+async def model_snapshot(
+    controller: NetworkFlowController = Depends(get_flow_controller),
+    service: ControlPredictionService = Depends(get_control_prediction_service),
+    release: HydraulicModelRelease | None = Depends(get_hydraulic_model_release),
+) -> ModelSnapshotResponse:
+    try:
+        result = service.model_snapshot(
+            release,
+            controller.config_sha256,
+            controller.actuation_approved,
+        )
+    except ModelSnapshotError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return ModelSnapshotResponse(**result)
 
 
 @router.post("/openings", response_model=OpeningsResponse)
