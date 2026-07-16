@@ -19,6 +19,7 @@ redis==5.0.1
 httpx==0.25.1
 
 # Basic optimization (lighter alternatives)
+pulp==2.7.0
 numpy==1.26.4
 scipy==1.14.1
 
