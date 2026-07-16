@@ -1,9 +1,9 @@
 {
   "metadata": {
-    "source_workbook": "SCADA Section Detailed Information 2026-07-14 V2.0 SL.xlsx",
-    "source_sha256": "d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+    "source_workbook": "SCADA Section Detailed Information 2026-07-14 V3.0 SL.xlsx",
+    "source_sha256": "528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
     "generator": "scripts/build_scada_config.py",
-    "description": "Per-edge survey coverage of the 59-edge network: which reaches carry geometry, which chainage is unmapped and why. Junction heads sit at their offtake (zero chainage span); offtakes (Waste Way, FTOs) have no surveyed canal of their own."
+    "description": "Per-edge survey coverage of the canonical network: which reaches carry geometry, which chainage is unmapped and why. Junction heads sit at their offtake (zero chainage span); offtakes (Waste Way, FTOs) have no surveyed canal of their own."
   },
   "edges": [
     {
@@ -14,10 +14,10 @@
     },
     {
       "upstream": "M(0,0)",
-      "downstream": "M(0,1)",
+      "downstream": "M(0,2)",
       "category": "serial",
-      "span_m": 300,
-      "covered_m": 130,
+      "span_m": 1620,
+      "covered_m": 1450,
       "gap_m": 170,
       "segments": 1,
       "status": "partial",
@@ -28,18 +28,6 @@
           "reason": "survey_row_missing_cross_section"
         }
       ],
-      "canal": "LMC"
-    },
-    {
-      "upstream": "M(0,1)",
-      "downstream": "M(0,2)",
-      "category": "serial",
-      "span_m": 1320,
-      "covered_m": 1320,
-      "gap_m": 0,
-      "segments": 1,
-      "status": "full",
-      "missing": [],
       "canal": "LMC"
     },
     {
@@ -178,10 +166,10 @@
       "upstream": "M(0,13)",
       "downstream": "M(0,14)",
       "category": "serial",
-      "span_m": 950,
-      "covered_m": 950,
+      "span_m": 600,
+      "covered_m": 600,
       "gap_m": 0,
-      "segments": 4,
+      "segments": 3,
       "status": "full",
       "missing": [],
       "canal": "LMC"
@@ -192,18 +180,18 @@
       "category": "offtake",
       "status": "not_applicable",
       "canal": "Waste Way",
-      "km": "0+160"
+      "km": "0+170"
     },
     {
-      "upstream": "M(0,1)",
-      "downstream": "M(0,1;1,0)",
+      "upstream": "M(0,0)",
+      "downstream": "M(0,0;2,0)",
       "category": "junction_head",
       "status": "not_applicable",
       "canal": "RMC"
     },
     {
-      "upstream": "M(0,1;1,0)",
-      "downstream": "M(0,1;1,1)",
+      "upstream": "M(0,0;2,0)",
+      "downstream": "M(0,0;2,1)",
       "category": "serial",
       "span_m": 2600,
       "covered_m": 2600,
@@ -214,8 +202,8 @@
       "canal": "RMC"
     },
     {
-      "upstream": "M(0,1;1,1)",
-      "downstream": "M(0,1;1,2)",
+      "upstream": "M(0,0;2,1)",
+      "downstream": "M(0,0;2,2)",
       "category": "serial",
       "span_m": 1920,
       "covered_m": 1920,
@@ -226,8 +214,8 @@
       "canal": "RMC"
     },
     {
-      "upstream": "M(0,1;1,2)",
-      "downstream": "M(0,1;1,3)",
+      "upstream": "M(0,0;2,2)",
+      "downstream": "M(0,0;2,3)",
       "category": "serial",
       "span_m": 980,
       "covered_m": 980,
@@ -238,41 +226,35 @@
       "canal": "RMC"
     },
     {
-      "upstream": "M(0,1;1,3)",
-      "downstream": "M(0,1;1,4)",
+      "upstream": "M(0,0;2,3)",
+      "downstream": "M(0,0;2,4)",
       "category": "serial",
-      "span_m": 1280,
+      "span_m": 1200,
       "covered_m": 1200,
-      "gap_m": 80,
+      "gap_m": 0,
       "segments": 2,
-      "status": "partial",
-      "missing": [
-        {
-          "from_km": "6+700",
-          "to_km": "6+780",
-          "reason": "unsurveyed"
-        }
-      ],
+      "status": "full",
+      "missing": [],
       "canal": "RMC"
     },
     {
-      "upstream": "M(0,1;1,0)",
-      "downstream": "M(0,1;1,0;1,0)",
+      "upstream": "M(0,0;2,0)",
+      "downstream": "M(0,0;2,0;1,0)",
       "category": "offtake",
       "status": "not_applicable",
       "canal": "FTO 2+450",
       "km": "2+450"
     },
     {
-      "upstream": "M(0,1;1,1)",
-      "downstream": "M(0,1;1,1;1,0)",
+      "upstream": "M(0,0;2,1)",
+      "downstream": "M(0,0;2,1;1,0)",
       "category": "junction_head",
       "status": "not_applicable",
       "canal": "4L-RMC"
     },
     {
-      "upstream": "M(0,1;1,1;1,0)",
-      "downstream": "M(0,1;1,1;1,1)",
+      "upstream": "M(0,0;2,1;1,0)",
+      "downstream": "M(0,0;2,1;1,1)",
       "category": "serial",
       "span_m": 750,
       "covered_m": 750,
@@ -283,8 +265,8 @@
       "canal": "4L-RMC"
     },
     {
-      "upstream": "M(0,1;1,1;1,1)",
-      "downstream": "M(0,1;1,1;1,2)",
+      "upstream": "M(0,0;2,1;1,1)",
+      "downstream": "M(0,0;2,1;1,2)",
       "category": "serial",
       "span_m": 1100,
       "covered_m": 1100,
@@ -295,8 +277,8 @@
       "canal": "4L-RMC"
     },
     {
-      "upstream": "M(0,1;1,1;1,2)",
-      "downstream": "M(0,1;1,1;1,3)",
+      "upstream": "M(0,0;2,1;1,2)",
+      "downstream": "M(0,0;2,1;1,3)",
       "category": "serial",
       "span_m": 750,
       "covered_m": 750,
@@ -307,8 +289,8 @@
       "canal": "4L-RMC"
     },
     {
-      "upstream": "M(0,1;1,1;1,3)",
-      "downstream": "M(0,1;1,1;1,4)",
+      "upstream": "M(0,0;2,1;1,3)",
+      "downstream": "M(0,0;2,1;1,4)",
       "category": "serial",
       "span_m": 400,
       "covered_m": 400,
@@ -319,8 +301,8 @@
       "canal": "4L-RMC"
     },
     {
-      "upstream": "M(0,1;1,1;1,2)",
-      "downstream": "M(0,1;1,1;1,2;1,0)",
+      "upstream": "M(0,0;2,1;1,2)",
+      "downstream": "M(0,0;2,1;1,2;1,0)",
       "category": "offtake",
       "status": "not_applicable",
       "canal": "FTO337 Rai",
@@ -361,10 +343,10 @@
       "upstream": "M(0,3;1,2)",
       "downstream": "M(0,3;1,3)",
       "category": "serial",
-      "span_m": 6600,
-      "covered_m": 6600,
+      "span_m": 6500,
+      "covered_m": 6500,
       "gap_m": 0,
-      "segments": 6,
+      "segments": 5,
       "status": "full",
       "missing": [],
       "canal": "9R-LMC"
@@ -466,10 +448,10 @@
       "upstream": "M(0,12;1,4)",
       "downstream": "M(0,12;1,5)",
       "category": "serial",
-      "span_m": 2280,
-      "covered_m": 2280,
+      "span_m": 2160,
+      "covered_m": 2160,
       "gap_m": 0,
-      "segments": 3,
+      "segments": 2,
       "status": "full",
       "missing": [],
       "canal": "38R-LMC"
@@ -485,10 +467,10 @@
       "upstream": "M(0,12;1,0;1,0)",
       "downstream": "M(0,12;1,0;1,1)",
       "category": "serial",
-      "span_m": 4550,
-      "covered_m": 4550,
+      "span_m": 4200,
+      "covered_m": 4200,
       "gap_m": 0,
-      "segments": 4,
+      "segments": 3,
       "status": "full",
       "missing": [],
       "canal": "1R-38R-LMC"
@@ -516,18 +498,12 @@
       "upstream": "M(0,12;1,1;1,1)",
       "downstream": "M(0,12;1,1;1,2)",
       "category": "serial",
-      "span_m": 3340,
+      "span_m": 3310,
       "covered_m": 3310,
-      "gap_m": 30,
+      "gap_m": 0,
       "segments": 5,
-      "status": "partial",
-      "missing": [
-        {
-          "from_km": "3+850",
-          "to_km": "3+880",
-          "reason": "unsurveyed"
-        }
-      ],
+      "status": "full",
+      "missing": [],
       "canal": "2R-38R-LMC"
     },
     {
@@ -553,10 +529,10 @@
       "upstream": "M(0,12;1,1;1,0;1,1)",
       "downstream": "M(0,12;1,1;1,0;1,2)",
       "category": "serial",
-      "span_m": 4580,
-      "covered_m": 4580,
+      "span_m": 4520,
+      "covered_m": 4520,
       "gap_m": 0,
-      "segments": 6,
+      "segments": 5,
       "status": "full",
       "missing": [],
       "canal": "1R-2R-38R-LMC"
@@ -572,10 +548,10 @@
       "upstream": "M(0,12;1,2;1,0)",
       "downstream": "M(0,12;1,2;1,1)",
       "category": "serial",
-      "span_m": 4000,
-      "covered_m": 4000,
+      "span_m": 4800,
+      "covered_m": 4800,
       "gap_m": 0,
-      "segments": 5,
+      "segments": 6,
       "status": "full",
       "missing": [],
       "canal": "4L-38R-LMC"
@@ -584,18 +560,12 @@
       "upstream": "M(0,12;1,2;1,1)",
       "downstream": "M(0,12;1,2;1,2)",
       "category": "serial",
-      "span_m": 3000,
-      "covered_m": 1800,
-      "gap_m": 1200,
-      "segments": 3,
-      "status": "partial",
-      "missing": [
-        {
-          "from_km": "5+800",
-          "to_km": "7+000",
-          "reason": "unsurveyed"
-        }
-      ],
+      "span_m": 1000,
+      "covered_m": 1000,
+      "gap_m": 0,
+      "segments": 1,
+      "status": "full",
+      "missing": [],
       "canal": "4L-38R-LMC"
     },
     {
@@ -609,18 +579,12 @@
       "upstream": "M(0,12;1,2;1,0;1,0)",
       "downstream": "M(0,12;1,2;1,0;1,1)",
       "category": "serial",
-      "span_m": 1950,
-      "covered_m": 1540,
-      "gap_m": 410,
-      "segments": 2,
-      "status": "partial",
-      "missing": [
-        {
-          "from_km": "1+540",
-          "to_km": "1+950",
-          "reason": "unsurveyed"
-        }
-      ],
+      "span_m": 1400,
+      "covered_m": 1400,
+      "gap_m": 0,
+      "segments": 1,
+      "status": "full",
+      "missing": [],
       "canal": "5R-4L-38R-LMC"
     },
     {
@@ -634,10 +598,10 @@
       "upstream": "M(0,12;1,3;1,0)",
       "downstream": "M(0,12;1,3;1,1)",
       "category": "serial",
-      "span_m": 2550,
-      "covered_m": 2550,
+      "span_m": 2250,
+      "covered_m": 2250,
       "gap_m": 0,
-      "segments": 3,
+      "segments": 2,
       "status": "full",
       "missing": [],
       "canal": "6R-38R-LMC"
@@ -663,23 +627,23 @@
     }
   ],
   "summary": {
-    "total_edges": 59,
+    "total_edges": 58,
     "by_status": {
       "not_applicable": 17,
-      "partial": 5,
-      "full": 37
+      "partial": 1,
+      "full": 40
     },
     "by_category": {
       "source": 1,
-      "serial": 42,
+      "serial": 41,
       "offtake": 3,
       "junction_head": 13
     },
-    "sections_emitted": 103,
+    "sections_emitted": 94,
     "survey_rows": 99,
     "skipped_rows": {
       "missing_cross_section": 1,
-      "beyond_last_gate": 1
+      "beyond_last_gate": 8
     },
     "skipped_row_detail": [
       {
@@ -691,10 +655,59 @@
       },
       {
         "reason": "beyond_last_gate",
+        "canal": "LMC",
+        "from_km": "38+700",
+        "to_km": "39+050",
+        "excel_row": 30
+      },
+      {
+        "reason": "beyond_last_gate",
+        "canal": "9R-LMC",
+        "from_km": "14+400",
+        "to_km": "14+500",
+        "excel_row": 43
+      },
+      {
+        "reason": "beyond_last_gate",
         "canal": "7R-9R-LMC",
         "from_km": "3+000",
         "to_km": "3+200",
         "excel_row": 47
+      },
+      {
+        "reason": "beyond_last_gate",
+        "canal": "38R-LMC",
+        "from_km": "8+780",
+        "to_km": "8+900",
+        "excel_row": 62
+      },
+      {
+        "reason": "beyond_last_gate",
+        "canal": "1R-38R-LMC",
+        "from_km": "4+200",
+        "to_km": "4+550",
+        "excel_row": 67
+      },
+      {
+        "reason": "beyond_last_gate",
+        "canal": "1R-2R-38R-LMC",
+        "from_km": "7+720",
+        "to_km": "7+780",
+        "excel_row": 83
+      },
+      {
+        "reason": "beyond_last_gate",
+        "canal": "5R-4L-38R-LMC",
+        "from_km": "1+400",
+        "to_km": "1+540",
+        "excel_row": 94
+      },
+      {
+        "reason": "beyond_last_gate",
+        "canal": "6R-38R-LMC",
+        "from_km": "2+250",
+        "to_km": "2+550",
+        "excel_row": 98
       }
     ]
   }

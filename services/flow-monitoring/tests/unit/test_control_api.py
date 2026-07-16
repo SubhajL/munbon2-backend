@@ -75,7 +75,7 @@ class TestPlanEndpoint:
         resp = client.post("/api/v1/control/plan", json={"demands": demand})
         assert resp.status_code == 200
         body = resp.json()
-        assert len(body["reaches"]) == 59
+        assert len(body["reaches"]) == 58
         assert body["apply_losses"] is False
         assert body["head_flow_m3s"] == pytest.approx(sum(demand.values()))
 
@@ -86,7 +86,7 @@ class TestPlanEndpoint:
             "/api/v1/control/plan", json={"demands": demand, "apply_losses": True}
         ).json()
         assert lossy["head_flow_m3s"] > lossless["head_flow_m3s"]
-        # 17 = 59 edges - 42 surveyed serial reaches (2.1b full-survey coverage):
+        # 17 = 58 edges - 41 surveyed serial reaches:
         # the source edge + 13 junction heads + 3 offtakes (Waste Way, FTOs).
         assert len(lossy["reaches_missing_geometry"]) == 17
 
@@ -101,13 +101,7 @@ class TestPlanEndpoint:
             (g["upstream"], g["downstream"]): g["gap_m"]
             for g in lossy["reaches_with_chainage_gaps"]
         }
-        assert gaps == {
-            ("M(0,0)", "M(0,1)"): pytest.approx(170.0),
-            ("M(0,1;1,3)", "M(0,1;1,4)"): pytest.approx(80.0),
-            ("M(0,12;1,1;1,1)", "M(0,12;1,1;1,2)"): pytest.approx(30.0),
-            ("M(0,12;1,2;1,1)", "M(0,12;1,2;1,2)"): pytest.approx(1200.0),
-            ("M(0,12;1,2;1,0;1,0)", "M(0,12;1,2;1,0;1,1)"): pytest.approx(410.0),
-        }
+        assert gaps == {("M(0,0)", "M(0,2)"): pytest.approx(170.0)}
         # Geometry coverage is a static network property (Wave 2.8a): the SAME gaps
         # surface without apply_losses — the itemized list must never contradict the
         # coverage roll-up in the same payload.
@@ -132,7 +126,7 @@ class TestPlanEndpoint:
             assert (
                 len(body["reaches_missing_geometry"]) == cov["geometry_missing"] == 17
             )
-            assert len(body["reaches_with_chainage_gaps"]) == cov["chainage_gaps"] == 5
+            assert len(body["reaches_with_chainage_gaps"]) == cov["chainage_gaps"] == 1
 
     def test_empty_demand_yields_all_zero_reaches(self, client):
         resp = client.post("/api/v1/control/plan", json={"demands": {}})
@@ -147,7 +141,7 @@ class TestPlanEndpoint:
 
         oracle = GateCalibrationLoader()
         body = client.post("/api/v1/control/plan", json={"demands": {}}).json()
-        assert len(body["reaches"]) == 59
+        assert len(body["reaches"]) == 58
         by_reach = {(r["upstream"], r["downstream"]): r for r in body["reaches"]}
         for reach in body["reaches"]:
             expected = oracle.get_calibration(reach["downstream"])
@@ -157,16 +151,16 @@ class TestPlanEndpoint:
         # the source edge has no surveyed cross-section; the RMC tail reach does (it is a
         # partial survey that still carries geometry).
         assert by_reach[("S", "M(0,0)")]["has_geometry"] is False
-        assert by_reach[("M(0,1;1,3)", "M(0,1;1,4)")]["has_geometry"] is True
+        assert by_reach[("M(0,0;2,3)", "M(0,0;2,4)")]["has_geometry"] is True
 
     def test_plan_reports_network_coverage_summary(self, client):
         body = client.post("/api/v1/control/plan", json={"demands": {}}).json()
         assert body["coverage"] == {
-            "total_reaches": 59,
-            "geometry_surveyed": 42,
+            "total_reaches": 58,
+            "geometry_surveyed": 41,
             "geometry_missing": 17,
-            "chainage_gaps": 5,
-            "calibration_method_counts": {"measured": 10, "inferred": 49},
+            "chainage_gaps": 1,
+            "calibration_method_counts": {"measured": 10, "inferred": 48},
         }
 
     def test_unknown_node_is_rejected_400(self, client):
@@ -186,7 +180,7 @@ class TestPlanEndpoint:
         assert into and into[0]["required_flow_m3s"] == pytest.approx(2.0)
 
     def test_response_reach_ids_are_canonical_compact(self, client):
-        # 44/59 network ids carry survey spacing; the response contract is the exact
+        # Some upstream sources carry survey spacing; the response contract is the exact
         # normalized edge set — not merely "no spaces".
         from core.node_id import normalize_node_id
 
@@ -252,7 +246,7 @@ class TestPlanEndpoint:
             json={
                 "demands": {},
                 "apply_losses": True,
-                "always_wet": [["M(0,0)", "M(0,1)"]],
+                "always_wet": [["M(0,0)", "M(0,2)"]],
             },
         )
         assert resp.status_code == 200
@@ -439,7 +433,7 @@ def _fresh_levels():
     ).isoformat()  # always fresh vs the handler's now
     return {
         node: {"water_level_m": level, "observed_at": now_iso}
-        for node, level in (("S", 3.0), ("M(0,0)", 2.5), ("M(0,1)", 2.0))
+        for node, level in (("S", 3.0), ("M(0,0)", 2.5), ("M(0,2)", 2.0))
     }
 
 
@@ -454,7 +448,7 @@ class TestOpeningsEndpoint:
         resp = client.post(
             "/api/v1/control/openings",
             json={
-                "demands": {"M(0,1)": 5.0},
+                "demands": {"M(0,2)": 5.0},
                 "levels": _fresh_levels(),
                 "max_level_age_seconds": 3600,
             },
@@ -468,25 +462,25 @@ class TestOpeningsEndpoint:
             unavailable[("S", "M(0,0)")]["reason"]
             == "calibration_not_actuation_approved"
         )
-        # M(0,0)->M(0,1) is a partial survey -> capacity blocks it before the actuation gate.
-        assert unavailable[("M(0,0)", "M(0,1)")]["reason"] == "capacity_unsurveyed"
+        # M(0,0)->M(0,2) is a partial survey -> capacity blocks it before actuation.
+        assert unavailable[("M(0,0)", "M(0,2)")]["reason"] == "capacity_unsurveyed"
         assert body["summary"]["feasible"] is False
         assert body["summary"]["commanded_reaches"] == 0
-        assert body["summary"]["idle_reaches"] == 57
+        assert body["summary"]["idle_reaches"] == 56
 
     def test_missing_level_is_reported_before_the_actuation_gate(self, client):
         levels = _fresh_levels()
-        del levels["M(0,1)"]  # downstream boundary of M(0,0)->M(0,1) absent
+        del levels["M(0,2)"]  # downstream boundary of M(0,0)->M(0,2) absent
         body = client.post(
             "/api/v1/control/openings",
             json={
-                "demands": {"M(0,1)": 5.0},
+                "demands": {"M(0,2)": 5.0},
                 "levels": levels,
                 "max_level_age_seconds": 3600,
             },
         ).json()
         unavailable = {(u["upstream"], u["downstream"]): u for u in body["unavailable"]}
-        assert unavailable[("M(0,0)", "M(0,1)")]["reason"] == "level_missing"
+        assert unavailable[("M(0,0)", "M(0,2)")]["reason"] == "level_missing"
         assert body["summary"]["feasible"] is False
 
     def test_stale_level_is_reported(self, client):
@@ -499,7 +493,7 @@ class TestOpeningsEndpoint:
         body = client.post(
             "/api/v1/control/openings",
             json={
-                "demands": {"M(0,1)": 5.0},
+                "demands": {"M(0,2)": 5.0},
                 "levels": levels,
                 "max_level_age_seconds": 3600,
             },
@@ -509,7 +503,7 @@ class TestOpeningsEndpoint:
         }
         # M(0,0) is a boundary of both active reaches; the stale level blocks both first.
         assert reasons[("S", "M(0,0)")] == "level_stale"
-        assert reasons[("M(0,0)", "M(0,1)")] == "level_stale"
+        assert reasons[("M(0,0)", "M(0,2)")] == "level_stale"
 
     def test_summary_reports_counts_without_double_counted_flow_totals(self, client):
         # The summary reports feasibility + counts, NOT a per-reach flow sum: the same 5
@@ -518,7 +512,7 @@ class TestOpeningsEndpoint:
         body = client.post(
             "/api/v1/control/openings",
             json={
-                "demands": {"M(0,1)": 5.0},
+                "demands": {"M(0,2)": 5.0},
                 "levels": _fresh_levels(),
                 "max_level_age_seconds": 3600,
             },
@@ -527,7 +521,7 @@ class TestOpeningsEndpoint:
         assert summary["feasible"] is False
         assert summary["commanded_reaches"] == 0
         assert summary["unavailable_reaches"] == len(body["unavailable"]) == 2
-        assert summary["idle_reaches"] == 57
+        assert summary["idle_reaches"] == 56
         assert "requested_m3s" not in summary and "deficit_m3s" not in summary
 
     def test_boolean_demand_value_is_rejected_422(self, client):
@@ -535,7 +529,7 @@ class TestOpeningsEndpoint:
         resp = client.post(
             "/api/v1/control/openings",
             json={
-                "demands": {"M(0,1)": True},
+                "demands": {"M(0,2)": True},
                 "levels": _fresh_levels(),
                 "max_level_age_seconds": 3600,
             },
@@ -586,7 +580,7 @@ class TestOpeningsEndpoint:
         resp = client.post(
             "/api/v1/control/openings",
             json={
-                "demands": {"M(0,1)": 5.0},
+                "demands": {"M(0,2)": 5.0},
                 "levels": levels,
                 "max_level_age_seconds": 3600,
             },

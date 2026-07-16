@@ -102,12 +102,26 @@ def test_approved_manifest_pins_d1_d3_d4_and_explicit_tail_crosswalk():
     }
     assert manifest["annual_plan"]["sheet"] == "แผนการส่งน้ำ 1-6"
     assert manifest["annual_plan"]["rate_unit"] == "m3/s"
+    assert manifest["scada"] == {
+        "file": "SCADA Section Detailed Information 2026-07-14 V3.0 SL.xlsx",
+        "sheet": "Sheet1",
+        "sha256": "528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
+    }
     assert {row["section_number"] for row in manifest["crosswalk"]} == set(range(3, 44))
-    tail = next(row for row in manifest["crosswalk"] if row["section_number"] == 43)
-    assert tail == {
-        "section_number": 43,
-        "gate_id": "M(0,1;1,1;1,4)",
-        "irrigation_channel": "4L-RMC",
+    assert {
+        row["section_number"]: row["gate_id"]
+        for row in manifest["crosswalk"]
+        if row["section_number"] >= 35
+    } == {
+        35: "M(0,0;2,0)",
+        36: "M(0,0;2,1)",
+        37: "M(0,0;2,2)",
+        38: "M(0,0;2,3)",
+        39: "M(0,0;2,1;1,0)",
+        40: "M(0,0;2,1;1,1)",
+        41: "M(0,0;2,1;1,2)",
+        42: "M(0,0;2,1;1,3)",
+        43: "M(0,0;2,1;1,4)",
     }
 
 

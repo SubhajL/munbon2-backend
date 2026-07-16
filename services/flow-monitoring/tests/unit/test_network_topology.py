@@ -27,6 +27,9 @@ GOOD = [("S", "A"), ("A", "B"), ("A", "C"), ("C", "D")]
 FRAGMENTED = [("S", "A"), ("A", "B"), ("A", "C"), ("X", "D")]
 
 CANONICAL = Path(__file__).resolve().parents[2] / "src" / "config" / "network.json"
+GEOMETRY = (
+    Path(__file__).resolve().parents[2] / "src" / "config" / "canal_geometry.json"
+)
 
 
 class TestReachability:
@@ -77,8 +80,8 @@ class TestCanonicalNetworkFile:
         edges = load_validated_network(str(CANONICAL))  # raises if fragmented
         nodes = nodes_of(edges)
         assert "S" in nodes
-        assert len(edges) == 59
-        assert len(nodes) == 60  # 59 gates + S
+        assert len(edges) == 58
+        assert len(nodes) == 59  # 58 gates + S
         assert is_spanning_tree(edges, "S")
 
     def test_every_gate_id_is_a_reachable_node(self):
@@ -91,7 +94,9 @@ class TestCanonicalNetworkFile:
         # Bare NaN/Infinity is a Python-only extension: jq / JS / strict parsers
         # reject it. Missing numeric fields must be null (Wave 0.5).
         def _reject(constant):
-            raise AssertionError(f"non-strict JSON constant {constant!r} in network.json")
+            raise AssertionError(
+                f"non-strict JSON constant {constant!r} in network.json"
+            )
 
         json.loads(CANONICAL.read_text(), parse_constant=_reject)
 
@@ -121,9 +126,6 @@ class TestTopologicalOrder:
         cyclic = [("S", "A"), ("A", "B"), ("B", "A")]
         with pytest.raises(NetworkTopologyError):
             topological_order(cyclic)
-
-
-GEOMETRY = Path(__file__).resolve().parents[4] / "canal_sections_6zones_final.json"
 
 
 class TestParseAndNormalizeGateId:
@@ -158,7 +160,7 @@ class TestEdgesFromNamesRules:
     def test_serial_valve_parent_is_previous_on_same_canal(self):
         m = self._map()
         assert m["M(0,1)"] == "M(0,0)"
-        assert m["M(0,2)"] == "M(0,1)"          # NOT M(0,0) -> this is the star bug being fixed
+        assert m["M(0,2)"] == "M(0,1)"  # NOT M(0,0) -> this is the star bug being fixed
         assert m["M(0,1;1,1)"] == "M(0,1;1,0)"  # serial along the branch
 
     def test_branch_first_valve_attaches_to_parent_canal(self):
@@ -172,12 +174,20 @@ class TestEdgesFromNamesRules:
     def test_preserves_exact_input_strings_including_spacing(self):
         spaced = ["M(0,0)", "M(0,1)", "M (0,1; 1,0)", "M (0,1; 1,1)"]
         edges = edges_from_names(spaced)
-        assert ("M (0,1; 1,0)", "M (0,1; 1,1)") in edges  # exact spaced strings, not reformatted
+        assert (
+            "M (0,1; 1,0)",
+            "M (0,1; 1,1)",
+        ) in edges  # exact spaced strings, not reformatted
 
-    def test_rejects_missing_intermediate_parent(self):
-        # M(0,2) needs M(0,1); absent -> fail closed, do not silently drop the reach.
-        with pytest.raises(NetworkTopologyError):
-            edges_from_names(["M(0,0)", "M(0,2)"])
+    def test_sparse_serial_number_uses_previous_existing_valve(self):
+        assert edges_from_names(["M(0,0)", "M(0,2)"]) == [
+            ("S", "M(0,0)"),
+            ("M(0,0)", "M(0,2)"),
+        ]
+
+    def test_sparse_chain_without_position_zero_fails_closed(self):
+        with pytest.raises(NetworkTopologyError, match="no earlier valve"):
+            edges_from_names(["M(0,2)"])
 
     def test_rejects_ids_that_collide_when_normalized(self):
         with pytest.raises(NetworkTopologyError):
@@ -206,15 +216,15 @@ class TestEdgesFromNamesRealNetwork:
     def _gate_ids(self):
         return list(json.loads(CANONICAL.read_text())["gates"].keys())
 
-    def test_derives_a_full_spanning_tree_over_all_59_gates(self):
+    def test_derives_a_full_spanning_tree_over_all_58_gates(self):
         edges = edges_from_names(self._gate_ids())
-        assert len(edges) == 59
+        assert len(edges) == 58
         assert is_spanning_tree(edges, "S")
-        assert len(reachable_from(edges, "S")) == 60  # 59 gates + S
+        assert len(reachable_from(edges, "S")) == 59  # 58 gates + S
 
     def test_reproduces_the_surveyed_geometry_chain(self):
-        # Independent oracle: the SCADA survey (canal_sections_6zones_final.json) lists the
-        # real serial reaches; every one must appear in the name-derived topology.
+        # Generated SCADA V3 geometry lists the surveyed serial reaches; every one must
+        # appear in the independently name-derived topology.
         import re
 
         def norm(x):
@@ -223,7 +233,7 @@ class TestEdgesFromNamesRealNetwork:
         survey = json.loads(GEOMETRY.read_text())["canal_sections"]
         derived = {(norm(u), norm(v)) for u, v in edges_from_names(self._gate_ids())}
         survey_edges = {(norm(s["from_node"]), norm(s["to_node"])) for s in survey}
-        assert survey_edges <= derived, survey_edges - derived  # 37/37 reproduced
+        assert survey_edges <= derived, survey_edges - derived
 
 
 class TestRegeneratedNetworkFileIsConsistent:

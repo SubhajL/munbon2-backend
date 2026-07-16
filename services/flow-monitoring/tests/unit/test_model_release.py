@@ -208,7 +208,7 @@ class TestLoadConfiguredHydraulicModelRelease:
 
 
 class TestValidateModelRelease:
-    def test_canonical_59_reaches_can_all_be_explicitly_unavailable(self, tmp_path):
+    def test_canonical_58_reaches_can_all_be_explicitly_unavailable(self, tmp_path):
         network = json.loads(CANONICAL_NETWORK.read_text(encoding="utf-8"))
         expected = tuple(
             f"C_{upstream}_{downstream}" for upstream, downstream in network["edges"]
@@ -230,9 +230,9 @@ class TestValidateModelRelease:
             release.reach_parameters,
             len(release.unavailable_reaches),
         ) == (
-            59,
+            58,
             (),
-            59,
+            58,
         )
 
     def test_missing_reach_must_be_explicitly_unavailable(self, tmp_path):

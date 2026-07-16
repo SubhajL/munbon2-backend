@@ -356,7 +356,7 @@ def test_offline_reference_import_requires_exact_reach_time_coverage(tmp_path):
         load_offline_reference_result(path, case)
 
 
-def test_offline_interchange_covers_all_59_canonical_reaches(tmp_path):
+def test_offline_interchange_covers_all_58_canonical_reaches(tmp_path):
     network = json.loads(CANONICAL_NETWORK.read_text(encoding="utf-8"))
     edges = tuple(tuple(edge) for edge in network["edges"])
     child_counts = {
@@ -387,7 +387,7 @@ def test_offline_interchange_covers_all_59_canonical_reaches(tmp_path):
     assert (
         len(offline_simulation_case_payload(case)["network_edges"]),
         len(reference.samples),
-    ) == (59, 59)
+    ) == (58, 58)
 
 
 @pytest.mark.parametrize(

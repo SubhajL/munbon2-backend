@@ -19,7 +19,9 @@ SERVICE_ROOT = Path(__file__).resolve().parents[2]
 NETWORK = str(SERVICE_ROOT / "src" / "config" / "network.json")
 GEOMETRY = str(SERVICE_ROOT / "src" / "config" / "canal_geometry.json")
 GATES_PY = SERVICE_ROOT / "src" / "api" / "gates.py"
-DEPLOY_YML = SERVICE_ROOT.parents[1] / ".github" / "workflows" / "deploy-flow-monitoring.yml"
+DEPLOY_YML = (
+    SERVICE_ROOT.parents[1] / ".github" / "workflows" / "deploy-flow-monitoring.yml"
+)
 
 REQUIRED_ENV = {
     "INFLUXDB_URL": "http://x:8086",
@@ -87,12 +89,12 @@ class TestGateControllerDependency:
 
 
 class TestControllerOnCanonicalConfigs:
-    def test_constructs_offline_with_all_59_gates(self):
+    def test_constructs_offline_with_all_58_gates(self):
         from controllers.dual_mode_gate_controller import DualModeGateController
         from db.connections import DatabaseManager
 
         controller = DualModeGateController(DatabaseManager(), NETWORK, GEOMETRY)
-        assert len(controller.gate_properties) == 59
+        assert len(controller.gate_properties) == 58
 
     def test_flag_on_state_endpoint_serves_a_gate(self):
         # The enabled surface must actually answer: the solver's gate types
@@ -120,7 +122,10 @@ class TestControllerOnCanonicalConfigs:
             resp = TestClient(app).get(f"/api/v1/gates/state/{gate_id}")
             assert resp.status_code == 200
             assert resp.json()["gate_type"] in {
-                "undershot", "overshot", "radial", "vertical"
+                "undershot",
+                "overshot",
+                "radial",
+                "vertical",
             }
         finally:
             gates_module.gate_controller = None

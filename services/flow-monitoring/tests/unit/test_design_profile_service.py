@@ -24,7 +24,7 @@ def service():
 class TestDesignProfileService:
     def test_calibration_gate_set_drift_fails_closed(self, tmp_path):
         calibrations = json.loads((CONFIG / "gate_calibrations.json").read_text())
-        old_id = "M(0,1;1,0)"
+        old_id = "M(0,0;2,0)"
         extra_id = "M(9,9)"
         replacement = calibrations["gates"].pop(old_id)
         replacement["gate_id"] = extra_id
@@ -67,16 +67,16 @@ class TestDesignProfileService:
             (3, "LMC", "M(0,3;1,0)", 1),
             (4, "LMC", "M(0,12;1,0)", 2),
             (5, "LMC", "M(0,12;1,2)", 2),
-            (6, "RMC", "M(0,1;1,0)", None),
+            (6, "RMC", "M(0,0;2,0)", None),
         ]
 
-    def test_zone_6_design_point_uses_parent_junction_upstream_geometry(self, service):
+    def test_zone_6_design_point_uses_first_rmc_reach_geometry(self, service):
         [zone] = service.calculate([6], 1.0)["zones"]
         assert zone["status"] == "available"
         assert zone["reason"] is None
         assert (zone["reference_upstream"], zone["reference_downstream"]) == (
-            "M(0,0)",
-            "M(0,1)",
+            "M(0,0;2,0)",
+            "M(0,0;2,1)",
         )
         assert zone["flow_m3s"] == pytest.approx(1.2)
         assert zone["binding_capacity_m3s"] == pytest.approx(1.2)
@@ -91,7 +91,7 @@ class TestDesignProfileService:
         assert zone["binding_capacity_m3s"] == pytest.approx(8.737)
         assert zone["forecast_level_msl_m"] is None
 
-    def test_zones_without_v2_structure_datum_stay_unavailable(self, service):
+    def test_zones_without_v3_structure_datum_stay_unavailable(self, service):
         result = service.calculate([2, 3, 4, 5], 0.5)
         assert [
             (zone["zone"], zone["status"], zone["reason"]) for zone in result["zones"]
@@ -116,8 +116,8 @@ class TestDesignProfileService:
             "open_loop": True,
             "actual_state_known": False,
             "commandable": False,
-            "source_workbook": "SCADA Section Detailed Information 2026-07-14 V2.0 SL.xlsx",
-            "source_sha256": "d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+            "source_workbook": "SCADA Section Detailed Information 2026-07-14 V3.0 SL.xlsx",
+            "source_sha256": "528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
         }
         assert set(result["config_sha256"]) == {
             "network",

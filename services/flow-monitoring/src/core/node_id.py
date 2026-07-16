@@ -1,8 +1,9 @@
 """
 core.node_id — canonical home of the ``M(i,j;...)`` gate-id naming grammar (Wave 1.2).
 
-The SCADA survey writes gate ids with irregular spacing (``M (0,1; 1,0)``, 44 of 59
-ids contain spaces) while programmatic producers use the compact form (``M(0,1;1,0)``).
+SCADA workbooks may write gate ids with irregular spacing while programmatic
+producers use the compact form (for example, ``M (0,3; 1,0)`` versus
+``M(0,3;1,0)``).
 This module owns parsing and the canonical compact format so every boundary — the
 control API, geometry and calibration joins, config validation — normalizes the same
 way instead of matching exact strings.

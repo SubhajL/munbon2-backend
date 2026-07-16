@@ -69,7 +69,7 @@ class TestGetCalibration:
 
     def test_inferred_gate_uses_supplied_coefficients_and_lineage(self, tmp_path):
         data = json.loads(Path(CALIBRATIONS).read_text())
-        gate = data["gates"]["M(0,1)"]
+        gate = data["gates"]["M(0,3)"]
         # k1=1.20, k2=-1.40 sit inside the M(0,0)/M(0,2) donor hull
         # (k1∈[1.0693,1.5675], k2∈[-1.654,-1.229]) so the strict loader accepts them.
         gate.update(
@@ -89,9 +89,9 @@ class TestGetCalibration:
         }
         path = tmp_path / "inferred.json"
         path.write_text(json.dumps(data))
-        inferred = GateCalibrationLoader(str(path)).get_calibration("M(0,1)")
+        inferred = GateCalibrationLoader(str(path)).get_calibration("M(0,3)")
         assert inferred == GateCalibrationData(
-            gate_id="M(0,1)",
+            gate_id="M(0,3)",
             k1=1.20,
             k2=-1.40,
             calibration_method="inferred",
@@ -99,13 +99,16 @@ class TestGetCalibration:
             source_gate_ids=("M(0,0)", "M(0,2)"),
             source_version=gate["source_version"],
             structure_data_status="unavailable",
-            structure_role="junction",
+            structure_role="control",
+            shape="rectangular",
+            width_m=3.6,
+            height_m=1.8,
         )
 
     def test_committed_unmeasured_gate_uses_provisional_inference(self, loader):
-        inferred = loader.get_calibration("M(0,1)")
+        inferred = loader.get_calibration("M(0,3)")
         assert inferred.calibration_method == "inferred"
-        assert inferred.source_gate_ids == ("M(0,0)", "M(0,2)", "M(0,7)")
+        assert inferred.source_gate_ids == ("M(0,7)", "M(0,2)", "M(0,0;1,0)")
         assert 0.0 < inferred.confidence < 0.9805
         assert inferred.source_version.startswith("similar-gate-v1:")
 
@@ -132,9 +135,9 @@ class TestGetGateData:
     @pytest.mark.parametrize(
         "gate_id,sheet1_capacity,structure_capacity,binding_capacity",
         [
-            ("M(0,1;1,0)", 1.375, 1.2, 1.2),
-            ("M(0,1;1,3)", None, 0.252, 0.252),
-            ("M(0,1;1,1;1,1)", None, 0.67, 0.67),
+            ("M(0,0;2,0)", 1.375, 1.2, 1.2),
+            ("M(0,0;2,3)", None, 0.252, 0.252),
+            ("M(0,0;2,1;1,1)", None, 0.67, 0.67),
         ],
     )
     def test_rated_capacity_binds_distinct_sheet1_and_structure_sources(
@@ -178,12 +181,12 @@ class TestBuildFlowCalibration:
     @pytest.mark.parametrize(
         "gate_id,expected_sill,expected_capacity",
         [
-            ("M(0,1;1,0)", 203.712, 1.2),
-            ("M(0,1;1,3)", 197.258, 0.252),
-            ("M(0,1;1,1;1,1)", 199.254, 0.67),
+            ("M(0,0;2,0)", 203.712, 1.2),
+            ("M(0,0;2,3)", 197.258, 0.252),
+            ("M(0,0;2,1;1,1)", 199.254, 0.67),
         ],
     )
-    def test_v2_structure_data_supplies_real_sill_and_binding_capacity(
+    def test_v3_structure_data_supplies_real_sill_and_binding_capacity(
         self, loader, gate_id, expected_sill, expected_capacity
     ):
         calibration = loader.get_calibration(gate_id)
@@ -215,9 +218,9 @@ class TestBuildFlowCalibration:
 
 
 class TestGetAllCalibratedGates:
-    def test_returns_all_59_measured_and_inferred_gates_keyed_canonically(self, loader):
+    def test_returns_all_58_measured_and_inferred_gates_keyed_canonically(self, loader):
         calibrated = loader.get_all_calibrated_gates()
-        assert len(calibrated) == 59
+        assert len(calibrated) == 58
         assert all(" " not in gate_id for gate_id in calibrated)
 
     def test_keys_cover_every_nondefault_gate_in_the_file(self, loader):

@@ -28,7 +28,7 @@ def _iso(day: int, hour: int = 0) -> str:
 def _record(**overrides) -> dict:
     record = {
         "area_type": "node",
-        "area_id": "M(0,1)",
+        "area_id": "M(0,2)",
         "timezone": "Asia/Bangkok",
         "method": "daily_requirement",
         "source_service": "ros-gis-integration",
@@ -36,7 +36,7 @@ def _record(**overrides) -> dict:
         "synthetic": False,
         "computed_at": _iso(1),
         "version": 1,
-        "idempotency_key": "requirement-M(0,1)-2026-07-01-v1",
+        "idempotency_key": "requirement-M(0,2)-2026-07-01-v1",
         "period_start": _iso(1),
         "period_end": _iso(2),
         "volume_m3": 21_600.0,
@@ -87,7 +87,7 @@ def _plan(client: TestClient, refs: list[dict], effective_at: str | None = None)
 
 
 class TestStoredDemandPlanEndpoint:
-    def test_stored_node_demand_produces_pinned_59_reach_plan(self):
+    def test_stored_node_demand_produces_pinned_58_reach_plan(self):
         client, _ = _client()
         ref = _submit(client, _record())
 
@@ -98,12 +98,12 @@ class TestStoredDemandPlanEndpoint:
         assert body["inputs"] == [
             {
                 **ref,
-                "node_id": "M(0,1)",
+                "node_id": "M(0,2)",
                 "active": True,
                 "required_flow_m3s": 1.0,
             }
         ]
-        assert len(body["plan"]["reaches"]) == 59
+        assert len(body["plan"]["reaches"]) == 58
         assert body["plan"]["head_flow_m3s"] == 1.0
 
     def test_two_active_records_for_same_node_are_summed(self):
@@ -114,7 +114,7 @@ class TestStoredDemandPlanEndpoint:
             _record(
                 method="operator_correction",
                 volume_m3=43_200.0,
-                idempotency_key="requirement-M(0,1)-correction-v1",
+                idempotency_key="requirement-M(0,2)-correction-v1",
             ),
         )
 
@@ -143,7 +143,7 @@ class TestStoredDemandPlanEndpoint:
             _record(
                 version=2,
                 volume_m3=43_200.0,
-                idempotency_key="requirement-M(0,1)-2026-07-01-v2",
+                idempotency_key="requirement-M(0,2)-2026-07-01-v2",
             ),
         )
 

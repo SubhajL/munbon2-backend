@@ -56,7 +56,7 @@ Automatic gates are configured in `/src/config/gate-levels.json`:
 ```json
 {
   "RMC1": {
-    "station_code": "M(0,1; 1,0)",
+    "station_code": "M(0,0; 2,0)",
     "alias": "RMC1",
     "levels": {
       "l1": 0.0,
@@ -77,19 +77,23 @@ Automatic gates are configured in `/src/config/gate-levels.json`:
 ## API Endpoints
 
 ### GraphQL Endpoint
+
 - URL: `http://localhost:4003/graphql`
 - WebSocket: `ws://localhost:4103/graphql/ws`
 
 ### Key Operations
 
 #### 1. Control Automatic Gate
+
 ```graphql
 mutation {
-  controlAutomaticGate(input: {
-    gateName: "RMC1"
-    targetLevel: 2
-    reason: "Water demand adjustment"
-  }) {
+  controlAutomaticGate(
+    input: {
+      gateName: "RMC1"
+      targetLevel: 2
+      reason: "Water demand adjustment"
+    }
+  ) {
     commandId
     scadaCommandId
     gateLevel
@@ -99,19 +103,24 @@ mutation {
 ```
 
 #### 2. Create Manual Gate Job Order
+
 ```graphql
 mutation {
-  createManualGateJobOrder(input: {
-    operatorName: "Field Team Zone 1"
-    gates: [{
-      gateName: "Manual-Gate-01"
-      location: "LMC Canal km 5+200"
-      zone: 1
-      targetHeight: 50
-      openTime: "08:00"
-      closeTime: "16:00"
-    }]
-  }) {
+  createManualGateJobOrder(
+    input: {
+      operatorName: "Field Team Zone 1"
+      gates: [
+        {
+          gateName: "Manual-Gate-01"
+          location: "LMC Canal km 5+200"
+          zone: 1
+          targetHeight: 50
+          openTime: "08:00"
+          closeTime: "16:00"
+        }
+      ]
+    }
+  ) {
     id
     gates {
       instructions
@@ -129,6 +138,7 @@ The service writes gate commands to MS SQL Server database:
 - **Table**: tb_gatelevel_command
 
 Command structure:
+
 ```sql
 INSERT INTO tb_gatelevel_command (
   gate_name,      -- Gate alias (e.g., "RMC1")
@@ -141,17 +151,20 @@ INSERT INTO tb_gatelevel_command (
 ## Installation & Setup
 
 1. Install dependencies:
+
 ```bash
 npm install
 ```
 
 2. Configure environment:
+
 ```bash
 cp .env.example .env
 # Edit .env with your database credentials
 ```
 
 3. Start the service:
+
 ```bash
 npm start
 # or for development
@@ -161,6 +174,7 @@ npm run dev
 ## Testing
 
 Run the test suite:
+
 ```bash
 node test/test-wc-bff.js
 ```

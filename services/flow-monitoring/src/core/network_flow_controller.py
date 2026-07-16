@@ -223,8 +223,8 @@ class NetworkFlowController:
             )
         # Per-edge coverage (2.8a) and the reach's canal-capacity bound, computed ONCE.
         # `self.sections`/`reaches_with_chainage_gaps` are keyed by NORMALIZED edges, so the
-        # capacity lookup MUST normalize the raw network edge (28 of the 42 surveyed reaches
-        # carry survey spacing — a raw lookup silently drops their limit). The terminating
+        # capacity lookup MUST normalize the raw network edge so formatting drift cannot
+        # silently drop a surveyed limit. The terminating
         # gate's GateFlowCalibration is NOT precomputed here: it is assembled per commanded
         # reach in `_reach_targets`, so a single bad gate calibration cannot abort
         # construction and take down /plan (which needs no flow calibration).

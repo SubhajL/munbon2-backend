@@ -143,16 +143,16 @@ class TestModelSnapshotEndpoint:
             "commandable": False,
             "response_model": None,
             "coverage": {
-                "total_reaches": 59,
+                "total_reaches": 58,
                 "available_reaches": 0,
-                "unavailable_reaches": 59,
+                "unavailable_reaches": 58,
             },
         }
         assert len(body["snapshot_id"]) == 64
         payload = {key: value for key, value in body.items() if key != "snapshot_id"}
         assert body["snapshot_id"] == content_hash(payload)
-        assert len(body["network"]["reaches"]) == 59
-        assert len(body["unavailable_reaches"]) == 59
+        assert len(body["network"]["reaches"]) == 58
+        assert len(body["unavailable_reaches"]) == 58
         assert {item["reason"] for item in body["unavailable_reaches"]} == {
             "hydraulic model release is not configured"
         }
@@ -180,9 +180,9 @@ class TestModelSnapshotEndpoint:
         ) == (
             "partial",
             {
-                "total_reaches": 59,
+                "total_reaches": 58,
                 "available_reaches": 1,
-                "unavailable_reaches": 58,
+                "unavailable_reaches": 57,
             },
             release.release_id,
             release.content_hash,

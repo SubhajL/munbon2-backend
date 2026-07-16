@@ -50,20 +50,20 @@ class TestAppScopedConstruction:
     def test_capacity_index_is_warm_and_populated(self, service):
         assert len(service._canal_capacity_index()) > 0
 
-    def test_canonical_geometry_joins_all_42_surveyed_reaches(self, service):
+    def test_canonical_geometry_joins_all_41_surveyed_reaches(self, service):
         # 2.1b: every serial gate-to-gate reach carries survey geometry; the
         # legacy solver aggregates a reach's segment pieces into one section.
         sections = service.hydraulic_solver.canal_sections
-        assert len(sections) == 42
-        assert "M(0,0)->M(0,1)" in sections  # normalized compact keys
-        # M(0,13)->M(0,14) is surveyed as four pieces (240+160+200+350 m); the
-        # aggregate must carry the full reach length, not the last piece's.
-        assert sections["M(0,13)->M(0,14)"].length_m == 950
+        assert len(sections) == 41
+        assert "M(0,0)->M(0,2)" in sections
+        # M(0,13)->M(0,14) is surveyed as three in-reach pieces (240+160+200 m);
+        # the 350 m post-terminal tail is intentionally excluded.
+        assert sections["M(0,13)->M(0,14)"].length_m == 600
         # QCHECK 2.1b HIGH: partially surveyed reaches must use the PHYSICAL
         # gate-to-gate span (the `reaches` block), not the covered-piece sum —
-        # travel time and friction loss run over real distance. M(0,0)->M(0,1)
-        # spans 300 m of which only 130 m (post-flume) carries survey rows.
-        assert sections["M(0,0)->M(0,1)"].length_m == 300
+        # travel time and friction loss run over real distance. M(0,0)->M(0,2)
+        # spans 1,620 m of which 1,450 m (post-flume) carries survey rows.
+        assert sections["M(0,0)->M(0,2)"].length_m == 1620
 
     def test_multi_piece_aggregation_semantics(self, tmp_path):
         # The aggregate CanalSection is: span length, WEAKEST piece q_max, and
@@ -117,9 +117,8 @@ class TestAppScopedConstruction:
         assert section.bottom_width_m == 3.5  # upstream piece by chainage
 
     def test_head_loss_lookup_joins_spaced_network_ids(self, service):
-        # The network file spells 44/59 ids with survey spacing while geometry keys
-        # normalize compact — the head-loss lookup must join them, not silently
-        # return 0.0 for every real reach.
+        # Network and geometry identifiers normalize through the same boundary before
+        # lookup, so head loss cannot silently disappear through formatting drift.
         sections = service.hydraulic_solver.canal_sections
         edges = json.loads(NETWORK.read_text())["edges"]
         surveyed = [
@@ -203,13 +202,13 @@ class TestVerifySchedule:
         # A dict overwrite would silently verify only the LAST delivery; the reach
         # must carry the combined flow.
         single = asyncio.run(
-            service.verify_schedule([{"node_id": "M(0,1)", "flow_rate": 4.0}])
+            service.verify_schedule([{"node_id": "M(0,2)", "flow_rate": 4.0}])
         )
         combined = asyncio.run(
             service.verify_schedule(
                 [
-                    {"node_id": "M(0,1)", "flow_rate": 2.0},
-                    {"node_id": "M(0,1)", "flow_rate": 2.0},
+                    {"node_id": "M(0,2)", "flow_rate": 2.0},
+                    {"node_id": "M(0,2)", "flow_rate": 2.0},
                 ]
             )
         )
@@ -220,7 +219,7 @@ class TestVerifySchedule:
         # The legacy solver-simulation seam returns None (its API never matched);
         # verify_schedule must treat that as not-verified, never AttributeError.
         result = asyncio.run(
-            service.verify_schedule([{"node_id": "M(0,1)", "flow_rate": 3.0}])
+            service.verify_schedule([{"node_id": "M(0,2)", "flow_rate": 3.0}])
         )
         assert result["is_feasible"] is False
         assert result["convergence"] is None
@@ -305,7 +304,7 @@ class TestModelFacadesAre501(object):
         resp = client.post(
             "/api/v1/hydraulics/verify-schedule",
             json={
-                "schedule": {"deliveries": [{"node_id": "M(0,1)", "flow_rate": 3.0}]}
+                "schedule": {"deliveries": [{"node_id": "M(0,2)", "flow_rate": 3.0}]}
             },
         )
         assert resp.status_code == 200
@@ -327,9 +326,9 @@ class TestHonestCapacities:
         assert service._get_gate_capacity("M(0,0)") == pytest.approx(11.2)
 
     def test_gate_capacity_falls_back_to_flow_law_when_unrated(self, service):
-        # M(0,1) has no rated q_max in the calibration table: the capacity comes
+        # M(0,14) has no rated q_max in the calibration table: the capacity comes
         # from the corrected flow law at max opening — never the old flat 10.0.
-        capacity = service._get_gate_capacity("M(0,1)")
+        capacity = service._get_gate_capacity("M(0,14)")
         assert capacity > 0
         assert capacity != pytest.approx(10.0)
 
@@ -344,11 +343,11 @@ class TestHonestCapacities:
             "warning",
             lambda msg, *a, **k: warnings.append(msg % a if a else msg),
         )
-        service._get_gate_capacity("M(0,1)")
+        service._get_gate_capacity("M(0,14)")
         assert any("calibration" in w for w in warnings)
 
     def test_circular_gate_uses_workbook_diameter_not_two_metre_default(self, service):
-        gate_id = "M(0,1;1,0;1,0)"
+        gate_id = "M(0,0;2,0;1,0)"
         calibration = service.calibration_loader.get_calibration(gate_id)
         flow_calibration = service._build_gate_flow_cal(gate_id, calibration)
         assert (
@@ -365,7 +364,7 @@ class TestHonestCapacities:
         # but let max_opening_m default to 2.0 m, inflating the unrated gate's q_max
         # to 2.4 m3/s and its full-open flow to 1.426 m3/s. Bounded to the diameter,
         # the gate reports disc-area capacity and a far smaller, honest flow.
-        gate_id = "M(0,1;1,0;1,0)"
+        gate_id = "M(0,0;2,0;1,0)"
         calibration = service.calibration_loader.get_calibration(gate_id)
         cal = service._build_gate_flow_cal(gate_id, calibration)
         d = calibration.height_m
@@ -390,7 +389,7 @@ class TestHonestCapacities:
             k2=-2.5,
             calibration_method="inferred",
             confidence=0.5,
-            source_gate_ids=("M(0,1;1,1;1,0)",),
+            source_gate_ids=("M(0,0;2,1;1,0)",),
             source_version="v",
             shape=None,
             width_m=0.4,
@@ -422,16 +421,13 @@ class TestHonestCapacities:
         assert service._max_opening_from_geometry(no_geometry) is None
 
     def test_canal_capacity_is_bounded_by_the_weakest_surveyed_segment(self, service):
-        # M(0,1) has q_max=null in the canonical network (excluded from the gate
-        # index); before 2.1a this reach fell back to the 15.0 default. The 2.1b
-        # survey bounds it by the post-flume concrete section's design discharge
-        # Qd = 9.961 (the flume itself is rated 11.2 but has no cross-section
-        # survey; the concrete constriction downstream governs the reach).
-        assert service._get_canal_capacity("C_M(0,0)_M(0,1)") == pytest.approx(9.961)
+        # The first LMC reach is bounded by the weaker of the downstream gate's
+        # 8.737 m3/s rating and the surveyed concrete section's 9.961 m3/s rating.
+        assert service._get_canal_capacity("C_M(0,0)_M(0,2)") == pytest.approx(8.737)
 
     def test_verify_schedule_utilization_uses_honest_capacity(self, service):
         result = asyncio.run(
-            service.verify_schedule([{"node_id": "M(0,1)", "flow_rate": 3.0}])
+            service.verify_schedule([{"node_id": "M(0,2)", "flow_rate": 3.0}])
         )
         assert result["system_utilization"] == pytest.approx(3.0 / 11.2)
 
@@ -439,7 +435,7 @@ class TestHonestCapacities:
         # 15 m3/s cannot enter an 11.2 m3/s head no matter the gate settings; under
         # the old 30.0 this sailed through to per-gate checks.
         result = asyncio.run(
-            service.verify_schedule([{"node_id": "M(0,1)", "flow_rate": 15.0}])
+            service.verify_schedule([{"node_id": "M(0,2)", "flow_rate": 15.0}])
         )
         assert result["is_feasible"] is False
         assert result["reason"] == "Total demand exceeds system capacity"
