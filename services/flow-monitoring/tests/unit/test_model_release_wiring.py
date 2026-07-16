@@ -11,5 +11,7 @@ def test_lifespan_registers_configured_model_release_on_app_state():
             "load_configured_hydraulic_model_release(",
             "settings.hydraulic_model_release_path",
             "app.state.hydraulic_model_release",
+            "reach_responses_from_model_release(",
+            "app.state.reach_responses",
         )
     )
