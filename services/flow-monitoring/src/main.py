@@ -16,6 +16,7 @@ from core.logging import setup_logging
 from core.metrics import setup_metrics
 from core.model_release import load_configured_hydraulic_model_release
 from core.network_flow_controller import NetworkFlowController
+from core.reach_response import reach_responses_from_model_release
 from db.connections import DatabaseManager
 from db.demand_store_postgres import PostgresDemandStore
 
@@ -86,12 +87,17 @@ async def lifespan(app: FastAPI):
             flow_controller.edges,
         )
         if app.state.hydraulic_model_release is None:
+            app.state.reach_responses = ()
             logger.info("Hydraulic model release unavailable (no path configured)")
         else:
+            app.state.reach_responses = reach_responses_from_model_release(
+                app.state.hydraulic_model_release
+            )
             logger.info(
                 "Hydraulic model release loaded",
                 release_id=app.state.hydraulic_model_release.release_id,
                 content_hash=app.state.hydraulic_model_release.content_hash,
+                reach_response_members=len(app.state.reach_responses),
             )
 
         control_api.design_profile_service = DesignProfileService(
