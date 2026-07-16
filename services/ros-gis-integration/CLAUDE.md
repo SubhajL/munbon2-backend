@@ -55,7 +55,7 @@ apply, rollback, reapply on disposable PostGIS before shipping.
 `0003_daily_requirement_producer` adds append-only, section-level FE crop settings
 and a database uniqueness guard for non-failed runs with the same operational day and
 input hash. The runtime source manifest in `data/requirement_sources.json` pins the
-approved SCADA V2 crosswalk, GIS 47,385-rai section master contract, and corrected
+approved SCADA V3 crosswalk, GIS 47,385-rai section master contract, and corrected
 annual-plan sheet/hash/unit. The source loader reads `gis.zone` and
 `water_planning.zone_planting_dates` from the separately configured `postgres`
 database, activates immutable local section/crosswalk datasets, and fails a run when

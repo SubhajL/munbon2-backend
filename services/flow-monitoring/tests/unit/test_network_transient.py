@@ -232,7 +232,7 @@ class TestSimulateNetworkTimeline:
                 events=(GateFlowEvent("S", START, 1.0),),
             )
 
-    def test_canonical_timeline_has_complete_59_reach_coverage(self):
+    def test_canonical_timeline_has_complete_58_reach_coverage(self):
         network = json.loads(CANONICAL_NETWORK.read_text(encoding="utf-8"))
         edges = tuple(tuple(edge) for edge in network["edges"])
         responses = tuple(
@@ -259,7 +259,7 @@ class TestSimulateNetworkTimeline:
             len(timeline.final_reach_states),
             {state.reach_id for state in timeline.final_reach_states},
             timeline.mass_balance.balance_error_m3,
-        ) == (59, {response.reach_id for response in responses}, pytest.approx(0.0))
+        ) == (58, {response.reach_id for response in responses}, pytest.approx(0.0))
 
     def test_deterministic_replay_returns_the_same_immutable_timeline(self):
         edges = (("S", "A"),)

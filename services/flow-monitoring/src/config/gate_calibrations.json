@@ -1,13 +1,13 @@
 {
   "metadata": {
-    "source_workbook": "SCADA Section Detailed Information 2026-07-14 V2.0 SL.xlsx",
-    "source_sha256": "d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+    "source_workbook": "SCADA Section Detailed Information 2026-07-14 V3.0 SL.xlsx",
+    "source_sha256": "528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
     "generator": "scripts/build_scada_config.py",
     "description": "Gate calibration coefficients and provenance from Sheet1; unmeasured gates use provisional similar-gate inference.",
-    "total_gates": 59,
+    "total_gates": 58,
     "gates_by_calibration_method": {
       "measured": 10,
-      "inferred": 49,
+      "inferred": 48,
       "default": 0
     },
     "intended_use": "planning_only",
@@ -23,7 +23,7 @@
       "source_gate_ids": [
         "M(0,0)"
       ],
-      "source_version": "d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "PC",
       "q_max_m3s": 11.2,
       "zone": 1,
@@ -34,26 +34,6 @@
       "structure_data_status": "complete",
       "structure_role": "control"
     },
-    "M(0,1)": {
-      "gate_id": "M(0,1)",
-      "calibration_method": "inferred",
-      "k1": 1.259347,
-      "k2": -1.312798,
-      "confidence": 0.138241,
-      "source_gate_ids": [
-        "M(0,0)",
-        "M(0,2)",
-        "M(0,7)"
-      ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
-      "canal_class": "PC",
-      "design_fsl_msl_m": null,
-      "sill_msl_m": null,
-      "structure_max_flow_m3s": null,
-      "design_fsl_reference_side": null,
-      "structure_data_status": "unavailable",
-      "structure_role": "junction"
-    },
     "M(0,2)": {
       "gate_id": "M(0,2)",
       "calibration_method": "measured",
@@ -63,7 +43,7 @@
       "source_gate_ids": [
         "M(0,2)"
       ],
-      "source_version": "d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "PC",
       "shape": "rectangular",
       "width_m": 4,
@@ -88,7 +68,7 @@
         "M(0,2)",
         "M(0,0;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "PC",
       "shape": "rectangular",
       "width_m": 3.6,
@@ -113,7 +93,7 @@
         "M(0,2)",
         "M(0,0;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "PC",
       "shape": "rectangular",
       "width_m": 3.6,
@@ -138,7 +118,7 @@
         "M(0,2)",
         "M(0,0;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "PC",
       "shape": "rectangular",
       "width_m": 3.6,
@@ -163,7 +143,7 @@
         "M(0,2)",
         "M(0,0;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "PC",
       "shape": "rectangular",
       "width_m": 3.6,
@@ -186,7 +166,7 @@
       "source_gate_ids": [
         "M(0,7)"
       ],
-      "source_version": "d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "PC",
       "shape": "rectangular",
       "width_m": 3.6,
@@ -209,9 +189,9 @@
       "source_gate_ids": [
         "M(0,7)",
         "M(0,2)",
-        "M(0,1;1,0)"
+        "M(0,0;2,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "PC",
       "shape": "rectangular",
       "width_m": 2,
@@ -234,9 +214,9 @@
       "source_gate_ids": [
         "M(0,7)",
         "M(0,2)",
-        "M(0,1;1,0)"
+        "M(0,0;2,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "PC",
       "shape": "rectangular",
       "width_m": 1.8,
@@ -259,9 +239,9 @@
       "source_gate_ids": [
         "M(0,7)",
         "M(0,2)",
-        "M(0,1;1,0)"
+        "M(0,0;2,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "PC",
       "shape": "rectangular",
       "width_m": 1.8,
@@ -286,7 +266,7 @@
         "M(0,2)",
         "M(0,7)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "PC",
       "q_max_m3s": 4.179,
       "zone": 2,
@@ -308,7 +288,7 @@
         "M(0,2)",
         "M(0,7)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "PC",
       "q_max_m3s": 4.179,
       "zone": 2,
@@ -328,9 +308,9 @@
       "source_gate_ids": [
         "M(0,7)",
         "M(0,2)",
-        "M(0,1;1,0)"
+        "M(0,0;2,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "PC",
       "shape": "rectangular",
       "width_m": 1.5,
@@ -351,9 +331,9 @@
       "k2": -3.58,
       "confidence": 0.465597,
       "source_gate_ids": [
-        "M(0,1;1,1;1,0)"
+        "M(0,0;2,1;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "PC",
       "shape": "circular",
       "width_m": 0.5,
@@ -375,7 +355,7 @@
       "source_gate_ids": [
         "M(0,0;1,0)"
       ],
-      "source_version": "d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "WW",
       "shape": "rectangular",
       "width_m": 3,
@@ -388,16 +368,16 @@
       "structure_data_status": "unavailable",
       "structure_role": "control"
     },
-    "M(0,1;1,0)": {
-      "gate_id": "M(0,1;1,0)",
+    "M(0,0;2,0)": {
+      "gate_id": "M(0,0;2,0)",
       "calibration_method": "measured",
       "k1": 1.0244,
       "k2": -3.399,
       "confidence": 0.9934,
       "source_gate_ids": [
-        "M(0,1;1,0)"
+        "M(0,0;2,0)"
       ],
-      "source_version": "d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "SC",
       "shape": "rectangular",
       "width_m": 1.5,
@@ -411,8 +391,8 @@
       "structure_data_status": "complete",
       "structure_role": "control"
     },
-    "M(0,1;1,1)": {
-      "gate_id": "M(0,1;1,1)",
+    "M(0,0;2,1)": {
+      "gate_id": "M(0,0;2,1)",
       "calibration_method": "inferred",
       "k1": 1.156687,
       "k2": -1.633338,
@@ -422,7 +402,7 @@
         "M(0,12;1,0)",
         "M(0,3;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "SC",
       "shape": "rectangular",
       "width_m": 1.2,
@@ -436,8 +416,8 @@
       "structure_data_status": "complete",
       "structure_role": "control"
     },
-    "M(0,1;1,2)": {
-      "gate_id": "M(0,1;1,2)",
+    "M(0,0;2,2)": {
+      "gate_id": "M(0,0;2,2)",
       "calibration_method": "inferred",
       "k1": 1.156693,
       "k2": -1.633341,
@@ -447,7 +427,7 @@
         "M(0,12;1,0)",
         "M(0,3;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "SC",
       "shape": "rectangular",
       "width_m": 1.2,
@@ -461,16 +441,16 @@
       "structure_data_status": "complete",
       "structure_role": "control"
     },
-    "M(0,1;1,3)": {
-      "gate_id": "M(0,1;1,3)",
+    "M(0,0;2,3)": {
+      "gate_id": "M(0,0;2,3)",
       "calibration_method": "inferred",
       "k1": 1.3876,
       "k2": -3.58,
       "confidence": 0.496057,
       "source_gate_ids": [
-        "M(0,1;1,1;1,0)"
+        "M(0,0;2,1;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "SC",
       "shape": "circular",
       "width_m": 0.6,
@@ -483,8 +463,8 @@
       "structure_data_status": "complete",
       "structure_role": "control"
     },
-    "M(0,1;1,4)": {
-      "gate_id": "M(0,1;1,4)",
+    "M(0,0;2,4)": {
+      "gate_id": "M(0,0;2,4)",
       "calibration_method": "inferred",
       "k1": 1.156443,
       "k2": -1.633196,
@@ -494,7 +474,7 @@
         "M(0,12;1,0)",
         "M(0,3;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "SC",
       "shape": "rectangular",
       "width_m": 1,
@@ -506,16 +486,16 @@
       "structure_data_status": "unavailable",
       "structure_role": "tail"
     },
-    "M(0,1;1,0;1,0)": {
-      "gate_id": "M(0,1;1,0;1,0)",
+    "M(0,0;2,0;1,0)": {
+      "gate_id": "M(0,0;2,0;1,0)",
       "calibration_method": "inferred",
       "k1": 1.3876,
       "k2": -3.58,
       "confidence": 0.435137,
       "source_gate_ids": [
-        "M(0,1;1,1;1,0)"
+        "M(0,0;2,1;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "FTO",
       "shape": "circular",
       "width_m": 0.4,
@@ -528,16 +508,16 @@
       "structure_data_status": "unavailable",
       "structure_role": "turnout"
     },
-    "M(0,1;1,1;1,0)": {
-      "gate_id": "M(0,1;1,1;1,0)",
+    "M(0,0;2,1;1,0)": {
+      "gate_id": "M(0,0;2,1;1,0)",
       "calibration_method": "measured",
       "k1": 1.3876,
       "k2": -3.58,
       "confidence": 0.9946,
       "source_gate_ids": [
-        "M(0,1;1,1;1,0)"
+        "M(0,0;2,1;1,0)"
       ],
-      "source_version": "d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "TC",
       "shape": "circular",
       "width_m": 0.8,
@@ -551,8 +531,8 @@
       "structure_data_status": "complete",
       "structure_role": "control"
     },
-    "M(0,1;1,1;1,1)": {
-      "gate_id": "M(0,1;1,1;1,1)",
+    "M(0,0;2,1;1,1)": {
+      "gate_id": "M(0,0;2,1;1,1)",
       "calibration_method": "inferred",
       "k1": 1.156457,
       "k2": -1.633204,
@@ -562,7 +542,7 @@
         "M(0,12;1,0)",
         "M(0,3;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "TC",
       "shape": "rectangular",
       "width_m": 0.6,
@@ -575,8 +555,8 @@
       "structure_data_status": "complete",
       "structure_role": "control"
     },
-    "M(0,1;1,1;1,2)": {
-      "gate_id": "M(0,1;1,1;1,2)",
+    "M(0,0;2,1;1,2)": {
+      "gate_id": "M(0,0;2,1;1,2)",
       "calibration_method": "inferred",
       "k1": 1.156395,
       "k2": -1.633168,
@@ -586,7 +566,7 @@
         "M(0,12;1,0)",
         "M(0,3;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "TC",
       "shape": "rectangular",
       "width_m": 0.9,
@@ -600,8 +580,8 @@
       "structure_data_status": "complete",
       "structure_role": "control"
     },
-    "M(0,1;1,1;1,3)": {
-      "gate_id": "M(0,1;1,1;1,3)",
+    "M(0,0;2,1;1,3)": {
+      "gate_id": "M(0,0;2,1;1,3)",
       "calibration_method": "inferred",
       "k1": 1.156474,
       "k2": -1.633214,
@@ -611,7 +591,7 @@
         "M(0,12;1,0)",
         "M(0,3;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "TC",
       "shape": "rectangular",
       "width_m": 0.6,
@@ -625,16 +605,16 @@
       "structure_data_status": "complete",
       "structure_role": "control"
     },
-    "M(0,1;1,1;1,4)": {
-      "gate_id": "M(0,1;1,1;1,4)",
+    "M(0,0;2,1;1,4)": {
+      "gate_id": "M(0,0;2,1;1,4)",
       "calibration_method": "inferred",
       "k1": 1.3876,
       "k2": -3.58,
       "confidence": 0.604841,
       "source_gate_ids": [
-        "M(0,1;1,1;1,0)"
+        "M(0,0;2,1;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "TC",
       "shape": "circular",
       "width_m": 0.5,
@@ -647,16 +627,16 @@
       "structure_data_status": "incomplete",
       "structure_role": "tail"
     },
-    "M(0,1;1,1;1,2;1,0)": {
-      "gate_id": "M(0,1;1,1;1,2;1,0)",
+    "M(0,0;2,1;1,2;1,0)": {
+      "gate_id": "M(0,0;2,1;1,2;1,0)",
       "calibration_method": "inferred",
       "k1": 1.3876,
       "k2": -3.58,
       "confidence": 0.435137,
       "source_gate_ids": [
-        "M(0,1;1,1;1,0)"
+        "M(0,0;2,1;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "FTO",
       "shape": "circular",
       "width_m": 0.4,
@@ -678,7 +658,7 @@
       "source_gate_ids": [
         "M(0,3;1,0)"
       ],
-      "source_version": "d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "SC",
       "shape": "rectangular",
       "width_m": 1.25,
@@ -701,7 +681,7 @@
       "source_gate_ids": [
         "M(0,3;1,1)"
       ],
-      "source_version": "d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "SC",
       "shape": "rectangular",
       "width_m": 1.5,
@@ -722,9 +702,9 @@
       "k2": -3.58,
       "confidence": 0.508241,
       "source_gate_ids": [
-        "M(0,1;1,1;1,0)"
+        "M(0,0;2,1;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "SC",
       "shape": "circular",
       "width_m": 1,
@@ -745,9 +725,9 @@
       "k2": -3.58,
       "confidence": 0.465597,
       "source_gate_ids": [
-        "M(0,1;1,1;1,0)"
+        "M(0,0;2,1;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "SC",
       "shape": "circular",
       "width_m": 0.5,
@@ -767,9 +747,9 @@
       "k2": -3.58,
       "confidence": 0.69622,
       "source_gate_ids": [
-        "M(0,1;1,1;1,0)"
+        "M(0,0;2,1;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "TC",
       "shape": "circular",
       "width_m": 0.8,
@@ -790,9 +770,9 @@
       "k2": -3.58,
       "confidence": 0.604841,
       "source_gate_ids": [
-        "M(0,1;1,1;1,0)"
+        "M(0,0;2,1;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "TC",
       "shape": "circular",
       "width_m": 0.5,
@@ -812,9 +792,9 @@
       "k2": -3.58,
       "confidence": 0.635301,
       "source_gate_ids": [
-        "M(0,1;1,1;1,0)"
+        "M(0,0;2,1;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "TC",
       "shape": "circular",
       "width_m": 0.6,
@@ -835,9 +815,9 @@
       "k2": -3.58,
       "confidence": 0.604841,
       "source_gate_ids": [
-        "M(0,1;1,1;1,0)"
+        "M(0,0;2,1;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "TC",
       "shape": "circular",
       "width_m": 0.5,
@@ -859,7 +839,7 @@
       "source_gate_ids": [
         "M(0,12;1,0)"
       ],
-      "source_version": "d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "SC",
       "shape": "rectangular",
       "width_m": 1.25,
@@ -884,7 +864,7 @@
         "M(0,3;1,0)",
         "M(0,12;1,2)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "SC",
       "shape": "rectangular",
       "width_m": 1.25,
@@ -907,7 +887,7 @@
       "source_gate_ids": [
         "M(0,12;1,2)"
       ],
-      "source_version": "d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "SC",
       "shape": "rectangular",
       "width_m": 1.2,
@@ -928,9 +908,9 @@
       "k2": -3.58,
       "confidence": 0.508241,
       "source_gate_ids": [
-        "M(0,1;1,1;1,0)"
+        "M(0,0;2,1;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "SC",
       "shape": "circular",
       "width_m": 1,
@@ -951,9 +931,9 @@
       "k2": -3.58,
       "confidence": 0.508241,
       "source_gate_ids": [
-        "M(0,1;1,1;1,0)"
+        "M(0,0;2,1;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "SC",
       "shape": "circular",
       "width_m": 1,
@@ -974,9 +954,9 @@
       "k2": -3.58,
       "confidence": 0.465597,
       "source_gate_ids": [
-        "M(0,1;1,1;1,0)"
+        "M(0,0;2,1;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "SC",
       "shape": "circular",
       "width_m": 0.5,
@@ -996,9 +976,9 @@
       "k2": -3.58,
       "confidence": 0.574381,
       "source_gate_ids": [
-        "M(0,1;1,1;1,0)"
+        "M(0,0;2,1;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "TC",
       "shape": "circular",
       "width_m": 0.4,
@@ -1019,9 +999,9 @@
       "k2": -3.58,
       "confidence": 0.604841,
       "source_gate_ids": [
-        "M(0,1;1,1;1,0)"
+        "M(0,0;2,1;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "TC",
       "shape": "circular",
       "width_m": 0.5,
@@ -1045,7 +1025,7 @@
         "M(0,12;1,0)",
         "M(0,3;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "TC",
       "shape": "rectangular",
       "width_m": 1,
@@ -1070,7 +1050,7 @@
         "M(0,12;1,0)",
         "M(0,3;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "TC",
       "shape": "rectangular",
       "width_m": 0.6,
@@ -1091,9 +1071,9 @@
       "k2": -3.58,
       "confidence": 0.604841,
       "source_gate_ids": [
-        "M(0,1;1,1;1,0)"
+        "M(0,0;2,1;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "TC",
       "shape": "circular",
       "width_m": 0.5,
@@ -1113,9 +1093,9 @@
       "k2": -3.58,
       "confidence": 0.508241,
       "source_gate_ids": [
-        "M(0,1;1,1;1,0)"
+        "M(0,0;2,1;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "QC",
       "shape": "circular",
       "width_m": 1,
@@ -1140,7 +1120,7 @@
         "M(0,12;1,0)",
         "M(0,3;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "QC",
       "shape": "rectangular",
       "width_m": 0.6,
@@ -1161,9 +1141,9 @@
       "k2": -3.58,
       "confidence": 0.465597,
       "source_gate_ids": [
-        "M(0,1;1,1;1,0)"
+        "M(0,0;2,1;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "QC",
       "shape": "circular",
       "width_m": 0.5,
@@ -1183,9 +1163,9 @@
       "k2": -3.58,
       "confidence": 0.647485,
       "source_gate_ids": [
-        "M(0,1;1,1;1,0)"
+        "M(0,0;2,1;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "TC",
       "shape": "circular",
       "width_m": 1,
@@ -1206,9 +1186,9 @@
       "k2": -3.58,
       "confidence": 0.635301,
       "source_gate_ids": [
-        "M(0,1;1,1;1,0)"
+        "M(0,0;2,1;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "TC",
       "shape": "circular",
       "width_m": 0.6,
@@ -1233,7 +1213,7 @@
         "M(0,3;1,0)",
         "M(0,12;1,2)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "TC",
       "shape": "rectangular",
       "width_m": 1.25,
@@ -1253,9 +1233,9 @@
       "k2": -3.58,
       "confidence": 0.496057,
       "source_gate_ids": [
-        "M(0,1;1,1;1,0)"
+        "M(0,0;2,1;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "QC",
       "shape": "circular",
       "width_m": 0.6,
@@ -1276,9 +1256,9 @@
       "k2": -3.58,
       "confidence": 0.465597,
       "source_gate_ids": [
-        "M(0,1;1,1;1,0)"
+        "M(0,0;2,1;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "QC",
       "shape": "circular",
       "width_m": 0.5,
@@ -1298,9 +1278,9 @@
       "k2": -3.58,
       "confidence": 0.635301,
       "source_gate_ids": [
-        "M(0,1;1,1;1,0)"
+        "M(0,0;2,1;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "TC",
       "shape": "circular",
       "width_m": 0.6,
@@ -1321,9 +1301,9 @@
       "k2": -3.58,
       "confidence": 0.604841,
       "source_gate_ids": [
-        "M(0,1;1,1;1,0)"
+        "M(0,0;2,1;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "TC",
       "shape": "circular",
       "width_m": 0.5,
@@ -1343,9 +1323,9 @@
       "k2": -3.58,
       "confidence": 0.635301,
       "source_gate_ids": [
-        "M(0,1;1,1;1,0)"
+        "M(0,0;2,1;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "TC",
       "shape": "circular",
       "width_m": 0.6,
@@ -1366,9 +1346,9 @@
       "k2": -3.58,
       "confidence": 0.604841,
       "source_gate_ids": [
-        "M(0,1;1,1;1,0)"
+        "M(0,0;2,1;1,0)"
       ],
-      "source_version": "similar-gate-v1:d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167",
+      "source_version": "similar-gate-v1:528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
       "canal_class": "TC",
       "shape": "circular",
       "width_m": 0.5,

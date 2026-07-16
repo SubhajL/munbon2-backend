@@ -46,7 +46,7 @@
     {
       "zone": 6,
       "canal": "RMC",
-      "entrance_gate_id": "M(0,1;1,0)",
+      "entrance_gate_id": "M(0,0;2,0)",
       "branches_from_zone": null
     }
   ]

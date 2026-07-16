@@ -6,13 +6,12 @@ The generator replaces scripts/excel_to_canal_sections.py (whose Sheet1
 fail-closed pipeline: Sheet1 gate positions (per-gate `km`) cut the
 Characteristics survey rows (canal + chainage spans, true metres) into
 gate-to-gate edge segments in the 2.1a multi-segment geometry model, plus a
-59-edge coverage report. Every artifact is versioned with the workbook SHA-256,
+per-edge coverage report. Every artifact is versioned with the workbook SHA-256,
 and the committed artifacts are locked to regeneration (no hand-edit drift).
 
 Semantics locked here (documented in the generator):
-- Gate position authority is Sheet1's `km` column (the `Km. -> Km.` span text
-  disagrees on 4L-38R-LMC and several canal tails; `km` is the column the
-  ระยะทาง deltas are consistent with).
+- Gate position authority is Sheet1's `km` column; ระยะทาง is a validated
+  cross-check against the next existing physical valve.
 - Segment q_max is the Characteristics design discharge `Qd` (complete on every
   hydraulic row); `Qmax (จากแผนรอบเวรส่งน้ำ)` is a rotation-plan operational
   value and is patchy (absent for the whole RMC group).
@@ -47,9 +46,9 @@ WORKBOOK = (
     / "data"
     / "sources"
     / "scada"
-    / "SCADA Section Detailed Information 2026-07-14 V2.0 SL.xlsx"
+    / "SCADA Section Detailed Information 2026-07-14 V3.0 SL.xlsx"
 )
-WORKBOOK_SHA256 = "d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167"
+WORKBOOK_SHA256 = "528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c"
 CONFIG_DIR = SERVICE_ROOT / "src" / "config"
 
 _SPEC = importlib.util.spec_from_file_location(
@@ -181,6 +180,40 @@ class TestBuildSerialChains:
     def test_chain_order_follows_serial_position_not_input_order(self):
         chains = bsc.build_serial_chains(["M(0,2)", "M(0,0)", "M(0,1)"])
         assert chains == [["M(0,0)", "M(0,1)", "M(0,2)"]]
+
+    def test_chain_preserves_sparse_valve_numbers_without_inventing_a_gate(self):
+        chains = bsc.build_serial_chains(["M(0,2)", "M(0,0)"])
+        assert chains == [["M(0,0)", "M(0,2)"]]
+
+    def test_sparse_chain_without_position_zero_fails_closed(self):
+        with pytest.raises(bsc.WorkbookError, match="must start at position 0"):
+            bsc.build_serial_chains(["M(0,2)"])
+
+    def test_duplicate_serial_position_fails_closed(self):
+        with pytest.raises(bsc.WorkbookError, match="duplicate serial position"):
+            bsc.build_serial_chains(["M(0,0)", "M (0,0)"])
+
+
+class TestValidateGateDistances:
+    CHAIN = [["M(0,0)", "M(0,2)"]]
+
+    def test_accepts_distance_to_the_next_existing_sparse_valve(self):
+        gates = {
+            "M(0,0)": {"km_m": 0.0, "distance_km": 1.62},
+            "M(0,2)": {"km_m": 1620.0, "distance_km": None},
+        }
+        assert bsc.validate_gate_distances(self.CHAIN, gates) is None
+
+    def test_rejects_distance_left_at_the_removed_valve_position(self):
+        gates = {
+            "M(0,0)": {"km_m": 0.0, "distance_km": 0.17},
+            "M(0,2)": {"km_m": 1620.0, "distance_km": None},
+        }
+        with pytest.raises(
+            bsc.WorkbookError,
+            match=r"M\(0,0\).*0\.17 km.*1\.62 km.*M\(0,2\)",
+        ):
+            bsc.validate_gate_distances(self.CHAIN, gates)
 
 
 class TestMatchChainsToSurvey:
@@ -605,7 +638,7 @@ def artifacts():
 
 
 class TestRealWorkbookGeneration:
-    def test_v2_source_path_and_hash_are_exact(self):
+    def test_v3_source_path_and_hash_are_exact(self):
         assert WORKBOOK.is_file()
         assert hashlib.sha256(WORKBOOK.read_bytes()).hexdigest() == WORKBOOK_SHA256
         assert bsc.DEFAULT_WORKBOOK == WORKBOOK
@@ -627,7 +660,7 @@ class TestRealWorkbookGeneration:
         calibrations = artifacts["gate_calibrations"]
         assert calibrations["metadata"]["gates_by_calibration_method"] == {
             "measured": 10,
-            "inferred": 49,
+            "inferred": 48,
             "default": 0,
         }
         assert calibrations["gates"]["M(0,0)"] == {
@@ -654,22 +687,22 @@ class TestRealWorkbookGeneration:
 
         for artifact_name in ("network", "gate_calibrations"):
             gate_ids = list(artifacts[artifact_name]["gates"])
-            assert len(gate_ids) == 59
+            assert len(gate_ids) == 58
             assert all(gate_id == normalize_gate_id(gate_id) for gate_id in gate_ids)
 
-    def test_eight_complete_rmc_controls_carry_exact_v2_structure_fields(
+    def test_eight_complete_rmc_controls_carry_exact_v3_structure_fields(
         self, artifacts
     ):
         gates = artifacts["gate_calibrations"]["gates"]
         expected = {
-            "M(0,1;1,0)": (205.561, 203.712, 1.2),
-            "M(0,1;1,1)": (203.888, 202.938, 1.234),
-            "M(0,1;1,2)": (198.504, 197.954, 1.234),
-            "M(0,1;1,3)": (198.308, 197.258, 0.252),
-            "M(0,1;1,1;1,0)": (200.204, 199.404, 0.815),
-            "M(0,1;1,1;1,1)": (200.054, 199.254, 0.67),
-            "M(0,1;1,1;1,2)": (198.084, 197.334, 0.397),
-            "M(0,1;1,1;1,3)": (196.934, 196.284, 0.205),
+            "M(0,0;2,0)": (205.561, 203.712, 1.2),
+            "M(0,0;2,1)": (203.888, 202.938, 1.234),
+            "M(0,0;2,2)": (198.504, 197.954, 1.234),
+            "M(0,0;2,3)": (198.308, 197.258, 0.252),
+            "M(0,0;2,1;1,0)": (200.204, 199.404, 0.815),
+            "M(0,0;2,1;1,1)": (200.054, 199.254, 0.67),
+            "M(0,0;2,1;1,2)": (198.084, 197.334, 0.397),
+            "M(0,0;2,1;1,3)": (196.934, 196.284, 0.205),
         }
         assert {
             gate_id: (
@@ -686,7 +719,7 @@ class TestRealWorkbookGeneration:
             for gate_id in expected
         )
 
-    def test_junction_tail_and_turnout_structure_statuses_are_explicit(self, artifacts):
+    def test_tail_and_turnout_structure_statuses_are_explicit(self, artifacts):
         gates = artifacts["gate_calibrations"]["gates"]
         assert {
             gate_id: (
@@ -697,20 +730,18 @@ class TestRealWorkbookGeneration:
                 gates[gate_id]["structure_max_flow_m3s"],
             )
             for gate_id in (
-                "M(0,1)",
-                "M(0,1;1,1;1,4)",
-                "M(0,1;1,1;1,2;1,0)",
+                "M(0,0;2,1;1,4)",
+                "M(0,0;2,1;1,2;1,0)",
             )
         } == {
-            "M(0,1)": ("junction", "unavailable", None, None, None),
-            "M(0,1;1,1;1,4)": (
+            "M(0,0;2,1;1,4)": (
                 "tail",
                 "incomplete",
                 195.354,
                 194.854,
                 None,
             ),
-            "M(0,1;1,1;1,2;1,0)": (
+            "M(0,0;2,1;1,2;1,0)": (
                 "turnout",
                 "unavailable",
                 None,
@@ -740,7 +771,7 @@ class TestRealWorkbookGeneration:
             if gate["calibration_method"] == "measured"
         ]
         assert calibrations["metadata"]["intended_use"] == "planning_only"
-        assert len(inferred) == 49
+        assert len(inferred) == 48
         assert all(0.0 < gate["confidence"] < 0.9805 for gate in inferred)
         assert all(1 <= len(gate["source_gate_ids"]) <= 3 for gate in inferred)
         assert all(set(gate["source_gate_ids"]) <= measured for gate in inferred)
@@ -766,7 +797,7 @@ class TestRealWorkbookGeneration:
         } == {gate_id: gate.get("q_max") for gate_id, gate in network_gates.items()}
 
     def test_circular_gate_height_is_used_as_its_hydraulic_width(self, artifacts):
-        gate = artifacts["gate_calibrations"]["gates"]["M(0,1;1,0;1,0)"]
+        gate = artifacts["gate_calibrations"]["gates"]["M(0,0;2,0;1,0)"]
         assert (gate["shape"], gate["width_m"], gate["height_m"]) == (
             "circular",
             0.4,
@@ -777,15 +808,15 @@ class TestRealWorkbookGeneration:
         path = tmp_path / "canal_geometry.json"
         path.write_text(json.dumps(artifacts["canal_geometry"]), encoding="utf-8")
         data = load_canal_geometry_config(str(path))
-        # 99 survey rows - 1 flume (no cross-section) - 1 beyond-last-gate tail
-        # + 6 split-at-gate pieces = 103 emitted segments.
-        assert data["summary"]["total_sections"] == len(data["canal_sections"]) == 103
+        # 99 survey rows - 1 flume (no cross-section) - 8 post-terminal tails
+        # + 4 split-at-gate pieces = 94 emitted segments.
+        assert data["summary"]["total_sections"] == len(data["canal_sections"]) == 94
 
     def test_network_passes_the_strict_runtime_loader(self, artifacts, tmp_path):
         path = tmp_path / "network.json"
         path.write_text(json.dumps(artifacts["network"]), encoding="utf-8")
         data = load_network_config(str(path))
-        assert len(data["gates"]) == 59 and len(data["edges"]) == 59
+        assert len(data["gates"]) == 58 and len(data["edges"]) == 58
 
     def test_network_edges_equal_the_naming_grammar_derivation(self, artifacts):
         net = artifacts["network"]
@@ -793,24 +824,23 @@ class TestRealWorkbookGeneration:
 
     def test_geometry_feeds_the_multisegment_runtime_indexer(self, artifacts):
         sections = sections_by_edge_from_geometry(artifacts["canal_geometry"])
-        assert len(sections) == 42  # every serial gate-to-gate reach is surveyed
+        assert len(sections) == 41  # every serial gate-to-gate reach is surveyed
 
     def test_first_lmc_reach_is_the_post_flume_concrete_piece(self, artifacts):
-        # Edge M(0,0)->M(0,1) spans 0+000-0+300; the flume [0,170] has no
-        # cross-section, so the only emitted segment is [170,300] of the
-        # 0+170-1+620 concrete row.
+        # M(0,1) does not exist. The first LMC reach runs directly from M(0,0)
+        # to M(0,2); its flume [0,170] has no cross-section.
         sections = sections_by_edge_from_geometry(artifacts["canal_geometry"])
-        [seg] = sections[("M(0,0)", "M(0,1)")]
-        assert seg["length_m"] == 130
-        assert seg["from_km_m"] == 170.0 and seg["to_km_m"] == 300.0
+        [seg] = sections[("M(0,0)", "M(0,2)")]
+        assert seg["length_m"] == 1450
+        assert seg["from_km_m"] == 170.0 and seg["to_km_m"] == 1620.0
         assert seg["q_max"] == 9.961  # Qd of the source row
         assert seg["seepage_rate_m_s"] == 1.0e-5  # concrete
 
-    def test_lmc_tail_reach_aggregates_four_segments_ending_in_earth(self, artifacts):
+    def test_lmc_tail_reach_stops_before_the_post_terminal_earth_row(self, artifacts):
         sections = sections_by_edge_from_geometry(artifacts["canal_geometry"])
         segs = sections[("M(0,13)", "M(0,14)")]
-        assert [s["length_m"] for s in segs] == [240, 160, 200, 350]
-        assert segs[-1]["seepage_rate_m_s"] == 2.0e-5  # คลองดิน tail
+        assert [s["length_m"] for s in segs] == [240, 160, 200]
+        assert segs[-1]["seepage_rate_m_s"] == 1.0e-5
 
     def test_side_slope_is_derived_not_the_lining_thickness(self, artifacts):
         slopes = {
@@ -826,18 +856,18 @@ class TestRealWorkbookGeneration:
             by_zone[f"zone_{s['zone']}"] = by_zone.get(f"zone_{s['zone']}", 0) + 1
         assert artifacts["canal_geometry"]["summary"]["by_zone"] == by_zone
 
-    def test_coverage_report_covers_all_59_edges(self, artifacts):
+    def test_coverage_report_covers_all_58_edges(self, artifacts):
         edges = artifacts["geometry_coverage"]["edges"]
-        assert len(edges) == 59
+        assert len(edges) == 58
         by_status = {}
         for e in edges:
             by_status[e["status"]] = by_status.get(e["status"], 0) + 1
-        assert by_status == {"full": 37, "partial": 5, "not_applicable": 17}
+        assert by_status == {"full": 40, "partial": 1, "not_applicable": 17}
         by_category = {}
         for e in edges:
             by_category[e["category"]] = by_category.get(e["category"], 0) + 1
         assert by_category == {
-            "serial": 42,
+            "serial": 41,
             "junction_head": 13,
             "offtake": 3,
             "source": 1,
@@ -850,16 +880,12 @@ class TestRealWorkbookGeneration:
             if e["status"] == "partial"
         }
         assert gaps == {
-            ("M(0,0)", "M(0,1)"): 170.0,  # flume, no cross-section
-            ("M(0,12;1,1;1,1)", "M(0,12;1,1;1,2)"): 30.0,
-            ("M(0,12;1,2;1,1)", "M(0,12;1,2;1,2)"): 1200.0,
-            ("M(0,12;1,2;1,0;1,0)", "M(0,12;1,2;1,0;1,1)"): 410.0,
-            ("M(0,1;1,3)", "M(0,1;1,4)"): 80.0,
+            ("M(0,0)", "M(0,2)"): 170.0,
         }
 
     def test_skipped_rows_are_reported(self, artifacts):
         skipped = artifacts["geometry_coverage"]["summary"]["skipped_rows"]
-        assert skipped == {"missing_cross_section": 1, "beyond_last_gate": 1}
+        assert skipped == {"missing_cross_section": 1, "beyond_last_gate": 8}
 
     def test_structure_fields_are_scoped_to_the_planning_only_bundle(self, artifacts):
         for name in ("network", "canal_geometry", "geometry_coverage"):
@@ -872,12 +898,12 @@ class TestRealWorkbookGeneration:
         # The runtime needs the gate-to-gate span to measure head/tail survey
         # gaps (reach_chainage_gap_m) and physical reach length (legacy solver).
         reaches = artifacts["canal_geometry"]["reaches"]
-        assert len(reaches) == 42
+        assert len(reaches) == 41
         by_edge = {(r["from_node"], r["to_node"]): r for r in reaches}
-        first = by_edge[("M(0,0)", "M(0,1)")]
-        assert (first["from_km"], first["to_km"]) == ("0+000", "0+300")
-        assert first["span_m"] == 300
-        assert first["covered_m"] == 130 and first["gap_m"] == 170
+        first = by_edge[("M(0,0)", "M(0,2)")]
+        assert (first["from_km"], first["to_km"]) == ("0+000", "1+620")
+        assert first["span_m"] == 1620
+        assert first["covered_m"] == 1450 and first["gap_m"] == 170
         assert all(r["span_m"] == r["covered_m"] + r["gap_m"] for r in reaches)
 
     def test_rotation_plan_q_is_retained_alongside_qd(self, artifacts):
@@ -893,14 +919,11 @@ class TestRealWorkbookGeneration:
             "q_rotation_plan" not in s["geometry"]["hydraulic_params"] for s in rmc
         )
 
-    def test_blank_zone_omits_the_key_instead_of_null(self, artifacts):
-        # zone: null breaks legacy consumers doing gate.get('zone', 0) — the key
-        # existing with null returns None. Absence keeps the .get default and is
-        # honest strict JSON.
-        gate = artifacts["network"]["gates"]["M(0,1)"]
-        assert "zone" not in gate
-        others = [g for k, g in artifacts["network"]["gates"].items() if k != "M(0,1)"]
-        assert all(isinstance(g["zone"], int) for g in others)
+    def test_every_v3_gate_has_a_numeric_zone(self, artifacts):
+        assert all(
+            isinstance(gate["zone"], int)
+            for gate in artifacts["network"]["gates"].values()
+        )
 
     def test_every_section_carries_slope_and_q_max(self, artifacts):
         # area_m2 and qd are emission-required, so no section can ship without

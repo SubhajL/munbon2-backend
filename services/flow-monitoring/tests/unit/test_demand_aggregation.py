@@ -86,9 +86,9 @@ class TestReachLossSeam:
         assert head > TOTAL
 
     def test_none_loss_is_lossless(self):
-        assert required_flow_per_reach(TREE, DEMAND, reach_loss=None) == required_flow_per_reach(
-            TREE, DEMAND
-        )
+        assert required_flow_per_reach(
+            TREE, DEMAND, reach_loss=None
+        ) == required_flow_per_reach(TREE, DEMAND)
 
 
 class TestValidation:
@@ -130,7 +130,7 @@ class TestValidation:
 class TestCanonicalNetwork:
     def test_every_gate_with_area_is_served_by_its_reach(self):
         # A1: give each irrigated gate a demand; its terminating reach must carry >= it,
-        # and the head must carry the full sum (conservation on the real 59-gate tree).
+        # and the head must carry the full sum (conservation on the real 58-gate tree).
         edges, gates = _canonical_edges_and_gates()
         demand = {
             g: float(m["area"])
@@ -155,8 +155,8 @@ class TestCanonicalNetwork:
 
     def test_lateral_demand_flows_through_every_serial_reach(self):
         # F-11b regression guard: on the corrected serial-chain topology, demand at the tail
-        # of the M(0,1) lateral must flow through EVERY reach from the lateral head down to it.
-        # On the old star topology (offtakes hung directly off M(0,1)) the head reach would
+        # of the RMC must flow through EVERY reach from its head down to it.
+        # On the old star topology the head reach would
         # carry 0 and the intra-lateral reaches would not exist -> this fails.
         import re
 
@@ -166,13 +166,15 @@ class TestCanonicalNetwork:
             return re.sub(r"\s+", "", x)
 
         chain = sorted(
-            (g for g in gates if re.fullmatch(r"M\(0,1;1,\d+\)", norm(g))),
-            key=lambda g: int(re.fullmatch(r"M\(0,1;1,(\d+)\)", norm(g)).group(1)),
+            (g for g in gates if re.fullmatch(r"M\(0,0;2,\d+\)", norm(g))),
+            key=lambda g: int(re.fullmatch(r"M\(0,0;2,(\d+)\)", norm(g)).group(1)),
         )
-        head = next(g for g in gates if norm(g) == "M(0,1)")
-        assert len(chain) >= 3  # the real M(0,1) lateral has several serial gates
+        head = next(g for g in gates if norm(g) == "M(0,0)")
+        assert len(chain) >= 3
 
-        flow = required_flow_per_reach(edges, {chain[-1]: 5.0})  # water only at the tail
+        flow = required_flow_per_reach(
+            edges, {chain[-1]: 5.0}
+        )  # water only at the tail
         assert flow[(head, chain[0])] == pytest.approx(5.0)
         for upstream, downstream in zip(chain, chain[1:]):
             assert flow[(upstream, downstream)] == pytest.approx(5.0)

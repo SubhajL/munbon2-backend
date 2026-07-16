@@ -24,7 +24,7 @@ def _reject_bool(value, field_name: str):
 
 
 def _reject_bool_demand_values(demands):
-    """Same guard for the per-node demand map: `{"M(0,1)": true}` would otherwise coerce
+    """Same guard for the per-node demand map: `{"M(0,2)": true}` would otherwise coerce
     to 1.0 m3/s of phantom demand before the engine's bool check ever runs."""
     if isinstance(demands, dict):
         for node_id, value in demands.items():

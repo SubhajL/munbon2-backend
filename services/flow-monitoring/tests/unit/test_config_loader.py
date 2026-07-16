@@ -148,7 +148,7 @@ def _valid_zone_topology():
                 (3, "M(0,3;1,0)", 1),
                 (4, "M(0,12;1,0)", 2),
                 (5, "M(0,12;1,2)", 2),
-                (6, "M(0,1;1,0)", None),
+                (6, "M(0,0;2,0)", None),
             )
         ],
     }
@@ -184,8 +184,8 @@ class TestLoadStrictJsonObject:
 class TestLoadNetworkConfig:
     def test_accepts_committed_canonical_file(self):
         data = load_network_config(NETWORK)
-        assert len(data["gates"]) == 59
-        assert len(data["edges"]) == 59
+        assert len(data["gates"]) == 58
+        assert len(data["edges"]) == 58
 
     def test_accepts_minimal_consistent_network(self, tmp_path):
         data = load_network_config(_write(tmp_path, _valid_network()))
@@ -300,9 +300,9 @@ class TestLoadNetworkConfig:
 
 class TestLoadCanalGeometryConfig:
     def test_accepts_committed_canonical_file(self):
-        # 103 = 99 survey rows - flume - beyond-last-gate tail + 6 splits (2.1b).
+        # 94 = 99 survey rows - one flume row - eight post-terminal tails + four splits.
         data = load_canal_geometry_config(GEOMETRY)
-        assert len(data["canal_sections"]) == 103
+        assert len(data["canal_sections"]) == 94
 
     def test_accepts_minimal_consistent_geometry(self, tmp_path):
         data = load_canal_geometry_config(_write(tmp_path, _valid_geometry()))
@@ -424,7 +424,7 @@ class TestLoadCanalGeometryConfig:
 class TestLoadGateCalibrationsConfig:
     def test_accepts_committed_canonical_file(self):
         data = load_gate_calibrations_config(CALIBRATIONS)
-        assert len(data["gates"]) == 59
+        assert len(data["gates"]) == 58
         calibrated = [
             gate
             for gate in data["gates"].values()
@@ -780,7 +780,7 @@ class TestRuntimeWiring:
 
     def test_gate_calibration_loader_fails_closed_on_drift(self, tmp_path):
         # The old loader swallowed every error and served generic defaults for all
-        # 59 gates (fail-open); a drifted file must now refuse to load at all.
+        # all canonical gates (fail-open); a drifted file must now refuse to load.
         from utils.gate_calibration_loader import GateCalibrationLoader
 
         cal = _valid_calibrations()
@@ -826,7 +826,7 @@ class TestRuntimeWiring:
         from utils.gate_calibration_loader import GateCalibrationLoader
 
         loader = GateCalibrationLoader(CALIBRATIONS)
-        assert len(loader.calibrations) == 59
+        assert len(loader.calibrations) == 58
         cal = loader.get_calibration("M(0,0)")
         assert cal.calibration_method == "measured"
         assert cal.k1 == 1.0693

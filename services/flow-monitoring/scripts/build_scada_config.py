@@ -7,11 +7,11 @@ KILOMETRES and was written straight into `length_m` (the 1000x bug), and whose
 missing survey columns silently became invented defaults (10 m widths, 0.5 m
 freeboards, fabricated sills).
 
-Sources (workbook `SCADA Section Detailed Information 2026-07-14 V2.0 SL.xlsx`):
-- Sheet1 — the 59 gates: exact network ids, canal, zone, per-gate chainage
+Sources (workbook `SCADA Section Detailed Information 2026-07-14 V3.0 SL.xlsx`):
+- Sheet1 — the gates: exact network ids, canal, zone, per-gate chainage
   (`km`), rated q_max, service area. The `km` column is the gate-position
-  authority: the `Km. -> Km.` span text disagrees with it on 4L-38R-LMC and on
-  several canal tails, while the ระยะทาง deltas are consistent with `km`.
+  authority; the ระยะทาง column is validated against consecutive existing
+  valves without renumbering sparse physical SCADA ids.
 - Characteristics — 99 surveyed hydraulic segments keyed canal + chainage span
   (NOT gate ids), lengths in true metres (validated == chainage delta). The
   right-hand water-volume table (col >= 28) is ignored.
@@ -35,7 +35,7 @@ Semantics:
 Artifacts (all stamped with the workbook SHA-256):
   src/config/network.json            gates + edges_from_names topology
   src/config/canal_geometry.json     2.1a multi-segment survey geometry
-  src/config/geometry_coverage.json  59-edge coverage report
+  src/config/geometry_coverage.json  per-edge coverage report
   src/config/gate_calibrations.json  measured/inferred calibration provenance
 
 Run:  python scripts/build_scada_config.py [workbook.xlsx] [--out-dir DIR]
@@ -62,7 +62,7 @@ DEFAULT_WORKBOOK = (
     / "data"
     / "sources"
     / "scada"
-    / "SCADA Section Detailed Information 2026-07-14 V2.0 SL.xlsx"
+    / "SCADA Section Detailed Information 2026-07-14 V3.0 SL.xlsx"
 )
 DEFAULT_OUT_DIR = SERVICE_ROOT / "src" / "config"
 GENERATOR = "scripts/build_scada_config.py"
@@ -76,6 +76,7 @@ SHEET1_HEADERS = {
     15: "PC/SC/TC/QC",
     16: "km",
     17: "Area (Rais)",
+    20: "ระยะทาง (เมตร)",
     21: "q_max (m^3/s)",
     22: "k1",
     23: "k2",
@@ -198,7 +199,7 @@ def cell_number(value, where: str):
 
 
 def structure_number(value, where: str):
-    """Finite AH-AJ number, accepting the V2 workbook's decimal-text cells."""
+    """Finite AH-AJ number, accepting the workbook's decimal-text cells."""
     if value is None:
         return None
     if isinstance(value, bool):
@@ -222,8 +223,6 @@ def structure_number(value, where: str):
 def classify_structure_role(
     gate_id: str, canal_class: str, section_number: float | None
 ) -> str:
-    if gate_id == "M(0,1)":
-        return "junction"
     if canal_class == "FTO":
         return "turnout"
     if section_number is None and canal_class in {"PC", "SC", "TC", "QC"}:
@@ -333,6 +332,7 @@ def extract_gates(ws) -> list[dict]:
                 "parsed": [list(t) for t in parsed],
                 "km_text": str(cell(16)).strip() if cell(16) is not None else None,
                 "km_m": parse_km_marker(cell(16)),
+                "distance_km": cell_number(cell(20), f"Sheet1 gate {gate_id} distance"),
                 "q_max": q_max,
                 "area": cell_number(cell(17), f"Sheet1 gate {gate_id} Area"),
                 "k1": cell_number(cell(22), f"Sheet1 gate {gate_id} k1"),
@@ -440,7 +440,9 @@ def validate_survey_rows(rows: list[dict]) -> None:
 def build_serial_chains(gate_ids: list[str]) -> list[list[str]]:
     """Maximal serial gate chains under the naming grammar — each chain is one
     canal chainage axis. Chain key = (parent-path tuples, branch index); members
-    ordered by serial position and required to be consecutive from 0."""
+    ordered by serial position. Each chain must start at position 0, but sparse
+    later positions are retained because SCADA ids are physical identifiers, not
+    list indexes to renumber when a nonexistent valve is removed."""
     chains: dict = {}
     for gate_id in gate_ids:
         tuples = parse_gate_id(gate_id)
@@ -450,13 +452,33 @@ def build_serial_chains(gate_ids: list[str]) -> list[list[str]]:
     for key, members in chains.items():
         members.sort()
         positions = [pos for pos, _ in members]
-        if positions != list(range(len(members))):
+        if len(positions) != len(set(positions)):
             raise WorkbookError(
-                f"chain {key}: serial positions {positions} are not consecutive"
-                " from 0 — a gate is missing from Sheet1"
+                f"chain {key}: duplicate serial position in {positions}"
+            )
+        if positions[0] != 0:
+            raise WorkbookError(
+                f"chain {key}: serial positions {positions} must start at position 0"
             )
         result.append([gate_id for _, gate_id in members])
     return result
+
+
+def validate_gate_distances(chains: list[list[str]], gates_by_id: dict) -> None:
+    """Cross-check Sheet1 distances against authoritative gate chainages."""
+    for chain in chains:
+        for upstream, downstream in zip(chain, chain[1:]):
+            gate = gates_by_id[upstream]
+            expected_km = (gates_by_id[downstream]["km_m"] - gate["km_m"]) / 1000.0
+            distance_km = gate["distance_km"]
+            if (
+                distance_km is None
+                or abs(distance_km - expected_km) * 1000.0 > LENGTH_TOLERANCE_M
+            ):
+                raise WorkbookError(
+                    f"gate {upstream}: Sheet1 distance {distance_km!r} km does not"
+                    f" match chainage delta {expected_km:g} km to {downstream}"
+                )
 
 
 def match_chains_to_survey(
@@ -644,7 +666,7 @@ def classify_edges(
     matched_head_canals: dict,
     serial_coverage: dict,
 ) -> list:
-    """One coverage entry per network edge (all 59), fail-closed categories.
+    """One coverage entry per network edge, with fail-closed categories.
 
     - source: the root edge S -> M(0,0).
     - serial (measured): a gate-to-gate reach of a survey-matched chain — its
@@ -925,6 +947,7 @@ def build_all(workbook_path) -> dict:
     gates_by_id = {g["gate_id"]: g for g in gates}
     canal_by_gate = {g["gate_id"]: g["canal"] for g in gates}
     chains = build_serial_chains(gate_ids)
+    validate_gate_distances(chains, gates_by_id)
     survey_canals = list(dict.fromkeys(row["canal"] for row in survey))
     matched = match_chains_to_survey(chains, canal_by_gate, survey_canals)
     chain_canal = {chain[0]: canal for canal, chain in matched.items()}
@@ -1114,7 +1137,7 @@ def build_all(workbook_path) -> dict:
             workbook_path,
             sha256,
             (
-                "Per-edge survey coverage of the 59-edge network: which reaches"
+                "Per-edge survey coverage of the canonical network: which reaches"
                 " carry geometry, which chainage is unmapped and why. Junction"
                 " heads sit at their offtake (zero chainage span); offtakes"
                 " (Waste Way, FTOs) have no surveyed canal of their own."

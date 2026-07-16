@@ -3,8 +3,8 @@ core.network_topology — canonical network loading + connectivity guard (F-11).
 
 The wired topology (`munbon_network_final.json`) was ~76% wrong: most nodes were
 unreachable from the source. The canonical, validated topology is
-`src/config/network.json` (adopted from `munbon_network_updated.json`: a proper
-spanning tree, 60 nodes = 59 gates + source `S`, 59 edges, every node reachable).
+`src/config/network.json` (generated from the approved SCADA V3 workbook: a proper
+spanning tree, 59 nodes = 58 gates + source `S`, 58 edges, every node reachable).
 
 This module is PURE (stdlib only). `assert_connected` is the loader guard: it fails
 fast so hydraulics never run on a fragmented graph.
@@ -60,7 +60,7 @@ def is_spanning_tree(edges, root: str = ROOT) -> bool:
     nodes = nodes_of(edges)
     if len(edges) != len(nodes) - 1:
         return False
-    parent_count = defaultdict(int)
+    parent_count: defaultdict[str, int] = defaultdict(int)
     for _, child in edges:
         parent_count[child] += 1
     if any(count > 1 for count in parent_count.values()):
@@ -122,7 +122,9 @@ def topological_order(edges) -> list:
             if indegree[child] == 0:
                 queue.append(child)
     if len(order) != len(nodes):
-        raise NetworkTopologyError("graph contains a cycle; no topological order exists")
+        raise NetworkTopologyError(
+            "graph contains a cycle; no topological order exists"
+        )
     return order
 
 
@@ -146,12 +148,18 @@ def _normalize_gate_id(gate_id: str) -> str:
         raise NetworkTopologyError(str(exc)) from exc
 
 
-def _derived_parent(gate_id: str):
-    """Normalized parent id per the naming grammar, or None for the root head ``M(0,0)``."""
+def _derived_parent(gate_id: str, previous_serial: dict[str, str]):
+    """Normalized parent id, or None for the root head ``M(0,0)``."""
     tuples = _parse_gate_id(gate_id)
-    branch, pos = tuples[-1]
+    _, pos = tuples[-1]
     if pos > 0:
-        return _fmt_tuples(tuples[:-1] + [(branch, pos - 1)])  # serial predecessor
+        normalized = _normalize_gate_id(gate_id)
+        parent = previous_serial.get(normalized)
+        if parent is None:
+            raise NetworkTopologyError(
+                f"gate {gate_id!r}: serial chain has no earlier valve"
+            )
+        return parent
     if len(tuples) == 1:
         # Only the head gate M(0,0) hangs off the source; any other single tuple
         # (e.g. M(1,0)) would silently start a second root-attached chain.
@@ -167,23 +175,35 @@ def edges_from_names(gate_ids, root: str = ROOT) -> list[tuple[str, str]]:
     """Derive the serial-chain topology purely from the gate-id naming grammar (F-11b).
 
     Each id ``M(i,j; ...; a,p)`` encodes the path from the source to that valve. The
-    parent is: the serial predecessor ``(a, p-1)`` when ``p > 0``; the valve on the parent
-    canal (drop the last tuple) when ``p == 0``; the ``root`` for the single-tuple head
-    ``M(0,0)``. Emits the EXACT input id strings (irregular spacing preserved) so the edges
-    stay consistent with the gates dict. Raises ``NetworkTopologyError`` on a derived parent
+    parent is: the previous EXISTING serial valve when ``p > 0``; the valve on the
+    parent canal (drop the last tuple) when ``p == 0``; the ``root`` for the
+    single-tuple head ``M(0,0)``. Sparse serial labels are deliberate: removing a
+    nonexistent valve such as ``M(0,1)`` must not renumber downstream SCADA ids.
+    Emits the EXACT input id strings (irregular spacing preserved) so the edges stay
+    consistent with the gates dict. Raises ``NetworkTopologyError`` on a derived parent
     that is not among ``gate_ids`` or on two ids that normalize to the same node.
     """
-    exact: dict = {}
+    exact: dict[str, str] = {}
     for gate_id in gate_ids:
-        key = _normalize_gate_id(gate_id)
-        if key in exact:
+        normalized_id = _normalize_gate_id(gate_id)
+        if normalized_id in exact:
             raise NetworkTopologyError(
-                f"gate ids collide when normalized: {exact[key]!r} and {gate_id!r}"
+                f"gate ids collide when normalized: {exact[normalized_id]!r} and {gate_id!r}"
             )
-        exact[key] = gate_id
+        exact[normalized_id] = gate_id
+    serial_chains: dict = defaultdict(list)
+    for normalized in exact:
+        tuples = _parse_gate_id(normalized)
+        chain_key = (tuple(tuples[:-1]), tuples[-1][0])
+        serial_chains[chain_key].append((tuples[-1][1], normalized))
+    previous_serial = {}
+    for members in serial_chains.values():
+        members.sort()
+        for (_, parent), (_, child) in zip(members, members[1:]):
+            previous_serial[child] = parent
     edges = []
     for gate_id in gate_ids:
-        parent = _derived_parent(gate_id)
+        parent = _derived_parent(gate_id, previous_serial)
         if parent is None:
             edges.append((root, gate_id))
         elif parent in exact:

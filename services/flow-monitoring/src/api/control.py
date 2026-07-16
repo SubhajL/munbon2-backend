@@ -351,7 +351,7 @@ async def design_profile(
     request: DesignProfileRequest,
     service: DesignProfileService = Depends(get_design_profile_service),
 ) -> DesignProfileResponse:
-    """Static design levels under explicit V2 assumptions; never observed or commandable."""
+    """Static design levels under explicit workbook assumptions; never observed or commandable."""
     try:
         result = service.calculate(sorted(request.zones), request.flow_fraction)
     except DesignProfileError as exc:

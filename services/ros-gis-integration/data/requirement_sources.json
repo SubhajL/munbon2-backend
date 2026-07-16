@@ -7,9 +7,9 @@
     "total_area_rai": "47385"
   },
   "scada": {
-    "file": "SCADA Section Detailed Information 2026-07-14 V2.0 SL.xlsx",
+    "file": "SCADA Section Detailed Information 2026-07-14 V3.0 SL.xlsx",
     "sheet": "Sheet1",
-    "sha256": "d77ffb91ac647f1feacbd89f83858972240e732741429d0768ad78d1fe6c2167"
+    "sha256": "528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c"
   },
   "annual_plan": {
     "file": "แผนการส่งน้ำประจำปี 2569-ฤดูฝน (corrected).xlsx",
@@ -50,14 +50,14 @@
     {"section_number": 32, "gate_id": "M(0,12;1,2;1,0;1,0)", "irrigation_channel": "5R-4L-38R-LMC"},
     {"section_number": 33, "gate_id": "M(0,12;1,3;1,0)", "irrigation_channel": "6R-38R-LMC"},
     {"section_number": 34, "gate_id": "M(0,12;1,4;1,0)", "irrigation_channel": "8R-38R-LMC"},
-    {"section_number": 35, "gate_id": "M(0,1;1,0)", "irrigation_channel": "RMC"},
-    {"section_number": 36, "gate_id": "M(0,1;1,1)", "irrigation_channel": "RMC"},
-    {"section_number": 37, "gate_id": "M(0,1;1,2)", "irrigation_channel": "RMC"},
-    {"section_number": 38, "gate_id": "M(0,1;1,3)", "irrigation_channel": "RMC"},
-    {"section_number": 39, "gate_id": "M(0,1;1,1;1,0)", "irrigation_channel": "4L-RMC"},
-    {"section_number": 40, "gate_id": "M(0,1;1,1;1,1)", "irrigation_channel": "4L-RMC"},
-    {"section_number": 41, "gate_id": "M(0,1;1,1;1,2)", "irrigation_channel": "4L-RMC"},
-    {"section_number": 42, "gate_id": "M(0,1;1,1;1,3)", "irrigation_channel": "4L-RMC"},
-    {"section_number": 43, "gate_id": "M(0,1;1,1;1,4)", "irrigation_channel": "4L-RMC"}
+    {"section_number": 35, "gate_id": "M(0,0;2,0)", "irrigation_channel": "RMC"},
+    {"section_number": 36, "gate_id": "M(0,0;2,1)", "irrigation_channel": "RMC"},
+    {"section_number": 37, "gate_id": "M(0,0;2,2)", "irrigation_channel": "RMC"},
+    {"section_number": 38, "gate_id": "M(0,0;2,3)", "irrigation_channel": "RMC"},
+    {"section_number": 39, "gate_id": "M(0,0;2,1;1,0)", "irrigation_channel": "4L-RMC"},
+    {"section_number": 40, "gate_id": "M(0,0;2,1;1,1)", "irrigation_channel": "4L-RMC"},
+    {"section_number": 41, "gate_id": "M(0,0;2,1;1,2)", "irrigation_channel": "4L-RMC"},
+    {"section_number": 42, "gate_id": "M(0,0;2,1;1,3)", "irrigation_channel": "4L-RMC"},
+    {"section_number": 43, "gate_id": "M(0,0;2,1;1,4)", "irrigation_channel": "4L-RMC"}
   ]
 }

@@ -53,11 +53,16 @@ class DesignProfileService:
         self.topology = topology
         self.calibration_loader = GateCalibrationLoader(calibration_path)
         self.calibration_metadata = calibrations["metadata"]
-        self.parent_by_gate = {
-            normalize_node_id(child): normalize_node_id(parent)
-            for parent, child in network["edges"]
-        }
-        self.sections_by_edge = {}
+        self.parent_by_gate: dict[str, str] = {}
+        self.children_by_gate: dict[str, list[str]] = {}
+        for parent, child in network["edges"]:
+            normalized_parent = normalize_node_id(parent)
+            normalized_child = normalize_node_id(child)
+            self.parent_by_gate[normalized_child] = normalized_parent
+            self.children_by_gate.setdefault(normalized_parent, []).append(
+                normalized_child
+            )
+        self.sections_by_edge: dict[tuple[str, str], list[dict]] = {}
         for record in geometry["canal_sections"]:
             edge = (
                 normalize_node_id(record["from_node"]),
@@ -145,7 +150,7 @@ class DesignProfileService:
             result["status"] = "over_capacity"
             result["reason"] = "flow_exceeds_binding_capacity"
             return result
-        reference = self._upstream_reference_section(gate_id)
+        reference = self._reference_section(gate_id)
         if reference is None:
             result["reason"] = "upstream_geometry_unavailable"
             return result
@@ -185,9 +190,7 @@ class DesignProfileService:
         )
         return result
 
-    def _upstream_reference_section(
-        self, gate_id: str
-    ) -> tuple[tuple[str, str], dict] | None:
+    def _reference_section(self, gate_id: str) -> tuple[tuple[str, str], dict] | None:
         parent = self.parent_by_gate.get(gate_id)
         if parent is None:
             return None
@@ -196,8 +199,14 @@ class DesignProfileService:
         if direct:
             return direct_edge, direct[-1]
         grandparent = self.parent_by_gate.get(parent)
-        if grandparent is None:
-            return None
-        upstream_edge = (grandparent, parent)
-        upstream = self.sections_by_edge.get(upstream_edge)
-        return (upstream_edge, upstream[-1]) if upstream else None
+        if grandparent is not None:
+            upstream_edge = (grandparent, parent)
+            upstream = self.sections_by_edge.get(upstream_edge)
+            if upstream:
+                return upstream_edge, upstream[-1]
+        for child in self.children_by_gate.get(gate_id, []):
+            downstream_edge = (gate_id, child)
+            downstream = self.sections_by_edge.get(downstream_edge)
+            if downstream:
+                return downstream_edge, downstream[0]
+        return None
