@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 import math
@@ -19,6 +20,8 @@ from core.network_transient import (
     SectionRequirement,
     simulate_network_timeline,
 )
+from core.model_release import HydraulicModelRelease
+from core.model_snapshot import ModelSnapshotError, build_model_snapshot
 from core.reach_response import ReachResponse, ReachState, ResponseMember
 
 
@@ -97,4 +100,27 @@ class ControlPredictionService:
             self.network_edges,
             requirements,
             projections,
+        )
+
+    def model_snapshot(
+        self,
+        release: HydraulicModelRelease | None,
+        config_sha256: Mapping[str, str],
+        actuation_approved: bool,
+    ) -> dict:
+        expected_horizon = (
+            None
+            if release is None
+            else release.operating_envelope.maximum_horizon_seconds
+        )
+        if self.maximum_horizon_seconds != expected_horizon:
+            raise ModelSnapshotError(
+                "runtime prediction horizon does not match the model release"
+            )
+        return build_model_snapshot(
+            self.network_edges,
+            self.reach_responses,
+            release,
+            config_sha256,
+            actuation_approved,
         )

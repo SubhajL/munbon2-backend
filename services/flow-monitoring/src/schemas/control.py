@@ -2,7 +2,14 @@
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, StrictInt, StringConstraints, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictInt,
+    StringConstraints,
+    field_validator,
+)
 
 from schemas.demand import AwareUtc
 
@@ -221,6 +228,122 @@ class DesignProfileResponse(BaseModel):
     source_sha256: str
     config_sha256: dict[str, str]
     zones: list[ZoneDesignProfileOut]
+
+
+class _StrictModelSnapshotSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class ModelSnapshotReach(_StrictModelSnapshotSchema):
+    reach_id: str
+    upstream_node_id: str
+    downstream_node_id: str
+
+
+class ModelSnapshotNetwork(_StrictModelSnapshotSchema):
+    config_sha256: Sha256Hex
+    reach_count: int
+    reaches: list[ModelSnapshotReach]
+
+
+class ModelSnapshotActionConfigSha256(_StrictModelSnapshotSchema):
+    canal_geometry: Sha256Hex
+    gate_calibrations: Sha256Hex
+
+
+class ModelSnapshotOperatingEnvelope(_StrictModelSnapshotSchema):
+    minimum_flow_m3s: float
+    maximum_flow_m3s: float
+    minimum_timestep_seconds: float
+    maximum_timestep_seconds: float
+    maximum_horizon_seconds: float
+
+
+class ModelSnapshotActionModel(_StrictModelSnapshotSchema):
+    kind: Literal["gate_flow_event"]
+    flow_unit: Literal["m3/s"]
+    allowed_node_ids: list[Literal["S"]]
+    requires_explicit_branch_allocations: Literal[True]
+    commandable: Literal[False]
+    actuation_approved: bool
+    config_sha256: ModelSnapshotActionConfigSha256
+    operating_envelope: ModelSnapshotOperatingEnvelope | None
+
+
+class ModelSnapshotSource(_StrictModelSnapshotSchema):
+    source_id: str
+    version: str
+    sha256: Sha256Hex
+
+
+class ModelSnapshotLineage(_StrictModelSnapshotSchema):
+    generator: str
+    generator_version: str
+    sources: list[ModelSnapshotSource]
+
+
+class ModelSnapshotParameterDistribution(_StrictModelSnapshotSchema):
+    lower: float
+    nominal: float
+    upper: float
+
+
+class ModelSnapshotReachParameters(_StrictModelSnapshotSchema):
+    reach_id: str
+    delay_seconds: ModelSnapshotParameterDistribution
+    loss_fraction: ModelSnapshotParameterDistribution
+    dispersion_seconds: ModelSnapshotParameterDistribution
+    capacity_m3s: ModelSnapshotParameterDistribution
+    evidence_refs: list[str]
+
+
+class ModelSnapshotResponseMember(_StrictModelSnapshotSchema):
+    reach_id: str
+    member: Literal["lower", "nominal", "upper"]
+    delay_seconds: float
+    loss_fraction: float
+    dispersion_seconds: float
+    capacity_m3s: float
+    minimum_timestep_seconds: float
+    maximum_timestep_seconds: float
+
+
+class ModelSnapshotResponseModel(_StrictModelSnapshotSchema):
+    schema_version: Literal[1]
+    release_id: str
+    generated_at: AwareUtc
+    evidence_class: Literal["engineering_prior"]
+    commandable: Literal[False]
+    content_hash: Sha256Hex
+    lineage: ModelSnapshotLineage
+    reach_parameters: list[ModelSnapshotReachParameters]
+    response_members: list[ModelSnapshotResponseMember]
+
+
+class ModelSnapshotCoverage(_StrictModelSnapshotSchema):
+    total_reaches: int
+    available_reaches: int
+    unavailable_reaches: int
+
+
+class ModelSnapshotUnavailableReach(_StrictModelSnapshotSchema):
+    reach_id: str
+    reason: str
+
+
+class ModelSnapshotResponse(_StrictModelSnapshotSchema):
+    schema_version: Literal[1]
+    snapshot_id: Sha256Hex
+    data_status: Literal["complete", "partial", "unavailable"]
+    mode: Literal["open_loop_prediction"]
+    open_loop: Literal[True]
+    actual_state_known: Literal[False]
+    commandable: Literal[False]
+    network: ModelSnapshotNetwork
+    action_model: ModelSnapshotActionModel
+    response_model: ModelSnapshotResponseModel | None
+    coverage: ModelSnapshotCoverage
+    unavailable_reaches: list[ModelSnapshotUnavailableReach]
 
 
 class LevelValue(BaseModel):

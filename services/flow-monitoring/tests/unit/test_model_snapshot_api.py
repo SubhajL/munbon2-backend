@@ -1,0 +1,290 @@
+import copy
+import importlib.util
+from dataclasses import replace
+from datetime import datetime, timezone
+from pathlib import Path
+
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from pydantic import ValidationError
+
+from core.demand_contract import content_hash
+from core.model_release import (
+    EvidenceClass,
+    HydraulicModelRelease,
+    ModelLineage,
+    OperatingEnvelope,
+    ParameterDistribution,
+    ReachResponseParameters,
+    SourceArtifact,
+    UnavailableReach,
+    model_release_content_hash,
+)
+from core.network_flow_controller import NetworkFlowController
+from core.reach_response import reach_responses_from_model_release
+from schemas.control import ModelSnapshotResponse
+from services.control_prediction_service import ControlPredictionService
+
+SERVICE_ROOT = Path(__file__).resolve().parents[2]
+NETWORK = str(SERVICE_ROOT / "src" / "config" / "network.json")
+GEOMETRY = str(SERVICE_ROOT / "src" / "config" / "canal_geometry.json")
+CALIBRATIONS = str(SERVICE_ROOT / "src" / "config" / "gate_calibrations.json")
+CONTROL_PY = SERVICE_ROOT / "src" / "api" / "control.py"
+
+
+def _load_control():
+    spec = importlib.util.spec_from_file_location(
+        "flowmon_model_snapshot_api_under_test",
+        str(CONTROL_PY),
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _controller() -> NetworkFlowController:
+    return NetworkFlowController(NETWORK, GEOMETRY, CALIBRATIONS)
+
+
+def _model_release(
+    controller: NetworkFlowController,
+) -> HydraulicModelRelease:
+    reach_ids = tuple(
+        f"C_{upstream}_{downstream}" for upstream, downstream in controller.edges
+    )
+    release = HydraulicModelRelease(
+        schema_version=1,
+        release_id="engineering-prior-api-v1",
+        generated_at=datetime(2026, 7, 16, 2, 0, tzinfo=timezone.utc),
+        evidence_class=EvidenceClass.ENGINEERING_PRIOR,
+        commandable=False,
+        lineage=ModelLineage(
+            "build_hydraulic_model_release",
+            "1.0.0",
+            (
+                SourceArtifact(
+                    "network",
+                    "canonical-v1",
+                    controller.config_sha256["network"],
+                ),
+            ),
+        ),
+        operating_envelope=OperatingEnvelope(
+            0.0,
+            12.0,
+            60.0,
+            300.0,
+            604800.0,
+        ),
+        reach_parameters=(
+            ReachResponseParameters(
+                reach_ids[0],
+                ParameterDistribution(0.0, 0.0, 0.0),
+                ParameterDistribution(0.0, 0.0, 0.0),
+                ParameterDistribution(0.0, 0.0, 0.0),
+                ParameterDistribution(10.0, 11.0, 12.0),
+                ("network",),
+            ),
+        ),
+        unavailable_reaches=tuple(
+            UnavailableReach(reach_id, "engineering evidence is unavailable")
+            for reach_id in reach_ids[1:]
+        ),
+        content_hash="0" * 64,
+    )
+    return replace(release, content_hash=model_release_content_hash(release))
+
+
+def _app(
+    control,
+    controller: NetworkFlowController,
+    release: HydraulicModelRelease | None,
+) -> FastAPI:
+    responses = () if release is None else reach_responses_from_model_release(release)
+    maximum_horizon_seconds = (
+        None if release is None else release.operating_envelope.maximum_horizon_seconds
+    )
+    control.flow_controller = controller
+    app = FastAPI()
+    app.state.hydraulic_model_release = release
+    app.state.control_prediction_service = ControlPredictionService(
+        tuple(controller.edges),
+        responses,
+        maximum_horizon_seconds,
+    )
+    app.include_router(control.router, prefix="/api/v1/control")
+    return app
+
+
+class TestModelSnapshotEndpoint:
+    def test_returns_explicit_unavailable_state_without_configured_release(self):
+        control = _load_control()
+        controller = _controller()
+        client = TestClient(_app(control, controller, None))
+
+        first = client.post("/api/v1/control/model-snapshots")
+        second = client.post("/api/v1/control/model-snapshots")
+
+        assert first.status_code == second.status_code == 200
+        assert first.json() == second.json()
+        body = first.json()
+        assert {
+            "data_status": body["data_status"],
+            "open_loop": body["open_loop"],
+            "actual_state_known": body["actual_state_known"],
+            "commandable": body["commandable"],
+            "response_model": body["response_model"],
+            "coverage": body["coverage"],
+        } == {
+            "data_status": "unavailable",
+            "open_loop": True,
+            "actual_state_known": False,
+            "commandable": False,
+            "response_model": None,
+            "coverage": {
+                "total_reaches": 59,
+                "available_reaches": 0,
+                "unavailable_reaches": 59,
+            },
+        }
+        assert len(body["snapshot_id"]) == 64
+        payload = {key: value for key, value in body.items() if key != "snapshot_id"}
+        assert body["snapshot_id"] == content_hash(payload)
+        assert len(body["network"]["reaches"]) == 59
+        assert len(body["unavailable_reaches"]) == 59
+        assert {item["reason"] for item in body["unavailable_reaches"]} == {
+            "hydraulic model release is not configured"
+        }
+
+    def test_returns_configured_release_and_exact_action_lineage(self):
+        control = _load_control()
+        controller = _controller()
+        release = _model_release(controller)
+        response = TestClient(_app(control, controller, release)).post(
+            "/api/v1/control/model-snapshots"
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert (
+            body["data_status"],
+            body["coverage"],
+            body["response_model"]["release_id"],
+            body["response_model"]["content_hash"],
+            len(body["response_model"]["response_members"]),
+            body["action_model"]["config_sha256"],
+            body["action_model"]["allowed_node_ids"],
+            body["action_model"]["requires_explicit_branch_allocations"],
+            body["action_model"]["commandable"],
+        ) == (
+            "partial",
+            {
+                "total_reaches": 59,
+                "available_reaches": 1,
+                "unavailable_reaches": 58,
+            },
+            release.release_id,
+            release.content_hash,
+            3,
+            {
+                "canal_geometry": controller.config_sha256["canal_geometry"],
+                "gate_calibrations": controller.config_sha256["gate_calibrations"],
+            },
+            ["S"],
+            True,
+            False,
+        )
+        payload = {key: value for key, value in body.items() if key != "snapshot_id"}
+        assert body["snapshot_id"] == content_hash(payload)
+
+    @pytest.mark.parametrize("path", [(), ("action_model",)])
+    def test_response_schema_rejects_fields_outside_snapshot_identity(self, path):
+        control = _load_control()
+        controller = _controller()
+        body = (
+            TestClient(_app(control, controller, None))
+            .post("/api/v1/control/model-snapshots")
+            .json()
+        )
+        tampered = copy.deepcopy(body)
+        target = tampered
+        for key in path:
+            target = target[key]
+        target["unhashed_field"] = "must not be projected away"
+
+        with pytest.raises(ValidationError, match="extra"):
+            ModelSnapshotResponse.model_validate(tampered)
+
+    def test_returns_503_when_prediction_service_state_is_absent(self):
+        control = _load_control()
+        control.flow_controller = _controller()
+        app = FastAPI()
+        app.include_router(control.router, prefix="/api/v1/control")
+
+        response = TestClient(app).post("/api/v1/control/model-snapshots")
+
+        assert response.status_code == 503
+        assert response.json() == {
+            "detail": "Control prediction service not initialized"
+        }
+
+    def test_returns_503_when_release_state_is_absent(self):
+        control = _load_control()
+        controller = _controller()
+        control.flow_controller = controller
+        app = FastAPI()
+        app.state.control_prediction_service = ControlPredictionService(
+            tuple(controller.edges), (), None
+        )
+        app.include_router(control.router, prefix="/api/v1/control")
+
+        response = TestClient(app).post("/api/v1/control/model-snapshots")
+
+        assert response.status_code == 503
+        assert response.json() == {
+            "detail": "Hydraulic model release state not initialized"
+        }
+
+    def test_returns_503_when_runtime_and_release_state_drift(self):
+        control = _load_control()
+        controller = _controller()
+        release = _model_release(controller)
+        app = _app(control, controller, release)
+        app.state.hydraulic_model_release = None
+
+        response = TestClient(app).post("/api/v1/control/model-snapshots")
+
+        assert response.status_code == 503
+        assert "model" in response.json()["detail"]
+
+    def test_returns_503_when_prediction_service_state_has_wrong_type(self):
+        control = _load_control()
+        controller = _controller()
+        control.flow_controller = controller
+        app = FastAPI()
+        app.state.control_prediction_service = object()
+        app.state.hydraulic_model_release = None
+        app.include_router(control.router, prefix="/api/v1/control")
+
+        response = TestClient(app, raise_server_exceptions=False).post(
+            "/api/v1/control/model-snapshots"
+        )
+
+        assert response.status_code == 503
+        assert response.json() == {
+            "detail": "Control prediction service state is invalid"
+        }
+
+    def test_returns_503_when_release_state_has_wrong_type(self):
+        control = _load_control()
+        controller = _controller()
+        app = _app(control, controller, None)
+        app.state.hydraulic_model_release = object()
+
+        response = TestClient(app, raise_server_exceptions=False).post(
+            "/api/v1/control/model-snapshots"
+        )
+
+        assert response.status_code == 503
+        assert response.json() == {"detail": "Hydraulic model release state is invalid"}
