@@ -23,6 +23,7 @@ from db.demand_store_postgres import PostgresDemandStore
 # Kafka consumer is optional; import lazily when configured
 from controllers.dual_mode_gate_controller import DualModeGateController
 from services.design_profile_service import DesignProfileService
+from services.control_prediction_service import ControlPredictionService
 
 
 # Setup structured logging
@@ -99,6 +100,17 @@ async def lifespan(app: FastAPI):
                 content_hash=app.state.hydraulic_model_release.content_hash,
                 reach_response_members=len(app.state.reach_responses),
             )
+
+        app.state.control_prediction_service = ControlPredictionService(
+            network_edges=tuple(flow_controller.edges),
+            reach_responses=app.state.reach_responses,
+            maximum_horizon_seconds=(
+                None
+                if app.state.hydraulic_model_release is None
+                else app.state.hydraulic_model_release.operating_envelope.maximum_horizon_seconds
+            ),
+        )
+        logger.info("Control prediction service initialized (non-commanding)")
 
         control_api.design_profile_service = DesignProfileService(
             network_file,

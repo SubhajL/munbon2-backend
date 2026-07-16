@@ -13,5 +13,7 @@ def test_lifespan_registers_configured_model_release_on_app_state():
             "app.state.hydraulic_model_release",
             "reach_responses_from_model_release(",
             "app.state.reach_responses",
+            "ControlPredictionService(",
+            "app.state.control_prediction_service",
         )
     )
