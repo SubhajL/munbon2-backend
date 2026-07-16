@@ -1,5 +1,3 @@
-import pytest
-
 from config.settings import Settings
 
 
@@ -37,3 +35,14 @@ def test_settings_ignores_unknown_environment_keys():
     settings = Settings.model_validate(payload)
 
     assert not hasattr(settings, "unused_key")
+
+
+def test_hydraulic_model_release_path_is_optional_and_exact():
+    payload = _base_settings_payload()
+    assert Settings.model_validate(payload).hydraulic_model_release_path is None
+
+    payload["hydraulic_model_release_path"] = "/models/engineering-prior-v1.json"
+    assert (
+        Settings.model_validate(payload).hydraulic_model_release_path
+        == "/models/engineering-prior-v1.json"
+    )
