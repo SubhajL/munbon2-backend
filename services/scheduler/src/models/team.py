@@ -61,7 +61,10 @@ class FieldTeam(Base):
     
     __table_args__ = (
         Index('idx_team_status_active', 'status', 'active'),
-        Index('idx_team_zones', 'assigned_zones'),
+        # idx_team_zones removed (PR 4.2): a btree index on a JSON column is
+        # invalid on PostgreSQL, so create_all could never provision a fresh
+        # real database. Reintroduce as GIN-on-JSONB if zone lookups ever
+        # need it.
         {"extend_existing": True},
     )
 
@@ -92,7 +95,7 @@ class TeamMember(Base):
     active = Column(Boolean, default=True)
     
     # Relationships
-    team = relationship("FieldTeam", back_populates="members")
+    team = relationship(FieldTeam, back_populates="members")
     
     __table_args__ = (
         Index('idx_member_team', 'team_id'),
@@ -118,7 +121,7 @@ class TeamAvailability(Base):
     max_operations_override = Column(Integer, nullable=True)
     
     # Relationships
-    team = relationship("FieldTeam", back_populates="availabilities")
+    team = relationship(FieldTeam, back_populates="availabilities")
     
     __table_args__ = (
         UniqueConstraint('team_id', 'date', name='uq_team_date_availability'),
