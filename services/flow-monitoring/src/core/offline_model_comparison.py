@@ -19,8 +19,10 @@ from .network_transient import (
     GateFlowEvent,
     NetworkTimeline,
     NetworkTransientError,
+    OperatorWithdrawalEvent,
     SectionRequirement,
     route_gate_events,
+    route_operator_withdrawal_events,
 )
 from .reach_response import ResponseMember
 from .routing_topology import (
@@ -72,6 +74,8 @@ _CASE_KEYS = {
     "sample_semantics",
     "config_sha256",
     "routing_topology",
+    "withdrawal_events",
+    "withdrawal_structure_max_flow_m3s",
     "initial_state_kind",
     "starts_at",
     "ends_at",
@@ -116,6 +120,8 @@ class OfflineSimulationCase:
     member: ResponseMember
     config_sha256: tuple[tuple[str, str], ...]
     routing_topology: RoutingTopology
+    withdrawal_events: tuple[OperatorWithdrawalEvent, ...]
+    withdrawal_structure_max_flow_m3s: tuple[tuple[str, float | None], ...]
     initial_state_kind: str
     starts_at: datetime
     ends_at: datetime
@@ -209,6 +215,8 @@ def build_offline_simulation_case(
     ends_at: datetime,
     timestep_seconds: float,
     gate_events: tuple[GateFlowEvent, ...],
+    withdrawal_events: tuple[OperatorWithdrawalEvent, ...],
+    withdrawal_structure_max_flow_m3s: dict[str, float | None],
     requirements: tuple[SectionRequirement, ...],
     branch_allocations: tuple[BranchAllocation, ...],
 ) -> OfflineSimulationCase:
@@ -223,23 +231,34 @@ def build_offline_simulation_case(
         raise OfflineModelComparisonError(
             "routing_topology must be a typed RoutingTopology"
         )
-    routing_edges = routing_topology.routing_edges()
+    allocation_edges = routing_topology.allocation_edges()
     _validate_timeline_bounds(starts_at, ends_at, timestep_seconds)
     normalized_events = _normalize_gate_events(
         gate_events, starts_at, ends_at, timestep_seconds
     )
+    normalized_withdrawal_events = _normalize_withdrawal_events(
+        withdrawal_events,
+        routing_topology,
+        starts_at,
+        ends_at,
+        timestep_seconds,
+    )
+    normalized_capacity = _normalize_withdrawal_capacity(
+        withdrawal_structure_max_flow_m3s, routing_topology
+    )
     normalized_requirements = _normalize_requirements(
         requirements,
-        routing_topology.canonical_gate_node_ids(),
+        routing_topology.canonical_gate_node_ids()
+        - set(routing_topology.withdrawal_structure_node_ids()),
         starts_at,
         ends_at,
         timestep_seconds,
     )
     normalized_allocations = _normalize_branch_allocations(
-        branch_allocations, routing_edges
+        branch_allocations, allocation_edges
     )
     case = OfflineSimulationCase(
-        schema_version=2,
+        schema_version=3,
         case_id=case_id.strip(),
         model_snapshot_id=model_snapshot_id,
         model_release_id=model_release_id.strip(),
@@ -247,6 +266,8 @@ def build_offline_simulation_case(
         member=member,
         config_sha256=normalized_config,
         routing_topology=routing_topology,
+        withdrawal_events=normalized_withdrawal_events,
+        withdrawal_structure_max_flow_m3s=normalized_capacity,
         initial_state_kind=_INITIAL_STATE_KIND,
         starts_at=starts_at.astimezone(timezone.utc),
         ends_at=ends_at.astimezone(timezone.utc),
@@ -266,9 +287,9 @@ def offline_simulation_case_payload(case: OfflineSimulationCase) -> dict:
 
 def load_offline_simulation_case(path: str | Path) -> OfflineSimulationCase:
     data = _load_json(path)
+    if _require_integer(data, "schema_version", "offline_case") != 3:
+        raise OfflineModelComparisonError("offline_case.schema_version must be 3")
     _require_exact_keys(data, _CASE_KEYS, "offline_case")
-    if _require_integer(data, "schema_version", "offline_case") != 2:
-        raise OfflineModelComparisonError("offline_case.schema_version must be 2")
     initial_state_kind = _require_string(data, "initial_state_kind", "offline_case")
     if initial_state_kind != _INITIAL_STATE_KIND:
         raise OfflineModelComparisonError("offline_case.initial_state_kind must be dry")
@@ -296,6 +317,15 @@ def load_offline_simulation_case(path: str | Path) -> OfflineSimulationCase:
         config_sha256=_require_object(data, "config_sha256", "offline_case"),
         routing_topology=_parse_routing_topology(
             _require_object(data, "routing_topology", "offline_case")
+        ),
+        withdrawal_events=tuple(
+            _parse_withdrawal_event(value, index)
+            for index, value in enumerate(
+                _require_array(data, "withdrawal_events", "offline_case")
+            )
+        ),
+        withdrawal_structure_max_flow_m3s=_require_object(
+            data, "withdrawal_structure_max_flow_m3s", "offline_case"
         ),
         starts_at=_parse_datetime(
             _require_string(data, "starts_at", "offline_case"),
@@ -498,6 +528,19 @@ def _case_payload(case: OfflineSimulationCase, include_hash: bool) -> dict:
                 "elements"
             ],
         },
+        "withdrawal_events": [
+            {
+                "structure_id": event.structure_id,
+                "effective_at": _format_datetime(event.effective_at),
+                "planned_flow_m3s": event.planned_flow_m3s,
+                "purpose": event.purpose,
+                "operator_reference": event.operator_reference,
+            }
+            for event in case.withdrawal_events
+        ],
+        "withdrawal_structure_max_flow_m3s": dict(
+            case.withdrawal_structure_max_flow_m3s
+        ),
         "initial_state_kind": case.initial_state_kind,
         "starts_at": _format_datetime(case.starts_at),
         "ends_at": _format_datetime(case.ends_at),
@@ -647,16 +690,122 @@ def _validate_case(case: OfflineSimulationCase) -> None:
         case.ends_at,
         case.timestep_seconds,
         case.gate_events,
+        case.withdrawal_events,
+        dict(case.withdrawal_structure_max_flow_m3s),
         case.requirements,
         case.branch_allocations,
     )
-    if case.schema_version != 2:
-        raise OfflineModelComparisonError("offline case schema_version must be 2")
+    if case.schema_version != 3:
+        raise OfflineModelComparisonError("offline case schema_version must be 3")
     if case.initial_state_kind != _INITIAL_STATE_KIND:
         raise OfflineModelComparisonError("offline case initial_state_kind must be dry")
     _validate_sha256(case.content_hash, "offline case content_hash")
     if case != rebuilt:
         raise OfflineModelComparisonError("offline case content_hash or ordering drift")
+
+
+def _normalize_withdrawal_events(
+    withdrawal_events: tuple[OperatorWithdrawalEvent, ...],
+    routing_topology: RoutingTopology,
+    starts_at: datetime,
+    ends_at: datetime,
+    timestep_seconds: float,
+) -> tuple[OperatorWithdrawalEvent, ...]:
+    if not isinstance(withdrawal_events, tuple):
+        raise OfflineModelComparisonError(
+            "withdrawal_events must be an immutable tuple"
+        )
+    try:
+        route_operator_withdrawal_events(
+            withdrawal_events,
+            frozenset(routing_topology.withdrawal_structure_node_ids()),
+            starts_at,
+            ends_at,
+            timestep_seconds,
+        )
+    except NetworkTransientError as exc:
+        raise OfflineModelComparisonError(str(exc)) from exc
+    normalized = [
+        OperatorWithdrawalEvent(
+            structure_id=event.structure_id,
+            effective_at=event.effective_at.astimezone(timezone.utc),
+            planned_flow_m3s=float(event.planned_flow_m3s),
+            purpose=event.purpose.strip(),
+            operator_reference=(
+                None
+                if event.operator_reference is None
+                else event.operator_reference.strip()
+            ),
+        )
+        for event in withdrawal_events
+    ]
+    normalized.sort(key=lambda event: (event.effective_at, event.structure_id))
+    return tuple(normalized)
+
+
+def _normalize_withdrawal_capacity(
+    withdrawal_structure_max_flow_m3s: dict[str, float | None],
+    routing_topology: RoutingTopology,
+) -> tuple[tuple[str, float | None], ...]:
+    if not isinstance(withdrawal_structure_max_flow_m3s, dict):
+        raise OfflineModelComparisonError(
+            "withdrawal_structure_max_flow_m3s must be a dict"
+        )
+    expected = set(routing_topology.withdrawal_structure_node_ids())
+    if set(withdrawal_structure_max_flow_m3s) != expected:
+        raise OfflineModelComparisonError(
+            "withdrawal_structure_max_flow_m3s coverage must exactly equal "
+            f"the case withdrawal structures {sorted(expected)!r}"
+        )
+    for structure_id, q_max in withdrawal_structure_max_flow_m3s.items():
+        if q_max is None:
+            continue
+        if (
+            isinstance(q_max, bool)
+            or not isinstance(q_max, (int, float))
+            or not math.isfinite(q_max)
+            or q_max <= 0.0
+        ):
+            raise OfflineModelComparisonError(
+                f"withdrawal capacity for {structure_id!r} must be null or a "
+                "positive finite flow"
+            )
+    return tuple(
+        sorted(
+            (structure_id, None if q_max is None else float(q_max))
+            for structure_id, q_max in withdrawal_structure_max_flow_m3s.items()
+        )
+    )
+
+
+def _parse_withdrawal_event(value: object, index: int) -> OperatorWithdrawalEvent:
+    path = f"offline_case.withdrawal_events[{index}]"
+    data = _as_object(value, path)
+    _require_exact_keys(
+        data,
+        {
+            "structure_id",
+            "effective_at",
+            "planned_flow_m3s",
+            "purpose",
+            "operator_reference",
+        },
+        path,
+    )
+    operator_reference = data.get("operator_reference")
+    if operator_reference is not None and not isinstance(operator_reference, str):
+        raise OfflineModelComparisonError(
+            f"{path}.operator_reference must be a string or null"
+        )
+    return OperatorWithdrawalEvent(
+        structure_id=_require_string(data, "structure_id", path),
+        effective_at=_parse_datetime(
+            _require_string(data, "effective_at", path), f"{path}.effective_at"
+        ),
+        planned_flow_m3s=_require_number(data, "planned_flow_m3s", path),
+        purpose=_require_string(data, "purpose", path),
+        operator_reference=operator_reference,
+    )
 
 
 def _normalize_config_sha256(
@@ -725,7 +874,7 @@ def _normalize_gate_events(
 
 def _normalize_requirements(
     requirements: tuple[SectionRequirement, ...],
-    gate_node_ids: frozenset[str],
+    gate_node_ids: frozenset[str] | set[str],
     starts_at: datetime,
     ends_at: datetime,
     timestep_seconds: float,
@@ -747,7 +896,9 @@ def _normalize_requirements(
         seen.add(requirement_id)
         if delivery_node_id not in network_nodes:
             raise OfflineModelComparisonError(
-                f"requirement delivery node {delivery_node_id!r} is unknown"
+                f"requirement delivery node {delivery_node_id!r} is not a "
+                "deliverable canal gate; withdrawal structure releases are "
+                "operator withdrawal events, not section deliveries"
             )
         _validate_aware(requirement.window_start, "requirement.window_start")
         _validate_aware(requirement.window_end, "requirement.window_end")

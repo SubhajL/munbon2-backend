@@ -17,13 +17,56 @@ from core.network_transient import (
     GateFlowEvent,
     NetworkTimeline,
     NetworkTransientError,
+    OperatorWithdrawalEvent,
     SectionRequirement,
     simulate_network_timeline,
 )
 from core.model_release import HydraulicModelRelease
 from core.model_snapshot import ModelSnapshotError, build_model_snapshot
 from core.reach_response import ReachResponse, ReachState, ResponseMember
-from core.routing_topology import RoutingTopology
+from core.routing_topology import RoutingRole, RoutingTopology
+
+
+def build_withdrawal_structure_max_flow_map(
+    routing_topology: RoutingTopology,
+    gate_calibrations_config: Mapping[str, object],
+) -> tuple[tuple[str, float | None], ...]:
+    """Authoritative structure maxima for the withdrawal structures.
+
+    The ONLY accepted source is gate_calibrations
+    ``gates[structure_id].structure_max_flow_m3s`` — never rated q_max,
+    dimensions, or donor inference. Absent metadata stays None so capacity
+    checks report unavailable instead of fabricating a ceiling.
+    """
+    gates = gate_calibrations_config.get("gates")
+    if not isinstance(gates, Mapping):
+        raise NetworkTransientError(
+            "gate calibrations config must carry a gates mapping"
+        )
+    capacity: dict[str, float | None] = {}
+    for element in routing_topology.elements:
+        if element.role is not RoutingRole.WITHDRAWAL_STRUCTURE:
+            continue
+        structure_id = element.downstream_node_id
+        gate = gates.get(structure_id)
+        if not isinstance(gate, Mapping):
+            raise NetworkTransientError(
+                f"withdrawal structure {structure_id!r} is absent from the "
+                "gate calibrations artifact"
+            )
+        q_max = gate.get("structure_max_flow_m3s")
+        if q_max is not None and (
+            isinstance(q_max, bool)
+            or not isinstance(q_max, (int, float))
+            or not math.isfinite(q_max)
+            or q_max <= 0.0
+        ):
+            raise NetworkTransientError(
+                f"structure_max_flow_m3s for {structure_id!r} must be None "
+                "or a positive finite flow"
+            )
+        capacity[structure_id] = q_max
+    return tuple(sorted(capacity.items()))
 
 
 @dataclass(frozen=True)
@@ -31,11 +74,28 @@ class ControlPredictionService:
     routing_topology: RoutingTopology
     reach_responses: tuple[ReachResponse, ...]
     maximum_horizon_seconds: float | None
+    structure_max_flow_m3s_by_id: tuple[tuple[str, float | None], ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.routing_topology, RoutingTopology):
             raise NetworkTransientError(
                 "routing_topology must be a typed RoutingTopology"
+            )
+        if not isinstance(self.structure_max_flow_m3s_by_id, tuple):
+            raise NetworkTransientError(
+                "structure_max_flow_m3s_by_id must be an immutable tuple of "
+                "(structure_id, q_max) pairs"
+            )
+        expected = {
+            element.downstream_node_id
+            for element in self.routing_topology.elements
+            if element.role is RoutingRole.WITHDRAWAL_STRUCTURE
+        }
+        provided = [pair[0] for pair in self.structure_max_flow_m3s_by_id]
+        if len(provided) != len(set(provided)) or set(provided) != expected:
+            raise NetworkTransientError(
+                "structure_max_flow_m3s_by_id must cover exactly the "
+                f"withdrawal structures {sorted(expected)!r}"
             )
         if not isinstance(self.reach_responses, tuple):
             raise NetworkTransientError("reach_responses must be an immutable tuple")
@@ -58,6 +118,7 @@ class ControlPredictionService:
         member: ResponseMember,
         initial_states: tuple[ReachState, ...],
         gate_events: tuple[GateFlowEvent, ...],
+        withdrawal_events: tuple[OperatorWithdrawalEvent, ...],
         requirements: tuple[SectionRequirement, ...],
         branch_allocations: tuple[BranchAllocation, ...],
         starts_at: datetime,
@@ -83,6 +144,8 @@ class ControlPredictionService:
             member_responses,
             initial_states,
             gate_events,
+            withdrawal_events,
+            dict(self.structure_max_flow_m3s_by_id),
             requirements,
             branch_allocations,
             starts_at,

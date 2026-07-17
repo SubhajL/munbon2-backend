@@ -105,6 +105,22 @@ class RoutingTopology:
             for element in self.elements
         )
 
+    def withdrawal_structure_node_ids(self) -> tuple[str, ...]:
+        return tuple(
+            element.downstream_node_id
+            for element in self.elements
+            if element.role is RoutingRole.WITHDRAWAL_STRUCTURE
+        )
+
+    def allocation_edges(self) -> tuple[tuple[str, str], ...]:
+        """Routing edges that participate in branch allocation — withdrawal
+        structures are event-driven and never take caller fractions."""
+        return tuple(
+            (element.upstream_node_id, element.downstream_node_id)
+            for element in self.elements
+            if element.role is not RoutingRole.WITHDRAWAL_STRUCTURE
+        )
+
     def canonical_gate_node_ids(self) -> frozenset[str]:
         """The physical SCADA gates — never the virtual routing junction."""
         return frozenset(

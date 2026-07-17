@@ -119,10 +119,23 @@ def _app(
         TOPOLOGY,
         responses,
         maximum_horizon_seconds,
+        _withdrawal_capacity(),
     )
     app.state.model_config_sha256 = _config_sha256(controller)
     app.include_router(control.router, prefix="/api/v1/control")
     return app
+
+
+def _withdrawal_capacity() -> tuple:
+    from core.routing_topology import RoutingRole
+
+    return tuple(
+        sorted(
+            (element.downstream_node_id, None)
+            for element in TOPOLOGY.elements
+            if element.role is RoutingRole.WITHDRAWAL_STRUCTURE
+        )
+    )
 
 
 def _config_sha256(controller: NetworkFlowController) -> dict:
@@ -265,7 +278,7 @@ class TestModelSnapshotEndpoint:
         control.flow_controller = controller
         app = FastAPI()
         app.state.control_prediction_service = ControlPredictionService(
-            TOPOLOGY, (), None
+            TOPOLOGY, (), None, _withdrawal_capacity()
         )
         app.include_router(control.router, prefix="/api/v1/control")
 

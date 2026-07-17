@@ -119,6 +119,8 @@ def _timeline():
             GateFlowEvent("S", START + timedelta(seconds=DT_S), 0.0),
         ),
         (),
+        {},
+        (),
         (),
         START,
         START + timedelta(seconds=2 * DT_S),
@@ -135,6 +137,8 @@ def _case(**overrides):
         "member": ResponseMember.NOMINAL,
         "config_sha256": CONFIG_SHA256,
         "routing_topology": TOPOLOGY,
+        "withdrawal_events": (),
+        "withdrawal_structure_max_flow_m3s": {},
         "starts_at": START,
         "ends_at": START + timedelta(seconds=2 * DT_S),
         "timestep_seconds": DT_S,
@@ -219,7 +223,7 @@ def test_offline_case_export_is_deterministic_and_round_trips_strictly(tmp_path)
     payload = offline_simulation_case_payload(loaded)
 
     assert payload == {
-        "schema_version": 2,
+        "schema_version": 3,
         "case_id": "serial-pulse-v1",
         "model_snapshot_id": MODEL_SNAPSHOT_ID,
         "model_release_id": "engineering-prior-2569-v1",
@@ -256,6 +260,8 @@ def test_offline_case_export_is_deterministic_and_round_trips_strictly(tmp_path)
                 },
             ],
         },
+        "withdrawal_events": [],
+        "withdrawal_structure_max_flow_m3s": {},
         "initial_state_kind": "dry",
         "starts_at": "2026-07-16T00:00:00Z",
         "ends_at": "2026-07-16T00:02:00Z",
@@ -413,7 +419,7 @@ def test_offline_reference_import_requires_exact_reach_time_coverage(tmp_path):
         load_offline_reference_result(path, case)
 
 
-def test_offline_case_v2_round_trips_typed_routing_topology(tmp_path):
+def test_offline_case_v3_round_trips_typed_routing_topology(tmp_path):
     config_dir = CANONICAL_NETWORK.parent
     network = json.loads(CANONICAL_NETWORK.read_text(encoding="utf-8"))
     coverage = json.loads(
@@ -423,23 +429,30 @@ def test_offline_case_v2_round_trips_typed_routing_topology(tmp_path):
         (config_dir / "canal_geometry.json").read_text(encoding="utf-8")
     )
     topology = derive_routing_topology(network, coverage, canal_geometry)
-    routing_edges = tuple(
+    allocation_edges = tuple(
         (element.upstream_node_id, element.downstream_node_id)
         for element in topology.elements
+        if element.role is not RoutingRole.WITHDRAWAL_STRUCTURE
     )
     child_counts = {
-        upstream: sum(1 for parent, _ in routing_edges if parent == upstream)
-        for upstream, _ in routing_edges
+        upstream: sum(1 for parent, _ in allocation_edges if parent == upstream)
+        for upstream, _ in allocation_edges
     }
     allocations = tuple(
         BranchAllocation(upstream, downstream, 1.0 / child_counts[upstream])
-        for upstream, downstream in routing_edges
+        for upstream, downstream in allocation_edges
         if child_counts[upstream] > 1
     )
+    withdrawal_capacity = {
+        element.downstream_node_id: None
+        for element in topology.elements
+        if element.role is RoutingRole.WITHDRAWAL_STRUCTURE
+    }
     case = _case(
         routing_topology=topology,
         ends_at=START + timedelta(seconds=DT_S),
         gate_events=(),
+        withdrawal_structure_max_flow_m3s=withdrawal_capacity,
         branch_allocations=allocations,
     )
     samples = [
@@ -484,14 +497,104 @@ def test_offline_case_rejects_malformed_routing_elements_fail_closed(
         load_offline_simulation_case(path)
 
 
-def test_offline_v2_rejects_schema_v1_case(tmp_path):
+def test_offline_v3_rejects_schema_v2_case(tmp_path):
     payload = offline_simulation_case_payload(_case())
-    payload["schema_version"] = 1
-    path = tmp_path / "v1-case.json"
+    payload["schema_version"] = 2
+    path = tmp_path / "v2-case.json"
     _write_json(path, payload)
 
-    with pytest.raises(OfflineModelComparisonError, match="schema_version must be 2"):
+    with pytest.raises(OfflineModelComparisonError, match="schema_version must be 3"):
         load_offline_simulation_case(path)
+
+
+def test_offline_v3_rejects_a_genuine_v2_shaped_case_by_version_not_keys(tmp_path):
+    payload = offline_simulation_case_payload(_case())
+    payload["schema_version"] = 2
+    del payload["withdrawal_events"]
+    del payload["withdrawal_structure_max_flow_m3s"]
+    path = tmp_path / "genuine-v2-case.json"
+    _write_json(path, payload)
+
+    with pytest.raises(OfflineModelComparisonError, match="schema_version must be 3"):
+        load_offline_simulation_case(path)
+
+
+def test_offline_case_rejects_requirement_at_withdrawal_structure():
+    topology = _topology(
+        (("S", "A"), ("A", "W"), ("A", "B")),
+        roles={("A", "W"): RoutingRole.WITHDRAWAL_STRUCTURE},
+    )
+    requirement = SectionRequirement(
+        requirement_id="requirement-1",
+        section_id="section-1",
+        delivery_node_id="W",
+        window_start=START,
+        window_end=START + timedelta(seconds=DT_S),
+        required_volume_m3=10.0,
+        maximum_delivery_m3s=1.0,
+    )
+
+    with pytest.raises(OfflineModelComparisonError, match="withdrawal structure"):
+        _case(
+            routing_topology=topology,
+            withdrawal_structure_max_flow_m3s={"W": None},
+            requirements=(requirement,),
+            branch_allocations=(),
+        )
+
+
+def test_offline_case_v3_round_trips_planned_withdrawals(tmp_path):
+    from core.network_transient import OperatorWithdrawalEvent
+
+    topology = _topology(
+        (("S", "A"), ("A", "W"), ("A", "B")),
+        roles={("A", "W"): RoutingRole.WITHDRAWAL_STRUCTURE},
+    )
+    case = _case(
+        routing_topology=topology,
+        withdrawal_events=(
+            OperatorWithdrawalEvent(
+                structure_id="W",
+                effective_at=START,
+                planned_flow_m3s=1.0,
+                purpose="ecological_release",
+                operator_reference="RID-2026-07-001",
+            ),
+        ),
+        withdrawal_structure_max_flow_m3s={"W": None},
+        branch_allocations=(),
+    )
+    path = tmp_path / "withdrawal-case.json"
+
+    write_offline_simulation_case(path, case)
+    loaded = load_offline_simulation_case(path)
+
+    assert loaded == case
+    assert loaded.withdrawal_events[0].operator_reference == "RID-2026-07-001"
+    assert dict(loaded.withdrawal_structure_max_flow_m3s) == {"W": None}
+
+
+@pytest.mark.parametrize(
+    "capacity,match",
+    [
+        ({}, "coverage"),
+        ({"W": None, "EXTRA": None}, "coverage"),
+        ({"W": -1.0}, "positive finite"),
+        ({"W": float("nan")}, "positive finite"),
+    ],
+)
+def test_offline_case_rejects_withdrawal_capacity_coverage_drift(capacity, match):
+    topology = _topology(
+        (("S", "A"), ("A", "W"), ("A", "B")),
+        roles={("A", "W"): RoutingRole.WITHDRAWAL_STRUCTURE},
+    )
+
+    with pytest.raises(OfflineModelComparisonError, match=match):
+        _case(
+            routing_topology=topology,
+            withdrawal_structure_max_flow_m3s=capacity,
+            branch_allocations=(),
+        )
 
 
 def test_offline_reference_samples_cover_transport_reaches_only(tmp_path):
@@ -572,7 +675,7 @@ def test_golden_comparison_passes_exact_independent_serial_pulse(tmp_path):
         "mean_outflow_m3s_for_interval_ending_at_sampled_at"
     )
     assert report.content_hash == (
-        "4ee67140e5e66c4bf0cfe5ebf7a0502c2f1a8af0fdc00662383a1da4f171772e"
+        "ed18d422244b8b0a78a5bd11346399432c8c9c1a1ca51fb52d5272266f8b2731"
     )
     assert tuple(
         (

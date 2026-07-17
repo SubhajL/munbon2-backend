@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from enum import Enum
 import math
 
 from .fulfillment import PredictedDeliveryState, advance_predicted_delivery
@@ -27,10 +29,14 @@ __all__ = [
     "NetworkStep",
     "NetworkTimeline",
     "NetworkTransientError",
+    "OperatorWithdrawalEvent",
     "ReachTimelinePoint",
     "SectionRequirement",
+    "WithdrawalCapacityCheckStatus",
+    "WithdrawalTimelinePoint",
     "simulate_network_timeline",
     "route_gate_events",
+    "route_operator_withdrawal_events",
 ]
 
 
@@ -72,6 +78,31 @@ class SectionRequirement:
 
 
 @dataclass(frozen=True)
+class OperatorWithdrawalEvent:
+    structure_id: str
+    effective_at: datetime
+    planned_flow_m3s: float
+    purpose: str
+    operator_reference: str | None = None
+
+
+class WithdrawalCapacityCheckStatus(str, Enum):
+    WITHIN_CAPACITY = "within_capacity"
+    EXCEEDS_CAPACITY = "exceeds_capacity"
+    UNAVAILABLE = "unavailable"
+
+
+@dataclass(frozen=True)
+class WithdrawalTimelinePoint:
+    structure_id: str
+    planned_flow_m3s: float
+    hydraulically_available_flow_m3s: float
+    predicted_withdrawal_m3s: float
+    shortfall_m3s: float
+    capacity_check_status: WithdrawalCapacityCheckStatus
+
+
+@dataclass(frozen=True)
 class ReachTimelinePoint:
     reach_id: str
     inflow_m3s: float
@@ -85,6 +116,7 @@ class NetworkStep:
     starts_at: datetime
     ends_at: datetime
     reaches: tuple[ReachTimelinePoint, ...]
+    withdrawals: tuple[WithdrawalTimelinePoint, ...]
     fulfillment: tuple[PredictedDeliveryState, ...]
     terminal_outflow_m3: float
 
@@ -94,6 +126,7 @@ class NetworkMassBalanceAudit:
     initial_in_transit_m3: float
     boundary_inflow_m3: float
     delivered_m3: float
+    withdrawn_m3: float
     declared_loss_m3: float
     terminal_outflow_m3: float
     final_in_transit_m3: float
@@ -164,6 +197,8 @@ def simulate_network_timeline(
     responses: tuple[ReachResponse, ...],
     initial_states: tuple[ReachState, ...],
     gate_events: tuple[GateFlowEvent, ...],
+    withdrawal_events: tuple[OperatorWithdrawalEvent, ...],
+    withdrawal_capacity_m3s: Mapping[str, float | None],
     requirements: tuple[SectionRequirement, ...],
     branch_allocations: tuple[BranchAllocation, ...],
     starts_at: datetime,
@@ -181,15 +216,33 @@ def simulate_network_timeline(
         if element.role is RoutingRole.TRANSPORT
     )
     transport_reach_ids = routing_topology.transport_reach_ids()
+    withdrawal_elements = tuple(
+        element
+        for element in routing_topology.elements
+        if element.role is RoutingRole.WITHDRAWAL_STRUCTURE
+    )
+    withdrawal_order = routing_topology.withdrawal_structure_node_ids()
+    allocation_edges = routing_topology.allocation_edges()
     _validate_network_edges(network_edges)
     _validate_timeline(starts_at, ends_at, timestep_seconds)
     response_by_reach, model_release_id, member = _validate_response_coverage(
         transport_reach_ids, responses, timestep_seconds
     )
     state_by_reach = _validate_initial_state_coverage(response_by_reach, initial_states)
-    allocations = _validate_branch_allocations(network_edges, branch_allocations)
+    allocations = _validate_branch_allocations(allocation_edges, branch_allocations)
+    capacity_by_structure = _validate_withdrawal_capacity(
+        withdrawal_order, withdrawal_capacity_m3s
+    )
+    withdrawal_plans = route_operator_withdrawal_events(
+        withdrawal_events,
+        frozenset(withdrawal_order),
+        starts_at,
+        ends_at,
+        timestep_seconds,
+    )
     requirements_by_node, fulfillment_by_id = _validate_requirements(
-        routing_topology.canonical_gate_node_ids(),
+        routing_topology.canonical_gate_node_ids()
+        - set(withdrawal_order),
         requirements,
         starts_at,
         ends_at,
@@ -217,8 +270,13 @@ def simulate_network_timeline(
         )
 
     children: dict[str, list[str]] = defaultdict(list)
-    for upstream, downstream in network_edges:
+    for upstream, downstream in allocation_edges:
         children[upstream].append(downstream)
+    withdrawal_children_by_node: dict[str, list[str]] = defaultdict(list)
+    for element in withdrawal_elements:
+        withdrawal_children_by_node[element.upstream_node_id].append(
+            element.downstream_node_id
+        )
     ordered_nodes = topological_order(network_edges)
     initial_in_transit_m3 = sum(
         state.in_transit_volume_m3 for state in state_by_reach.values()
@@ -228,8 +286,9 @@ def simulate_network_timeline(
     )
     boundary_inflow_m3 = 0.0
     terminal_outflow_m3 = 0.0
+    withdrawn_m3 = 0.0
     timeline_steps = []
-    for gate_step in gate_steps:
+    for step_index, gate_step in enumerate(gate_steps):
         (
             network_step,
             state_by_reach,
@@ -241,6 +300,10 @@ def simulate_network_timeline(
             transport_edges,
             ordered_nodes,
             children,
+            withdrawal_children_by_node,
+            withdrawal_order,
+            withdrawal_plans[step_index],
+            capacity_by_structure,
             response_by_reach,
             state_by_reach,
             allocations,
@@ -251,6 +314,10 @@ def simulate_network_timeline(
         )
         boundary_inflow_m3 += step_boundary_inflow_m3
         terminal_outflow_m3 += network_step.terminal_outflow_m3
+        withdrawn_m3 += sum(
+            point.predicted_withdrawal_m3s * timestep_seconds
+            for point in network_step.withdrawals
+        )
         timeline_steps.append(network_step)
 
     final_states = tuple(
@@ -267,7 +334,11 @@ def simulate_network_timeline(
     final_in_transit_m3 = sum(state.in_transit_volume_m3 for state in final_states)
     supplied_m3 = initial_in_transit_m3 + boundary_inflow_m3
     accounted_m3 = (
-        delivered_m3 + declared_loss_m3 + terminal_outflow_m3 + final_in_transit_m3
+        delivered_m3
+        + withdrawn_m3
+        + declared_loss_m3
+        + terminal_outflow_m3
+        + final_in_transit_m3
     )
     balance_error_m3 = supplied_m3 - accounted_m3
     tolerance_m3 = max(1e-8, abs(supplied_m3) * 1e-12)
@@ -289,6 +360,7 @@ def simulate_network_timeline(
             initial_in_transit_m3=initial_in_transit_m3,
             boundary_inflow_m3=boundary_inflow_m3,
             delivered_m3=delivered_m3,
+            withdrawn_m3=withdrawn_m3,
             declared_loss_m3=declared_loss_m3,
             terminal_outflow_m3=terminal_outflow_m3,
             final_in_transit_m3=final_in_transit_m3,
@@ -303,6 +375,10 @@ def _route_network_step(
     transport_edges: frozenset[tuple[str, str]],
     ordered_nodes: list[str],
     children: dict[str, list[str]],
+    withdrawal_children_by_node: dict[str, list[str]],
+    withdrawal_order: tuple[str, ...],
+    withdrawal_plan: dict[str, float],
+    withdrawal_capacity: dict[str, float | None],
     responses: dict[str, ReachResponse],
     states: dict[str, ReachState],
     allocations: dict[tuple[str, str], float],
@@ -326,6 +402,7 @@ def _route_network_step(
         boundary_inflow_m3 += volume_m3
 
     points_by_reach = {}
+    withdrawal_points: dict[str, WithdrawalTimelinePoint] = {}
     terminal_outflow_m3 = 0.0
     for node_id in ordered_nodes:
         available_m3 = available_by_node_m3[node_id]
@@ -348,6 +425,44 @@ def _route_network_step(
                 state, delivered_m3, 0.0
             )
             available_m3 -= delivered_m3
+
+        # Planned operator withdrawals leave at the structure's upstream
+        # junction, before any water is allocated downstream. Predicted
+        # withdrawal is limited by what is physically present and, when an
+        # authoritative structure maximum exists, by that ceiling.
+        for structure_id in withdrawal_children_by_node.get(node_id, ()):
+            planned_flow_m3s = withdrawal_plan.get(structure_id, 0.0)
+            available_flow_m3s = available_m3 / timestep_seconds
+            q_max = withdrawal_capacity[structure_id]
+            if q_max is None:
+                capacity_status = WithdrawalCapacityCheckStatus.UNAVAILABLE
+                withdrawn_volume_m3 = min(
+                    planned_flow_m3s * timestep_seconds, available_m3
+                )
+            else:
+                capacity_status = (
+                    WithdrawalCapacityCheckStatus.EXCEEDS_CAPACITY
+                    if planned_flow_m3s > q_max
+                    else WithdrawalCapacityCheckStatus.WITHIN_CAPACITY
+                )
+                withdrawn_volume_m3 = min(
+                    planned_flow_m3s * timestep_seconds,
+                    available_m3,
+                    q_max * timestep_seconds,
+                )
+            # The clamp works in the volume domain so draining the junction
+            # leaves exactly 0.0 — a flow/volume round-trip can leave a
+            # negative float residue that crashes downstream validation.
+            available_m3 -= withdrawn_volume_m3
+            predicted_flow_m3s = withdrawn_volume_m3 / timestep_seconds
+            withdrawal_points[structure_id] = WithdrawalTimelinePoint(
+                structure_id=structure_id,
+                planned_flow_m3s=planned_flow_m3s,
+                hydraulically_available_flow_m3s=available_flow_m3s,
+                predicted_withdrawal_m3s=predicted_flow_m3s,
+                shortfall_m3s=planned_flow_m3s - predicted_flow_m3s,
+                capacity_check_status=capacity_status,
+            )
 
         downstream_nodes = children.get(node_id, ())
         if not downstream_nodes:
@@ -398,6 +513,10 @@ def _route_network_step(
             ends_at=gate_step.ends_at,
             reaches=tuple(
                 points_by_reach[reach_id] for reach_id in transport_reach_ids
+            ),
+            withdrawals=tuple(
+                withdrawal_points[structure_id]
+                for structure_id in withdrawal_order
             ),
             fulfillment=tuple(
                 next_fulfillment[requirement.requirement_id]
@@ -502,6 +621,99 @@ def _validate_initial_state_coverage(
     return states
 
 
+def _validate_withdrawal_capacity(
+    withdrawal_order: tuple[str, ...],
+    withdrawal_capacity_m3s: Mapping[str, float | None],
+) -> dict[str, float | None]:
+    if not isinstance(withdrawal_capacity_m3s, Mapping):
+        raise NetworkTransientError(
+            "withdrawal_capacity_m3s must be a mapping of structure id to "
+            "authoritative maximum flow or None"
+        )
+    expected = set(withdrawal_order)
+    if set(withdrawal_capacity_m3s) != expected:
+        raise NetworkTransientError(
+            "withdrawal capacity coverage must exactly equal the withdrawal "
+            f"structures; missing={sorted(expected - set(withdrawal_capacity_m3s))!r}, "
+            f"unknown={sorted(set(withdrawal_capacity_m3s) - expected)!r}"
+        )
+    for structure_id, q_max in withdrawal_capacity_m3s.items():
+        if q_max is None:
+            continue
+        if (
+            isinstance(q_max, bool)
+            or not isinstance(q_max, (int, float))
+            or not math.isfinite(q_max)
+            or q_max <= 0.0
+        ):
+            raise NetworkTransientError(
+                f"withdrawal capacity for {structure_id!r} must be None or a "
+                "positive finite flow"
+            )
+    return dict(withdrawal_capacity_m3s)
+
+
+def route_operator_withdrawal_events(
+    withdrawal_events: tuple[OperatorWithdrawalEvent, ...],
+    withdrawal_structures: frozenset[str],
+    starts_at: datetime,
+    ends_at: datetime,
+    timestep_seconds: float,
+) -> tuple[dict[str, float], ...]:
+    if not isinstance(withdrawal_events, tuple):
+        raise NetworkTransientError(
+            "withdrawal_events must be an immutable tuple"
+        )
+    step_count = _validate_timeline(starts_at, ends_at, timestep_seconds)
+    events_by_time: dict[datetime, list[OperatorWithdrawalEvent]] = defaultdict(list)
+    seen = set()
+    for event in withdrawal_events:
+        if event.structure_id not in withdrawal_structures:
+            raise NetworkTransientError(
+                f"withdrawal event targets {event.structure_id!r}, which is "
+                "not a withdrawal structure in the routing topology"
+            )
+        _validate_aware(event.effective_at, "withdrawal_event.effective_at")
+        _validate_non_negative(
+            event.planned_flow_m3s, "withdrawal_event.planned_flow_m3s"
+        )
+        _validate_non_blank(event.purpose, "withdrawal_event.purpose")
+        if event.operator_reference is not None and (
+            not isinstance(event.operator_reference, str)
+            or not event.operator_reference.strip()
+        ):
+            raise NetworkTransientError(
+                "withdrawal_event.operator_reference must be None or non-blank"
+            )
+        if not starts_at <= event.effective_at < ends_at:
+            raise NetworkTransientError(
+                "withdrawal event effective_at must be within the simulation "
+                "horizon"
+            )
+        _validate_aligned(
+            event.effective_at, starts_at, timestep_seconds, "withdrawal event"
+        )
+        key = (event.structure_id, event.effective_at)
+        if key in seen:
+            raise NetworkTransientError(
+                "duplicate withdrawal event for structure and instant"
+            )
+        seen.add(key)
+        events_by_time[event.effective_at].append(event)
+
+    active: dict[str, float] = {}
+    plans = []
+    for index in range(step_count):
+        step_start = starts_at + timedelta(seconds=index * timestep_seconds)
+        for event in sorted(
+            events_by_time.get(step_start, ()),
+            key=lambda event: event.structure_id,
+        ):
+            active[event.structure_id] = event.planned_flow_m3s
+        plans.append(dict(active))
+    return tuple(plans)
+
+
 def _validate_branch_allocations(
     network_edges: tuple[tuple[str, str], ...],
     branch_allocations: tuple[BranchAllocation, ...],
@@ -545,7 +757,7 @@ def _validate_branch_allocations(
 
 
 def _validate_requirements(
-    gate_node_ids: frozenset[str],
+    gate_node_ids: frozenset[str] | set[str],
     requirements: tuple[SectionRequirement, ...],
     starts_at: datetime,
     ends_at: datetime,
@@ -573,7 +785,9 @@ def _validate_requirements(
             or requirement.delivery_node_id == ROOT
         ):
             raise NetworkTransientError(
-                "requirement delivery_node_id must be a canal gate"
+                "requirement delivery_node_id must be a deliverable canal "
+                "gate; withdrawal structure releases are operator withdrawal "
+                "events, not section deliveries"
             )
         _validate_aware(requirement.window_start, "requirement.window_start")
         _validate_aware(requirement.window_end, "requirement.window_end")

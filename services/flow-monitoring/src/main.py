@@ -14,7 +14,11 @@ from api import control as control_api
 from api import hydraulics as hydraulics_api
 from core.logging import setup_logging
 from core.metrics import setup_metrics
-from core.config_loader import file_sha256, load_routing_topology
+from core.config_loader import (
+    file_sha256,
+    load_gate_calibrations_config,
+    load_routing_topology,
+)
 from core.model_release import load_configured_hydraulic_model_release
 from core.network_flow_controller import NetworkFlowController
 from core.reach_response import reach_responses_from_model_release
@@ -24,7 +28,10 @@ from db.demand_store_postgres import PostgresDemandStore
 # Kafka consumer is optional; import lazily when configured
 from controllers.dual_mode_gate_controller import DualModeGateController
 from services.design_profile_service import DesignProfileService
-from services.control_prediction_service import ControlPredictionService
+from services.control_prediction_service import (
+    ControlPredictionService,
+    build_withdrawal_structure_max_flow_map,
+)
 
 
 # Setup structured logging
@@ -126,9 +133,14 @@ async def lifespan(app: FastAPI):
                 reach_response_members=len(app.state.reach_responses),
             )
 
+        withdrawal_capacity = build_withdrawal_structure_max_flow_map(
+            app.state.routing_topology,
+            load_gate_calibrations_config(calibration_file),
+        )
         app.state.control_prediction_service = ControlPredictionService(
             routing_topology=app.state.routing_topology,
             reach_responses=app.state.reach_responses,
+            structure_max_flow_m3s_by_id=withdrawal_capacity,
             maximum_horizon_seconds=(
                 None
                 if app.state.hydraulic_model_release is None

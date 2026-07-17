@@ -16,7 +16,11 @@ from core.config_loader import file_sha256, load_routing_topology
 from core.demand_contract import content_hash
 from core.model_release import load_hydraulic_model_release
 from core.model_snapshot import build_model_snapshot
-from core.network_transient import BranchAllocation, GateFlowEvent
+from core.network_transient import (
+    BranchAllocation,
+    GateFlowEvent,
+    OperatorWithdrawalEvent,
+)
 from core.offline_model_comparison import (
     OfflineModelComparisonError,
     build_offline_simulation_case,
@@ -65,20 +69,30 @@ def _write_json(path, payload):
     )
 
 
+def _allocation_edges(topology):
+    return tuple(
+        (element.upstream_node_id, element.downstream_node_id)
+        for element in topology.elements
+        if element.role is not RoutingRole.WITHDRAWAL_STRUCTURE
+    )
+
+
 def _uniform_allocations(topology):
     children = defaultdict(list)
-    for upstream, downstream in topology.routing_edges():
+    for upstream, downstream in _allocation_edges(topology):
         children[upstream].append(downstream)
     return tuple(
         BranchAllocation(upstream, downstream, 1.0 / len(children[upstream]))
-        for upstream, downstream in topology.routing_edges()
+        for upstream, downstream in _allocation_edges(topology)
         if len(children[upstream]) > 1
     )
 
 
-def _expected_transport_flows(topology, source_flow_m3s):
+def _expected_transport_flows(topology, source_flow_m3s, withdrawals=None):
     """Independent oracle: propagate uniform-fraction flow down the routing
-    tree (valid for zero delay/loss and ample capacity)."""
+    tree (valid for zero delay/loss and ample capacity). Planned withdrawals
+    leave at their structure's upstream junction before allocation."""
+    withdrawals = withdrawals or {}
     children = defaultdict(list)
     for element in topology.elements:
         children[element.upstream_node_id].append(element)
@@ -87,10 +101,21 @@ def _expected_transport_flows(topology, source_flow_m3s):
     queue = ["S"]
     while queue:
         node = queue.pop(0)
-        branch_count = len(children.get(node, []))
-        for element in children.get(node, []):
+        elements = children.get(node, [])
+        available = node_flow[node]
+        for element in elements:
+            if element.role is RoutingRole.WITHDRAWAL_STRUCTURE:
+                planned = withdrawals.get(element.downstream_node_id, 0.0)
+                available -= min(planned, available)
+        allocation_children = [
+            element
+            for element in elements
+            if element.role is not RoutingRole.WITHDRAWAL_STRUCTURE
+        ]
+        branch_count = len(allocation_children)
+        for element in allocation_children:
             fraction = 1.0 / branch_count if branch_count > 1 else 1.0
-            flow = node_flow[node] * fraction
+            flow = available * fraction
             if element.role is RoutingRole.TRANSPORT:
                 flows[element.element_id] = flow
             node_flow[element.downstream_node_id] = flow
@@ -147,8 +172,8 @@ def _model_release_payload(topology):
     return {**payload, "content_hash": content_hash(payload)}
 
 
-def _reference_payload(case, topology, perturb_reach_id=None):
-    flows = _expected_transport_flows(topology, SOURCE_FLOW_M3S)
+def _reference_payload(case, topology, perturb_reach_id=None, withdrawals=None):
+    flows = _expected_transport_flows(topology, SOURCE_FLOW_M3S, withdrawals)
     samples = sorted(
         (
             {
@@ -192,6 +217,8 @@ def _artifacts(
     case_topology=None,
     geometry_payload=None,
     routing_artifact_mutate=None,
+    withdrawal_events=(),
+    case_capacity=None,
 ):
     paths = {}
     for filename in CANONICAL_FILES:
@@ -234,6 +261,12 @@ def _artifacts(
         config_sha256,
         actuation_approved=False,
     )
+    if case_capacity is None:
+        case_capacity = {
+            element.downstream_node_id: None
+            for element in topology.elements
+            if element.role is RoutingRole.WITHDRAWAL_STRUCTURE
+        }
     case = build_offline_simulation_case(
         case_id="cli-canonical-pulse-v1",
         model_snapshot_id=snapshot["snapshot_id"],
@@ -249,13 +282,23 @@ def _artifacts(
             GateFlowEvent("S", START, SOURCE_FLOW_M3S),
             GateFlowEvent("S", START + timedelta(seconds=DT_S), 0.0),
         ),
+        withdrawal_events=withdrawal_events,
+        withdrawal_structure_max_flow_m3s=case_capacity,
         requirements=(),
         branch_allocations=_uniform_allocations(topology),
     )
     write_offline_simulation_case(case_path, case)
     _write_json(
         reference_path,
-        _reference_payload(case, CANON_TOPOLOGY, perturb_reach_id),
+        _reference_payload(
+            case,
+            CANON_TOPOLOGY,
+            perturb_reach_id,
+            {
+                event.structure_id: event.planned_flow_m3s
+                for event in withdrawal_events
+            },
+        ),
     )
     return {
         "network": paths["network.json"],
@@ -385,6 +428,44 @@ def test_cli_rejects_case_exported_against_a_different_topology(tmp_path):
 
     with pytest.raises(
         OfflineModelComparisonError, match="does not match the exported"
+    ):
+        CLI.main(_argv(artifacts))
+
+
+def test_cli_runs_withdrawal_case_against_authoritative_structure_metadata(
+    tmp_path,
+):
+    artifacts = _artifacts(
+        tmp_path,
+        withdrawal_events=(
+            OperatorWithdrawalEvent(
+                structure_id="M(0,0;1,0)",
+                effective_at=START,
+                planned_flow_m3s=0.5,
+                purpose="waste_way_release",
+            ),
+        ),
+    )
+
+    exit_code = CLI.main(_argv(artifacts))
+    report = json.loads(artifacts["report"].read_text(encoding="utf-8"))
+
+    assert (exit_code, report["status"]) == (0, "passed")
+    assert report["summary"]["compared_reaches"] == 42
+
+
+def test_cli_rejects_withdrawal_capacity_drift_from_gate_calibrations(tmp_path):
+    artifacts = _artifacts(
+        tmp_path,
+        case_capacity={
+            "M(0,0;1,0)": 5.0,
+            "M(0,0;2,0;1,0)": None,
+            "M(0,0;2,1;1,2;1,0)": None,
+        },
+    )
+
+    with pytest.raises(
+        OfflineModelComparisonError, match="withdrawal capacity"
     ):
         CLI.main(_argv(artifacts))
 
