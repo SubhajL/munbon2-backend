@@ -160,6 +160,7 @@ When working inside a service, read its file first:
 - [services/daily-chart-notifier/CLAUDE.md](services/daily-chart-notifier/CLAUDE.md) — scheduled notifier
 - [services/bff-water-planning/CLAUDE.md](services/bff-water-planning/CLAUDE.md) — water-planning BFF
 - [services/ros-gis-integration/CLAUDE.md](services/ros-gis-integration/CLAUDE.md) — demand pipeline
+- [services/scheduler/CLAUDE.md](services/scheduler/CLAUDE.md) — weekly scheduling / PR 4.2 foundation
 
 ---
 

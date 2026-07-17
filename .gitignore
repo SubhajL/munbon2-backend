@@ -315,6 +315,36 @@ services/flow-monitoring/migrations/*
 !services/flow-monitoring/migrations/*.up.sql
 !services/flow-monitoring/migrations/*.down.sql
 
+# Track the scheduler test suite normally (PR 4.2 foundation) — it was
+# partially force-staged under the blanket tests/ rule above.
+!services/scheduler/tests/
+!services/scheduler/tests/**
+!services/scheduler/pytest.ini
+# scripts: EXACT allowlist (the two ops probes) — a blanket scripts/**
+# re-include would strip the credential guards below.
+!services/scheduler/scripts/
+services/scheduler/scripts/*
+!services/scheduler/scripts/ops/
+services/scheduler/scripts/ops/*
+!services/scheduler/scripts/ops/ec2_connection_probe.py
+!services/scheduler/scripts/ops/ec2_scheduler_api_probe.py
+# Re-assert the credential guards INSIDE the re-included tests tree
+# (last-match-wins: the negation above would otherwise make secret-shaped
+# files trackable — this repo has committed-credential history).
+services/scheduler/tests/**/.env*
+services/scheduler/tests/**/*.pem
+services/scheduler/tests/**/*.key
+services/scheduler/tests/**/*.sql
+
+# Track scheduler schema migrations (PR 4.2 runner; pairs arrive with their
+# consuming PRs). Exact allowlist exception to the blanket *.sql guard above.
+!services/scheduler/migrations/
+services/scheduler/migrations/*
+!services/scheduler/migrations/__init__.py
+!services/scheduler/migrations/migrate.py
+!services/scheduler/migrations/*.up.sql
+!services/scheduler/migrations/*.down.sql
+
 # Compiled python artifacts must never be tracked, even inside re-included trees
 # (gitignore is last-match-wins; keep these at the END of the file). Wave 1.8.
 **/__pycache__/

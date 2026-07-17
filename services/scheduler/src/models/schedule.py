@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Date, Time, Float, Boolean, Text, JSON, DateTime
+from sqlalchemy import ForeignKey, Column, String, Integer, Date, Time, Float, Boolean, Text, JSON, DateTime
 from sqlalchemy.dialects.postgresql import UUID, ARRAY
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -57,7 +57,11 @@ class ScheduledOperation(Base, BaseModel):
     __tablename__ = "scheduled_operations"
     
     # Foreign keys
-    schedule_id = Column(UUID(as_uuid=True), nullable=False)
+    schedule_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("weekly_schedules.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     
     # Operation details
     gate_id = Column(String(50), nullable=False)  # e.g., "M(0,0)"
@@ -111,7 +115,11 @@ class FieldInstruction(Base, BaseModel):
     __tablename__ = "field_instructions"
     
     # Foreign keys
-    schedule_id = Column(UUID(as_uuid=True), nullable=False)
+    schedule_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("weekly_schedules.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     
     # Team assignment
     team_id = Column(String(50), nullable=False)
@@ -157,7 +165,11 @@ class ScheduleAdaptation(Base, BaseModel):
     __tablename__ = "schedule_adaptations"
     
     # Foreign keys
-    schedule_id = Column(UUID(as_uuid=True), nullable=False)
+    schedule_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("weekly_schedules.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     original_operation_id = Column(UUID(as_uuid=True))  # If adapting specific operation
     
     # Adaptation details
