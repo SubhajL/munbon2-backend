@@ -21,6 +21,7 @@ from core.model_release import (
     UnavailableReach,
     model_release_content_hash,
 )
+from core.config_loader import load_routing_topology
 from core.network_flow_controller import NetworkFlowController
 from core.reach_response import reach_responses_from_model_release
 from schemas.control import ModelSnapshotResponse
@@ -30,7 +31,15 @@ SERVICE_ROOT = Path(__file__).resolve().parents[2]
 NETWORK = str(SERVICE_ROOT / "src" / "config" / "network.json")
 GEOMETRY = str(SERVICE_ROOT / "src" / "config" / "canal_geometry.json")
 CALIBRATIONS = str(SERVICE_ROOT / "src" / "config" / "gate_calibrations.json")
+GEOMETRY_COVERAGE = str(
+    SERVICE_ROOT / "src" / "config" / "geometry_coverage.json"
+)
+ROUTING_TOPOLOGY = str(SERVICE_ROOT / "src" / "config" / "routing_topology.json")
 CONTROL_PY = SERVICE_ROOT / "src" / "api" / "control.py"
+
+TOPOLOGY = load_routing_topology(
+    ROUTING_TOPOLOGY, NETWORK, GEOMETRY_COVERAGE, GEOMETRY
+)
 
 
 def _load_control():
@@ -50,9 +59,7 @@ def _controller() -> NetworkFlowController:
 def _model_release(
     controller: NetworkFlowController,
 ) -> HydraulicModelRelease:
-    reach_ids = tuple(
-        f"C_{upstream}_{downstream}" for upstream, downstream in controller.edges
-    )
+    reach_ids = TOPOLOGY.transport_reach_ids()
     release = HydraulicModelRelease(
         schema_version=1,
         release_id="engineering-prior-api-v1",
@@ -109,12 +116,23 @@ def _app(
     app = FastAPI()
     app.state.hydraulic_model_release = release
     app.state.control_prediction_service = ControlPredictionService(
-        tuple(controller.edges),
+        TOPOLOGY,
         responses,
         maximum_horizon_seconds,
     )
+    app.state.model_config_sha256 = _config_sha256(controller)
     app.include_router(control.router, prefix="/api/v1/control")
     return app
+
+
+def _config_sha256(controller: NetworkFlowController) -> dict:
+    from core.config_loader import file_sha256
+
+    return {
+        **controller.config_sha256,
+        "geometry_coverage": file_sha256(GEOMETRY_COVERAGE),
+        "routing_topology": file_sha256(ROUTING_TOPOLOGY),
+    }
 
 
 class TestModelSnapshotEndpoint:
@@ -135,7 +153,7 @@ class TestModelSnapshotEndpoint:
             "actual_state_known": body["actual_state_known"],
             "commandable": body["commandable"],
             "response_model": body["response_model"],
-            "coverage": body["coverage"],
+            "coverage": body["transport_response_coverage"],
         } == {
             "data_status": "unavailable",
             "open_loop": True,
@@ -143,19 +161,28 @@ class TestModelSnapshotEndpoint:
             "commandable": False,
             "response_model": None,
             "coverage": {
-                "total_reaches": 58,
-                "available_reaches": 0,
-                "unavailable_reaches": 58,
+                "total_transport_reaches": 42,
+                "available_transport_reaches": 0,
+                "unavailable_transport_reaches": 42,
             },
         }
         assert len(body["snapshot_id"]) == 64
         payload = {key: value for key, value in body.items() if key != "snapshot_id"}
         assert body["snapshot_id"] == content_hash(payload)
-        assert len(body["network"]["reaches"]) == 58
-        assert len(body["unavailable_reaches"]) == 58
-        assert {item["reason"] for item in body["unavailable_reaches"]} == {
-            "hydraulic model release is not configured"
+        assert body["schema_version"] == 2
+        assert body["scada_graph"]["gate_count"] == 58
+        assert len(body["scada_graph"]["edges"]) == 58
+        assert body["routing_topology"]["element_count"] == 59
+        assert body["routing_topology"]["role_counts"] == {
+            "boundary": 1,
+            "transport": 42,
+            "branch_structure": 13,
+            "withdrawal_structure": 3,
         }
+        assert len(body["unavailable_transport_reaches"]) == 42
+        assert {
+            item["reason"] for item in body["unavailable_transport_reaches"]
+        } == {"hydraulic model release is not configured"}
 
     def test_returns_configured_release_and_exact_action_lineage(self):
         control = _load_control()
@@ -169,7 +196,7 @@ class TestModelSnapshotEndpoint:
         body = response.json()
         assert (
             body["data_status"],
-            body["coverage"],
+            body["transport_response_coverage"],
             body["response_model"]["release_id"],
             body["response_model"]["content_hash"],
             len(body["response_model"]["response_members"]),
@@ -180,9 +207,9 @@ class TestModelSnapshotEndpoint:
         ) == (
             "partial",
             {
-                "total_reaches": 58,
-                "available_reaches": 1,
-                "unavailable_reaches": 57,
+                "total_transport_reaches": 42,
+                "available_transport_reaches": 1,
+                "unavailable_transport_reaches": 41,
             },
             release.release_id,
             release.content_hash,
@@ -190,6 +217,9 @@ class TestModelSnapshotEndpoint:
             {
                 "canal_geometry": controller.config_sha256["canal_geometry"],
                 "gate_calibrations": controller.config_sha256["gate_calibrations"],
+                "geometry_coverage": _config_sha256(controller)[
+                    "geometry_coverage"
+                ],
             },
             ["S"],
             True,
@@ -235,7 +265,7 @@ class TestModelSnapshotEndpoint:
         control.flow_controller = controller
         app = FastAPI()
         app.state.control_prediction_service = ControlPredictionService(
-            tuple(controller.edges), (), None
+            TOPOLOGY, (), None
         )
         app.include_router(control.router, prefix="/api/v1/control")
 

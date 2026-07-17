@@ -26,6 +26,13 @@ from core.offline_model_comparison import (
     write_offline_simulation_case,
 )
 from core.reach_response import ReachResponse, ReachState, ResponseMember
+from core.routing_topology import (
+    RoutingElement,
+    RoutingGeometryStatus,
+    RoutingRole,
+    build_routing_topology,
+    derive_routing_topology,
+)
 
 START = datetime(2026, 7, 16, tzinfo=timezone.utc)
 DT_S = 60.0
@@ -34,7 +41,47 @@ CONFIG_SHA256 = {
     "network": "a" * 64,
     "canal_geometry": "b" * 64,
     "gate_calibrations": "c" * 64,
+    "geometry_coverage": "1" * 64,
+    "routing_topology": "2" * 64,
 }
+
+_ROLE_PREFIX = {
+    RoutingRole.BOUNDARY: "B",
+    RoutingRole.TRANSPORT: "C",
+    RoutingRole.BRANCH_STRUCTURE: "BR",
+    RoutingRole.WITHDRAWAL_STRUCTURE: "WD",
+}
+
+
+def _routing_element(upstream, downstream, role=RoutingRole.TRANSPORT):
+    return RoutingElement(
+        element_id=f"{_ROLE_PREFIX[role]}_{upstream}_{downstream}",
+        upstream_node_id=upstream,
+        downstream_node_id=downstream,
+        role=role,
+        canonical_edges=((upstream, downstream),),
+        canal=None,
+        span_m=100.0 if role is RoutingRole.TRANSPORT else None,
+        geometry_status=(
+            RoutingGeometryStatus.SURVEYED
+            if role is RoutingRole.TRANSPORT
+            else RoutingGeometryStatus.NOT_APPLICABLE
+        ),
+        located_at_km=None,
+    )
+
+
+def _topology(edges, roles=None):
+    roles = roles or {}
+    return build_routing_topology(
+        tuple(
+            _routing_element(*edge, role=roles.get(edge, RoutingRole.TRANSPORT))
+            for edge in edges
+        )
+    )
+
+
+TOPOLOGY = _topology(EDGES)
 MODEL_SNAPSHOT_ID = "d" * 64
 MODEL_RELEASE_HASH = "e" * 64
 REFERENCE_SOURCE_HASH = "f" * 64
@@ -61,7 +108,7 @@ def _response(upstream: str, downstream: str) -> ReachResponse:
 def _timeline():
     responses = tuple(_response(*edge) for edge in EDGES)
     return simulate_network_timeline(
-        EDGES,
+        TOPOLOGY,
         responses,
         tuple(
             ReachState(response.model_release_id, response.reach_id, response.member)
@@ -87,7 +134,7 @@ def _case(**overrides):
         "model_release_content_hash": MODEL_RELEASE_HASH,
         "member": ResponseMember.NOMINAL,
         "config_sha256": CONFIG_SHA256,
-        "network_edges": EDGES,
+        "routing_topology": TOPOLOGY,
         "starts_at": START,
         "ends_at": START + timedelta(seconds=2 * DT_S),
         "timestep_seconds": DT_S,
@@ -117,7 +164,7 @@ def _reference_payload(case, samples=None, source_sha256=REFERENCE_SOURCE_HASH):
             )
         ]
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "case_id": case.case_id,
         "case_content_hash": case.content_hash,
         "evidence_class": "offline_high_fidelity_simulation",
@@ -156,7 +203,6 @@ def _tolerance(**overrides):
 
 def test_offline_case_export_is_deterministic_and_round_trips_strictly(tmp_path):
     case = _case(
-        network_edges=tuple(reversed(EDGES)),
         gate_events=tuple(
             reversed(
                 (
@@ -173,7 +219,7 @@ def test_offline_case_export_is_deterministic_and_round_trips_strictly(tmp_path)
     payload = offline_simulation_case_payload(loaded)
 
     assert payload == {
-        "schema_version": 1,
+        "schema_version": 2,
         "case_id": "serial-pulse-v1",
         "model_snapshot_id": MODEL_SNAPSHOT_ID,
         "model_release_id": "engineering-prior-2569-v1",
@@ -181,18 +227,35 @@ def test_offline_case_export_is_deterministic_and_round_trips_strictly(tmp_path)
         "member": "nominal",
         "sample_semantics": "mean_outflow_m3s_for_interval_ending_at_sampled_at",
         "config_sha256": CONFIG_SHA256,
-        "network_edges": [
-            {
-                "reach_id": "C_A_B",
-                "upstream_node_id": "A",
-                "downstream_node_id": "B",
-            },
-            {
-                "reach_id": "C_S_A",
-                "upstream_node_id": "S",
-                "downstream_node_id": "A",
-            },
-        ],
+        "routing_topology": {
+            "schema_version": 1,
+            "source_sha256": "0" * 64,
+            "content_hash": TOPOLOGY.content_hash,
+            "elements": [
+                {
+                    "element_id": "C_S_A",
+                    "upstream_node_id": "S",
+                    "downstream_node_id": "A",
+                    "role": "transport",
+                    "canonical_edges": [["S", "A"]],
+                    "canal": None,
+                    "span_m": 100.0,
+                    "geometry_status": "surveyed",
+                    "located_at_km": None,
+                },
+                {
+                    "element_id": "C_A_B",
+                    "upstream_node_id": "A",
+                    "downstream_node_id": "B",
+                    "role": "transport",
+                    "canonical_edges": [["A", "B"]],
+                    "canal": None,
+                    "span_m": 100.0,
+                    "geometry_status": "surveyed",
+                    "located_at_km": None,
+                },
+            ],
+        },
         "initial_state_kind": "dry",
         "starts_at": "2026-07-16T00:00:00Z",
         "ends_at": "2026-07-16T00:02:00Z",
@@ -219,7 +282,7 @@ def test_offline_case_export_is_deterministic_and_round_trips_strictly(tmp_path)
 @pytest.mark.parametrize(
     "overrides,match",
     [
-        ({"network_edges": list(EDGES)}, "immutable tuple"),
+        ({"routing_topology": EDGES}, "typed RoutingTopology"),
         ({"gate_events": [GateFlowEvent("S", START, 1.0)]}, "immutable tuple"),
         (
             {"gate_events": (GateFlowEvent("A", START, 1.0),)},
@@ -235,13 +298,13 @@ def test_offline_case_export_fails_closed_on_invalid_contract(overrides, match):
 
 
 def test_offline_case_export_requires_complete_explicit_branch_allocations():
-    edges = (("S", "A"), ("A", "B"), ("A", "C"))
+    topology = _topology((("S", "A"), ("A", "B"), ("A", "C")))
 
     with pytest.raises(OfflineModelComparisonError, match="branch allocation"):
-        _case(network_edges=edges)
+        _case(routing_topology=topology)
 
     case = _case(
-        network_edges=edges,
+        routing_topology=topology,
         branch_allocations=(
             BranchAllocation("A", "B", 0.5),
             BranchAllocation("A", "C", 0.5),
@@ -257,14 +320,8 @@ def test_offline_case_export_requires_complete_explicit_branch_allocations():
 def test_offline_case_export_rejects_colliding_derived_reach_ids():
     edges = (("S", "A"), ("S", "A_B"), ("A", "B_C"), ("A_B", "C"))
 
-    with pytest.raises(OfflineModelComparisonError, match="reach_id"):
-        _case(
-            network_edges=edges,
-            branch_allocations=(
-                BranchAllocation("S", "A", 0.5),
-                BranchAllocation("S", "A_B", 0.5),
-            ),
-        )
+    with pytest.raises(ValueError, match="not unique"):
+        _topology(edges)
 
 
 def test_offline_case_export_normalizes_numeric_and_timezone_equivalents(tmp_path):
@@ -356,20 +413,31 @@ def test_offline_reference_import_requires_exact_reach_time_coverage(tmp_path):
         load_offline_reference_result(path, case)
 
 
-def test_offline_interchange_covers_all_58_canonical_reaches(tmp_path):
+def test_offline_case_v2_round_trips_typed_routing_topology(tmp_path):
+    config_dir = CANONICAL_NETWORK.parent
     network = json.loads(CANONICAL_NETWORK.read_text(encoding="utf-8"))
-    edges = tuple(tuple(edge) for edge in network["edges"])
+    coverage = json.loads(
+        (config_dir / "geometry_coverage.json").read_text(encoding="utf-8")
+    )
+    canal_geometry = json.loads(
+        (config_dir / "canal_geometry.json").read_text(encoding="utf-8")
+    )
+    topology = derive_routing_topology(network, coverage, canal_geometry)
+    routing_edges = tuple(
+        (element.upstream_node_id, element.downstream_node_id)
+        for element in topology.elements
+    )
     child_counts = {
-        upstream: sum(1 for parent, _ in edges if parent == upstream)
-        for upstream, _ in edges
+        upstream: sum(1 for parent, _ in routing_edges if parent == upstream)
+        for upstream, _ in routing_edges
     }
     allocations = tuple(
         BranchAllocation(upstream, downstream, 1.0 / child_counts[upstream])
-        for upstream, downstream in edges
+        for upstream, downstream in routing_edges
         if child_counts[upstream] > 1
     )
     case = _case(
-        network_edges=edges,
+        routing_topology=topology,
         ends_at=START + timedelta(seconds=DT_S),
         gate_events=(),
         branch_allocations=allocations,
@@ -377,17 +445,81 @@ def test_offline_interchange_covers_all_58_canonical_reaches(tmp_path):
     samples = [
         {
             "sampled_at": "2026-07-16T00:01:00Z",
-            "reach_id": f"C_{upstream}_{downstream}",
+            "reach_id": reach_id,
             "outflow_m3s": 0.0,
         }
-        for upstream, downstream in case.network_edges
+        for reach_id in sorted(topology.transport_reach_ids())
+    ]
+    reference = _load_reference(tmp_path, case, samples)
+    path = tmp_path / "canonical-case.json"
+    write_offline_simulation_case(path, case)
+
+    assert load_offline_simulation_case(path).routing_topology == topology
+    assert (
+        len(offline_simulation_case_payload(case)["routing_topology"]["elements"]),
+        len(reference.samples),
+    ) == (59, 42)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda element: element.update(canonical_edges=[[]]),
+        lambda element: element.update(canonical_edges="not-a-list"),
+        lambda element: element.update(span_m="fast"),
+        lambda element: element.update(canal=12),
+        lambda element: element.update(located_at_km=170),
+        lambda element: element.update(element_id="C_WRONG_ID"),
+    ],
+)
+def test_offline_case_rejects_malformed_routing_elements_fail_closed(
+    tmp_path, mutation
+):
+    payload = offline_simulation_case_payload(_case())
+    mutation(payload["routing_topology"]["elements"][0])
+    path = tmp_path / "malformed-routing-case.json"
+    _write_json(path, payload)
+
+    with pytest.raises(OfflineModelComparisonError):
+        load_offline_simulation_case(path)
+
+
+def test_offline_v2_rejects_schema_v1_case(tmp_path):
+    payload = offline_simulation_case_payload(_case())
+    payload["schema_version"] = 1
+    path = tmp_path / "v1-case.json"
+    _write_json(path, payload)
+
+    with pytest.raises(OfflineModelComparisonError, match="schema_version must be 2"):
+        load_offline_simulation_case(path)
+
+
+def test_offline_reference_samples_cover_transport_reaches_only(tmp_path):
+    topology = _topology(
+        (("S", "A"), ("A", "B")), roles={("S", "A"): RoutingRole.BOUNDARY}
+    )
+    case = _case(routing_topology=topology)
+    samples = [
+        {
+            "sampled_at": sampled_at,
+            "reach_id": "C_A_B",
+            "outflow_m3s": 0.0,
+        }
+        for sampled_at in ("2026-07-16T00:01:00Z", "2026-07-16T00:02:00Z")
     ]
     reference = _load_reference(tmp_path, case, samples)
 
-    assert (
-        len(offline_simulation_case_payload(case)["network_edges"]),
-        len(reference.samples),
-    ) == (58, 58)
+    assert {sample.reach_id for sample in reference.samples} == {"C_A_B"}
+
+    with pytest.raises(OfflineModelComparisonError, match="sample coverage"):
+        boundary_samples = samples + [
+            {
+                "sampled_at": "2026-07-16T00:01:00Z",
+                "reach_id": "B_S_A",
+                "outflow_m3s": 0.0,
+            }
+        ]
+        _load_reference(tmp_path, case, boundary_samples)
 
 
 @pytest.mark.parametrize(
@@ -440,7 +572,7 @@ def test_golden_comparison_passes_exact_independent_serial_pulse(tmp_path):
         "mean_outflow_m3s_for_interval_ending_at_sampled_at"
     )
     assert report.content_hash == (
-        "de993273df36fa996533c2a202b4cc6a19c7e6e5921060c154000729e100f6d7"
+        "4ee67140e5e66c4bf0cfe5ebf7a0502c2f1a8af0fdc00662383a1da4f171772e"
     )
     assert tuple(
         (

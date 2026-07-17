@@ -234,21 +234,49 @@ class _StrictModelSnapshotSchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class ModelSnapshotReach(_StrictModelSnapshotSchema):
-    reach_id: str
+class ModelSnapshotScadaEdge(_StrictModelSnapshotSchema):
     upstream_node_id: str
     downstream_node_id: str
 
 
-class ModelSnapshotNetwork(_StrictModelSnapshotSchema):
+class ModelSnapshotScadaGraph(_StrictModelSnapshotSchema):
     config_sha256: Sha256Hex
-    reach_count: int
-    reaches: list[ModelSnapshotReach]
+    source_workbook_sha256: Sha256Hex
+    root_node_id: Literal["S"]
+    gate_count: int
+    edge_count: int
+    edges: list[ModelSnapshotScadaEdge]
+
+
+class ModelSnapshotRoutingElement(_StrictModelSnapshotSchema):
+    element_id: str
+    upstream_node_id: str
+    downstream_node_id: str
+    role: Literal[
+        "boundary", "transport", "branch_structure", "withdrawal_structure"
+    ]
+    canonical_edges: list[list[str]]
+    canal: str | None
+    span_m: float | None
+    geometry_status: Literal["surveyed", "unavailable", "not_applicable"]
+    located_at_km: str | None
+
+
+class ModelSnapshotRoutingTopology(_StrictModelSnapshotSchema):
+    schema_version: Literal[1]
+    config_sha256: Sha256Hex
+    content_hash: Sha256Hex
+    root_node_id: Literal["S"]
+    node_count: int
+    element_count: int
+    role_counts: dict[str, int]
+    elements: list[ModelSnapshotRoutingElement]
 
 
 class ModelSnapshotActionConfigSha256(_StrictModelSnapshotSchema):
     canal_geometry: Sha256Hex
     gate_calibrations: Sha256Hex
+    geometry_coverage: Sha256Hex
 
 
 class ModelSnapshotOperatingEnvelope(_StrictModelSnapshotSchema):
@@ -321,9 +349,9 @@ class ModelSnapshotResponseModel(_StrictModelSnapshotSchema):
 
 
 class ModelSnapshotCoverage(_StrictModelSnapshotSchema):
-    total_reaches: int
-    available_reaches: int
-    unavailable_reaches: int
+    total_transport_reaches: int
+    available_transport_reaches: int
+    unavailable_transport_reaches: int
 
 
 class ModelSnapshotUnavailableReach(_StrictModelSnapshotSchema):
@@ -332,18 +360,19 @@ class ModelSnapshotUnavailableReach(_StrictModelSnapshotSchema):
 
 
 class ModelSnapshotResponse(_StrictModelSnapshotSchema):
-    schema_version: Literal[1]
+    schema_version: Literal[2]
     snapshot_id: Sha256Hex
     data_status: Literal["complete", "partial", "unavailable"]
     mode: Literal["open_loop_prediction"]
     open_loop: Literal[True]
     actual_state_known: Literal[False]
     commandable: Literal[False]
-    network: ModelSnapshotNetwork
+    scada_graph: ModelSnapshotScadaGraph
+    routing_topology: ModelSnapshotRoutingTopology
     action_model: ModelSnapshotActionModel
     response_model: ModelSnapshotResponseModel | None
-    coverage: ModelSnapshotCoverage
-    unavailable_reaches: list[ModelSnapshotUnavailableReach]
+    transport_response_coverage: ModelSnapshotCoverage
+    unavailable_transport_reaches: list[ModelSnapshotUnavailableReach]
 
 
 class LevelValue(BaseModel):

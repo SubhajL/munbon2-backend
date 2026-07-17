@@ -994,6 +994,7 @@ class TestRegenerationLock:
             ("canal_geometry", "canal_geometry.json"),
             ("geometry_coverage", "geometry_coverage.json"),
             ("gate_calibrations", "gate_calibrations.json"),
+            ("routing_topology", "routing_topology.json"),
         ],
     )
     def test_committed_artifact_equals_regeneration(self, artifacts, name, filename):
@@ -1002,9 +1003,27 @@ class TestRegenerationLock:
         ).encode("utf-8")
         assert (CONFIG_DIR / filename).read_bytes() == expected
 
+    def test_routing_topology_artifact_matches_core_derivation(self, artifacts):
+        from core.routing_topology import derive_routing_topology
+
+        derived = derive_routing_topology(
+            artifacts["network"],
+            artifacts["geometry_coverage"],
+            artifacts["canal_geometry"],
+        )
+        artifact = artifacts["routing_topology"]
+
+        assert artifact["schema_version"] == derived.schema_version
+        assert artifact["content_hash"] == derived.content_hash
+        assert len(artifact["elements"]) == 59
+        assert (
+            artifact["metadata"]["source_sha256"]
+            == artifacts["network"]["metadata"]["source_sha256"]
+        )
+
 
 class TestMainCli:
-    def test_writes_four_deterministic_artifacts(self, tmp_path):
+    def test_writes_five_deterministic_artifacts(self, tmp_path):
         out1, out2 = tmp_path / "a", tmp_path / "b"
         bsc.main([str(WORKBOOK), "--out-dir", str(out1)])
         bsc.main([str(WORKBOOK), "--out-dir", str(out2)])
@@ -1013,6 +1032,7 @@ class TestMainCli:
             "canal_geometry.json",
             "geometry_coverage.json",
             "gate_calibrations.json",
+            "routing_topology.json",
         ]
         for n in names:
             b1, b2 = (out1 / n).read_bytes(), (out2 / n).read_bytes()

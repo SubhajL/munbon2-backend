@@ -23,18 +23,19 @@ from core.network_transient import (
 from core.model_release import HydraulicModelRelease
 from core.model_snapshot import ModelSnapshotError, build_model_snapshot
 from core.reach_response import ReachResponse, ReachState, ResponseMember
+from core.routing_topology import RoutingTopology
 
 
 @dataclass(frozen=True)
 class ControlPredictionService:
-    network_edges: tuple[tuple[str, str], ...]
+    routing_topology: RoutingTopology
     reach_responses: tuple[ReachResponse, ...]
     maximum_horizon_seconds: float | None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.network_edges, tuple) or not self.network_edges:
+        if not isinstance(self.routing_topology, RoutingTopology):
             raise NetworkTransientError(
-                "network_edges must be a non-empty immutable tuple"
+                "routing_topology must be a typed RoutingTopology"
             )
         if not isinstance(self.reach_responses, tuple):
             raise NetworkTransientError("reach_responses must be an immutable tuple")
@@ -78,7 +79,7 @@ class ControlPredictionService:
             response for response in self.reach_responses if response.member is member
         )
         return simulate_network_timeline(
-            self.network_edges,
+            self.routing_topology,
             member_responses,
             initial_states,
             gate_events,
@@ -95,9 +96,15 @@ class ControlPredictionService:
         requirements: tuple[ClosureRequirement, ...],
         projections: tuple[ClosureProjection, ...],
     ) -> datetime | None:
+        if closing_gate_id not in self.routing_topology.canonical_gate_node_ids():
+            raise NetworkTransientError(
+                f"closing_gate_id {closing_gate_id!r} must be a canal gate, "
+                "not a virtual routing node"
+            )
+        routing_edges = self.routing_topology.routing_edges()
         return earliest_safe_closure(
             closing_gate_id,
-            self.network_edges,
+            routing_edges,
             requirements,
             projections,
         )
@@ -118,7 +125,7 @@ class ControlPredictionService:
                 "runtime prediction horizon does not match the model release"
             )
         return build_model_snapshot(
-            self.network_edges,
+            self.routing_topology,
             self.reach_responses,
             release,
             config_sha256,

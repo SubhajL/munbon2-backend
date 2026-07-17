@@ -134,6 +134,16 @@ def get_control_prediction_service(
     return service
 
 
+def get_model_config_sha256(request: Request) -> dict:
+    config_sha256 = getattr(request.app.state, "model_config_sha256", None)
+    if not isinstance(config_sha256, dict):
+        raise HTTPException(
+            status_code=503,
+            detail="Model config lineage not initialized",
+        )
+    return config_sha256
+
+
 def get_hydraulic_model_release(
     request: Request,
 ) -> HydraulicModelRelease | None:
@@ -364,11 +374,12 @@ async def model_snapshot(
     controller: NetworkFlowController = Depends(get_flow_controller),
     service: ControlPredictionService = Depends(get_control_prediction_service),
     release: HydraulicModelRelease | None = Depends(get_hydraulic_model_release),
+    config_sha256: dict = Depends(get_model_config_sha256),
 ) -> ModelSnapshotResponse:
     try:
         result = service.model_snapshot(
             release,
-            controller.config_sha256,
+            config_sha256,
             controller.actuation_approved,
         )
     except ModelSnapshotError as exc:

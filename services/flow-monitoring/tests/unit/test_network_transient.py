@@ -17,16 +17,61 @@ from core.network_transient import (
     simulate_network_timeline,
 )
 from core.reach_response import ReachResponse, ReachState, ResponseMember
+from core.routing_topology import (
+    RoutingElement,
+    RoutingGeometryStatus,
+    RoutingRole,
+    build_routing_topology,
+    derive_routing_topology,
+)
 
 START = datetime(2026, 7, 16, tzinfo=timezone.utc)
 DT_S = 60.0
-CANONICAL_NETWORK = (
-    Path(__file__).resolve().parents[2] / "src" / "config" / "network.json"
-)
+CONFIG_DIR = Path(__file__).resolve().parents[2] / "src" / "config"
+CANONICAL_NETWORK = CONFIG_DIR / "network.json"
+
+_ROLE_PREFIX = {
+    RoutingRole.BOUNDARY: "B",
+    RoutingRole.TRANSPORT: "C",
+    RoutingRole.BRANCH_STRUCTURE: "BR",
+    RoutingRole.WITHDRAWAL_STRUCTURE: "WD",
+}
 
 
 def _reach_id(upstream: str, downstream: str) -> str:
     return f"C_{upstream}_{downstream}"
+
+
+def _routing_element(
+    upstream: str,
+    downstream: str,
+    role: RoutingRole = RoutingRole.TRANSPORT,
+) -> RoutingElement:
+    return RoutingElement(
+        element_id=f"{_ROLE_PREFIX[role]}_{upstream}_{downstream}",
+        upstream_node_id=upstream,
+        downstream_node_id=downstream,
+        role=role,
+        canonical_edges=((upstream, downstream),),
+        canal=None,
+        span_m=100.0 if role is RoutingRole.TRANSPORT else None,
+        geometry_status=(
+            RoutingGeometryStatus.SURVEYED
+            if role is RoutingRole.TRANSPORT
+            else RoutingGeometryStatus.NOT_APPLICABLE
+        ),
+        located_at_km=None,
+    )
+
+
+def _topology(edges, roles=None):
+    roles = roles or {}
+    return build_routing_topology(
+        tuple(
+            _routing_element(*edge, role=roles.get(edge, RoutingRole.TRANSPORT))
+            for edge in edges
+        )
+    )
 
 
 def _response(
@@ -59,16 +104,18 @@ def _states(responses: tuple[ReachResponse, ...]) -> tuple[ReachState, ...]:
 
 
 def _simulate(
-    edges: tuple[tuple[str, str], ...],
+    edges,
     responses: tuple[ReachResponse, ...],
     *,
+    roles=None,
     events: tuple[GateFlowEvent, ...],
     requirements: tuple[SectionRequirement, ...] = (),
     allocations: tuple[BranchAllocation, ...] = (),
     steps: int = 3,
 ):
+    topology = edges if hasattr(edges, "elements") else _topology(edges, roles)
     return simulate_network_timeline(
-        edges,
+        topology,
         responses,
         _states(responses),
         events,
@@ -232,23 +279,39 @@ class TestSimulateNetworkTimeline:
                 events=(GateFlowEvent("S", START, 1.0),),
             )
 
-    def test_canonical_timeline_has_complete_58_reach_coverage(self):
+    def test_canonical_timeline_has_complete_42_transport_coverage(self):
         network = json.loads(CANONICAL_NETWORK.read_text(encoding="utf-8"))
-        edges = tuple(tuple(edge) for edge in network["edges"])
+        coverage = json.loads(
+            (CONFIG_DIR / "geometry_coverage.json").read_text(encoding="utf-8")
+        )
+        canal_geometry = json.loads(
+            (CONFIG_DIR / "canal_geometry.json").read_text(encoding="utf-8")
+        )
+        topology = derive_routing_topology(network, coverage, canal_geometry)
+        transport_edges = tuple(
+            (element.upstream_node_id, element.downstream_node_id)
+            for element in topology.elements
+            if element.role is RoutingRole.TRANSPORT
+        )
         responses = tuple(
-            _response(*edge, delay_seconds=0.0, capacity_m3s=100.0) for edge in edges
+            _response(*edge, delay_seconds=0.0, capacity_m3s=100.0)
+            for edge in transport_edges
+        )
+        routing_edges = tuple(
+            (element.upstream_node_id, element.downstream_node_id)
+            for element in topology.elements
         )
         child_counts = {
-            node: sum(1 for upstream, _ in edges if upstream == node)
-            for node in {upstream for upstream, _ in edges}
+            node: sum(1 for upstream, _ in routing_edges if upstream == node)
+            for node in {upstream for upstream, _ in routing_edges}
         }
         allocations = tuple(
             BranchAllocation(upstream, downstream, 1.0 / child_counts[upstream])
-            for upstream, downstream in edges
+            for upstream, downstream in routing_edges
             if child_counts[upstream] > 1
         )
         timeline = _simulate(
-            edges,
+            topology,
             responses,
             events=(GateFlowEvent("S", START, 1.0),),
             allocations=allocations,
@@ -259,7 +322,144 @@ class TestSimulateNetworkTimeline:
             len(timeline.final_reach_states),
             {state.reach_id for state in timeline.final_reach_states},
             timeline.mass_balance.balance_error_m3,
-        ) == (58, {response.reach_id for response in responses}, pytest.approx(0.0))
+        ) == (42, set(topology.transport_reach_ids()), pytest.approx(0.0))
+
+    def test_requirement_at_the_virtual_junction_fails_closed(self):
+        edges = (("S", "A"), ("A", "B"))
+        roles = {("S", "A"): RoutingRole.BOUNDARY}
+        elements = tuple(
+            _routing_element(*edge, role=roles.get(edge, RoutingRole.TRANSPORT))
+            for edge in edges
+        )
+        junction_element = RoutingElement(
+            element_id="C_B_J(TEST,0+100)",
+            upstream_node_id="B",
+            downstream_node_id="J(TEST,0+100)",
+            role=RoutingRole.TRANSPORT,
+            canonical_edges=(("B", "C"),),
+            canal=None,
+            span_m=100.0,
+            geometry_status=RoutingGeometryStatus.SURVEYED,
+            located_at_km=None,
+        )
+        tail_element = RoutingElement(
+            element_id="C_J(TEST,0+100)_C",
+            upstream_node_id="J(TEST,0+100)",
+            downstream_node_id="C",
+            role=RoutingRole.TRANSPORT,
+            canonical_edges=(("B", "C"),),
+            canal=None,
+            span_m=100.0,
+            geometry_status=RoutingGeometryStatus.SURVEYED,
+            located_at_km=None,
+        )
+        topology = build_routing_topology(elements + (junction_element, tail_element))
+        responses = tuple(
+            _response(element.upstream_node_id, element.downstream_node_id)
+            for element in topology.elements
+            if element.role is RoutingRole.TRANSPORT
+        )
+        requirement = SectionRequirement(
+            requirement_id="requirement-1",
+            section_id="section-1",
+            delivery_node_id="J(TEST,0+100)",
+            window_start=START,
+            window_end=START + timedelta(hours=1),
+            required_volume_m3=60.0,
+            maximum_delivery_m3s=1.0,
+        )
+
+        with pytest.raises(NetworkTransientError, match="canal gate"):
+            _simulate(
+                topology,
+                responses,
+                events=(GateFlowEvent("S", START, 1.0),),
+                requirements=(requirement,),
+            )
+
+    def test_nontransport_elements_pass_through_without_reach_responses(self):
+        edges = (("S", "A"), ("A", "B"))
+        roles = {("S", "A"): RoutingRole.BOUNDARY}
+        responses = (_response("A", "B", delay_seconds=0.0),)
+
+        timeline = _simulate(
+            edges,
+            responses,
+            roles=roles,
+            events=(GateFlowEvent("S", START, 2.0),),
+            steps=1,
+        )
+
+        assert tuple(
+            point.reach_id for point in timeline.steps[0].reaches
+        ) == ("C_A_B",)
+        assert timeline.steps[0].reaches[0].inflow_m3s == 2.0
+        assert timeline.steps[0].terminal_outflow_m3 == 120.0
+        assert timeline.mass_balance.balance_error_m3 == pytest.approx(0.0)
+
+    def test_instantaneous_elements_preserve_exact_network_mass_balance(self):
+        edges = (("S", "A"), ("A", "W"), ("A", "B"), ("B", "C"))
+        roles = {
+            ("S", "A"): RoutingRole.BOUNDARY,
+            ("A", "W"): RoutingRole.WITHDRAWAL_STRUCTURE,
+            ("A", "B"): RoutingRole.BRANCH_STRUCTURE,
+        }
+        responses = (_response("B", "C", delay_seconds=0.0, loss_fraction=0.25),)
+
+        timeline = _simulate(
+            edges,
+            responses,
+            roles=roles,
+            events=(GateFlowEvent("S", START, 4.0),),
+            allocations=(
+                BranchAllocation("A", "W", 0.25),
+                BranchAllocation("A", "B", 0.75),
+            ),
+            steps=1,
+        )
+
+        assert timeline.mass_balance == NetworkMassBalanceAudit(
+            initial_in_transit_m3=0.0,
+            boundary_inflow_m3=240.0,
+            delivered_m3=0.0,
+            declared_loss_m3=45.0,
+            terminal_outflow_m3=195.0,
+            final_in_transit_m3=0.0,
+            balance_error_m3=0.0,
+        )
+
+    def test_transport_states_cover_only_transport_elements(self):
+        edges = (("S", "A"), ("A", "B"))
+        roles = {("S", "A"): RoutingRole.BOUNDARY}
+        responses = (_response("A", "B"),)
+
+        timeline = _simulate(
+            edges,
+            responses,
+            roles=roles,
+            events=(GateFlowEvent("S", START, 1.0),),
+            steps=1,
+        )
+
+        assert tuple(
+            state.reach_id for state in timeline.final_reach_states
+        ) == ("C_A_B",)
+
+    def test_unknown_nontransport_response_fails_closed(self):
+        edges = (("S", "A"), ("A", "B"))
+        roles = {("S", "A"): RoutingRole.BOUNDARY}
+        responses = (
+            _response("A", "B"),
+            _response("S", "A"),
+        )
+
+        with pytest.raises(NetworkTransientError, match="coverage"):
+            _simulate(
+                edges,
+                responses,
+                roles=roles,
+                events=(GateFlowEvent("S", START, 1.0),),
+            )
 
     def test_deterministic_replay_returns_the_same_immutable_timeline(self):
         edges = (("S", "A"),)

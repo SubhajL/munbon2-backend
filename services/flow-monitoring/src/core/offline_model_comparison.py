@@ -13,7 +13,7 @@ from typing import cast
 
 from .config_loader import ConfigError, load_strict_json_object
 from .demand_contract import canonical_json, content_hash
-from .network_topology import ROOT, is_spanning_tree, nodes_of
+from .network_topology import ROOT
 from .network_transient import (
     BranchAllocation,
     GateFlowEvent,
@@ -23,6 +23,14 @@ from .network_transient import (
     route_gate_events,
 )
 from .reach_response import ResponseMember
+from .routing_topology import (
+    RoutingElement,
+    RoutingGeometryStatus,
+    RoutingRole,
+    RoutingTopology,
+    build_routing_topology,
+    routing_topology_payload,
+)
 
 __all__ = [
     "ComparisonStatus",
@@ -63,7 +71,7 @@ _CASE_KEYS = {
     "member",
     "sample_semantics",
     "config_sha256",
-    "network_edges",
+    "routing_topology",
     "initial_state_kind",
     "starts_at",
     "ends_at",
@@ -84,7 +92,13 @@ _REFERENCE_KEYS = {
     "samples",
     "content_hash",
 }
-_CONFIG_KEYS = {"network", "canal_geometry", "gate_calibrations"}
+_CONFIG_KEYS = {
+    "network",
+    "canal_geometry",
+    "gate_calibrations",
+    "geometry_coverage",
+    "routing_topology",
+}
 _SHA256_HEX = re.compile(r"[0-9a-f]{64}")
 _INITIAL_STATE_KIND = "dry"
 _REFERENCE_EVIDENCE_CLASS = "offline_high_fidelity_simulation"
@@ -101,7 +115,7 @@ class OfflineSimulationCase:
     model_release_content_hash: str
     member: ResponseMember
     config_sha256: tuple[tuple[str, str], ...]
-    network_edges: tuple[tuple[str, str], ...]
+    routing_topology: RoutingTopology
     initial_state_kind: str
     starts_at: datetime
     ends_at: datetime
@@ -190,7 +204,7 @@ def build_offline_simulation_case(
     model_release_content_hash: str,
     member: ResponseMember,
     config_sha256: dict[str, str],
-    network_edges: tuple[tuple[str, str], ...],
+    routing_topology: RoutingTopology,
     starts_at: datetime,
     ends_at: datetime,
     timestep_seconds: float,
@@ -205,26 +219,34 @@ def build_offline_simulation_case(
     if not isinstance(member, ResponseMember):
         raise OfflineModelComparisonError("member must be a ResponseMember")
     normalized_config = _normalize_config_sha256(config_sha256)
-    normalized_edges = _normalize_network_edges(network_edges)
+    if not isinstance(routing_topology, RoutingTopology):
+        raise OfflineModelComparisonError(
+            "routing_topology must be a typed RoutingTopology"
+        )
+    routing_edges = routing_topology.routing_edges()
     _validate_timeline_bounds(starts_at, ends_at, timestep_seconds)
     normalized_events = _normalize_gate_events(
         gate_events, starts_at, ends_at, timestep_seconds
     )
     normalized_requirements = _normalize_requirements(
-        requirements, normalized_edges, starts_at, ends_at, timestep_seconds
+        requirements,
+        routing_topology.canonical_gate_node_ids(),
+        starts_at,
+        ends_at,
+        timestep_seconds,
     )
     normalized_allocations = _normalize_branch_allocations(
-        branch_allocations, normalized_edges
+        branch_allocations, routing_edges
     )
     case = OfflineSimulationCase(
-        schema_version=1,
+        schema_version=2,
         case_id=case_id.strip(),
         model_snapshot_id=model_snapshot_id,
         model_release_id=model_release_id.strip(),
         model_release_content_hash=model_release_content_hash,
         member=member,
         config_sha256=normalized_config,
-        network_edges=normalized_edges,
+        routing_topology=routing_topology,
         initial_state_kind=_INITIAL_STATE_KIND,
         starts_at=starts_at.astimezone(timezone.utc),
         ends_at=ends_at.astimezone(timezone.utc),
@@ -245,8 +267,8 @@ def offline_simulation_case_payload(case: OfflineSimulationCase) -> dict:
 def load_offline_simulation_case(path: str | Path) -> OfflineSimulationCase:
     data = _load_json(path)
     _require_exact_keys(data, _CASE_KEYS, "offline_case")
-    if _require_integer(data, "schema_version", "offline_case") != 1:
-        raise OfflineModelComparisonError("offline_case.schema_version must be 1")
+    if _require_integer(data, "schema_version", "offline_case") != 2:
+        raise OfflineModelComparisonError("offline_case.schema_version must be 2")
     initial_state_kind = _require_string(data, "initial_state_kind", "offline_case")
     if initial_state_kind != _INITIAL_STATE_KIND:
         raise OfflineModelComparisonError("offline_case.initial_state_kind must be dry")
@@ -272,11 +294,8 @@ def load_offline_simulation_case(path: str | Path) -> OfflineSimulationCase:
         ),
         member=member,
         config_sha256=_require_object(data, "config_sha256", "offline_case"),
-        network_edges=tuple(
-            _parse_edge(value, index)
-            for index, value in enumerate(
-                _require_array(data, "network_edges", "offline_case")
-            )
+        routing_topology=_parse_routing_topology(
+            _require_object(data, "routing_topology", "offline_case")
         ),
         starts_at=_parse_datetime(
             _require_string(data, "starts_at", "offline_case"),
@@ -418,7 +437,7 @@ def build_golden_comparison_report(
         comparison.reach_id for comparison in comparisons if not comparison.passed
     )
     report = GoldenComparisonReport(
-        schema_version=1,
+        schema_version=2,
         report_kind=_REPORT_KIND,
         status=(
             ComparisonStatus.PASSED if not failing_reaches else ComparisonStatus.FAILED
@@ -471,14 +490,14 @@ def _case_payload(case: OfflineSimulationCase, include_hash: bool) -> dict:
         "member": case.member.value,
         "sample_semantics": OFFLINE_SAMPLE_SEMANTICS,
         "config_sha256": dict(case.config_sha256),
-        "network_edges": [
-            {
-                "reach_id": _reach_id(upstream, downstream),
-                "upstream_node_id": upstream,
-                "downstream_node_id": downstream,
-            }
-            for upstream, downstream in case.network_edges
-        ],
+        "routing_topology": {
+            "schema_version": case.routing_topology.schema_version,
+            "source_sha256": case.routing_topology.source_sha256,
+            "content_hash": case.routing_topology.content_hash,
+            "elements": routing_topology_payload(case.routing_topology)[
+                "elements"
+            ],
+        },
         "initial_state_kind": case.initial_state_kind,
         "starts_at": _format_datetime(case.starts_at),
         "ends_at": _format_datetime(case.ends_at),
@@ -623,7 +642,7 @@ def _validate_case(case: OfflineSimulationCase) -> None:
         case.model_release_content_hash,
         case.member,
         dict(case.config_sha256),
-        case.network_edges,
+        case.routing_topology,
         case.starts_at,
         case.ends_at,
         case.timestep_seconds,
@@ -631,8 +650,8 @@ def _validate_case(case: OfflineSimulationCase) -> None:
         case.requirements,
         case.branch_allocations,
     )
-    if case.schema_version != 1:
-        raise OfflineModelComparisonError("offline case schema_version must be 1")
+    if case.schema_version != 2:
+        raise OfflineModelComparisonError("offline case schema_version must be 2")
     if case.initial_state_kind != _INITIAL_STATE_KIND:
         raise OfflineModelComparisonError("offline case initial_state_kind must be dry")
     _validate_sha256(case.content_hash, "offline case content_hash")
@@ -650,37 +669,6 @@ def _normalize_config_sha256(
     for key, value in config_sha256.items():
         _validate_sha256(value, f"config_sha256.{key}")
     return tuple(sorted(config_sha256.items()))
-
-
-def _normalize_network_edges(
-    network_edges: tuple[tuple[str, str], ...],
-) -> tuple[tuple[str, str], ...]:
-    if not isinstance(network_edges, tuple):
-        raise OfflineModelComparisonError("network_edges must be an immutable tuple")
-    if not network_edges:
-        raise OfflineModelComparisonError("network_edges must not be empty")
-    normalized = []
-    for index, edge in enumerate(network_edges):
-        if not isinstance(edge, tuple) or len(edge) != 2:
-            raise OfflineModelComparisonError(
-                f"network_edges[{index}] must be a node-id pair"
-            )
-        upstream, downstream = edge
-        _validate_non_blank(upstream, f"network_edges[{index}].upstream")
-        _validate_non_blank(downstream, f"network_edges[{index}].downstream")
-        normalized.append((upstream.strip(), downstream.strip()))
-    if len(set(normalized)) != len(normalized):
-        raise OfflineModelComparisonError("network_edges must not contain duplicates")
-    reach_ids = [_reach_id(*edge) for edge in normalized]
-    if len(set(reach_ids)) != len(reach_ids):
-        raise OfflineModelComparisonError(
-            "network_edges must produce unique reach_id values"
-        )
-    if not is_spanning_tree(normalized):
-        raise OfflineModelComparisonError(
-            "network_edges must form a rooted spanning tree"
-        )
-    return tuple(sorted(normalized, key=lambda edge: _reach_id(*edge)))
 
 
 def _validate_timeline_bounds(
@@ -737,14 +725,14 @@ def _normalize_gate_events(
 
 def _normalize_requirements(
     requirements: tuple[SectionRequirement, ...],
-    network_edges: tuple[tuple[str, str], ...],
+    gate_node_ids: frozenset[str],
     starts_at: datetime,
     ends_at: datetime,
     timestep_seconds: float,
 ) -> tuple[SectionRequirement, ...]:
     if not isinstance(requirements, tuple):
         raise OfflineModelComparisonError("requirements must be an immutable tuple")
-    network_nodes = nodes_of(network_edges)
+    network_nodes = gate_node_ids
     seen = set()
     normalized = []
     for requirement in requirements:
@@ -869,8 +857,8 @@ def _normalize_branch_allocations(
 def _validate_reference_result(
     result: OfflineReferenceResult, case: OfflineSimulationCase
 ) -> None:
-    if result.schema_version != 1:
-        raise OfflineModelComparisonError("offline reference schema_version must be 1")
+    if result.schema_version != 2:
+        raise OfflineModelComparisonError("offline reference schema_version must be 2")
     if (result.case_id, result.case_content_hash) != (case.case_id, case.content_hash):
         raise OfflineModelComparisonError(
             "offline reference case lineage does not match the exported case"
@@ -1073,7 +1061,7 @@ def _validate_tolerance(tolerance: ComparisonTolerance) -> None:
 
 
 def _validate_report(report: GoldenComparisonReport) -> None:
-    if report.schema_version != 1 or report.report_kind != _REPORT_KIND:
+    if report.schema_version != 2 or report.report_kind != _REPORT_KIND:
         raise OfflineModelComparisonError("golden report schema or kind is invalid")
     if not isinstance(report.status, ComparisonStatus):
         raise OfflineModelComparisonError("golden report status is invalid")
@@ -1112,26 +1100,104 @@ def _expected_sample_keys(
         for index in range(step_count)
     )
     return {
-        (_reach_id(upstream, downstream), instant)
-        for upstream, downstream in case.network_edges
+        (reach_id, instant)
+        for reach_id in case.routing_topology.transport_reach_ids()
         for instant in sampled_at
     }
 
 
-def _parse_edge(value: object, index: int) -> tuple[str, str]:
-    path = f"offline_case.network_edges[{index}]"
+def _parse_routing_topology(data: dict) -> RoutingTopology:
+    path = "offline_case.routing_topology"
+    _require_exact_keys(
+        data,
+        {"schema_version", "source_sha256", "content_hash", "elements"},
+        path,
+    )
+    elements = tuple(
+        _parse_routing_element(value, index)
+        for index, value in enumerate(_require_array(data, "elements", path))
+    )
+    try:
+        topology = build_routing_topology(
+            elements, _require_string(data, "source_sha256", path)
+        )
+    except ValueError as exc:
+        raise OfflineModelComparisonError(f"{path}: {exc}") from exc
+    if data.get("schema_version") != topology.schema_version:
+        raise OfflineModelComparisonError(
+            f"{path}.schema_version must be {topology.schema_version}"
+        )
+    if data.get("content_hash") != topology.content_hash:
+        raise OfflineModelComparisonError(
+            f"{path}.content_hash drift: declared {data.get('content_hash')!r}, "
+            f"expected {topology.content_hash!r}"
+        )
+    return topology
+
+
+def _parse_routing_element(value: object, index: int) -> RoutingElement:
+    path = f"offline_case.routing_topology.elements[{index}]"
     data = _as_object(value, path)
     _require_exact_keys(
         data,
-        {"reach_id", "upstream_node_id", "downstream_node_id"},
+        {
+            "element_id",
+            "upstream_node_id",
+            "downstream_node_id",
+            "role",
+            "canonical_edges",
+            "canal",
+            "span_m",
+            "geometry_status",
+            "located_at_km",
+        },
         path,
     )
-    upstream = _require_string(data, "upstream_node_id", path)
-    downstream = _require_string(data, "downstream_node_id", path)
-    reach_id = _require_string(data, "reach_id", path)
-    if reach_id != _reach_id(upstream, downstream):
-        raise OfflineModelComparisonError(f"{path}.reach_id does not match its nodes")
-    return upstream, downstream
+    try:
+        role = RoutingRole(_require_string(data, "role", path))
+        geometry_status = RoutingGeometryStatus(
+            _require_string(data, "geometry_status", path)
+        )
+    except ValueError as exc:
+        raise OfflineModelComparisonError(f"{path}: {exc}") from exc
+    canonical_edges = _require_array(data, "canonical_edges", path)
+    if not canonical_edges or any(
+        not isinstance(edge, list)
+        or len(edge) != 2
+        or any(not isinstance(node, str) or not node for node in edge)
+        for edge in canonical_edges
+    ):
+        raise OfflineModelComparisonError(
+            f"{path}.canonical_edges must be a non-empty list of node-id pairs"
+        )
+    canal = data.get("canal")
+    if canal is not None and not isinstance(canal, str):
+        raise OfflineModelComparisonError(f"{path}.canal must be a string or null")
+    span_m = data.get("span_m")
+    if span_m is not None and (
+        isinstance(span_m, bool)
+        or not isinstance(span_m, (int, float))
+        or not math.isfinite(span_m)
+    ):
+        raise OfflineModelComparisonError(
+            f"{path}.span_m must be a finite number or null"
+        )
+    located_at_km = data.get("located_at_km")
+    if located_at_km is not None and not isinstance(located_at_km, str):
+        raise OfflineModelComparisonError(
+            f"{path}.located_at_km must be a string or null"
+        )
+    return RoutingElement(
+        element_id=_require_string(data, "element_id", path),
+        upstream_node_id=_require_string(data, "upstream_node_id", path),
+        downstream_node_id=_require_string(data, "downstream_node_id", path),
+        role=role,
+        canonical_edges=tuple((edge[0], edge[1]) for edge in canonical_edges),
+        canal=canal,
+        span_m=None if span_m is None else float(span_m),
+        geometry_status=geometry_status,
+        located_at_km=located_at_km,
+    )
 
 
 def _parse_gate_event(value: object, index: int) -> GateFlowEvent:

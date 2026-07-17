@@ -1,4 +1,10 @@
-"""Content-addressed snapshot of the sensorless hydraulic model."""
+"""Content-addressed snapshot of the sensorless hydraulic model.
+
+Schema version 2: canonical SCADA graph identity, the derived typed
+routing topology, and transport-response coverage are exposed as separate
+concepts. Only transport elements can carry reach responses; boundary,
+branch, and withdrawal structures are structural transitions.
+"""
 
 from __future__ import annotations
 
@@ -14,15 +20,25 @@ from .model_release import (
     ParameterDistribution,
     validate_model_release,
 )
-from .network_topology import ROOT, is_spanning_tree
+from .network_topology import ROOT
 from .reach_response import (
     ReachResponse,
     reach_responses_from_model_release,
 )
+from .routing_topology import (
+    RoutingTopology,
+    routing_topology_payload,
+)
 
 __all__ = ["ModelSnapshotError", "build_model_snapshot"]
 
-_CONFIG_KEYS = {"network", "canal_geometry", "gate_calibrations"}
+_CONFIG_KEYS = {
+    "network",
+    "canal_geometry",
+    "gate_calibrations",
+    "geometry_coverage",
+    "routing_topology",
+}
 _SHA256_HEX = re.compile(r"[0-9a-f]{64}")
 _NO_MODEL_REASON = "hydraulic model release is not configured"
 
@@ -32,7 +48,7 @@ class ModelSnapshotError(ValueError):
 
 
 def build_model_snapshot(
-    network_edges: tuple[tuple[str, str], ...],
+    routing_topology: RoutingTopology,
     reach_responses: tuple[ReachResponse, ...],
     release: HydraulicModelRelease | None,
     config_sha256: Mapping[str, str],
@@ -40,26 +56,50 @@ def build_model_snapshot(
 ) -> dict:
     """Return one deterministic, non-commanding view of the runtime model."""
     _validate_runtime_contract(
-        network_edges,
+        routing_topology,
         reach_responses,
         release,
         config_sha256,
         actuation_approved,
     )
-    reaches = _network_reaches(network_edges)
-    unavailable = _unavailable_reaches(reaches, release)
-    available_count = len(reaches) - len(unavailable)
+    transport_reach_ids = routing_topology.transport_reach_ids()
+    unavailable = _unavailable_transport_reaches(transport_reach_ids, release)
+    available_count = len(transport_reach_ids) - len(unavailable)
+    canonical_edges = _canonical_edges(routing_topology)
+    routing_payload = routing_topology_payload(routing_topology)
+    role_counts: dict[str, int] = {}
+    for element in routing_topology.elements:
+        role_counts[element.role.value] = role_counts.get(element.role.value, 0) + 1
+    node_ids = {ROOT} | {
+        element.downstream_node_id for element in routing_topology.elements
+    }
     payload = {
-        "schema_version": 1,
-        "data_status": _data_status(available_count, len(reaches)),
+        "schema_version": 2,
+        "data_status": _data_status(available_count, len(transport_reach_ids)),
         "mode": "open_loop_prediction",
         "open_loop": True,
         "actual_state_known": False,
         "commandable": False,
-        "network": {
+        "scada_graph": {
             "config_sha256": config_sha256["network"],
-            "reach_count": len(reaches),
-            "reaches": reaches,
+            "source_workbook_sha256": routing_topology.source_sha256,
+            "root_node_id": ROOT,
+            "gate_count": len(canonical_edges),
+            "edge_count": len(canonical_edges),
+            "edges": [
+                {"upstream_node_id": upstream, "downstream_node_id": downstream}
+                for upstream, downstream in canonical_edges
+            ],
+        },
+        "routing_topology": {
+            "schema_version": routing_topology.schema_version,
+            "config_sha256": config_sha256["routing_topology"],
+            "content_hash": routing_topology.content_hash,
+            "root_node_id": ROOT,
+            "node_count": len(node_ids),
+            "element_count": len(routing_topology.elements),
+            "role_counts": role_counts,
+            "elements": routing_payload["elements"],
         },
         "action_model": {
             "kind": "gate_flow_event",
@@ -71,6 +111,7 @@ def build_model_snapshot(
             "config_sha256": {
                 "canal_geometry": config_sha256["canal_geometry"],
                 "gate_calibrations": config_sha256["gate_calibrations"],
+                "geometry_coverage": config_sha256["geometry_coverage"],
             },
             "operating_envelope": (
                 None
@@ -83,42 +124,43 @@ def build_model_snapshot(
             if release is None
             else _response_model_payload(release, reach_responses)
         ),
-        "coverage": {
-            "total_reaches": len(reaches),
-            "available_reaches": available_count,
-            "unavailable_reaches": len(unavailable),
+        "transport_response_coverage": {
+            "total_transport_reaches": len(transport_reach_ids),
+            "available_transport_reaches": available_count,
+            "unavailable_transport_reaches": len(unavailable),
         },
-        "unavailable_reaches": unavailable,
+        "unavailable_transport_reaches": unavailable,
     }
     return {"snapshot_id": content_hash(payload), **payload}
 
 
+def _canonical_edges(
+    routing_topology: RoutingTopology,
+) -> tuple[tuple[str, str], ...]:
+    seen: list[tuple[str, str]] = []
+    for element in routing_topology.elements:
+        for edge in element.canonical_edges:
+            if edge not in seen:
+                seen.append(edge)
+    return tuple(seen)
+
+
 def _validate_runtime_contract(
-    network_edges: tuple[tuple[str, str], ...],
+    routing_topology: RoutingTopology,
     reach_responses: tuple[ReachResponse, ...],
     release: HydraulicModelRelease | None,
     config_sha256: Mapping[str, str],
     actuation_approved: bool,
 ) -> None:
-    if not isinstance(network_edges, tuple) or not network_edges:
-        raise ModelSnapshotError("network_edges must be a non-empty immutable tuple")
-    if not all(
-        isinstance(edge, tuple)
-        and len(edge) == 2
-        and all(isinstance(node, str) and node.strip() for node in edge)
-        for edge in network_edges
-    ):
-        raise ModelSnapshotError("network_edges must contain node-id pairs")
-    if not is_spanning_tree(network_edges):
-        raise ModelSnapshotError("network_edges must form a rooted spanning tree")
+    if not isinstance(routing_topology, RoutingTopology):
+        raise ModelSnapshotError(
+            "model snapshot requires a typed RoutingTopology"
+        )
     if not isinstance(reach_responses, tuple):
         raise ModelSnapshotError("reach_responses must be an immutable tuple")
     if not isinstance(actuation_approved, bool):
         raise ModelSnapshotError("actuation_approved must be a boolean")
     _validate_config_sha256(config_sha256)
-    expected_reach_ids = tuple(
-        f"C_{upstream}_{downstream}" for upstream, downstream in network_edges
-    )
     if release is None:
         if reach_responses:
             raise ModelSnapshotError(
@@ -126,7 +168,7 @@ def _validate_runtime_contract(
             )
         return
     try:
-        validate_model_release(release, expected_reach_ids)
+        validate_model_release(release, routing_topology.transport_reach_ids())
     except ModelReleaseError as exc:
         raise ModelSnapshotError(str(exc)) from exc
     expected_responses = reach_responses_from_model_release(release)
@@ -152,29 +194,13 @@ def _validate_config_sha256(config_sha256: Mapping[str, str]) -> None:
         )
 
 
-def _network_reaches(
-    network_edges: tuple[tuple[str, str], ...],
-) -> list[dict]:
-    return sorted(
-        (
-            {
-                "reach_id": f"C_{upstream}_{downstream}",
-                "upstream_node_id": upstream,
-                "downstream_node_id": downstream,
-            }
-            for upstream, downstream in network_edges
-        ),
-        key=lambda reach: reach["reach_id"],
-    )
-
-
-def _unavailable_reaches(
-    reaches: list[dict], release: HydraulicModelRelease | None
+def _unavailable_transport_reaches(
+    transport_reach_ids: tuple[str, ...], release: HydraulicModelRelease | None
 ) -> list[dict]:
     if release is None:
         return [
-            {"reach_id": reach["reach_id"], "reason": _NO_MODEL_REASON}
-            for reach in reaches
+            {"reach_id": reach_id, "reason": _NO_MODEL_REASON}
+            for reach_id in sorted(transport_reach_ids)
         ]
     return [
         {"reach_id": reach.reach_id, "reason": reach.reason}

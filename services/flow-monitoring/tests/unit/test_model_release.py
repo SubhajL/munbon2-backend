@@ -190,14 +190,9 @@ class TestLoadConfiguredHydraulicModelRelease:
     def test_unconfigured_path_returns_explicit_unavailable_state(self):
         assert load_configured_hydraulic_model_release(None, []) is None
 
-    def test_configured_path_loads_against_runtime_network_edges(self, tmp_path):
-        network_edges = (
-            ("S", "M(0,0)"),
-            ("M(0,0)", "M(0,1)"),
-            ("M(0,1)", "M(0,2)"),
-        )
+    def test_configured_release_uses_explicit_transport_reach_ids(self, tmp_path):
         release = load_configured_hydraulic_model_release(
-            str(_write_release(tmp_path, _valid_payload())), network_edges
+            str(_write_release(tmp_path, _valid_payload())), EXPECTED_REACH_IDS
         )
 
         assert release is not None and release.release_id == "engineering-prior-2569-v1"
@@ -208,11 +203,25 @@ class TestLoadConfiguredHydraulicModelRelease:
 
 
 class TestValidateModelRelease:
-    def test_canonical_58_reaches_can_all_be_explicitly_unavailable(self, tmp_path):
+    def _canonical_transport_reach_ids(self) -> tuple[str, ...]:
+        from core.routing_topology import derive_routing_topology
+
+        config_dir = CANONICAL_NETWORK.parent
         network = json.loads(CANONICAL_NETWORK.read_text(encoding="utf-8"))
-        expected = tuple(
-            f"C_{upstream}_{downstream}" for upstream, downstream in network["edges"]
+        coverage = json.loads(
+            (config_dir / "geometry_coverage.json").read_text(encoding="utf-8")
         )
+        canal_geometry = json.loads(
+            (config_dir / "canal_geometry.json").read_text(encoding="utf-8")
+        )
+        return derive_routing_topology(
+            network, coverage, canal_geometry
+        ).transport_reach_ids()
+
+    def test_transport_release_coverage_excludes_nontransport_elements(
+        self, tmp_path
+    ):
+        expected = self._canonical_transport_reach_ids()
         payload = _valid_payload()
         payload["reach_parameters"] = []
         payload["unavailable_reaches"] = [
@@ -230,10 +239,35 @@ class TestValidateModelRelease:
             release.reach_parameters,
             len(release.unavailable_reaches),
         ) == (
-            58,
+            42,
             (),
-            58,
+            42,
         )
+        assert not any(
+            reach_id.startswith(("B_", "BR_", "WD_")) for reach_id in expected
+        )
+
+    def test_nontransport_elements_require_no_delay_loss_dispersion_or_capacity_distribution(
+        self, tmp_path
+    ):
+        expected = self._canonical_transport_reach_ids()
+        payload = _valid_payload()
+        payload["reach_parameters"] = []
+        payload["unavailable_reaches"] = [
+            {"reach_id": reach_id, "reason": "engineering evidence is unavailable"}
+            for reach_id in sorted(expected)
+        ] + [
+            {
+                "reach_id": "BR_M(0,0)_M(0,0;2,0)",
+                "reason": "engineering evidence is unavailable",
+            }
+        ]
+        _rehash(payload)
+
+        with pytest.raises(ModelReleaseError, match="unknown"):
+            load_hydraulic_model_release(
+                str(_write_release(tmp_path, payload)), expected
+            )
 
     def test_missing_reach_must_be_explicitly_unavailable(self, tmp_path):
         payload = _valid_payload()
