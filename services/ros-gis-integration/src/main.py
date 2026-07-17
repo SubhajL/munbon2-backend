@@ -8,6 +8,7 @@ from typing import List, Optional
 from strawberry.fastapi import GraphQLRouter
 from prometheus_client import make_asgi_app
 from config import settings
+from config.settings import Settings
 from core import get_logger
 from db import DatabaseManager
 from db.daily_requirement_run_store import PostgresDailyRequirementRunStore
@@ -27,19 +28,68 @@ db_manager = DatabaseManager()
 # ROS sync service instance
 ros_sync_service = RosSyncService()
 
-daily_requirement_job = None
-if settings.daily_requirement_enabled:
-    daily_requirement_job = DailyRequirementJob(
-        run_store=PostgresDailyRequirementRunStore(db_manager),
+def build_daily_requirement_job(
+    job_settings: Settings, manager: DatabaseManager
+) -> DailyRequirementJob | None:
+    if not job_settings.daily_requirement_enabled:
+        return None
+    return DailyRequirementJob(
+        run_store=PostgresDailyRequirementRunStore(manager),
         source_loader=AuthoritativeRequirementSourceLoader(
-            db_manager.get_requirement_source_connection,
-            max_input_age_hours=settings.daily_requirement_input_max_age_hours,
+            manager.get_requirement_source_connection,
+            max_input_age_hours=job_settings.daily_requirement_input_max_age_hours,
         ),
-        publisher=FlowMonitoringDemandPublisher(settings.flow_monitoring_url),
-        cron=settings.daily_requirement_cron,
-        timezone_name=settings.daily_requirement_timezone,
-        horizon_days=settings.daily_requirement_horizon_days,
+        publisher=FlowMonitoringDemandPublisher(job_settings.flow_monitoring_url),
+        cron=job_settings.daily_requirement_cron,
+        timezone_name=job_settings.daily_requirement_timezone,
+        horizon_days=job_settings.daily_requirement_horizon_days,
     )
+
+
+async def start_daily_requirement_lifecycle(
+    job: DailyRequirementJob | None, job_settings: Settings
+) -> None:
+    if job is None:
+        if (
+            job_settings.daily_requirement_startup_catchup_enabled
+            or job_settings.daily_requirement_schedule_enabled
+        ):
+            logger.warning(
+                "Daily requirement automatic flags are ignored because "
+                "DAILY_REQUIREMENT_ENABLED=false",
+                startup_catchup_enabled=(
+                    job_settings.daily_requirement_startup_catchup_enabled
+                ),
+                schedule_enabled=job_settings.daily_requirement_schedule_enabled,
+            )
+        return
+    if not (
+        job_settings.daily_requirement_startup_catchup_enabled
+        or job_settings.daily_requirement_schedule_enabled
+    ):
+        logger.warning(
+            "Daily requirement job is manual-only: startup catch-up and the "
+            "recurring schedule are disabled until their flags are set "
+            "(behavior change in the 0.3a lifecycle split)",
+        )
+    if job_settings.daily_requirement_startup_catchup_enabled:
+        try:
+            await job.catch_up()
+        except Exception as exc:
+            logger.error(
+                "Daily requirement startup catch-up failed",
+                error=str(exc),
+                exc_info=exc,
+            )
+    if job_settings.daily_requirement_schedule_enabled:
+        try:
+            await job.start_schedule()
+        except Exception as exc:
+            logger.error(
+                "Daily requirement schedule start failed",
+                error=str(exc),
+                exc_info=exc,
+            )
 
 
 @asynccontextmanager
@@ -50,15 +100,9 @@ async def lifespan(app: FastAPI):
     await db_manager.initialize()
     logger.info("Database connections initialized")
 
-    if daily_requirement_job is not None:
-        try:
-            await daily_requirement_job.start()
-        except Exception as exc:
-            logger.error(
-                "Daily requirement startup catch-up failed",
-                error=str(exc),
-                exc_info=exc,
-            )
+    daily_requirement_job = build_daily_requirement_job(settings, db_manager)
+    app.state.daily_requirement_job = daily_requirement_job
+    await start_daily_requirement_lifecycle(daily_requirement_job, settings)
 
     # Start ROS sync service if not using mock
     if not settings.use_mock_server:
@@ -84,7 +128,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.state.db_manager = db_manager
-app.state.daily_requirement_job = daily_requirement_job
+app.state.daily_requirement_job = None
 
 # Add CORS middleware
 app.add_middleware(
@@ -154,11 +198,22 @@ async def root():
 
 
 @app.get("/api/v1/status")
-async def service_status():
+async def service_status(request: Request):
     """Detailed service status"""
+    job = request.app.state.daily_requirement_job
     return {
         "service": settings.service_name,
         "environment": settings.environment,
+        "daily_requirement": {
+            "enabled": settings.daily_requirement_enabled,
+            "startup_catchup_enabled": (
+                settings.daily_requirement_startup_catchup_enabled
+            ),
+            "schedule_enabled": settings.daily_requirement_schedule_enabled,
+            "schedule_running": job is not None and job.schedule_running,
+            "cron": settings.daily_requirement_cron,
+            "timezone": settings.daily_requirement_timezone,
+        },
         "configuration": {
             "demand_advance_hours": settings.demand_advance_hours,
             "min_demand_m3": settings.min_demand_m3,

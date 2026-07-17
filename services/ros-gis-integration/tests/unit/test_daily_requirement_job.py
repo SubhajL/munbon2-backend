@@ -2,7 +2,6 @@ import asyncio
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -220,12 +219,100 @@ def test_operational_date_rejects_unsupported_or_invalid_cron(cron):
         operational_date(NOW, cron, "Asia/Bangkok")
 
 
-def test_ros_gis_lifespan_registers_starts_and_stops_daily_requirement_job():
-    main_source = (Path(__file__).resolve().parents[2] / "src" / "main.py").read_text(
-        encoding="utf-8"
+@pytest.mark.asyncio
+async def test_start_schedule_never_invokes_catch_up():
+    store = _RunStore()
+    job = _job(store=store)
+
+    await job.start_schedule()
+    try:
+        await asyncio.sleep(0)
+        assert job.source_loader.calls == []
+        assert store.events == []
+        assert store.runs == {}
+    finally:
+        await job.stop()
+
+
+@pytest.mark.asyncio
+async def test_start_schedule_rejects_double_start():
+    job = _job()
+
+    await job.start_schedule()
+    try:
+        with pytest.raises(RuntimeError, match="already running"):
+            await job.start_schedule()
+    finally:
+        await job.stop()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("cron", "timezone_name", "match"),
+    [
+        ("0 24 * * *", "Asia/Bangkok", "DAILY_REQUIREMENT_CRON"),
+        ("0 2 * * *", "Not/AZone", "Not/AZone"),
+    ],
+)
+async def test_start_schedule_validates_cron_and_timezone_synchronously(
+    cron, timezone_name, match
+):
+    store = _RunStore()
+    job = DailyRequirementJob(
+        run_store=store,
+        source_loader=_SourceLoader(_snapshot()),
+        publisher=_Publisher(store),
+        cron=cron,
+        timezone_name=timezone_name,
+        horizon_days=7,
     )
 
-    assert "DailyRequirementJob(" in main_source
-    assert "app.state.daily_requirement_job = daily_requirement_job" in main_source
-    assert "await daily_requirement_job.start()" in main_source
-    assert "await daily_requirement_job.stop()" in main_source
+    with pytest.raises((ValueError, KeyError), match=match):
+        await job.start_schedule()
+
+    assert job.schedule_running is False
+
+
+@pytest.mark.asyncio
+async def test_schedule_running_is_false_after_the_loop_task_dies():
+    job = _job()
+
+    async def dead_loop():
+        return None
+
+    job._task = asyncio.create_task(dead_loop())
+    await asyncio.sleep(0)
+
+    assert job.schedule_running is False
+    await job.stop()
+
+
+@pytest.mark.asyncio
+async def test_stop_swallows_a_dead_loop_task_failure_so_shutdown_continues():
+    job = _job()
+
+    async def crashed_loop():
+        raise ValueError("unexpected scheduler failure")
+
+    job._task = asyncio.create_task(crashed_loop())
+    await asyncio.sleep(0)
+
+    await job.stop()
+
+    assert job.schedule_running is False
+
+
+@pytest.mark.asyncio
+async def test_shutdown_stops_only_a_started_scheduler():
+    never_started = _job()
+    assert never_started.schedule_running is False
+    await never_started.stop()
+    assert never_started.schedule_running is False
+
+    started = _job()
+    await started.start_schedule()
+    assert started.schedule_running is True
+    await started.stop()
+    assert started.schedule_running is False
+    await started.stop()
+    assert started.schedule_running is False

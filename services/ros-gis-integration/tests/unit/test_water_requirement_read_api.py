@@ -240,6 +240,58 @@ class _ManualJob:
         )()
 
 
+class _FailingJob:
+    def __init__(self, error: Exception):
+        self.error = error
+
+    async def run_once(self, as_of_date):
+        raise self.error
+
+
+def _manual_run_client(job) -> TestClient:
+    app = FastAPI()
+    app.include_router(water_requirements.router)
+    app.dependency_overrides[water_requirements.get_daily_requirement_job] = lambda: job
+    return TestClient(app, raise_server_exceptions=False)
+
+
+def test_manual_run_returns_explicit_incomplete_input_response():
+    from services.requirement_source_loader import RequirementSourceError
+
+    reason = "section 01-01-01-03 has no planting date for 2026-07-16"
+    response = _manual_run_client(_FailingJob(RequirementSourceError(reason))).post(
+        "/api/v1/water-requirements/runs", json={"asOfDate": "2026-07-16"}
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": {
+            "status": "failed_incomplete_source",
+            "reason": reason,
+            "asOfDate": "2026-07-16",
+        }
+    }
+
+
+def test_manual_run_does_not_reclassify_unexpected_value_error():
+    response = _manual_run_client(_FailingJob(ValueError("negative volume"))).post(
+        "/api/v1/water-requirements/runs", json={"asOfDate": "2026-07-16"}
+    )
+
+    assert response.status_code == 500
+
+
+def test_manual_run_openapi_documents_requirement_source_error():
+    app = FastAPI()
+    app.include_router(water_requirements.router)
+
+    responses = app.openapi()["paths"]["/api/v1/water-requirements/runs"]["post"][
+        "responses"
+    ]
+
+    assert "409" in responses
+
+
 def test_manual_run_endpoint_calls_the_registered_daily_requirement_job():
     conn = _ReadConnection()
     job = _ManualJob()

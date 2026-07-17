@@ -29,6 +29,40 @@ def test_daily_requirement_job_configuration_maps_explicit_environment(monkeypat
     assert settings.daily_requirement_input_max_age_hours == 4320
 
 
+DAILY_REQUIREMENT_FLAG_ENVS = (
+    ("DAILY_REQUIREMENT_ENABLED", "daily_requirement_enabled"),
+    (
+        "DAILY_REQUIREMENT_STARTUP_CATCHUP_ENABLED",
+        "daily_requirement_startup_catchup_enabled",
+    ),
+    ("DAILY_REQUIREMENT_SCHEDULE_ENABLED", "daily_requirement_schedule_enabled"),
+)
+
+
+def test_daily_requirement_automatic_flags_default_false(monkeypatch):
+    for env_name, _ in DAILY_REQUIREMENT_FLAG_ENVS:
+        monkeypatch.delenv(env_name, raising=False)
+
+    settings = Settings(_env_file=None)
+
+    for _, field in DAILY_REQUIREMENT_FLAG_ENVS:
+        assert getattr(settings, field) is False
+
+
+@pytest.mark.parametrize(("env_name", "field"), DAILY_REQUIREMENT_FLAG_ENVS)
+def test_daily_requirement_flags_map_explicit_environment_independently(
+    monkeypatch, env_name, field
+):
+    for other_env, _ in DAILY_REQUIREMENT_FLAG_ENVS:
+        monkeypatch.delenv(other_env, raising=False)
+    monkeypatch.setenv(env_name, "true")
+
+    settings = Settings(_env_file=None)
+
+    for _, other_field in DAILY_REQUIREMENT_FLAG_ENVS:
+        assert getattr(settings, other_field) is (other_field == field)
+
+
 @pytest.mark.asyncio
 async def test_requirement_source_connection_fails_closed_before_initialization():
     manager = DatabaseManager()

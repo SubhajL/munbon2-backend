@@ -169,6 +169,17 @@ describe('build-irrigation-config', () => {
         WEATHER_API_URL: expect.any(String),
       });
     });
+
+    it('pins all ros-gis daily-requirement lifecycle flags false', () => {
+      const processes = getIrrigationProcesses();
+
+      const rosGis = processes.find(p => p.name === 'ros-gis-integration');
+      expect(rosGis?.env).toMatchObject({
+        DAILY_REQUIREMENT_ENABLED: 'false',
+        DAILY_REQUIREMENT_STARTUP_CATCHUP_ENABLED: 'false',
+        DAILY_REQUIREMENT_SCHEDULE_ENABLED: 'false',
+      });
+    });
   });
 
   describe('buildProcessConfig', () => {

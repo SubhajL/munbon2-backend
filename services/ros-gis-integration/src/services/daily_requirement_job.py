@@ -100,12 +100,19 @@ class DailyRequirementJob:
             operational_date(current, self.cron, self.timezone_name), current
         )
 
-    async def start(self) -> DailyRequirementJobResult:
+    @property
+    def schedule_running(self) -> bool:
+        return self._task is not None and not self._task.done()
+
+    async def start_schedule(self) -> None:
         if self._task is not None:
-            raise RuntimeError("daily requirement job is already running")
+            raise RuntimeError("daily requirement schedule is already running")
+        # Validate cron/timezone before spawning: a config error must fail
+        # startup loudly, not die later inside the unobserved loop task.
+        _daily_cron(self.cron)
+        ZoneInfo(self.timezone_name)
         self._stopping.clear()
         self._task = asyncio.create_task(self._run_loop())
-        return await self.catch_up()
 
     async def stop(self) -> None:
         self._stopping.set()
@@ -115,6 +122,12 @@ class DailyRequirementJob:
                 await self._task
             except asyncio.CancelledError:
                 pass
+            except Exception:
+                # A loop task that already died must not abort shutdown
+                # cleanup (db close) — surface it in the log instead.
+                logger.exception(
+                    "daily requirement schedule task had failed before shutdown"
+                )
             self._task = None
 
     async def _run_loop(self) -> None:
