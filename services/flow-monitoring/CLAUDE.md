@@ -25,6 +25,19 @@ Gate before PR: `pytest`.
 ## Config / Ports / Env
 - Port: `settings.port` (config-driven). DBs: TimescaleDB/Postgres per `src/config`. Calibration data: `src/config/gate_calibrations.json`.
 
+## Migrations (PR 4.1)
+Tracked DDL pairs in `migrations/` (`<id>.up.sql`/`<id>.down.sql`; scoped .gitignore
+negation past the blanket `*.sql` guard). Commands:
+`python migrations/migrate.py apply|rollback <id>` and `status` — one transaction per
+migration, pair checksums in `flow_monitoring.schema_migrations`, drift refuses apply AND
+rollback, `POSTGRES_URL` only (no default host). `0001_prediction_persistence`:
+`flow_monitoring.prediction_runs` + `prediction_artifacts` (content-addressed run id,
+deferred composite FK so a committed header provably has its exact artifact, immutability
+triggers, ONE zlib canonical artifact — never per-timestep rows or release-parameter
+copies). Runtime NEVER creates this schema: lifespan probes `to_regclass` and the
+prediction routes answer 503 until the migration is applied. Integration tests skip unless
+`FLOW_PREDICTION_TEST_POSTGRES_URL` names a disposable LOOPBACK database.
+
 ## Integration
 - Consumes demand from **ros-gis-integration** (`ros_gis` schema / HTTP). Intended to drive **scada-gate-control** (continuous opening → discrete level 1-4) — this bridge is **not yet connected** (remediation F-02).
 

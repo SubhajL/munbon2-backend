@@ -491,7 +491,7 @@ class PredictionInitialization(_StrictPredictionSchema):
 class SourceFlowEventIn(_StrictPredictionSchema):
     node_id: Literal["S"]
     effective_at: AwareUtc
-    flow_m3s: float
+    flow_m3s: float = Field(allow_inf_nan=False)
 
     @field_validator("flow_m3s", mode="before")
     @classmethod
@@ -502,7 +502,7 @@ class SourceFlowEventIn(_StrictPredictionSchema):
 class OperatorWithdrawalEventIn(_StrictPredictionSchema):
     structure_id: Annotated[str, StringConstraints(min_length=1)]
     effective_at: AwareUtc
-    planned_flow_m3s: float
+    planned_flow_m3s: float = Field(allow_inf_nan=False)
     purpose: Annotated[str, StringConstraints(min_length=1)]
     operator_reference: str | None
 
@@ -515,7 +515,7 @@ class OperatorWithdrawalEventIn(_StrictPredictionSchema):
 class BranchAllocationIn(_StrictPredictionSchema):
     upstream_node_id: Annotated[str, StringConstraints(min_length=1)]
     downstream_node_id: Annotated[str, StringConstraints(min_length=1)]
-    fraction: float
+    fraction: float = Field(allow_inf_nan=False)
 
     @field_validator("fraction", mode="before")
     @classmethod
@@ -529,9 +529,9 @@ class SectionRequirementIn(_StrictPredictionSchema):
     delivery_node_id: Annotated[str, StringConstraints(min_length=1)]
     window_start: AwareUtc
     window_end: AwareUtc
-    required_volume_m3: float
-    maximum_delivery_m3s: float
-    approved_excess_m3: float
+    required_volume_m3: float = Field(allow_inf_nan=False)
+    maximum_delivery_m3s: float = Field(allow_inf_nan=False)
+    approved_excess_m3: float = Field(allow_inf_nan=False)
 
     @field_validator(
         "required_volume_m3",
@@ -553,7 +553,7 @@ class ControlPredictionRequest(_StrictPredictionSchema):
     initialization: PredictionInitialization
     starts_at: AwareUtc
     ends_at: AwareUtc
-    timestep_seconds: float
+    timestep_seconds: float = Field(allow_inf_nan=False)
     source_flow_events: list[SourceFlowEventIn] = Field(min_length=1)
     operator_withdrawal_events: list[OperatorWithdrawalEventIn]
     branch_allocations: list[BranchAllocationIn]
@@ -708,14 +708,19 @@ class PredictionCoverageOut(_StrictPredictionSchema):
 
 
 class ControlPredictionResponse(_StrictPredictionSchema):
-    """Forecast-only, non-commanding, NON-PERSISTED three-member prediction."""
+    """Forecast-only, non-commanding three-member prediction.
 
-    schema_version: Literal[1]
+    schema_version 2 (PR 4.1): every 200 result is atomically persisted before
+    it is returned — the response carries its content-addressed run id and the
+    stored artifact replays it byte-identically forever."""
+
+    schema_version: Literal[2]
     mode: Literal["open_loop_prediction"]
     open_loop: Literal[True]
     actual_state_known: Literal[False]
     commandable: Literal[False]
-    persistence: Literal["none"]
+    persistence: Literal["stored"]
+    prediction_run_id: Sha256Hex
     model_snapshot_id: Sha256Hex
     model_release_id: str
     model_release_content_hash: Sha256Hex
