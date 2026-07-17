@@ -117,6 +117,7 @@ def test_prediction_service_invokes_pure_network_timeline():
         (GateFlowEvent("S", START, 1.0),),
         (),
         (),
+        (),
         START,
         START + timedelta(minutes=1),
         60.0,
@@ -140,6 +141,7 @@ def test_prediction_service_rejects_horizon_above_model_release_envelope():
                 ),
             ),
             (GateFlowEvent("S", START, 1.0),),
+            (),
             (),
             (),
             START,
@@ -213,6 +215,95 @@ def test_closure_at_a_non_gate_routing_node_fails_closed():
 
     with pytest.raises(NetworkTransientError, match="canal gate"):
         service.earliest_safe_closure("J(TEST,0+100)", (), ())
+
+
+def test_prediction_service_routes_operator_withdrawal_events():
+    from core.network_transient import OperatorWithdrawalEvent
+
+    elements = (
+        RoutingElement(
+            element_id="C_S_A",
+            upstream_node_id="S",
+            downstream_node_id="A",
+            role=RoutingRole.TRANSPORT,
+            canonical_edges=(("S", "A"),),
+            canal=None,
+            span_m=100.0,
+            geometry_status=RoutingGeometryStatus.SURVEYED,
+            located_at_km=None,
+        ),
+        RoutingElement(
+            element_id="WD_A_W",
+            upstream_node_id="A",
+            downstream_node_id="W",
+            role=RoutingRole.WITHDRAWAL_STRUCTURE,
+            canonical_edges=(("A", "W"),),
+            canal=None,
+            span_m=None,
+            geometry_status=RoutingGeometryStatus.NOT_APPLICABLE,
+            located_at_km="0+100",
+        ),
+    )
+    service = ControlPredictionService(
+        build_routing_topology(elements),
+        (RESPONSE,),
+        3600.0,
+        (("W", None),),
+    )
+
+    timeline = service.predict_member(
+        ResponseMember.NOMINAL,
+        (ReachState(RESPONSE.model_release_id, RESPONSE.reach_id, RESPONSE.member),),
+        (GateFlowEvent("S", START, 1.0),),
+        (
+            OperatorWithdrawalEvent(
+                structure_id="W",
+                effective_at=START,
+                planned_flow_m3s=0.5,
+                purpose="industrial_supply",
+            ),
+        ),
+        (),
+        (),
+        START,
+        START + timedelta(minutes=1),
+        60.0,
+    )
+
+    assert timeline.mass_balance.withdrawn_m3 == 30.0
+    assert timeline.steps[0].withdrawals[0].structure_id == "W"
+
+
+def test_prediction_service_rejects_incomplete_withdrawal_capacity_mapping():
+    elements = (
+        RoutingElement(
+            element_id="C_S_A",
+            upstream_node_id="S",
+            downstream_node_id="A",
+            role=RoutingRole.TRANSPORT,
+            canonical_edges=(("S", "A"),),
+            canal=None,
+            span_m=100.0,
+            geometry_status=RoutingGeometryStatus.SURVEYED,
+            located_at_km=None,
+        ),
+        RoutingElement(
+            element_id="WD_A_W",
+            upstream_node_id="A",
+            downstream_node_id="W",
+            role=RoutingRole.WITHDRAWAL_STRUCTURE,
+            canonical_edges=(("A", "W"),),
+            canal=None,
+            span_m=None,
+            geometry_status=RoutingGeometryStatus.NOT_APPLICABLE,
+            located_at_km="0+100",
+        ),
+    )
+
+    with pytest.raises(NetworkTransientError, match="withdrawal structures"):
+        ControlPredictionService(
+            build_routing_topology(elements), (), None
+        )
 
 
 def test_prediction_service_returns_snapshot_bound_to_its_release_horizon():

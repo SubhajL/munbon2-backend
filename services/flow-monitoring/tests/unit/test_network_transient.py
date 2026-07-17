@@ -12,7 +12,9 @@ from core.network_transient import (
     GateFlowEvent,
     NetworkMassBalanceAudit,
     NetworkTransientError,
+    OperatorWithdrawalEvent,
     SectionRequirement,
+    WithdrawalCapacityCheckStatus,
     route_gate_events,
     simulate_network_timeline,
 )
@@ -109,22 +111,58 @@ def _simulate(
     *,
     roles=None,
     events: tuple[GateFlowEvent, ...],
+    withdrawal_events: tuple[OperatorWithdrawalEvent, ...] = (),
+    withdrawal_capacity=None,
     requirements: tuple[SectionRequirement, ...] = (),
     allocations: tuple[BranchAllocation, ...] = (),
     steps: int = 3,
 ):
     topology = edges if hasattr(edges, "elements") else _topology(edges, roles)
+    if withdrawal_capacity is None:
+        withdrawal_capacity = {
+            element.downstream_node_id: None
+            for element in topology.elements
+            if element.role is RoutingRole.WITHDRAWAL_STRUCTURE
+        }
     return simulate_network_timeline(
         topology,
         responses,
         _states(responses),
         events,
+        withdrawal_events,
+        withdrawal_capacity,
         requirements,
         allocations,
         START,
         START + timedelta(seconds=steps * DT_S),
         DT_S,
     )
+
+
+def _withdrawal_event(
+    structure_id: str,
+    effective_at,
+    planned_flow_m3s: float,
+    purpose: str = "ecological_release",
+) -> OperatorWithdrawalEvent:
+    return OperatorWithdrawalEvent(
+        structure_id=structure_id,
+        effective_at=effective_at,
+        planned_flow_m3s=planned_flow_m3s,
+        purpose=purpose,
+    )
+
+
+WASTE_WAY_LIKE_EDGES = (
+    ("S", "G1"),
+    ("G1", "J(TEST,0+100)"),
+    ("J(TEST,0+100)", "W"),
+    ("J(TEST,0+100)", "G2"),
+)
+WASTE_WAY_LIKE_ROLES = {
+    ("S", "G1"): RoutingRole.BOUNDARY,
+    ("J(TEST,0+100)", "W"): RoutingRole.WITHDRAWAL_STRUCTURE,
+}
 
 
 class TestRouteGateEvents:
@@ -176,7 +214,14 @@ class TestSimulateNetworkTimeline:
         )
         assert branch_outflows == ((0.0, 0.0), (0.0, 0.0), (2.0, 2.0))
         assert timeline.mass_balance == NetworkMassBalanceAudit(
-            0.0, 240.0, 0.0, 0.0, 240.0, 0.0, 0.0
+            initial_in_transit_m3=0.0,
+            boundary_inflow_m3=240.0,
+            delivered_m3=0.0,
+            withdrawn_m3=0.0,
+            declared_loss_m3=0.0,
+            terminal_outflow_m3=240.0,
+            final_in_transit_m3=0.0,
+            balance_error_m3=0.0,
         )
 
     def test_network_audit_preserves_declared_loss_without_hidden_volume(self):
@@ -193,6 +238,7 @@ class TestSimulateNetworkTimeline:
             initial_in_transit_m3=0.0,
             boundary_inflow_m3=120.0,
             delivered_m3=0.0,
+            withdrawn_m3=0.0,
             declared_loss_m3=30.0,
             terminal_outflow_m3=90.0,
             final_in_transit_m3=0.0,
@@ -297,17 +343,18 @@ class TestSimulateNetworkTimeline:
             _response(*edge, delay_seconds=0.0, capacity_m3s=100.0)
             for edge in transport_edges
         )
-        routing_edges = tuple(
+        allocation_edges = tuple(
             (element.upstream_node_id, element.downstream_node_id)
             for element in topology.elements
+            if element.role is not RoutingRole.WITHDRAWAL_STRUCTURE
         )
         child_counts = {
-            node: sum(1 for upstream, _ in routing_edges if upstream == node)
-            for node in {upstream for upstream, _ in routing_edges}
+            node: sum(1 for upstream, _ in allocation_edges if upstream == node)
+            for node in {upstream for upstream, _ in allocation_edges}
         }
         allocations = tuple(
             BranchAllocation(upstream, downstream, 1.0 / child_counts[upstream])
-            for upstream, downstream in routing_edges
+            for upstream, downstream in allocation_edges
             if child_counts[upstream] > 1
         )
         timeline = _simulate(
@@ -411,10 +458,7 @@ class TestSimulateNetworkTimeline:
             responses,
             roles=roles,
             events=(GateFlowEvent("S", START, 4.0),),
-            allocations=(
-                BranchAllocation("A", "W", 0.25),
-                BranchAllocation("A", "B", 0.75),
-            ),
+            withdrawal_events=(_withdrawal_event("W", START, 1.0),),
             steps=1,
         )
 
@@ -422,11 +466,371 @@ class TestSimulateNetworkTimeline:
             initial_in_transit_m3=0.0,
             boundary_inflow_m3=240.0,
             delivered_m3=0.0,
+            withdrawn_m3=60.0,
             declared_loss_m3=45.0,
-            terminal_outflow_m3=195.0,
+            terminal_outflow_m3=135.0,
             final_in_transit_m3=0.0,
             balance_error_m3=0.0,
         )
+
+    def test_no_event_means_zero_withdrawal(self):
+        edges = (("S", "A"), ("A", "W"), ("A", "B"), ("B", "C"))
+        roles = {
+            ("S", "A"): RoutingRole.BOUNDARY,
+            ("A", "W"): RoutingRole.WITHDRAWAL_STRUCTURE,
+            ("A", "B"): RoutingRole.BRANCH_STRUCTURE,
+        }
+        responses = (_response("B", "C", delay_seconds=0.0),)
+
+        timeline = _simulate(
+            edges,
+            responses,
+            roles=roles,
+            events=(GateFlowEvent("S", START, 2.0),),
+            steps=1,
+        )
+
+        step = timeline.steps[0]
+        assert tuple(
+            (point.structure_id, point.planned_flow_m3s, point.predicted_withdrawal_m3s)
+            for point in step.withdrawals
+        ) == (("W", 0.0, 0.0),)
+        assert timeline.mass_balance.withdrawn_m3 == 0.0
+        assert timeline.mass_balance.terminal_outflow_m3 == 120.0
+
+    def test_waste_way_event_withdraws_only_after_flume_arrival(self):
+        responses = (
+            _response("G1", "J(TEST,0+100)", delay_seconds=DT_S),
+            _response("J(TEST,0+100)", "G2", delay_seconds=0.0),
+        )
+
+        timeline = _simulate(
+            WASTE_WAY_LIKE_EDGES,
+            responses,
+            roles=WASTE_WAY_LIKE_ROLES,
+            events=(GateFlowEvent("S", START, 2.0),),
+            withdrawal_events=(_withdrawal_event("W", START, 1.0),),
+            steps=2,
+        )
+
+        first, second = timeline.steps
+        assert tuple(
+            (point.predicted_withdrawal_m3s, point.shortfall_m3s)
+            for point in first.withdrawals
+        ) == ((0.0, 1.0),)
+        assert tuple(
+            (point.predicted_withdrawal_m3s, point.shortfall_m3s)
+            for point in second.withdrawals
+        ) == ((1.0, 0.0),)
+        assert timeline.mass_balance.withdrawn_m3 == 60.0
+        assert timeline.mass_balance.balance_error_m3 == pytest.approx(0.0)
+
+    def test_waste_way_event_does_not_change_rmc_source_split_before_lmc_junction(
+        self,
+    ):
+        edges = (
+            ("S", "G1"),
+            ("G1", "R"),
+            ("G1", "J(TEST,0+100)"),
+            ("J(TEST,0+100)", "W"),
+            ("J(TEST,0+100)", "G2"),
+        )
+        roles = {
+            ("S", "G1"): RoutingRole.BOUNDARY,
+            ("G1", "R"): RoutingRole.BRANCH_STRUCTURE,
+            ("J(TEST,0+100)", "W"): RoutingRole.WITHDRAWAL_STRUCTURE,
+        }
+        responses = (
+            _response("G1", "J(TEST,0+100)", delay_seconds=0.0),
+            _response("J(TEST,0+100)", "G2", delay_seconds=0.0),
+        )
+        arguments = {
+            "roles": roles,
+            "events": (GateFlowEvent("S", START, 4.0),),
+            "allocations": (
+                BranchAllocation("G1", "R", 0.5),
+                BranchAllocation("G1", "J(TEST,0+100)", 0.5),
+            ),
+            "steps": 1,
+        }
+
+        without_event = _simulate(edges, responses, **arguments)
+        with_event = _simulate(
+            edges,
+            responses,
+            withdrawal_events=(_withdrawal_event("W", START, 1.0),),
+            **arguments,
+        )
+
+        flume_inflow = lambda timeline: timeline.steps[0].reaches[0].inflow_m3s
+        assert flume_inflow(with_event) == flume_inflow(without_event) == 2.0
+        assert with_event.mass_balance.withdrawn_m3 == 60.0
+        assert without_event.mass_balance.withdrawn_m3 == 0.0
+
+    def test_withdrawal_shortfall_is_explicit_and_mass_is_conserved(self):
+        responses = (
+            _response("G1", "J(TEST,0+100)", delay_seconds=0.0),
+            _response("J(TEST,0+100)", "G2", delay_seconds=0.0),
+        )
+
+        timeline = _simulate(
+            WASTE_WAY_LIKE_EDGES,
+            responses,
+            roles=WASTE_WAY_LIKE_ROLES,
+            events=(GateFlowEvent("S", START, 0.5),),
+            withdrawal_events=(_withdrawal_event("W", START, 2.0),),
+            steps=1,
+        )
+
+        point = timeline.steps[0].withdrawals[0]
+        assert (
+            point.planned_flow_m3s,
+            point.hydraulically_available_flow_m3s,
+            point.predicted_withdrawal_m3s,
+            point.shortfall_m3s,
+        ) == (2.0, 0.5, 0.5, 1.5)
+        assert timeline.mass_balance.withdrawn_m3 == 30.0
+        assert timeline.mass_balance.terminal_outflow_m3 == 0.0
+        assert timeline.mass_balance.balance_error_m3 == pytest.approx(0.0)
+
+    def test_withdrawal_shortfall_survives_irrational_flow_volume_round_trip(self):
+        """The reviewer's live repro: a shortfall clamp at an irrational
+        availability must not leave a negative float residue that crashes
+        the downstream reach validator."""
+        requirement = SectionRequirement(
+            requirement_id="requirement-1",
+            section_id="section-1",
+            delivery_node_id="G1",
+            window_start=START,
+            window_end=START + timedelta(hours=1),
+            required_volume_m3=1e9,
+            maximum_delivery_m3s=1.5840213564352403,
+        )
+
+        topology = _topology(
+            (("S", "G1"), ("G1", "W"), ("G1", "J(TEST,0+100)")),
+            {
+                ("S", "G1"): RoutingRole.BOUNDARY,
+                ("G1", "W"): RoutingRole.WITHDRAWAL_STRUCTURE,
+            },
+        )
+        timestep_seconds = 1800.0
+        responses = (
+            ReachResponse(
+                model_release_id="engineering-prior-2569-v1",
+                reach_id="C_G1_J(TEST,0+100)",
+                member=ResponseMember.NOMINAL,
+                delay_seconds=0.0,
+                loss_fraction=0.0,
+                dispersion_seconds=0.0,
+                capacity_m3s=100.0,
+                minimum_timestep_seconds=timestep_seconds,
+                maximum_timestep_seconds=timestep_seconds,
+            ),
+        )
+        timeline = simulate_network_timeline(
+            topology,
+            responses,
+            _states(responses),
+            (GateFlowEvent("S", START, 2.1283507538211444),),
+            (_withdrawal_event("W", START, 5.0),),
+            {"W": None},
+            (requirement,),
+            (),
+            START,
+            START + timedelta(seconds=timestep_seconds),
+            timestep_seconds,
+        )
+
+        point = timeline.steps[0].withdrawals[0]
+        assert point.predicted_withdrawal_m3s >= 0.0
+        assert point.shortfall_m3s >= 0.0
+        assert timeline.steps[0].terminal_outflow_m3 >= 0.0
+        assert timeline.mass_balance.balance_error_m3 == pytest.approx(
+            0.0, abs=1e-8
+        )
+
+    def test_requirement_at_a_withdrawal_structure_fails_closed(self):
+        responses = (
+            _response("G1", "J(TEST,0+100)", delay_seconds=0.0),
+            _response("J(TEST,0+100)", "G2", delay_seconds=0.0),
+        )
+        requirement = SectionRequirement(
+            requirement_id="requirement-1",
+            section_id="section-1",
+            delivery_node_id="W",
+            window_start=START,
+            window_end=START + timedelta(hours=1),
+            required_volume_m3=10.0,
+            maximum_delivery_m3s=1.0,
+        )
+
+        with pytest.raises(NetworkTransientError, match="withdrawal structure"):
+            _simulate(
+                WASTE_WAY_LIKE_EDGES,
+                responses,
+                roles=WASTE_WAY_LIKE_ROLES,
+                events=(GateFlowEvent("S", START, 2.0),),
+                requirements=(requirement,),
+                steps=1,
+            )
+
+    def test_missing_structure_qmax_reports_unavailable_capacity_check(self):
+        responses = (
+            _response("G1", "J(TEST,0+100)", delay_seconds=0.0),
+            _response("J(TEST,0+100)", "G2", delay_seconds=0.0),
+        )
+
+        timeline = _simulate(
+            WASTE_WAY_LIKE_EDGES,
+            responses,
+            roles=WASTE_WAY_LIKE_ROLES,
+            events=(GateFlowEvent("S", START, 2.0),),
+            withdrawal_events=(_withdrawal_event("W", START, 1.0),),
+            steps=1,
+        )
+
+        assert (
+            timeline.steps[0].withdrawals[0].capacity_check_status
+            is WithdrawalCapacityCheckStatus.UNAVAILABLE
+        )
+
+    def test_authoritative_qmax_limits_predicted_withdrawal(self):
+        responses = (
+            _response("G1", "J(TEST,0+100)", delay_seconds=0.0),
+            _response("J(TEST,0+100)", "G2", delay_seconds=0.0),
+        )
+
+        timeline = _simulate(
+            WASTE_WAY_LIKE_EDGES,
+            responses,
+            roles=WASTE_WAY_LIKE_ROLES,
+            events=(GateFlowEvent("S", START, 2.0),),
+            withdrawal_events=(_withdrawal_event("W", START, 1.5),),
+            withdrawal_capacity={"W": 1.0},
+            steps=1,
+        )
+
+        point = timeline.steps[0].withdrawals[0]
+        assert (
+            point.predicted_withdrawal_m3s,
+            point.shortfall_m3s,
+            point.capacity_check_status,
+        ) == (1.0, 0.5, WithdrawalCapacityCheckStatus.EXCEEDS_CAPACITY)
+
+    def test_withdrawal_is_not_declared_loss_or_section_delivery(self):
+        responses = (
+            _response("G1", "J(TEST,0+100)", delay_seconds=0.0),
+            _response("J(TEST,0+100)", "G2", delay_seconds=0.0),
+        )
+        requirement = SectionRequirement(
+            requirement_id="requirement-1",
+            section_id="section-1",
+            delivery_node_id="G1",
+            window_start=START,
+            window_end=START + timedelta(hours=1),
+            required_volume_m3=30.0,
+            maximum_delivery_m3s=0.5,
+        )
+
+        timeline = _simulate(
+            WASTE_WAY_LIKE_EDGES,
+            responses,
+            roles=WASTE_WAY_LIKE_ROLES,
+            events=(GateFlowEvent("S", START, 2.0),),
+            withdrawal_events=(_withdrawal_event("W", START, 1.0),),
+            requirements=(requirement,),
+            steps=1,
+        )
+
+        assert timeline.mass_balance.withdrawn_m3 == 60.0
+        assert timeline.mass_balance.delivered_m3 == 30.0
+        assert timeline.mass_balance.declared_loss_m3 == 0.0
+        assert timeline.final_fulfillment[0].predicted_delivered_m3 == 30.0
+        assert timeline.mass_balance.balance_error_m3 == pytest.approx(0.0)
+
+    def test_unknown_or_nonwithdrawal_structure_event_fails_closed(self):
+        responses = (
+            _response("G1", "J(TEST,0+100)", delay_seconds=0.0),
+            _response("J(TEST,0+100)", "G2", delay_seconds=0.0),
+        )
+
+        for structure_id in ("G2", "NOWHERE"):
+            with pytest.raises(NetworkTransientError, match="withdrawal structure"):
+                _simulate(
+                    WASTE_WAY_LIKE_EDGES,
+                    responses,
+                    roles=WASTE_WAY_LIKE_ROLES,
+                    events=(GateFlowEvent("S", START, 2.0),),
+                    withdrawal_events=(
+                        _withdrawal_event(structure_id, START, 1.0),
+                    ),
+                    steps=1,
+                )
+
+    def test_overlapping_event_for_same_structure_and_instant_is_rejected(self):
+        responses = (
+            _response("G1", "J(TEST,0+100)", delay_seconds=0.0),
+            _response("J(TEST,0+100)", "G2", delay_seconds=0.0),
+        )
+
+        with pytest.raises(NetworkTransientError, match="duplicate"):
+            _simulate(
+                WASTE_WAY_LIKE_EDGES,
+                responses,
+                roles=WASTE_WAY_LIKE_ROLES,
+                events=(GateFlowEvent("S", START, 2.0),),
+                withdrawal_events=(
+                    _withdrawal_event("W", START, 1.0),
+                    _withdrawal_event("W", START, 0.5),
+                ),
+                steps=1,
+            )
+
+    def test_withdrawal_event_flow_is_held_until_replaced(self):
+        responses = (
+            _response("G1", "J(TEST,0+100)", delay_seconds=0.0),
+            _response("J(TEST,0+100)", "G2", delay_seconds=0.0),
+        )
+
+        timeline = _simulate(
+            WASTE_WAY_LIKE_EDGES,
+            responses,
+            roles=WASTE_WAY_LIKE_ROLES,
+            events=(GateFlowEvent("S", START, 2.0),),
+            withdrawal_events=(
+                _withdrawal_event("W", START, 1.0),
+                _withdrawal_event(
+                    "W", START + timedelta(seconds=2 * DT_S), 0.0
+                ),
+            ),
+            steps=3,
+        )
+
+        assert tuple(
+            step.withdrawals[0].predicted_withdrawal_m3s
+            for step in timeline.steps
+        ) == (1.0, 1.0, 0.0)
+        assert timeline.mass_balance.withdrawn_m3 == 120.0
+
+    def test_branch_allocations_exclude_withdrawal_structure_edges(self):
+        responses = (
+            _response("G1", "J(TEST,0+100)", delay_seconds=0.0),
+            _response("J(TEST,0+100)", "G2", delay_seconds=0.0),
+        )
+
+        with pytest.raises(NetworkTransientError, match="unknown branch edge"):
+            _simulate(
+                WASTE_WAY_LIKE_EDGES,
+                responses,
+                roles=WASTE_WAY_LIKE_ROLES,
+                events=(GateFlowEvent("S", START, 2.0),),
+                allocations=(
+                    BranchAllocation("J(TEST,0+100)", "W", 0.5),
+                    BranchAllocation("J(TEST,0+100)", "G2", 0.5),
+                ),
+                steps=1,
+            )
 
     def test_transport_states_cover_only_transport_elements(self):
         edges = (("S", "A"), ("A", "B"))

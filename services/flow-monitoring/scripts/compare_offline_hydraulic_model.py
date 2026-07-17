@@ -46,7 +46,10 @@ from core.reach_response import (  # noqa: E402
     ReachState,
     reach_responses_from_model_release,
 )
-from services.control_prediction_service import ControlPredictionService  # noqa: E402
+from services.control_prediction_service import (  # noqa: E402
+    ControlPredictionService,
+    build_withdrawal_structure_max_flow_map,
+)
 
 
 def run_comparison(
@@ -94,7 +97,9 @@ def run_comparison(
             f"canal geometry config is invalid: {exc}"
         ) from exc
     try:
-        load_gate_calibrations_config(gate_calibrations_path)
+        gate_calibrations_config = load_gate_calibrations_config(
+            gate_calibrations_path
+        )
     except ConfigError as exc:
         raise OfflineModelComparisonError(
             f"gate calibrations config is invalid: {exc}"
@@ -114,6 +119,14 @@ def run_comparison(
     if routing_topology != case.routing_topology:
         raise OfflineModelComparisonError(
             "routing topology does not match the exported offline case"
+        )
+    authoritative_capacity = build_withdrawal_structure_max_flow_map(
+        routing_topology, gate_calibrations_config
+    )
+    if case.withdrawal_structure_max_flow_m3s != authoritative_capacity:
+        raise OfflineModelComparisonError(
+            "withdrawal capacity metadata does not match the authoritative "
+            "gate calibrations"
         )
     release = load_hydraulic_model_release(
         model_release_path, routing_topology.transport_reach_ids()
@@ -149,11 +162,13 @@ def run_comparison(
         routing_topology,
         responses,
         release.operating_envelope.maximum_horizon_seconds,
+        authoritative_capacity,
     )
     candidate = service.predict_member(
         case.member,
         initial_states,
         case.gate_events,
+        case.withdrawal_events,
         case.requirements,
         case.branch_allocations,
         case.starts_at,

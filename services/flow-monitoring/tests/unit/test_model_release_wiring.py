@@ -46,3 +46,40 @@ def test_missing_routing_artifact_fails_without_configured_release(tmp_path):
             str(config_dir / "geometry_coverage.json"),
             str(config_dir / "canal_geometry.json"),
         )
+
+
+def test_lifespan_builds_withdrawal_capacity_from_gate_calibrations():
+    source = MAIN.read_text(encoding="utf-8")
+
+    assert "build_withdrawal_structure_max_flow_map(" in source
+    assert "load_gate_calibrations_config(calibration_file)" in source
+    assert "structure_max_flow_m3s_by_id=" in source
+
+
+def test_withdrawal_capacity_map_resolves_from_committed_artifacts():
+    from core.config_loader import (
+        load_gate_calibrations_config,
+        load_routing_topology,
+    )
+    from services.control_prediction_service import (
+        build_withdrawal_structure_max_flow_map,
+    )
+
+    config_dir = MAIN.parent / "config"
+    topology = load_routing_topology(
+        str(config_dir / "routing_topology.json"),
+        str(config_dir / "network.json"),
+        str(config_dir / "geometry_coverage.json"),
+        str(config_dir / "canal_geometry.json"),
+    )
+    calibrations = load_gate_calibrations_config(
+        str(config_dir / "gate_calibrations.json")
+    )
+
+    capacity = build_withdrawal_structure_max_flow_map(topology, calibrations)
+
+    assert capacity == (
+        ("M(0,0;1,0)", None),
+        ("M(0,0;2,0;1,0)", None),
+        ("M(0,0;2,1;1,2;1,0)", None),
+    )
