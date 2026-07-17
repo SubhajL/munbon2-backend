@@ -306,6 +306,15 @@ services/ros-gis-integration/migrations/*
 !services/ros-gis-integration/migrations/*.up.sql
 !services/ros-gis-integration/migrations/*.down.sql
 
+# Track flow-monitoring schema migrations (PR 4.1 prediction persistence).
+# Exact allowlist exception to the blanket *.sql credential guard above.
+!services/flow-monitoring/migrations/
+services/flow-monitoring/migrations/*
+!services/flow-monitoring/migrations/__init__.py
+!services/flow-monitoring/migrations/migrate.py
+!services/flow-monitoring/migrations/*.up.sql
+!services/flow-monitoring/migrations/*.down.sql
+
 # Compiled python artifacts must never be tracked, even inside re-included trees
 # (gitignore is last-match-wins; keep these at the END of the file). Wave 1.8.
 **/__pycache__/

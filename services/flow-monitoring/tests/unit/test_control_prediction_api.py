@@ -9,6 +9,7 @@ dry and unrequested; anything else fails closed.
 """
 
 import importlib.util
+import json
 from collections import defaultdict
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
@@ -41,6 +42,11 @@ from core.routing_topology import (
     RoutingGeometryStatus,
     RoutingRole,
     build_routing_topology,
+)
+from core.prediction_repository import (
+    InMemoryPredictionRepository,
+    PredictionRunRecord,
+    prediction_run_id_for,
 )
 from services.control_prediction_service import (
     ControlPredictionService,
@@ -132,6 +138,7 @@ def _app(
     app.state.model_config_sha256 = (
         _config_sha256(controller) if config_sha256 is None else config_sha256
     )
+    app.state.prediction_repository = InMemoryPredictionRepository()
     app.include_router(control.router, prefix="/api/v1/control")
     return app
 
@@ -179,6 +186,7 @@ def real_setup():
         "release": release,
         "snapshot_id": snapshot["snapshot_id"],
         "config_sha256": app.state.model_config_sha256,
+        "repository": app.state.prediction_repository,
     }
 
 
@@ -266,15 +274,17 @@ class TestPredictionDoneGate:
         )
 
         assert first.status_code == 200, first.text
-        assert first.content == second.content  # deterministic replay
+        assert first.content == second.content  # byte-identical stored replay
         body = first.json()
 
-        assert body["schema_version"] == 1
+        assert body["schema_version"] == 2
         assert body["mode"] == "open_loop_prediction"
         assert body["open_loop"] is True
         assert body["actual_state_known"] is False
         assert body["commandable"] is False
-        assert body["persistence"] == "none"
+        assert body["persistence"] == "stored"
+        assert len(body["prediction_run_id"]) == 64
+        assert body["prediction_run_id"] == second.json()["prediction_run_id"]
         assert body["model_snapshot_id"] == real_setup["snapshot_id"]
         assert body["model_release_id"] == real_setup["release"].release_id
         assert (
@@ -700,3 +710,225 @@ class TestPredictionMemberInfeasibility:
             assert member["timeline"] is not None
             kinds = {violation["kind"] for violation in member["violations"]}
             assert "requirement_shortfall" in kinds
+
+
+class TestPredictionPersistence:
+    def test_prediction_get_returns_exact_original_bytes(self, real_setup):
+        posted = real_setup["client"].post(
+            "/api/v1/control/predictions", json=_base_request(real_setup)
+        )
+        assert posted.status_code == 200, posted.text
+        run_id = posted.json()["prediction_run_id"]
+
+        fetched = real_setup["client"].get(
+            f"/api/v1/control/predictions/{run_id}"
+        )
+        assert fetched.status_code == 200, fetched.text
+        assert fetched.content == posted.content
+
+    def test_prediction_get_unknown_or_malformed_run_id(self, real_setup):
+        unknown = real_setup["client"].get(
+            "/api/v1/control/predictions/" + "e" * 64
+        )
+        assert unknown.status_code == 404, unknown.text
+
+        malformed = real_setup["client"].get(
+            "/api/v1/control/predictions/not-a-run-id"
+        )
+        assert malformed.status_code == 422, malformed.text
+
+    def test_prediction_repository_not_wired_returns_503(self):
+        control = _load_control()
+        controller = _controller()
+        release = load_configured_hydraulic_model_release(
+            RELEASE_PATH, TOPOLOGY.transport_reach_ids()
+        )
+        app = _app(control, controller, release)
+        app.state.prediction_repository = None
+        client = TestClient(app)
+        setup = {
+            "client": client,
+            "release": release,
+            "snapshot_id": app.state.control_prediction_service.model_snapshot(
+                release,
+                app.state.model_config_sha256,
+                controller.actuation_approved,
+            )["snapshot_id"],
+            "config_sha256": app.state.model_config_sha256,
+        }
+
+        posted = client.post(
+            "/api/v1/control/predictions", json=_base_request(setup)
+        )
+        assert posted.status_code == 503, posted.text
+        fetched = client.get("/api/v1/control/predictions/" + "e" * 64)
+        assert fetched.status_code == 503, fetched.text
+
+    def test_prediction_get_corrupt_artifact_returns_503(self, real_setup):
+        request = _base_request(real_setup)
+        request["source_flow_events"][0]["flow_m3s"] = 0.3  # unique run id
+        posted = real_setup["client"].post(
+            "/api/v1/control/predictions", json=request
+        )
+        assert posted.status_code == 200, posted.text
+        run_id = posted.json()["prediction_run_id"]
+
+        repository = real_setup["repository"]
+        stored = repository._runs[run_id]
+        tampered_artifact = replace(
+            stored.artifact,
+            compressed_payload=stored.artifact.compressed_payload[:-4]
+            + b"\x00\x00\x00\x00",
+        )
+        repository._runs[run_id] = replace(stored, artifact=tampered_artifact)
+
+        fetched = real_setup["client"].get(
+            f"/api/v1/control/predictions/{run_id}"
+        )
+        assert fetched.status_code == 503, fetched.text
+
+    def test_prediction_same_id_different_request_returns_409(self, real_setup):
+        request = _base_request(real_setup)
+        request["source_flow_events"][0]["flow_m3s"] = 0.35  # unique run id
+        colliding_id = prediction_run_id_for(_normalized_payload(request))
+        other = _base_request(real_setup)
+        other["source_flow_events"][0]["flow_m3s"] = 0.25
+        real_setup["repository"]._runs[colliding_id] = _record_for(
+            _normalized_payload(other)
+        )
+
+        posted = real_setup["client"].post(
+            "/api/v1/control/predictions", json=request
+        )
+        assert posted.status_code == 409, posted.text
+
+    def test_prediction_compute_is_deterministic_across_fresh_stores(self):
+        # Two independent apps with EMPTY stores both compute FRESH; byte
+        # equality proves end-to-end compute/assembly determinism — the done
+        # gate's second POST only proves stored replay, not recomputation.
+        controller = _controller()
+        release = load_configured_hydraulic_model_release(
+            RELEASE_PATH, TOPOLOGY.transport_reach_ids()
+        )
+        app_a = _app(_load_control(), controller, release)
+        app_b = _app(_load_control(), controller, release)
+        snapshot_id = app_a.state.control_prediction_service.model_snapshot(
+            release,
+            app_a.state.model_config_sha256,
+            controller.actuation_approved,
+        )["snapshot_id"]
+        setup = {
+            "release": release,
+            "snapshot_id": snapshot_id,
+            "config_sha256": app_a.state.model_config_sha256,
+        }
+        request = _base_request(setup)
+
+        first = TestClient(app_a).post(
+            "/api/v1/control/predictions", json=request
+        )
+        second = TestClient(app_b).post(
+            "/api/v1/control/predictions", json=request
+        )
+        assert first.status_code == 200, first.text
+        assert second.status_code == 200, second.text
+        assert first.content == second.content
+
+    def test_infeasible_member_result_is_persisted_and_replayed(self):
+        client, app, request = _mini_capacity_case()
+        first = client.post("/api/v1/control/predictions", json=request)
+        assert first.status_code == 200, first.text
+        second = client.post("/api/v1/control/predictions", json=request)
+        assert second.content == first.content
+
+        run_id = first.json()["prediction_run_id"]
+        fetched = client.get(f"/api/v1/control/predictions/{run_id}")
+        assert fetched.status_code == 200, fetched.text
+        assert fetched.content == first.content
+        members = fetched.json()["members"]
+        assert members[0]["status"] == "infeasible"
+        assert members[0]["timeline"] is None
+
+
+def _normalized_payload(request: dict) -> dict:
+    """THE normalization the route hashes: the validated request re-serialized
+    in JSON mode — pinned here so identity can never silently drift."""
+    from schemas.control import ControlPredictionRequest
+
+    return ControlPredictionRequest.model_validate(request).model_dump(
+        mode="json"
+    )
+
+
+def _record_for(payload: dict) -> PredictionRunRecord:
+    from core.prediction_repository import canonical_json_bytes
+    from services.prediction_artifact_service import encode_prediction_artifact
+
+    body = json.loads(
+        canonical_json_bytes({"seeded": True, "for": payload["starts_at"]})
+    )
+    return PredictionRunRecord(
+        prediction_run_id=prediction_run_id_for(payload),
+        identity_version=1,
+        response_schema_version=2,
+        request_payload=payload,
+        model_snapshot_id=payload["model_snapshot_id"],
+        model_release_id=payload["model_release_id"],
+        model_release_content_hash=payload["model_release_content_hash"],
+        starts_at=STARTS_AT,
+        ends_at=ENDS_AT,
+        timestep_seconds=TIMESTEP_SECONDS,
+        member_summaries=(),
+        artifact=encode_prediction_artifact(canonical_json_bytes(body)),
+    )
+
+
+def _mini_capacity_case():
+    control = _load_control()
+    controller = _controller()
+    release = _mini_release()
+    topology = _mini_topology()
+    app = _app(
+        control,
+        controller,
+        release,
+        topology=topology,
+        config_sha256=MINI_CONFIG_SHA256,
+        withdrawal_capacity=(),
+    )
+    snapshot = app.state.control_prediction_service.model_snapshot(
+        release, MINI_CONFIG_SHA256, controller.actuation_approved
+    )
+    starts_at = datetime(2026, 7, 20, 23, 0, tzinfo=timezone.utc)
+    ends_at = starts_at + timedelta(hours=1)
+    request = {
+        "model_snapshot_id": snapshot["snapshot_id"],
+        "model_release_id": release.release_id,
+        "model_release_content_hash": release.content_hash,
+        "initialization": {"kind": "dry"},
+        "starts_at": starts_at.isoformat(),
+        "ends_at": ends_at.isoformat(),
+        "timestep_seconds": 300.0,
+        "source_flow_events": [
+            {
+                "node_id": "S",
+                "effective_at": starts_at.isoformat(),
+                "flow_m3s": 1.2,
+            }
+        ],
+        "operator_withdrawal_events": [],
+        "branch_allocations": [],
+        "section_requirements": [
+            {
+                "requirement_id": "REQ-MINI-1",
+                "section_id": "SEC-MINI-1",
+                "delivery_node_id": "A",
+                "window_start": starts_at.isoformat(),
+                "window_end": ends_at.isoformat(),
+                "required_volume_m3": 100000.0,
+                "maximum_delivery_m3s": 2.0,
+                "approved_excess_m3": 0.0,
+            }
+        ],
+    }
+    return TestClient(app), app, request

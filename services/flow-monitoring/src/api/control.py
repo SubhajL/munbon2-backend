@@ -21,7 +21,9 @@ from datetime import datetime, timezone
 from typing import Literal, Optional
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import Path as FastApiPath
+from fastapi.concurrency import run_in_threadpool
 from pydantic import ValidationError
 
 from core.demand_contract import (
@@ -60,6 +62,15 @@ from core.network_flow_controller import (
 )
 from core.network_topology import NetworkTopologyError
 from core.node_id import NodeIdError, normalize_gate_id, normalize_node_id
+from core.prediction_repository import (
+    PREDICTION_RUN_IDENTITY_VERSION,
+    PredictionArtifactCorrupt,
+    PredictionRunConflict,
+    PredictionRunRecord,
+    PredictionStoreUnavailable,
+    canonical_json_bytes,
+    prediction_run_id_for,
+)
 from schemas.control import (
     ControlConfigSha256,
     ControlPredictionRequest,
@@ -109,6 +120,11 @@ from services.control_prediction_service import (
     ControlPredictionService,
     PredictionLineageConflictError,
     PredictionModelUnavailableError,
+)
+from services.prediction_artifact_service import (
+    decode_prediction_artifact,
+    encode_prediction_artifact,
+    summarize_prediction_members,
 )
 
 logger = structlog.get_logger()
@@ -806,23 +822,61 @@ def _map_prediction_member(entry, covered_order) -> PredictionMemberOut:
     )
 
 
-@router.post("/predictions", response_model=ControlPredictionResponse)
-def control_predictions(
+async def get_prediction_repository(request: Request):
+    """Dependency: the migration-backed run store, or 503 — persistence is
+    part of the success contract. When lifespan left it unwired (transient DB
+    blip at boot, or migration applied later) the probe re-runs lazily so one
+    healthy request restores availability without a restart."""
+    repository = getattr(request.app.state, "prediction_repository", None)
+    if repository is None:
+        probe = getattr(
+            request.app.state, "prediction_repository_probe", None
+        )
+        if probe is not None:
+            repository = await probe()
+            if repository is not None:
+                request.app.state.prediction_repository = repository
+    if repository is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Prediction persistence is not available (migration not "
+            "applied or repository not initialized)",
+        )
+    return repository
+
+
+def _validated_stored_bytes(stored, expected_run_id: str) -> bytes:
+    """Decode + validate a stored artifact before serving it: it must parse
+    as a ControlPredictionResponse whose embedded run id matches the header —
+    stored bytes are never trusted blind (CPU-bound; call via threadpool)."""
+    response_bytes = decode_prediction_artifact(stored.artifact)
+    payload = json.loads(response_bytes.decode("utf-8"))
+    try:
+        parsed = ControlPredictionResponse.model_validate(payload)
+    except ValidationError as exc:
+        raise PredictionArtifactCorrupt(
+            f"stored artifact is not a valid prediction response: {exc}"
+        ) from exc
+    if parsed.prediction_run_id != expected_run_id:
+        raise PredictionArtifactCorrupt(
+            "stored artifact's embedded run id does not match its header"
+        )
+    return response_bytes
+
+
+def _compute_control_prediction_response(
     request: ControlPredictionRequest,
-    controller: NetworkFlowController = Depends(get_flow_controller),
-    service: ControlPredictionService = Depends(
-        get_control_prediction_service
-    ),
-    release: HydraulicModelRelease | None = Depends(
-        get_hydraulic_model_release
-    ),
-    config_sha256: dict = Depends(get_model_config_sha256),
+    controller: NetworkFlowController,
+    service: ControlPredictionService,
+    release: HydraulicModelRelease | None,
+    config_sha256: dict,
+    run_id: str,
 ) -> ControlPredictionResponse:
     """Three-member dynamic prediction on the EXACT pinned model snapshot.
 
-    Forecast-only and non-persisted: nothing is stored, nothing is commanded,
-    and an infeasible member is an explicit result, not an error. Missing
-    model/coverage/lineage fails closed (503/409/400) — never a default."""
+    CPU-bound; the route runs this in a threadpool. An infeasible member is an
+    explicit result, not an error. Missing model/coverage/lineage fails closed
+    (503/409/400) — never a default."""
     gate_events = tuple(
         GateFlowEvent(event.node_id, event.effective_at, event.flow_m3s)
         for event in request.source_flow_events
@@ -883,12 +937,13 @@ def control_predictions(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return ControlPredictionResponse(
-        schema_version=1,
+        schema_version=2,
         mode="open_loop_prediction",
         open_loop=True,
         actual_state_known=False,
         commandable=False,
-        persistence="none",
+        persistence="stored",
+        prediction_run_id=run_id,
         model_snapshot_id=request.model_snapshot_id,
         model_release_id=request.model_release_id,
         model_release_content_hash=request.model_release_content_hash,
@@ -910,3 +965,134 @@ def control_predictions(
             for entry in outcome.members
         ],
     )
+
+
+def _build_prediction_record(
+    request: ControlPredictionRequest,
+    normalized_request: dict,
+    response_model: ControlPredictionResponse,
+    run_id: str,
+) -> PredictionRunRecord:
+    """Canonicalize, summarize, and compress the fresh result (CPU-bound)."""
+    response_payload = response_model.model_dump(mode="json")
+    response_bytes = canonical_json_bytes(response_payload)
+    return PredictionRunRecord(
+        prediction_run_id=run_id,
+        identity_version=PREDICTION_RUN_IDENTITY_VERSION,
+        response_schema_version=2,
+        request_payload=normalized_request,
+        model_snapshot_id=request.model_snapshot_id,
+        model_release_id=request.model_release_id,
+        model_release_content_hash=request.model_release_content_hash,
+        starts_at=request.starts_at,
+        ends_at=request.ends_at,
+        timestep_seconds=request.timestep_seconds,
+        member_summaries=summarize_prediction_members(response_payload),
+        artifact=encode_prediction_artifact(response_bytes),
+    )
+
+
+@router.post("/predictions", response_model=ControlPredictionResponse)
+async def control_predictions(
+    request: ControlPredictionRequest,
+    controller: NetworkFlowController = Depends(get_flow_controller),
+    service: ControlPredictionService = Depends(
+        get_control_prediction_service
+    ),
+    release: HydraulicModelRelease | None = Depends(
+        get_hydraulic_model_release
+    ),
+    config_sha256: dict = Depends(get_model_config_sha256),
+    repository=Depends(get_prediction_repository),
+) -> Response:
+    """Replay-first persisted prediction: an identical request returns the
+    stored bytes without recomputation; a fresh result is computed in a
+    threadpool and persisted atomically BEFORE it is returned — an
+    unpersisted success never leaves this handler."""
+    try:
+        normalized_request = request.model_dump(mode="json")
+        run_id = prediction_run_id_for(normalized_request)
+    except (ValueError, UnicodeEncodeError) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"request is not canonically serializable: {exc}",
+        ) from exc
+    try:
+        stored = await repository.load_prediction_run(run_id)
+        if stored is not None:
+            if canonical_json_bytes(stored.request_payload) != (
+                canonical_json_bytes(normalized_request)
+            ):
+                raise PredictionRunConflict(
+                    f"prediction run {run_id!r} exists with different "
+                    "request content"
+                )
+            return Response(
+                content=await run_in_threadpool(
+                    _validated_stored_bytes, stored, run_id
+                ),
+                media_type="application/json",
+            )
+        response_model = await run_in_threadpool(
+            _compute_control_prediction_response,
+            request,
+            controller,
+            service,
+            release,
+            config_sha256,
+            run_id,
+        )
+        record = await run_in_threadpool(
+            _build_prediction_record, request, normalized_request,
+            response_model, run_id,
+        )
+        stored_record, _ = await repository.persist_prediction_run(record)
+        return Response(
+            content=await run_in_threadpool(
+                _validated_stored_bytes, stored_record, run_id
+            ),
+            media_type="application/json",
+        )
+    except PredictionRunConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except PredictionArtifactCorrupt as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except PredictionStoreUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        # e.g. a non-finite float escaping the engine into canonical
+        # serialization — a server-side fault, never a silent 500.
+        raise HTTPException(
+            status_code=503,
+            detail=f"prediction result is not canonically serializable: {exc}",
+        ) from exc
+
+
+@router.get(
+    "/predictions/{prediction_run_id}",
+    response_model=ControlPredictionResponse,
+)
+async def get_control_prediction(
+    prediction_run_id: str = FastApiPath(pattern=r"^[0-9a-f]{64}$"),
+    repository=Depends(get_prediction_repository),
+) -> Response:
+    """Exact replay of one stored prediction run — the original bytes, for
+    every stored outcome including explicitly infeasible members. Unknown id
+    is 404; stored-state corruption fails closed as 503, never a partial."""
+    try:
+        stored = await repository.load_prediction_run(prediction_run_id)
+        if stored is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"prediction run {prediction_run_id!r} is not stored",
+            )
+        return Response(
+            content=await run_in_threadpool(
+                _validated_stored_bytes, stored, prediction_run_id
+            ),
+            media_type="application/json",
+        )
+    except (PredictionArtifactCorrupt, PredictionRunConflict) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except PredictionStoreUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc

@@ -165,6 +165,34 @@ async def lifespan(app: FastAPI):
         control_api.demand_store = demand_store
         logger.info("Demand contract store initialized (append-only, ros_gis)")
 
+        # PR 4.1: prediction persistence is MIGRATION-OWNED — no ensure_schema
+        # here. Until `python migrations/migrate.py apply
+        # 0001_prediction_persistence` has run, the probe returns None and the
+        # prediction routes answer 503 (boot is not aborted).
+        from db.prediction_repository import (
+            create_prediction_repository_if_migrated,
+        )
+
+        # Lazy re-probe: a transient DB blip at boot (or a migration applied
+        # after boot) must not leave the routes 503 until a restart.
+        app.state.prediction_repository_probe = (
+            lambda: create_prediction_repository_if_migrated(
+                db_manager.postgres.pool
+            )
+        )
+        app.state.prediction_repository = (
+            await create_prediction_repository_if_migrated(
+                db_manager.postgres.pool
+            )
+        )
+        if app.state.prediction_repository is None:
+            logger.warning(
+                "Prediction persistence unavailable: migration "
+                "0001_prediction_persistence is not applied"
+            )
+        else:
+            logger.info("Prediction run store initialized (migration-owned)")
+
         # App-scoped hydraulics service on the same canonical configs (Wave 1.3);
         # replaces per-request construction with a never-connected DatabaseManager.
         from services.hydraulic_service import HydraulicService
@@ -206,7 +234,10 @@ async def lifespan(app: FastAPI):
 # Create FastAPI application
 app = FastAPI(
     title="Flow Monitoring Service",
-    description="Comprehensive hydraulic monitoring including flow rates, water volumes, and levels",
+    description=(
+        "Comprehensive hydraulic monitoring including flow rates, "
+        "water volumes, and levels"
+    ),
     version="1.0.0",
     lifespan=lifespan,
 )
