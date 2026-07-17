@@ -11,6 +11,7 @@ from db.water_requirement_repository import (
     get_daily_requirements,
     get_section_requirement_history,
 )
+from services.requirement_source_loader import RequirementSourceError
 
 DataStatus = Literal["no_publication", "stale", "published", "superseded"]
 NonBlankString = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
@@ -73,6 +74,16 @@ class ManualRequirementRunResponse(BaseModel):
     requirementCount: int
 
 
+class IncompleteSourceDetail(BaseModel):
+    status: Literal["failed_incomplete_source"]
+    reason: str
+    asOfDate: date
+
+
+class IncompleteSourceResponse(BaseModel):
+    detail: IncompleteSourceDetail
+
+
 class SectionCropSettingRequest(BaseModel):
     cropType: NonBlankString
     plantedAreaRai: Decimal = Field(gt=0)
@@ -103,12 +114,34 @@ def get_current_time() -> datetime:
     return datetime.now(timezone.utc)
 
 
-@router.post("/runs", response_model=ManualRequirementRunResponse)
+@router.post(
+    "/runs",
+    response_model=ManualRequirementRunResponse,
+    responses={
+        409: {
+            "model": IncompleteSourceResponse,
+            "description": (
+                "Authoritative source inputs are incomplete for the requested "
+                "operational date; nothing was published."
+            ),
+        }
+    },
+)
 async def trigger_daily_requirement_run(
     request: ManualRequirementRunRequest,
     job=Depends(get_daily_requirement_job),
 ) -> ManualRequirementRunResponse:
-    result = await job.run_once(request.asOfDate)
+    try:
+        result = await job.run_once(request.asOfDate)
+    except RequirementSourceError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "status": "failed_incomplete_source",
+                "reason": str(exc),
+                "asOfDate": request.asOfDate.isoformat(),
+            },
+        ) from exc
     return ManualRequirementRunResponse(
         status=result.status,
         runId=result.run_id,

@@ -64,6 +64,14 @@ class Settings(BaseSettings):
         default=False,
         env="DAILY_REQUIREMENT_ENABLED",
     )
+    daily_requirement_startup_catchup_enabled: bool = Field(
+        default=False,
+        env="DAILY_REQUIREMENT_STARTUP_CATCHUP_ENABLED",
+    )
+    daily_requirement_schedule_enabled: bool = Field(
+        default=False,
+        env="DAILY_REQUIREMENT_SCHEDULE_ENABLED",
+    )
     daily_requirement_cron: str = Field(
         default="0 2 * * *",
         env="DAILY_REQUIREMENT_CRON",

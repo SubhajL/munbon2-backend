@@ -207,6 +207,9 @@ module.exports = {
         ROS_SERVICE_URL: pick('ROS_SERVICE_URL') || serviceUrl(3047),
         GIS_SERVICE_URL: pick('GIS_SERVICE_URL') || serviceUrl(3007),
         CORS_ORIGINS: pick('CORS_ORIGINS') || '*',
+        DAILY_REQUIREMENT_ENABLED: 'false',
+        DAILY_REQUIREMENT_STARTUP_CATCHUP_ENABLED: 'false',
+        DAILY_REQUIREMENT_SCHEDULE_ENABLED: 'false',
       },
     },
 

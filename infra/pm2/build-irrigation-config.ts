@@ -114,6 +114,7 @@ export function getIrrigationProcesses(): PM2ProcessConfig[] {
         WEATHER_SERVICE_URL: 'http://localhost:3006',
         AUTH_SERVICE_URL: 'http://localhost:3005',
         JWT_SECRET_KEY: 'change-me',
+        CORS_ORIGINS: 'http://localhost:3000,http://localhost:3001',
       },
     },
     {
@@ -158,6 +159,9 @@ export function getIrrigationProcesses(): PM2ProcessConfig[] {
         GIS_SERVICE_URL: 'http://localhost:3007',
         ROS_SERVICE_URL: 'http://localhost:3047',
         CORS_ORIGINS: 'http://localhost:3000,http://localhost:3001',
+        DAILY_REQUIREMENT_ENABLED: 'false',
+        DAILY_REQUIREMENT_STARTUP_CATCHUP_ENABLED: 'false',
+        DAILY_REQUIREMENT_SCHEDULE_ENABLED: 'false',
       },
     },
     {
