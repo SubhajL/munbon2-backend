@@ -15,16 +15,106 @@ from core.fulfillment import (
 from core.network_transient import (
     BranchAllocation,
     GateFlowEvent,
+    NetworkReachCapacityExceededError,
     NetworkTimeline,
     NetworkTransientError,
     OperatorWithdrawalEvent,
     SectionRequirement,
+    WithdrawalCapacityCheckStatus,
     simulate_network_timeline,
 )
 from core.model_release import HydraulicModelRelease
 from core.model_snapshot import ModelSnapshotError, build_model_snapshot
 from core.reach_response import ReachResponse, ReachState, ResponseMember
 from core.routing_topology import RoutingRole, RoutingTopology
+
+_VOLUME_TOLERANCE_M3 = 1e-9
+_FLOW_TOLERANCE_M3S = 1e-9
+
+
+class PredictionModelUnavailableError(ValueError):
+    """No hydraulic model release is configured for this runtime."""
+
+
+class PredictionLineageConflictError(ValueError):
+    """The request pins a snapshot/release the runtime does not serve."""
+
+
+@dataclass(frozen=True)
+class RequirementShortfallViolation:
+    requirement_id: str
+    required_volume_m3: float
+    predicted_delivered_m3: float
+    shortfall_m3: float
+    kind: str = "requirement_shortfall"
+
+
+@dataclass(frozen=True)
+class WithdrawalShortfallViolation:
+    structure_id: str
+    first_at: datetime
+    steps: int
+    planned_total_m3: float
+    predicted_total_m3: float
+    shortfall_total_m3: float
+    kind: str = "withdrawal_shortfall"
+
+
+@dataclass(frozen=True)
+class WithdrawalCapacityExceededViolation:
+    structure_id: str
+    first_at: datetime
+    steps: int
+    maximum_planned_flow_m3s: float
+    structure_max_flow_m3s: float
+    kind: str = "withdrawal_capacity_exceeded"
+
+
+@dataclass(frozen=True)
+class WithdrawalCapacityUnavailableViolation:
+    structure_id: str
+    first_at: datetime
+    steps: int
+    maximum_planned_flow_m3s: float
+    kind: str = "withdrawal_capacity_unavailable"
+
+
+PredictionViolation = (
+    RequirementShortfallViolation
+    | WithdrawalShortfallViolation
+    | WithdrawalCapacityExceededViolation
+    | WithdrawalCapacityUnavailableViolation
+)
+
+
+@dataclass(frozen=True)
+class MemberInfeasibility:
+    """Plain value copy of a capacity abort — never the live exception, so
+    outcomes stay serializable and hold no traceback-pinned engine state."""
+
+    reach_id: str
+    kind: str
+    attempted_flow_m3s: float
+    capacity_m3s: float
+    interval_start: datetime
+    interval_end: datetime
+
+
+@dataclass(frozen=True)
+class MemberPrediction:
+    member: ResponseMember
+    timeline: NetworkTimeline | None
+    infeasibility: MemberInfeasibility | None
+    violations: tuple[PredictionViolation, ...]
+    predicted_delivered_total_m3: float | None
+
+
+@dataclass(frozen=True)
+class ControlPredictionOutcome:
+    snapshot_id: str
+    covered_transport_reach_ids: tuple[str, ...]
+    excluded_transport_reaches: tuple[tuple[str, str], ...]
+    members: tuple[MemberPrediction, ...]
 
 
 def build_withdrawal_structure_max_flow_map(
@@ -112,6 +202,21 @@ class ControlPredictionService:
             raise NetworkTransientError(
                 "maximum_horizon_seconds must be a finite number > 0"
             )
+        # Non-field cache: the snapshot id is constant per (release, config,
+        # actuation) for this frozen service, so hot-path requests must not
+        # re-serialize and re-hash the whole model every POST.
+        object.__setattr__(self, "_snapshot_id_cache", {})
+
+    def member_responses(
+        self, member: ResponseMember
+    ) -> tuple[ReachResponse, ...]:
+        """THE single member-selection rule; orchestration and the engine
+        seam must never encode it twice."""
+        return tuple(
+            response
+            for response in self.reach_responses
+            if response.member is member
+        )
 
     def predict_member(
         self,
@@ -124,6 +229,7 @@ class ControlPredictionService:
         starts_at: datetime,
         ends_at: datetime,
         timestep_seconds: float,
+        unavailable_transport_reach_ids: frozenset[str] = frozenset(),
     ) -> NetworkTimeline:
         if not isinstance(member, ResponseMember):
             raise NetworkTransientError("member must be a ResponseMember")
@@ -136,9 +242,7 @@ class ControlPredictionService:
                 f"prediction horizon {horizon_seconds} exceeds model release envelope "
                 f"{self.maximum_horizon_seconds}"
             )
-        member_responses = tuple(
-            response for response in self.reach_responses if response.member is member
-        )
+        member_responses = self.member_responses(member)
         return simulate_network_timeline(
             self.routing_topology,
             member_responses,
@@ -151,6 +255,221 @@ class ControlPredictionService:
             starts_at,
             ends_at,
             timestep_seconds,
+            unavailable_transport_reach_ids=unavailable_transport_reach_ids,
+        )
+
+    def validate_prediction_request(
+        self,
+        release: HydraulicModelRelease | None,
+        config_sha256: Mapping[str, str],
+        actuation_approved: bool,
+        model_snapshot_id: str,
+        model_release_id: str,
+        model_release_content_hash: str,
+        gate_events: tuple[GateFlowEvent, ...],
+        requirements: tuple[SectionRequirement, ...],
+        starts_at: datetime,
+        ends_at: datetime,
+        timestep_seconds: float,
+    ) -> str:
+        """Fail closed before any member runs; returns the runtime snapshot id."""
+        if release is None:
+            raise PredictionModelUnavailableError(
+                "hydraulic model release is not configured; predictions are "
+                "unavailable"
+            )
+        cache_key = (
+            release.content_hash,
+            tuple(sorted(config_sha256.items())),
+            actuation_approved,
+        )
+        snapshot_id = self._snapshot_id_cache.get(cache_key)
+        if snapshot_id is None:
+            snapshot = self.model_snapshot(
+                release, config_sha256, actuation_approved
+            )
+            snapshot_id = snapshot["snapshot_id"]
+            self._snapshot_id_cache[cache_key] = snapshot_id
+        pinned = (
+            model_snapshot_id,
+            model_release_id,
+            model_release_content_hash,
+        )
+        served = (snapshot_id, release.release_id, release.content_hash)
+        if pinned != served:
+            raise PredictionLineageConflictError(
+                "request pins do not match the served model: "
+                f"snapshot {model_snapshot_id!r} vs {snapshot_id!r}, "
+                f"release {model_release_id!r} vs {release.release_id!r}, "
+                f"hash {model_release_content_hash!r} vs "
+                f"{release.content_hash!r}"
+            )
+        envelope = release.operating_envelope
+        if not (
+            envelope.minimum_timestep_seconds
+            <= timestep_seconds
+            <= envelope.maximum_timestep_seconds
+        ):
+            raise NetworkTransientError(
+                f"timestep {timestep_seconds} is outside the release envelope "
+                f"[{envelope.minimum_timestep_seconds}, "
+                f"{envelope.maximum_timestep_seconds}]"
+            )
+        horizon_seconds = (ends_at - starts_at).total_seconds()
+        if horizon_seconds > envelope.maximum_horizon_seconds:
+            raise NetworkTransientError(
+                f"prediction horizon {horizon_seconds} exceeds model release "
+                f"envelope {envelope.maximum_horizon_seconds}"
+            )
+        if not any(event.effective_at == starts_at for event in gate_events):
+            raise NetworkTransientError(
+                "source_flow_events must include an explicit event at "
+                "starts_at; pass flow_m3s 0.0 to state a dry source"
+            )
+        for requirement in requirements:
+            # A window reaching outside the horizon would present a
+            # partial-window simulation as a complete verdict — fail closed.
+            if not (
+                starts_at
+                <= requirement.window_start
+                < requirement.window_end
+                <= ends_at
+            ):
+                raise NetworkTransientError(
+                    f"requirement {requirement.requirement_id!r} window "
+                    "must lie entirely within the prediction horizon"
+                )
+        for event in gate_events:
+            if event.flow_m3s == 0.0:
+                continue
+            if not (
+                envelope.minimum_flow_m3s
+                <= event.flow_m3s
+                <= envelope.maximum_flow_m3s
+            ):
+                raise NetworkTransientError(
+                    f"source flow {event.flow_m3s} m3/s is outside the model "
+                    f"validity envelope [{envelope.minimum_flow_m3s}, "
+                    f"{envelope.maximum_flow_m3s}]"
+                )
+        return snapshot_id
+
+    def predict_control_timeline(
+        self,
+        release: HydraulicModelRelease | None,
+        config_sha256: Mapping[str, str],
+        actuation_approved: bool,
+        model_snapshot_id: str,
+        model_release_id: str,
+        model_release_content_hash: str,
+        gate_events: tuple[GateFlowEvent, ...],
+        withdrawal_events: tuple[OperatorWithdrawalEvent, ...],
+        requirements: tuple[SectionRequirement, ...],
+        branch_allocations: tuple[BranchAllocation, ...],
+        starts_at: datetime,
+        ends_at: datetime,
+        timestep_seconds: float,
+    ) -> ControlPredictionOutcome:
+        snapshot_id = self.validate_prediction_request(
+            release,
+            config_sha256,
+            actuation_approved,
+            model_snapshot_id,
+            model_release_id,
+            model_release_content_hash,
+            gate_events,
+            requirements,
+            starts_at,
+            ends_at,
+            timestep_seconds,
+        )
+        transports = set(self.routing_topology.transport_reach_ids())
+        reason_by_reach = {
+            reach.reach_id: reach.reason
+            for reach in release.unavailable_reaches
+        }
+        members = []
+        covered_order: tuple[str, ...] = ()
+        for member in (
+            ResponseMember.LOWER,
+            ResponseMember.NOMINAL,
+            ResponseMember.UPPER,
+        ):
+            member_responses = self.member_responses(member)
+            covered = {response.reach_id for response in member_responses}
+            unavailable = transports - covered
+            if unavailable != set(reason_by_reach):
+                raise ModelSnapshotError(
+                    "runtime response coverage does not match the model "
+                    f"release for member {member.value!r}"
+                )
+            initial_states = tuple(
+                ReachState(release.release_id, response.reach_id, member)
+                for response in member_responses
+            )
+            try:
+                timeline = self.predict_member(
+                    member,
+                    initial_states,
+                    gate_events,
+                    withdrawal_events,
+                    requirements,
+                    branch_allocations,
+                    starts_at,
+                    ends_at,
+                    timestep_seconds,
+                    unavailable_transport_reach_ids=frozenset(unavailable),
+                )
+            except NetworkReachCapacityExceededError as exc:
+                members.append(
+                    MemberPrediction(
+                        member=member,
+                        timeline=None,
+                        infeasibility=MemberInfeasibility(
+                            reach_id=exc.reach_id,
+                            kind=exc.kind,
+                            attempted_flow_m3s=exc.attempted_flow_m3s,
+                            capacity_m3s=exc.capacity_m3s,
+                            interval_start=exc.interval_start,
+                            interval_end=exc.interval_end,
+                        ),
+                        violations=(),
+                        predicted_delivered_total_m3=None,
+                    )
+                )
+                continue
+            covered_order = tuple(
+                state.reach_id for state in timeline.final_reach_states
+            )
+            members.append(
+                MemberPrediction(
+                    member=member,
+                    timeline=timeline,
+                    infeasibility=None,
+                    violations=collect_prediction_violations(
+                        timeline,
+                        requirements,
+                        dict(self.structure_max_flow_m3s_by_id),
+                    ),
+                    predicted_delivered_total_m3=sum(
+                        state.predicted_delivered_m3
+                        for state in timeline.final_fulfillment
+                    ),
+                )
+            )
+        if not covered_order:
+            covered_order = tuple(
+                reach_id
+                for reach_id in self.routing_topology.transport_reach_ids()
+                if reach_id not in reason_by_reach
+            )
+        return ControlPredictionOutcome(
+            snapshot_id=snapshot_id,
+            covered_transport_reach_ids=covered_order,
+            excluded_transport_reaches=tuple(
+                sorted(reason_by_reach.items())
+            ),
+            members=tuple(members),
         )
 
     def earliest_safe_closure(
@@ -194,3 +513,117 @@ class ControlPredictionService:
             config_sha256,
             actuation_approved,
         )
+
+
+def collect_prediction_violations(
+    timeline: NetworkTimeline,
+    requirements: tuple[SectionRequirement, ...],
+    structure_max_flow_m3s: Mapping[str, float | None],
+) -> tuple[PredictionViolation, ...]:
+    """Deterministic, step-aggregated violations from one COMPLETED timeline.
+
+    An unknown structure maximum with a positive planned withdrawal is ALWAYS
+    surfaced — capacity that cannot be checked must never read as approved."""
+    violations: list[PredictionViolation] = []
+    requirement_by_id = {
+        requirement.requirement_id: requirement for requirement in requirements
+    }
+    for state in timeline.final_fulfillment:
+        requirement = requirement_by_id[state.requirement_id]
+        if (
+            state.predicted_delivered_m3 + _VOLUME_TOLERANCE_M3
+            < requirement.required_volume_m3
+        ):
+            violations.append(
+                RequirementShortfallViolation(
+                    requirement_id=state.requirement_id,
+                    required_volume_m3=requirement.required_volume_m3,
+                    predicted_delivered_m3=state.predicted_delivered_m3,
+                    shortfall_m3=(
+                        requirement.required_volume_m3
+                        - state.predicted_delivered_m3
+                    ),
+                )
+            )
+        # No predicted-excess channel here: _route_network_step clamps
+        # delivery at required_volume_m3 with zero attributed in-transit, so
+        # the network simulation can never produce PREDICTED_EXCESS —
+        # advertising the violation would be false assurance. Excess
+        # accounting arrives with the ledger projection (roadmap PR 5.1).
+    shortfall_steps: dict[str, list] = {}
+    exceeded_steps: dict[str, list] = {}
+    unavailable_steps: dict[str, list] = {}
+    planned_m3: dict[str, float] = {}
+    predicted_m3: dict[str, float] = {}
+    for step in timeline.steps:
+        for point in step.withdrawals:
+            structure_id = point.structure_id
+            planned_m3[structure_id] = planned_m3.get(structure_id, 0.0) + (
+                point.planned_flow_m3s * timeline.timestep_seconds
+            )
+            predicted_m3[structure_id] = predicted_m3.get(
+                structure_id, 0.0
+            ) + (point.predicted_withdrawal_m3s * timeline.timestep_seconds)
+            if point.shortfall_m3s > _FLOW_TOLERANCE_M3S:
+                shortfall_steps.setdefault(structure_id, []).append(step)
+            if (
+                point.capacity_check_status
+                is WithdrawalCapacityCheckStatus.EXCEEDS_CAPACITY
+            ):
+                exceeded_steps.setdefault(structure_id, []).append(
+                    (step, point.planned_flow_m3s)
+                )
+            if (
+                point.capacity_check_status
+                is WithdrawalCapacityCheckStatus.UNAVAILABLE
+                and point.planned_flow_m3s > 0.0
+            ):
+                unavailable_steps.setdefault(structure_id, []).append(
+                    (step, point.planned_flow_m3s)
+                )
+    for structure_id, steps in sorted(shortfall_steps.items()):
+        violations.append(
+            WithdrawalShortfallViolation(
+                structure_id=structure_id,
+                first_at=steps[0].starts_at,
+                steps=len(steps),
+                planned_total_m3=planned_m3[structure_id],
+                predicted_total_m3=predicted_m3[structure_id],
+                shortfall_total_m3=(
+                    planned_m3[structure_id] - predicted_m3[structure_id]
+                ),
+            )
+        )
+    for structure_id, offending in sorted(exceeded_steps.items()):
+        violations.append(
+            WithdrawalCapacityExceededViolation(
+                structure_id=structure_id,
+                first_at=offending[0][0].starts_at,
+                steps=len(offending),
+                maximum_planned_flow_m3s=max(
+                    planned for _, planned in offending
+                ),
+                structure_max_flow_m3s=structure_max_flow_m3s[structure_id],
+            )
+        )
+    for structure_id, offending in sorted(unavailable_steps.items()):
+        violations.append(
+            WithdrawalCapacityUnavailableViolation(
+                structure_id=structure_id,
+                first_at=offending[0][0].starts_at,
+                steps=len(offending),
+                maximum_planned_flow_m3s=max(
+                    planned for _, planned in offending
+                ),
+            )
+        )
+    return tuple(
+        sorted(
+            violations,
+            key=lambda violation: (
+                violation.kind,
+                getattr(violation, "requirement_id", "")
+                or getattr(violation, "structure_id", ""),
+            ),
+        )
+    )

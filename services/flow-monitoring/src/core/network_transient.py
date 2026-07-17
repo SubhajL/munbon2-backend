@@ -12,6 +12,7 @@ import math
 from .fulfillment import PredictedDeliveryState, advance_predicted_delivery
 from .network_topology import ROOT, is_spanning_tree, nodes_of, topological_order
 from .reach_response import (
+    ReachCapacityExceededError,
     ReachResponse,
     ReachResponseError,
     ReachState,
@@ -28,6 +29,7 @@ __all__ = [
     "NetworkMassBalanceAudit",
     "NetworkStep",
     "NetworkTimeline",
+    "NetworkReachCapacityExceededError",
     "NetworkTransientError",
     "OperatorWithdrawalEvent",
     "ReachTimelinePoint",
@@ -42,6 +44,54 @@ __all__ = [
 
 class NetworkTransientError(ValueError):
     """A network timeline is malformed or violates conservation."""
+
+
+def _allocation_children(
+    allocation_edges: tuple[tuple[str, str], ...],
+) -> dict[str, list[str]]:
+    children: dict[str, list[str]] = defaultdict(list)
+    for upstream, downstream in allocation_edges:
+        children[upstream].append(downstream)
+    return children
+
+
+def _allocated_fraction(
+    downstream_nodes,
+    allocations: dict[tuple[str, str], float],
+    node_id: str,
+    downstream_node_id: str,
+) -> float:
+    """THE single fraction rule shared by routing and the dry proof — the
+    proof is only sound while both predict the same split."""
+    if len(downstream_nodes) == 1:
+        return 1.0
+    return allocations[(node_id, downstream_node_id)]
+
+
+class NetworkReachCapacityExceededError(NetworkTransientError):
+    """One reach exceeded its authoritative capacity while routing a step.
+
+    Distinct from plain NetworkTransientError so an orchestrator can treat
+    capacity exceedance as an explicit infeasible RESULT while every other
+    engine failure stays a request-rejecting error."""
+
+    def __init__(
+        self,
+        reach_id: str,
+        kind: str,
+        attempted_flow_m3s: float,
+        capacity_m3s: float,
+        interval_start: datetime,
+        interval_end: datetime,
+        message: str,
+    ) -> None:
+        self.reach_id = reach_id
+        self.kind = kind
+        self.attempted_flow_m3s = attempted_flow_m3s
+        self.capacity_m3s = capacity_m3s
+        self.interval_start = interval_start
+        self.interval_end = interval_end
+        super().__init__(message)
 
 
 @dataclass(frozen=True)
@@ -144,6 +194,7 @@ class NetworkTimeline:
     final_reach_states: tuple[ReachState, ...]
     final_fulfillment: tuple[PredictedDeliveryState, ...]
     mass_balance: NetworkMassBalanceAudit
+    excluded_transport_reach_ids: tuple[str, ...] = ()
 
 
 def route_gate_events(
@@ -204,10 +255,15 @@ def simulate_network_timeline(
     starts_at: datetime,
     ends_at: datetime,
     timestep_seconds: float,
+    unavailable_transport_reach_ids: frozenset[str] = frozenset(),
 ) -> NetworkTimeline:
     if not isinstance(routing_topology, RoutingTopology):
         raise NetworkTransientError(
             "simulate_network_timeline requires a typed RoutingTopology"
+        )
+    if not isinstance(unavailable_transport_reach_ids, frozenset):
+        raise NetworkTransientError(
+            "unavailable_transport_reach_ids must be a frozenset of reach ids"
         )
     network_edges = routing_topology.routing_edges()
     transport_edges = frozenset(
@@ -225,11 +281,27 @@ def simulate_network_timeline(
     allocation_edges = routing_topology.allocation_edges()
     _validate_network_edges(network_edges)
     _validate_timeline(starts_at, ends_at, timestep_seconds)
+    allocations = _validate_branch_allocations(allocation_edges, branch_allocations)
+    covered_reach_ids, excluded_dependent_reach_ids = (
+        _validate_unavailable_transport_coverage(
+            transport_reach_ids,
+            unavailable_transport_reach_ids,
+            network_edges,
+            allocation_edges,
+            transport_edges,
+            allocations,
+            requirements,
+            withdrawal_events,
+            initial_states,
+        )
+    )
     response_by_reach, model_release_id, member = _validate_response_coverage(
-        transport_reach_ids, responses, timestep_seconds
+        covered_reach_ids, responses, timestep_seconds
     )
     state_by_reach = _validate_initial_state_coverage(response_by_reach, initial_states)
-    allocations = _validate_branch_allocations(allocation_edges, branch_allocations)
+    _validate_excluded_dependent_states_dry(
+        excluded_dependent_reach_ids, state_by_reach
+    )
     capacity_by_structure = _validate_withdrawal_capacity(
         withdrawal_order, withdrawal_capacity_m3s
     )
@@ -269,9 +341,7 @@ def simulate_network_timeline(
             f"gate events contain unknown nodes {sorted(unknown_event_nodes)!r}"
         )
 
-    children: dict[str, list[str]] = defaultdict(list)
-    for upstream, downstream in allocation_edges:
-        children[upstream].append(downstream)
+    children = _allocation_children(allocation_edges)
     withdrawal_children_by_node: dict[str, list[str]] = defaultdict(list)
     for element in withdrawal_elements:
         withdrawal_children_by_node[element.upstream_node_id].append(
@@ -296,7 +366,8 @@ def simulate_network_timeline(
             step_boundary_inflow_m3,
         ) = _route_network_step(
             gate_step,
-            transport_reach_ids,
+            covered_reach_ids,
+            unavailable_transport_reach_ids,
             transport_edges,
             ordered_nodes,
             children,
@@ -321,7 +392,7 @@ def simulate_network_timeline(
         timeline_steps.append(network_step)
 
     final_states = tuple(
-        state_by_reach[reach_id] for reach_id in transport_reach_ids
+        state_by_reach[reach_id] for reach_id in covered_reach_ids
     )
     final_fulfillment = tuple(
         fulfillment_by_id[requirement.requirement_id] for requirement in requirements
@@ -366,12 +437,16 @@ def simulate_network_timeline(
             final_in_transit_m3=final_in_transit_m3,
             balance_error_m3=balance_error_m3,
         ),
+        excluded_transport_reach_ids=tuple(
+            sorted(unavailable_transport_reach_ids)
+        ),
     )
 
 
 def _route_network_step(
     gate_step: GateFlowStep,
     transport_reach_ids: tuple[str, ...],
+    unavailable_transport_reach_ids: frozenset[str],
     transport_edges: frozenset[tuple[str, str]],
     ordered_nodes: list[str],
     children: dict[str, list[str]],
@@ -469,10 +544,8 @@ def _route_network_step(
             terminal_outflow_m3 += available_m3
             continue
         for downstream_node_id in downstream_nodes:
-            fraction = (
-                1.0
-                if len(downstream_nodes) == 1
-                else allocations[(node_id, downstream_node_id)]
+            fraction = _allocated_fraction(
+                downstream_nodes, allocations, node_id, downstream_node_id
             )
             allocated_m3 = available_m3 * fraction
             if (node_id, downstream_node_id) not in transport_edges:
@@ -484,6 +557,16 @@ def _route_network_step(
                 continue
             inflow_m3s = allocated_m3 / timestep_seconds
             reach_id = _reach_id(node_id, downstream_node_id)
+            if reach_id in unavailable_transport_reach_ids:
+                # Statically proven dry at validation time; a nonzero volume
+                # here means that proof was wrong — never route through a
+                # reach that has no authoritative response.
+                if allocated_m3 != 0.0:
+                    raise NetworkTransientError(
+                        f"unavailable transport reach {reach_id!r} received "
+                        f"{allocated_m3} m3 despite the static dry proof"
+                    )
+                continue
             response = responses[reach_id]
             try:
                 next_state = route_reach_step(
@@ -492,6 +575,16 @@ def _route_network_step(
                     inflow_m3s,
                     timestep_seconds,
                 )
+            except ReachCapacityExceededError as exc:
+                raise NetworkReachCapacityExceededError(
+                    reach_id,
+                    exc.kind,
+                    exc.attempted_flow_m3s,
+                    exc.capacity_m3s,
+                    gate_step.starts_at,
+                    gate_step.ends_at,
+                    f"reach {reach_id!r} routing failed: {exc}",
+                ) from exc
             except ReachResponseError as exc:
                 raise NetworkTransientError(
                     f"reach {reach_id!r} routing failed: {exc}"
@@ -546,6 +639,132 @@ def _validate_network_edges(
         network_edges, ROOT
     ):
         raise NetworkTransientError("network_edges must form a rooted spanning tree")
+
+
+def _validate_unavailable_transport_coverage(
+    transport_reach_ids: tuple[str, ...],
+    unavailable_transport_reach_ids: frozenset[str],
+    network_edges: tuple[tuple[str, str], ...],
+    allocation_edges: tuple[tuple[str, str], ...],
+    transport_edges: frozenset[tuple[str, str]],
+    allocations: dict[tuple[str, str], float],
+    requirements: tuple[SectionRequirement, ...],
+    withdrawal_events: tuple[OperatorWithdrawalEvent, ...],
+    initial_states: tuple[ReachState, ...],
+) -> tuple[tuple[str, ...], frozenset[str]]:
+    """Statically prove every unavailable transport reach stays dry and
+    unrequested. Returns (covered reach ids, reaches whose supply path
+    crosses an excluded reach). Water enters at the root AND from any warm
+    initial in-transit volume, so a reach is provably dry only when no
+    positive-allocation path from either source reaches it; a requirement or
+    withdrawal whose supply path crosses an unavailable reach cannot be
+    predicted at all — fail closed."""
+    if not unavailable_transport_reach_ids:
+        return tuple(transport_reach_ids), frozenset()
+    unknown = unavailable_transport_reach_ids - set(transport_reach_ids)
+    if unknown:
+        raise NetworkTransientError(
+            "unavailable transport reach ids are not transport reaches: "
+            f"{sorted(unknown)!r}"
+        )
+    excluded_edges = {
+        (upstream, downstream)
+        for upstream, downstream in transport_edges
+        if _reach_id(upstream, downstream) in unavailable_transport_reach_ids
+    }
+    children = _allocation_children(allocation_edges)
+    downstream_by_reach = {
+        _reach_id(upstream, downstream): downstream
+        for upstream, downstream in transport_edges
+    }
+    wet = {ROOT}
+    for state in initial_states:
+        if state.in_transit_volume_m3 > 0.0 or state.outflow_m3s > 0.0:
+            warm_node = downstream_by_reach.get(state.reach_id)
+            if warm_node is not None:
+                wet.add(warm_node)
+    pending = list(wet)
+    while pending:
+        node_id = pending.pop()
+        downstream_nodes = children.get(node_id, ())
+        for downstream_node_id in downstream_nodes:
+            fraction = _allocated_fraction(
+                downstream_nodes, allocations, node_id, downstream_node_id
+            )
+            if fraction <= 0.0:
+                continue
+            if (node_id, downstream_node_id) in excluded_edges:
+                raise NetworkTransientError(
+                    "unavailable transport reach "
+                    f"{_reach_id(node_id, downstream_node_id)!r} would "
+                    "receive water; allocate exactly zero into it or use a "
+                    "model release that covers it"
+                )
+            if downstream_node_id not in wet:
+                wet.add(downstream_node_id)
+                pending.append(downstream_node_id)
+    parent_by_node = {
+        downstream: upstream for upstream, downstream in network_edges
+    }
+    subjects = [
+        ("requirement", requirement.requirement_id, requirement.delivery_node_id)
+        for requirement in requirements
+    ] + [
+        ("operator withdrawal", event.structure_id, event.structure_id)
+        for event in withdrawal_events
+    ]
+    for label, subject_id, node_id in subjects:
+        child = node_id
+        while child in parent_by_node:
+            parent = parent_by_node[child]
+            if (parent, child) in excluded_edges:
+                raise NetworkTransientError(
+                    f"{label} {subject_id!r} requires unavailable transport "
+                    f"reach {_reach_id(parent, child)!r}"
+                )
+            child = parent
+    excluded_dependent = []
+    for upstream, downstream in sorted(transport_edges - excluded_edges):
+        child = upstream
+        while child in parent_by_node:
+            parent = parent_by_node[child]
+            if (parent, child) in excluded_edges:
+                excluded_dependent.append(_reach_id(upstream, downstream))
+                break
+            child = parent
+    return (
+        tuple(
+            reach_id
+            for reach_id in transport_reach_ids
+            if reach_id not in unavailable_transport_reach_ids
+        ),
+        frozenset(excluded_dependent),
+    )
+
+
+def _validate_excluded_dependent_states_dry(
+    excluded_dependent_reach_ids: frozenset[str],
+    state_by_reach: dict[str, ReachState],
+) -> None:
+    """A reach whose only supply path crosses an unavailable transport can
+    hold no honestly-known water: with the flume unmodeled, any wet initial
+    state below it fabricates lineage the model cannot account for."""
+    for reach_id in sorted(excluded_dependent_reach_ids):
+        state = state_by_reach[reach_id]
+        if (
+            state.transit_volumes
+            or state.initial_volume_m3 != 0.0
+            or state.cumulative_inflow_m3 != 0.0
+            or state.cumulative_outflow_m3 != 0.0
+            or state.cumulative_withdrawal_m3 != 0.0
+            or state.cumulative_declared_loss_m3 != 0.0
+            or state.cumulative_operational_loss_m3 != 0.0
+            or state.outflow_m3s != 0.0
+        ):
+            raise NetworkTransientError(
+                f"initial state for reach {reach_id!r} must be dry: its "
+                "supply path crosses an unavailable transport reach"
+            )
 
 
 def _validate_response_coverage(
@@ -720,9 +939,7 @@ def _validate_branch_allocations(
 ) -> dict[tuple[str, str], float]:
     if not isinstance(branch_allocations, tuple):
         raise NetworkTransientError("branch_allocations must be an immutable tuple")
-    children: dict[str, list[str]] = defaultdict(list)
-    for upstream, downstream in network_edges:
-        children[upstream].append(downstream)
+    children = _allocation_children(network_edges)
     allocations = {}
     for allocation in branch_allocations:
         key = (allocation.upstream_node_id, allocation.downstream_node_id)

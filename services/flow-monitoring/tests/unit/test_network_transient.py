@@ -18,7 +18,12 @@ from core.network_transient import (
     route_gate_events,
     simulate_network_timeline,
 )
-from core.reach_response import ReachResponse, ReachState, ResponseMember
+from core.reach_response import (
+    ReachResponse,
+    ReachState,
+    ResponseMember,
+    TransitVolume,
+)
 from core.routing_topology import (
     RoutingElement,
     RoutingGeometryStatus,
@@ -562,7 +567,9 @@ class TestSimulateNetworkTimeline:
             **arguments,
         )
 
-        flume_inflow = lambda timeline: timeline.steps[0].reaches[0].inflow_m3s
+        def flume_inflow(timeline):
+            return timeline.steps[0].reaches[0].inflow_m3s
+
         assert flume_inflow(with_event) == flume_inflow(without_event) == 2.0
         assert with_event.mass_balance.withdrawn_m3 == 60.0
         assert without_event.mass_balance.withdrawn_m3 == 0.0
@@ -952,3 +959,271 @@ class TestSimulateNetworkTimeline:
             for step in timeline.steps
             for point in step.reaches
         )
+
+
+EXCLUSION_EDGES = (
+    ("S", "G1"),
+    ("G1", "J(TEST,0+100)"),
+    ("J(TEST,0+100)", "W"),
+    ("J(TEST,0+100)", "G2"),
+    ("G1", "R1"),
+    ("R1", "R2"),
+)
+EXCLUSION_ROLES = {
+    ("S", "G1"): RoutingRole.BOUNDARY,
+    ("J(TEST,0+100)", "W"): RoutingRole.WITHDRAWAL_STRUCTURE,
+    ("G1", "R1"): RoutingRole.BRANCH_STRUCTURE,
+}
+FLUME_LIKE_REACH = "C_G1_J(TEST,0+100)"
+
+
+def _exclusion_case(
+    *,
+    flume_fraction: float = 0.0,
+    requirements: tuple[SectionRequirement, ...] = (),
+    withdrawal_events: tuple[OperatorWithdrawalEvent, ...] = (),
+    extra_states: tuple[ReachState, ...] = (),
+    unavailable: frozenset[str] = frozenset({FLUME_LIKE_REACH}),
+    flow_m3s: float = 1.0,
+):
+    topology = _topology(EXCLUSION_EDGES, EXCLUSION_ROLES)
+    responses = (
+        _response("J(TEST,0+100)", "G2"),
+        _response("R1", "R2"),
+    )
+    return simulate_network_timeline(
+        topology,
+        responses,
+        _states(responses) + extra_states,
+        (GateFlowEvent("S", START, flow_m3s),),
+        withdrawal_events,
+        {"W": None},
+        requirements,
+        (
+            BranchAllocation("G1", "J(TEST,0+100)", flume_fraction),
+            BranchAllocation("G1", "R1", 1.0 - flume_fraction),
+        ),
+        START,
+        START + timedelta(seconds=3 * DT_S),
+        DT_S,
+        unavailable_transport_reach_ids=unavailable,
+    )
+
+
+class TestUnavailableTransportCoverage:
+    def test_provably_dry_unavailable_transport_needs_no_synthetic_response(self):
+        timeline = _exclusion_case()
+
+        assert timeline.excluded_transport_reach_ids == (FLUME_LIKE_REACH,)
+        stepped_reaches = {
+            point.reach_id
+            for step in timeline.steps
+            for point in step.reaches
+        }
+        assert stepped_reaches == {"C_J(TEST,0+100)_G2", "C_R1_R2"}
+        assert {state.reach_id for state in timeline.final_reach_states} == (
+            stepped_reaches
+        )
+        # All water goes down the covered branch; the sweep stays conservative.
+        assert timeline.mass_balance.boundary_inflow_m3 == pytest.approx(
+            3 * DT_S * 1.0
+        )
+
+    def test_active_unavailable_transport_fails_closed(self):
+        with pytest.raises(NetworkTransientError, match=r"C_G1_J\(TEST,0\+100\)"):
+            _exclusion_case(flume_fraction=0.5)
+
+    def test_unavailable_subtree_rejects_requirement_dependency(self):
+        requirement = SectionRequirement(
+            requirement_id="REQ-BELOW-FLUME",
+            section_id="SEC-1",
+            delivery_node_id="G2",
+            window_start=START,
+            window_end=START + timedelta(seconds=3 * DT_S),
+            required_volume_m3=10.0,
+            maximum_delivery_m3s=1.0,
+        )
+        with pytest.raises(NetworkTransientError, match=r"REQ-BELOW-FLUME"):
+            _exclusion_case(requirements=(requirement,))
+
+    def test_unavailable_subtree_rejects_withdrawal_event_dependency(self):
+        with pytest.raises(
+            NetworkTransientError, match=r"C_G1_J\(TEST,0\+100\)"
+        ):
+            _exclusion_case(
+                withdrawal_events=(_withdrawal_event("W", START, 0.2),)
+            )
+
+    def test_unavailable_reach_must_not_carry_initial_state(self):
+        stray = ReachState(
+            "engineering-prior-2569-v1", FLUME_LIKE_REACH, ResponseMember.NOMINAL
+        )
+        with pytest.raises(
+            NetworkTransientError, match="initial state coverage"
+        ):
+            _exclusion_case(extra_states=(stray,))
+
+    def test_unknown_unavailable_reach_id_rejected(self):
+        with pytest.raises(
+            NetworkTransientError, match="not transport reaches"
+        ):
+            _exclusion_case(
+                unavailable=frozenset({FLUME_LIKE_REACH, "C_X_Y"})
+            )
+
+    def test_dry_requirement_on_covered_path_is_allowed(self):
+        # R-side gets zero water yet its path crosses only COVERED reaches:
+        # the prediction must run and honestly report nothing delivered.
+        topology = _topology(EXCLUSION_EDGES, EXCLUSION_ROLES)
+        responses = (
+            _response("G1", "J(TEST,0+100)"),
+            _response("J(TEST,0+100)", "G2"),
+            _response("R1", "R2"),
+        )
+        requirement = SectionRequirement(
+            requirement_id="REQ-DRY-COVERED",
+            section_id="SEC-1",
+            delivery_node_id="R2",
+            window_start=START,
+            window_end=START + timedelta(seconds=3 * DT_S),
+            required_volume_m3=10.0,
+            maximum_delivery_m3s=1.0,
+        )
+        timeline = simulate_network_timeline(
+            topology,
+            responses,
+            _states(responses),
+            (GateFlowEvent("S", START, 1.0),),
+            (),
+            {"W": None},
+            (requirement,),
+            (
+                BranchAllocation("G1", "J(TEST,0+100)", 1.0),
+                BranchAllocation("G1", "R1", 0.0),
+            ),
+            START,
+            START + timedelta(seconds=3 * DT_S),
+            DT_S,
+        )
+        state = timeline.final_fulfillment[0]
+        assert (state.predicted_delivered_m3, state.status) == (
+            0.0,
+            PredictedFulfillmentStatus.PENDING,
+        )
+
+    def test_capacity_exceedance_raises_structured_network_error(self):
+        from core.network_transient import NetworkReachCapacityExceededError
+
+        responses = (_response("S", "A", capacity_m3s=0.5),)
+        with pytest.raises(NetworkReachCapacityExceededError) as excinfo:
+            simulate_network_timeline(
+                _topology((("S", "A"),)),
+                responses,
+                _states(responses),
+                (GateFlowEvent("S", START, 1.0),),
+                (),
+                {},
+                (),
+                (),
+                START,
+                START + timedelta(seconds=DT_S),
+                DT_S,
+            )
+        error = excinfo.value
+        assert (
+            error.reach_id,
+            error.kind,
+            error.interval_start,
+            error.interval_end,
+        ) == ("C_S_A", "inflow", START, START + timedelta(seconds=DT_S))
+        assert (error.attempted_flow_m3s, error.capacity_m3s) == (1.0, 0.5)
+
+    def test_wet_initial_state_below_excluded_reach_fails_closed(self):
+        # A mass-balanced wet state downstream of the excluded flume would
+        # fabricate water the unmodeled reach can never have delivered.
+        wet_below = ReachState(
+            "engineering-prior-2569-v1",
+            "C_J(TEST,0+100)_G2",
+            ResponseMember.NOMINAL,
+            transit_volumes=(TransitVolume(10.0, 0.0, 60.0),),
+            cumulative_inflow_m3=10.0,
+        )
+        topology = _topology(EXCLUSION_EDGES, EXCLUSION_ROLES)
+        responses = (
+            _response("J(TEST,0+100)", "G2"),
+            _response("R1", "R2"),
+        )
+        states = tuple(
+            wet_below if state.reach_id == "C_J(TEST,0+100)_G2" else state
+            for state in _states(responses)
+        )
+        with pytest.raises(NetworkTransientError, match="must be dry"):
+            simulate_network_timeline(
+                topology,
+                responses,
+                states,
+                (GateFlowEvent("S", START, 1.0),),
+                (),
+                {"W": None},
+                (),
+                (
+                    BranchAllocation("G1", "J(TEST,0+100)", 0.0),
+                    BranchAllocation("G1", "R1", 1.0),
+                ),
+                START,
+                START + timedelta(seconds=3 * DT_S),
+                DT_S,
+                unavailable_transport_reach_ids=frozenset({FLUME_LIKE_REACH}),
+            )
+
+    def test_warm_upstream_state_defeating_zero_allocation_fails_at_validation(self):
+        # Water already in transit inside a covered reach drains regardless of
+        # the branch fractions below the root — the static proof must treat it
+        # as a source, not discover the leak mid-simulation.
+        edges = (
+            ("S", "G1"),
+            ("G1", "A"),
+            ("A", "B"),
+            ("G1", "R1"),
+            ("R1", "R2"),
+        )
+        roles = {
+            ("S", "G1"): RoutingRole.BOUNDARY,
+            ("G1", "R1"): RoutingRole.BRANCH_STRUCTURE,
+        }
+        topology = _topology(edges, roles)
+        responses = (
+            _response("G1", "A"),
+            _response("R1", "R2"),
+        )
+        warm = ReachState(
+            "engineering-prior-2569-v1",
+            "C_G1_A",
+            ResponseMember.NOMINAL,
+            transit_volumes=(TransitVolume(10.0, 0.0, 60.0),),
+            cumulative_inflow_m3=10.0,
+        )
+        states = tuple(
+            warm if state.reach_id == "C_G1_A" else state
+            for state in _states(responses)
+        )
+        with pytest.raises(
+            NetworkTransientError, match=r"C_A_B.*would receive water"
+        ):
+            simulate_network_timeline(
+                topology,
+                responses,
+                states,
+                (GateFlowEvent("S", START, 0.0),),
+                (),
+                {},
+                (),
+                (
+                    BranchAllocation("G1", "A", 0.0),
+                    BranchAllocation("G1", "R1", 1.0),
+                ),
+                START,
+                START + timedelta(seconds=3 * DT_S),
+                DT_S,
+                unavailable_transport_reach_ids=frozenset({"C_A_B"}),
+            )

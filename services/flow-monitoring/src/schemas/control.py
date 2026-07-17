@@ -473,3 +473,255 @@ class OpeningsResponse(BaseModel):
     openings: list[ReachOpeningOut]
     unavailable: list[UnavailableReachOut]
     summary: OpeningsSummary
+
+
+class _StrictPredictionSchema(BaseModel):
+    """PR 3.3 prediction contract base: no extra fields on either direction.
+
+    protected_namespaces is cleared because the lineage pins legitimately
+    start with model_ (model_snapshot_id / model_release_id / ..._hash)."""
+
+    model_config = ConfigDict(extra="forbid", protected_namespaces=())
+
+
+class PredictionInitialization(_StrictPredictionSchema):
+    kind: Literal["dry"]
+
+
+class SourceFlowEventIn(_StrictPredictionSchema):
+    node_id: Literal["S"]
+    effective_at: AwareUtc
+    flow_m3s: float
+
+    @field_validator("flow_m3s", mode="before")
+    @classmethod
+    def _flow_not_bool(cls, v):
+        return _reject_bool(v, "flow_m3s")
+
+
+class OperatorWithdrawalEventIn(_StrictPredictionSchema):
+    structure_id: Annotated[str, StringConstraints(min_length=1)]
+    effective_at: AwareUtc
+    planned_flow_m3s: float
+    purpose: Annotated[str, StringConstraints(min_length=1)]
+    operator_reference: str | None
+
+    @field_validator("planned_flow_m3s", mode="before")
+    @classmethod
+    def _planned_not_bool(cls, v):
+        return _reject_bool(v, "planned_flow_m3s")
+
+
+class BranchAllocationIn(_StrictPredictionSchema):
+    upstream_node_id: Annotated[str, StringConstraints(min_length=1)]
+    downstream_node_id: Annotated[str, StringConstraints(min_length=1)]
+    fraction: float
+
+    @field_validator("fraction", mode="before")
+    @classmethod
+    def _fraction_not_bool(cls, v):
+        return _reject_bool(v, "fraction")
+
+
+class SectionRequirementIn(_StrictPredictionSchema):
+    requirement_id: Annotated[str, StringConstraints(min_length=1)]
+    section_id: Annotated[str, StringConstraints(min_length=1)]
+    delivery_node_id: Annotated[str, StringConstraints(min_length=1)]
+    window_start: AwareUtc
+    window_end: AwareUtc
+    required_volume_m3: float
+    maximum_delivery_m3s: float
+    approved_excess_m3: float
+
+    @field_validator(
+        "required_volume_m3",
+        "maximum_delivery_m3s",
+        "approved_excess_m3",
+        mode="before",
+    )
+    @classmethod
+    def _volumes_not_bool(cls, v, info):
+        return _reject_bool(v, info.field_name)
+
+
+class ControlPredictionRequest(_StrictPredictionSchema):
+    """Exact-lineage three-member prediction request; every field explicit."""
+
+    model_snapshot_id: Sha256Hex
+    model_release_id: Annotated[str, StringConstraints(min_length=1)]
+    model_release_content_hash: Sha256Hex
+    initialization: PredictionInitialization
+    starts_at: AwareUtc
+    ends_at: AwareUtc
+    timestep_seconds: float
+    source_flow_events: list[SourceFlowEventIn] = Field(min_length=1)
+    operator_withdrawal_events: list[OperatorWithdrawalEventIn]
+    branch_allocations: list[BranchAllocationIn]
+    section_requirements: list[SectionRequirementIn]
+
+    @field_validator("timestep_seconds", mode="before")
+    @classmethod
+    def _timestep_not_bool(cls, v):
+        return _reject_bool(v, "timestep_seconds")
+
+
+class RequirementShortfallViolationOut(_StrictPredictionSchema):
+    kind: Literal["requirement_shortfall"]
+    requirement_id: str
+    required_volume_m3: float
+    predicted_delivered_m3: float
+    shortfall_m3: float
+
+
+class WithdrawalShortfallViolationOut(_StrictPredictionSchema):
+    kind: Literal["withdrawal_shortfall"]
+    structure_id: str
+    first_at: AwareUtc
+    steps: int
+    planned_total_m3: float
+    predicted_total_m3: float
+    shortfall_total_m3: float
+
+
+class WithdrawalCapacityExceededViolationOut(_StrictPredictionSchema):
+    kind: Literal["withdrawal_capacity_exceeded"]
+    structure_id: str
+    first_at: AwareUtc
+    steps: int
+    maximum_planned_flow_m3s: float
+    structure_max_flow_m3s: float
+
+
+class WithdrawalCapacityUnavailableViolationOut(_StrictPredictionSchema):
+    kind: Literal["withdrawal_capacity_unavailable"]
+    structure_id: str
+    first_at: AwareUtc
+    steps: int
+    maximum_planned_flow_m3s: float
+
+
+PredictionViolationOut = Annotated[
+    RequirementShortfallViolationOut
+    | WithdrawalShortfallViolationOut
+    | WithdrawalCapacityExceededViolationOut
+    | WithdrawalCapacityUnavailableViolationOut,
+    Field(discriminator="kind"),
+]
+
+
+class PredictionInfeasibilityOut(_StrictPredictionSchema):
+    kind: Literal["reach_capacity_exceeded"]
+    reach_id: str
+    capacity_kind: Literal["inflow", "routed_volume"]
+    attempted_flow_m3s: float
+    capacity_m3s: float
+    interval_start: AwareUtc
+    interval_end: AwareUtc
+
+
+class PredictionReachSeriesOut(_StrictPredictionSchema):
+    reach_id: str
+    inflow_m3s: list[float]
+    outflow_m3s: list[float]
+    in_transit_volume_m3: list[float]
+    cumulative_declared_loss_m3: list[float]
+
+
+class PredictionWithdrawalSeriesOut(_StrictPredictionSchema):
+    structure_id: str
+    planned_flow_m3s: list[float]
+    hydraulically_available_flow_m3s: list[float]
+    predicted_withdrawal_m3s: list[float]
+    shortfall_m3s: list[float]
+    capacity_check_status: list[
+        Literal["within_capacity", "exceeds_capacity", "unavailable"]
+    ]
+
+
+PredictedStatusLiteral = Literal[
+    "pending",
+    "arrival_predicted",
+    "delivery_predicted_active",
+    "predicted_fulfilled",
+    "predicted_excess",
+]
+
+
+class PredictionRequirementSeriesOut(_StrictPredictionSchema):
+    """No usable_in_transit series: the network step attributes no in-transit
+    volume to requirements (delivery accounting is delivered-only), so a
+    permanently-zero column would misread as 'nothing en route'. The real
+    transit picture lives in the reach series."""
+
+    requirement_id: str
+    predicted_delivered_m3: list[float]
+    status: list[PredictedStatusLiteral]
+
+
+class PredictionMassBalanceOut(_StrictPredictionSchema):
+    initial_in_transit_m3: float
+    boundary_inflow_m3: float
+    delivered_m3: float
+    withdrawn_m3: float
+    declared_loss_m3: float
+    terminal_outflow_m3: float
+    final_in_transit_m3: float
+    balance_error_m3: float
+
+
+class PredictionFinalFulfillmentOut(_StrictPredictionSchema):
+    requirement_id: str
+    section_id: str
+    required_volume_m3: float
+    approved_excess_m3: float
+    predicted_delivered_m3: float
+    status: PredictedStatusLiteral
+
+
+class PredictionTimelineOut(_StrictPredictionSchema):
+    sampled_at: list[AwareUtc]
+    reaches: list[PredictionReachSeriesOut]
+    withdrawals: list[PredictionWithdrawalSeriesOut]
+    requirements: list[PredictionRequirementSeriesOut]
+    terminal_outflow_m3: list[float]
+    mass_balance: PredictionMassBalanceOut
+    final_fulfillment: list[PredictionFinalFulfillmentOut]
+
+
+class PredictionMemberOut(_StrictPredictionSchema):
+    member: Literal["lower", "nominal", "upper"]
+    status: Literal["completed", "infeasible"]
+    infeasibility: PredictionInfeasibilityOut | None
+    violations: list[PredictionViolationOut]
+    predicted_delivered_total_m3: float | None
+    timeline: PredictionTimelineOut | None
+
+
+class ExcludedTransportReachOut(_StrictPredictionSchema):
+    reach_id: str
+    reason: str
+
+
+class PredictionCoverageOut(_StrictPredictionSchema):
+    modeled_transport_reach_ids: list[str]
+    excluded_transport_reaches: list[ExcludedTransportReachOut]
+
+
+class ControlPredictionResponse(_StrictPredictionSchema):
+    """Forecast-only, non-commanding, NON-PERSISTED three-member prediction."""
+
+    schema_version: Literal[1]
+    mode: Literal["open_loop_prediction"]
+    open_loop: Literal[True]
+    actual_state_known: Literal[False]
+    commandable: Literal[False]
+    persistence: Literal["none"]
+    model_snapshot_id: Sha256Hex
+    model_release_id: str
+    model_release_content_hash: Sha256Hex
+    config_sha256: dict[str, str]
+    starts_at: AwareUtc
+    ends_at: AwareUtc
+    timestep_seconds: float
+    coverage: PredictionCoverageOut
+    members: list[PredictionMemberOut]
