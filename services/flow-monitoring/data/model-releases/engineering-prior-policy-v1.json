@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "policy_id": "engineering-prior-policy-v1",
+  "policy_version": "1",
+  "approved_on": "2026-07-17",
+  "approval_record": "coding-logs/2026-07-17-07-24-38 Coding Log (approved-hydraulic-policy-session-handoff).md",
+  "release_id": "engineering-prior-v3-v1",
+  "release_generated_at": "2026-07-17T00:00:00Z",
+  "evidence_class": "engineering_prior",
+  "commandable": false,
+  "initialization_assumption": "dry",
+  "reference_flow": {
+    "section_rule": "q_rotation_plan_else_fraction_of_q_max",
+    "fallback_fraction_of_q_max": 1.0,
+    "element_rule": "min_over_sections",
+    "minimum_residual_flow_fraction": 0.05,
+    "state_evaluation": "midpoint_of_zero_to_reference_transition"
+  },
+  "muskingum_cunge": {
+    "coefficient_evaluation": "constant_at_reference_state",
+    "coefficient_evaluation_note": "coefficients are hydraulically derived per section but FROZEN at the policy reference state (the (Q0+Q1)/2 midpoint of the dry-start transition); they are not updated per routing step. Flow dependence enters through the per-member reference-flow perturbations.",
+    "timestep_seconds": 60.0,
+    "horizon_travel_factor": 50,
+    "horizon_floor_steps": 1000
+  },
+  "surrogate_fit": {
+    "delay": "t10",
+    "dispersion": "t90_minus_t10",
+    "lower_threshold": 0.1,
+    "upper_threshold": 0.9,
+    "interpolation": "linear"
+  },
+  "loss": {
+    "model": "wetted_perimeter_seepage",
+    "operating_depth_fraction": 0.7,
+    "fraction_denominator": "nominal_element_reference_flow",
+    "composition": "sum_of_section_seepage_flux",
+    "missing_lining_type": "unknown_class"
+  },
+  "capacity": {
+    "hard_ceiling_bounds": [
+      "section_q_max_min",
+      "terminating_gate_q_max_m3s",
+      "terminating_gate_structure_max_flow_m3s"
+    ],
+    "derating_by_calibration_method": {
+      "measured": 0.9,
+      "inferred": 0.75,
+      "default": 0.75
+    },
+    "derating_selector": "terminating_gate_calibration_method",
+    "distribution": "degenerate_planning_limit"
+  },
+  "perturbations": {
+    "manning_n": {"kind": "relative", "lower": -0.15, "upper": 0.15},
+    "seepage_rate": {"kind": "multiplier", "lower": 0.5, "upper": 1.5},
+    "flow_to_state": {"kind": "relative", "lower": -0.25, "upper": 0.25},
+    "geometry_tolerance": {"kind": "relative", "lower": -0.05, "upper": 0.05}
+  },
+  "member_bundles": {
+    "lower": {
+      "manning_n": "lower",
+      "seepage_rate": "lower",
+      "flow_to_state": "upper",
+      "geometry_tolerance": "lower"
+    },
+    "nominal": {},
+    "upper": {
+      "manning_n": "upper",
+      "seepage_rate": "upper",
+      "flow_to_state": "lower",
+      "geometry_tolerance": "upper"
+    }
+  },
+  "correlation_note": "members are whole physically consistent worlds: the upper (slow, lossy) member pairs high roughness with a low evaluation flow, high seepage, and a larger surveyed channel. The seepage-rate perturbation widens the LOSS band only; in-cascade state threading always uses the nominal seepage estimate so a perturbed loss band cannot exhaust the evaluation flow. The loss denominator stays at the nominal element reference flow; capacity is a degenerate planning ceiling so no member can relax the overload check (policy section 6).",
+  "operating_envelope": {
+    "minimum_flow_m3s": 0.0,
+    "maximum_flow_m3s": 11.2,
+    "maximum_flow_evidence": "M(0,0) structure_max_flow_m3s (measured dam outlet)",
+    "minimum_timestep_seconds": 60.0,
+    "maximum_timestep_seconds": 300.0,
+    "maximum_horizon_seconds": 604800.0
+  },
+  "emitted_precision_decimals": {
+    "delay_seconds": 3,
+    "dispersion_seconds": 3,
+    "loss_fraction": 9,
+    "capacity_m3s": 6
+  },
+  "unavailable_reasons": {
+    "geometry_unavailable": "no authoritative cross-section, roughness, slope, or rating exists for this span and the engineering-prior policy forbids invented geometry (LMC 0+000-0+170 outlet flume)",
+    "conveyance_loss_exceeds_reference": "the approved seepage policy derives a conveyance loss that reaches or exceeds the reference flow for this reach; the reach is explicitly unavailable rather than shipping a non-physical response",
+    "hydraulic_state_unavailable": "the approved policy cannot derive an admissible reference hydraulic state or a stable response for this reach from the surveyed evidence; the reach is explicitly unavailable rather than extrapolating the channel"
+  }
+}

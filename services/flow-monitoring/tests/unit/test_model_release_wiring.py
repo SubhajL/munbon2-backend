@@ -83,3 +83,31 @@ def test_withdrawal_capacity_map_resolves_from_committed_artifacts():
         ("M(0,0;2,0;1,0)", None),
         ("M(0,0;2,1;1,2;1,0)", None),
     )
+
+
+def test_committed_release_loads_through_real_configured_loader():
+    from core.config_loader import load_routing_topology
+    from core.model_release import load_configured_hydraulic_model_release
+    from core.reach_response import reach_responses_from_model_release
+
+    config_dir = MAIN.parent / "config"
+    release_path = (
+        MAIN.parents[1] / "data" / "model-releases" / "engineering-prior-v3-v1.json"
+    )
+    topology = load_routing_topology(
+        str(config_dir / "routing_topology.json"),
+        str(config_dir / "network.json"),
+        str(config_dir / "geometry_coverage.json"),
+        str(config_dir / "canal_geometry.json"),
+    )
+
+    release = load_configured_hydraulic_model_release(
+        str(release_path), topology.transport_reach_ids()
+    )
+
+    assert release is not None
+    assert release.commandable is False
+    assert len(release.reach_parameters) == 41
+    assert len(release.unavailable_reaches) == 1
+    members = reach_responses_from_model_release(release)
+    assert len(members) == 123
