@@ -68,6 +68,8 @@ KEEPER_SCRIPTS = [
     "network_from_gate_names.py",
     # the live generator (workbook -> network/geometry/coverage/calibration artifacts)
     "build_scada_config.py",
+    # the engineering-prior model-release generator (PR 2.1c)
+    "build_hydraulic_model_release.py",
 ]
 
 PURGED_SCRIPTS = [

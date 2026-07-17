@@ -1,0 +1,1248 @@
+{
+  "schema_version": 1,
+  "release_id": "engineering-prior-v3-v1",
+  "generated_at": "2026-07-17T00:00:00Z",
+  "evidence_class": "engineering_prior",
+  "commandable": false,
+  "lineage": {
+    "generator": "scripts/build_hydraulic_model_release.py",
+    "generator_version": "1",
+    "sources": [
+      {
+        "source_id": "engineering_prior_policy",
+        "version": "1",
+        "sha256": "b99a08701d9e7aceb87c9e8b0fbd0f2e7a862a58563dac769762417f4d7da6fd"
+      },
+      {
+        "source_id": "network",
+        "version": "528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
+        "sha256": "c225f4a62dccf03d24ec9ecd7e9cd85b7a4e36ff9e408a1381a1bacf2d9d64e5"
+      },
+      {
+        "source_id": "geometry_coverage",
+        "version": "528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
+        "sha256": "a55d05cc90d743d388db8cdbd6cdd0c34d8c3b3c006bcb323759037c3744d974"
+      },
+      {
+        "source_id": "canal_geometry",
+        "version": "528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
+        "sha256": "b7328a6a3c23d2af98075d275e93d4f4c35abbc476cc7d109b9df46478be5f0f"
+      },
+      {
+        "source_id": "gate_calibrations",
+        "version": "528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
+        "sha256": "ecffa911a59991716cad735794a25869cf2c62f52ad4b65ccd40123921f1add0"
+      },
+      {
+        "source_id": "routing_topology",
+        "version": "9af23c5c074fb5989de7ab0b018add94e6c9fd0b1dd194fac42db4761cb53600",
+        "sha256": "564753bf440702d59701f6ce222b3e1b6463c999f863fb90a17f9f981159d5bd"
+      }
+    ]
+  },
+  "operating_envelope": {
+    "minimum_flow_m3s": 0.0,
+    "maximum_flow_m3s": 11.2,
+    "minimum_timestep_seconds": 60.0,
+    "maximum_timestep_seconds": 300.0,
+    "maximum_horizon_seconds": 604800.0
+  },
+  "reach_parameters": [
+    {
+      "reach_id": "C_J(LMC,0+170)_M(0,2)",
+      "delay_seconds": {
+        "lower": 928.26,
+        "nominal": 1137.196,
+        "upper": 1382.403
+      },
+      "loss_fraction": {
+        "lower": 0.005668476,
+        "nominal": 0.011933633,
+        "upper": 0.018795472
+      },
+      "dispersion_seconds": {
+        "lower": 687.601,
+        "nominal": 752.761,
+        "upper": 833.457
+      },
+      "capacity_m3s": {
+        "lower": 7.8633,
+        "nominal": 7.8633,
+        "upper": 7.8633
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,2)_M(0,3)",
+      "delay_seconds": {
+        "lower": 3994.703,
+        "nominal": 4828.762,
+        "upper": 5835.615
+      },
+      "loss_fraction": {
+        "lower": 0.021685293,
+        "nominal": 0.045653248,
+        "upper": 0.071903865
+      },
+      "dispersion_seconds": {
+        "lower": 1341.252,
+        "nominal": 1475.772,
+        "upper": 1612.264
+      },
+      "capacity_m3s": {
+        "lower": 6.55275,
+        "nominal": 6.55275,
+        "upper": 6.55275
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,3)_M(0,4)",
+      "delay_seconds": {
+        "lower": 1631.464,
+        "nominal": 1983.059,
+        "upper": 2413.448
+      },
+      "loss_fraction": {
+        "lower": 0.0096095,
+        "nominal": 0.020230525,
+        "upper": 0.031863077
+      },
+      "dispersion_seconds": {
+        "lower": 894.13,
+        "nominal": 984.61,
+        "upper": 1062.596
+      },
+      "capacity_m3s": {
+        "lower": 4.47225,
+        "nominal": 4.47225,
+        "upper": 4.47225
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,4)_M(0,5)",
+      "delay_seconds": {
+        "lower": 2061.728,
+        "nominal": 2504.767,
+        "upper": 3038.879
+      },
+      "loss_fraction": {
+        "lower": 0.013586906,
+        "nominal": 0.028604014,
+        "upper": 0.045051322
+      },
+      "dispersion_seconds": {
+        "lower": 994.611,
+        "nominal": 1089.084,
+        "upper": 1188.222
+      },
+      "capacity_m3s": {
+        "lower": 4.45725,
+        "nominal": 4.45725,
+        "upper": 4.45725
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,5)_M(0,6)",
+      "delay_seconds": {
+        "lower": 4386.309,
+        "nominal": 5308.952,
+        "upper": 6415.739
+      },
+      "loss_fraction": {
+        "lower": 0.02900282,
+        "nominal": 0.061058568,
+        "upper": 0.096167244
+      },
+      "dispersion_seconds": {
+        "lower": 1411.81,
+        "nominal": 1539.442,
+        "upper": 1687.562
+      },
+      "capacity_m3s": {
+        "lower": 4.18425,
+        "nominal": 4.18425,
+        "upper": 4.18425
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,6)_M(0,7)",
+      "delay_seconds": {
+        "lower": 3351.405,
+        "nominal": 4063.48,
+        "upper": 4910.503
+      },
+      "loss_fraction": {
+        "lower": 0.021836967,
+        "nominal": 0.045972562,
+        "upper": 0.072406786
+      },
+      "dispersion_seconds": {
+        "lower": 1249.954,
+        "nominal": 1354.792,
+        "upper": 1482.654
+      },
+      "capacity_m3s": {
+        "lower": 4.887,
+        "nominal": 4.887,
+        "upper": 4.887
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,7)_M(0,8)",
+      "delay_seconds": {
+        "lower": 1856.497,
+        "nominal": 2258.823,
+        "upper": 2734.612
+      },
+      "loss_fraction": {
+        "lower": 0.012773019,
+        "nominal": 0.026890566,
+        "upper": 0.042352641
+      },
+      "dispersion_seconds": {
+        "lower": 950.191,
+        "nominal": 1032.363,
+        "upper": 1137.538
+      },
+      "capacity_m3s": {
+        "lower": 4.0725,
+        "nominal": 4.0725,
+        "upper": 4.0725
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,8)_M(0,9)",
+      "delay_seconds": {
+        "lower": 1925.966,
+        "nominal": 2337.233,
+        "upper": 2834.227
+      },
+      "loss_fraction": {
+        "lower": 0.013168938,
+        "nominal": 0.02772408,
+        "upper": 0.043665425
+      },
+      "dispersion_seconds": {
+        "lower": 955.06,
+        "nominal": 1053.889,
+        "upper": 1153.612
+      },
+      "capacity_m3s": {
+        "lower": 3.8115,
+        "nominal": 3.8115,
+        "upper": 3.8115
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,9)_M(0,10)",
+      "delay_seconds": {
+        "lower": 2153.125,
+        "nominal": 2611.032,
+        "upper": 3164.549
+      },
+      "loss_fraction": {
+        "lower": 0.015032465,
+        "nominal": 0.031647294,
+        "upper": 0.049844489
+      },
+      "dispersion_seconds": {
+        "lower": 1009.823,
+        "nominal": 1109.346,
+        "upper": 1212.796
+      },
+      "capacity_m3s": {
+        "lower": 3.4845,
+        "nominal": 3.4845,
+        "upper": 3.4845
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,10)_M(0,11)",
+      "delay_seconds": {
+        "lower": 7215.808,
+        "nominal": 8714.162,
+        "upper": 10534.243
+      },
+      "loss_fraction": {
+        "lower": 0.048244092,
+        "nominal": 0.101566509,
+        "upper": 0.159967252
+      },
+      "dispersion_seconds": {
+        "lower": 1778.158,
+        "nominal": 1954.938,
+        "upper": 2132.206
+      },
+      "capacity_m3s": {
+        "lower": 3.13425,
+        "nominal": 3.13425,
+        "upper": 3.13425
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,11)_M(0,12)",
+      "delay_seconds": {
+        "lower": 1553.64,
+        "nominal": 1895.431,
+        "upper": 2304.594
+      },
+      "loss_fraction": {
+        "lower": 0.012075441,
+        "nominal": 0.025421981,
+        "upper": 0.040039621
+      },
+      "dispersion_seconds": {
+        "lower": 883.673,
+        "nominal": 957.413,
+        "upper": 1040.858
+      },
+      "capacity_m3s": {
+        "lower": 3.1335,
+        "nominal": 3.1335,
+        "upper": 3.1335
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,12)_M(0,13)",
+      "delay_seconds": {
+        "lower": 134.124,
+        "nominal": 172.65,
+        "upper": 212.976
+      },
+      "loss_fraction": {
+        "lower": 0.001570557,
+        "nominal": 0.003306435,
+        "upper": 0.005207635
+      },
+      "dispersion_seconds": {
+        "lower": 321.734,
+        "nominal": 343.643,
+        "upper": 376.417
+      },
+      "capacity_m3s": {
+        "lower": 0.1365,
+        "nominal": 0.1365,
+        "upper": 0.1365
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,13)_M(0,14)",
+      "delay_seconds": {
+        "lower": 1034.002,
+        "nominal": 1262.38,
+        "upper": 1543.243
+      },
+      "loss_fraction": {
+        "lower": 0.024495304,
+        "nominal": 0.051569062,
+        "upper": 0.081221272
+      },
+      "dispersion_seconds": {
+        "lower": 723.21,
+        "nominal": 796.547,
+        "upper": 861.136
+      },
+      "capacity_m3s": {
+        "lower": 0.1545,
+        "nominal": 0.1545,
+        "upper": 0.1545
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,0;2,0)_M(0,0;2,1)",
+      "delay_seconds": {
+        "lower": 3172.21,
+        "nominal": 3842.177,
+        "upper": 4641.779
+      },
+      "loss_fraction": {
+        "lower": 0.05422724,
+        "nominal": 0.114162612,
+        "upper": 0.179806113
+      },
+      "dispersion_seconds": {
+        "lower": 1215.873,
+        "nominal": 1328.906,
+        "upper": 1455.659
+      },
+      "capacity_m3s": {
+        "lower": 0.9255,
+        "nominal": 0.9255,
+        "upper": 0.9255
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,0;2,1)_M(0,0;2,2)",
+      "delay_seconds": {
+        "lower": 2291.402,
+        "nominal": 2777.309,
+        "upper": 3370.109
+      },
+      "loss_fraction": {
+        "lower": 0.031882804,
+        "nominal": 0.067121693,
+        "upper": 0.105716667
+      },
+      "dispersion_seconds": {
+        "lower": 1033.912,
+        "nominal": 1142.557,
+        "upper": 1245.305
+      },
+      "capacity_m3s": {
+        "lower": 0.9255,
+        "nominal": 0.9255,
+        "upper": 0.9255
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,0;2,2)_M(0,0;2,3)",
+      "delay_seconds": {
+        "lower": 1683.769,
+        "nominal": 2048.275,
+        "upper": 2482.379
+      },
+      "loss_fraction": {
+        "lower": 0.034740233,
+        "nominal": 0.073137332,
+        "upper": 0.115191298
+      },
+      "dispersion_seconds": {
+        "lower": 905.429,
+        "nominal": 988.088,
+        "upper": 1080.417
+      },
+      "capacity_m3s": {
+        "lower": 0.189,
+        "nominal": 0.189,
+        "upper": 0.189
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,0;2,3)_M(0,0;2,4)",
+      "delay_seconds": {
+        "lower": 2485.603,
+        "nominal": 3013.831,
+        "upper": 3654.65
+      },
+      "loss_fraction": {
+        "lower": 0.076419622,
+        "nominal": 0.160883414,
+        "upper": 0.253391377
+      },
+      "dispersion_seconds": {
+        "lower": 1082.187,
+        "nominal": 1188.914,
+        "upper": 1295.216
+      },
+      "capacity_m3s": {
+        "lower": 0.11325,
+        "nominal": 0.11325,
+        "upper": 0.11325
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,0;2,1;1,0)_M(0,0;2,1;1,1)",
+      "delay_seconds": {
+        "lower": 893.699,
+        "nominal": 1093.382,
+        "upper": 1329.569
+      },
+      "loss_fraction": {
+        "lower": 0.013197024,
+        "nominal": 0.027783209,
+        "upper": 0.043758554
+      },
+      "dispersion_seconds": {
+        "lower": 681.596,
+        "nominal": 744.342,
+        "upper": 820.829
+      },
+      "capacity_m3s": {
+        "lower": 0.5025,
+        "nominal": 0.5025,
+        "upper": 0.5025
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,0;2,1;1,1)_M(0,0;2,1;1,2)",
+      "delay_seconds": {
+        "lower": 1484.35,
+        "nominal": 1814.464,
+        "upper": 2203.242
+      },
+      "loss_fraction": {
+        "lower": 0.022889296,
+        "nominal": 0.048187991,
+        "upper": 0.075896086
+      },
+      "dispersion_seconds": {
+        "lower": 860.767,
+        "nominal": 929.916,
+        "upper": 1020.398
+      },
+      "capacity_m3s": {
+        "lower": 0.29775,
+        "nominal": 0.29775,
+        "upper": 0.29775
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,0;2,1;1,2)_M(0,0;2,1;1,3)",
+      "delay_seconds": {
+        "lower": 1098.072,
+        "nominal": 1336.492,
+        "upper": 1630.938
+      },
+      "loss_fraction": {
+        "lower": 0.020054958,
+        "nominal": 0.042220964,
+        "upper": 0.066498019
+      },
+      "dispersion_seconds": {
+        "lower": 747.705,
+        "nominal": 825.187,
+        "upper": 893.169
+      },
+      "capacity_m3s": {
+        "lower": 0.15375,
+        "nominal": 0.15375,
+        "upper": 0.15375
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,0;2,1;1,3)_M(0,0;2,1;1,4)",
+      "delay_seconds": {
+        "lower": 642.884,
+        "nominal": 790.788,
+        "upper": 964.567
+      },
+      "loss_fraction": {
+        "lower": 0.01625093,
+        "nominal": 0.034212484,
+        "upper": 0.053884663
+      },
+      "dispersion_seconds": {
+        "lower": 593.845,
+        "nominal": 645.338,
+        "upper": 711.991
+      },
+      "capacity_m3s": {
+        "lower": 0.1545,
+        "nominal": 0.1545,
+        "upper": 0.1545
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,3;1,0)_M(0,3;1,1)",
+      "delay_seconds": {
+        "lower": 6394.621,
+        "nominal": 7729.335,
+        "upper": 9346.369
+      },
+      "loss_fraction": {
+        "lower": 0.055406989,
+        "nominal": 0.116646294,
+        "upper": 0.183717912
+      },
+      "dispersion_seconds": {
+        "lower": 1683.404,
+        "nominal": 1845.171,
+        "upper": 2015.127
+      },
+      "capacity_m3s": {
+        "lower": 1.7343,
+        "nominal": 1.7343,
+        "upper": 1.7343
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,3;1,1)_M(0,3;1,2)",
+      "delay_seconds": {
+        "lower": 2285.683,
+        "nominal": 2774.955,
+        "upper": 3364.696
+      },
+      "loss_fraction": {
+        "lower": 0.022144446,
+        "nominal": 0.046619886,
+        "upper": 0.073426321
+      },
+      "dispersion_seconds": {
+        "lower": 1044.278,
+        "nominal": 1141.228,
+        "upper": 1243.233
+      },
+      "capacity_m3s": {
+        "lower": 0.466,
+        "nominal": 0.466,
+        "upper": 0.466
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,3;1,2)_M(0,3;1,3)",
+      "delay_seconds": {
+        "lower": 13203.19,
+        "nominal": 16303.946,
+        "upper": 20827.516
+      },
+      "loss_fraction": {
+        "lower": 0.288215837,
+        "nominal": 0.606770184,
+        "upper": 0.95566304
+      },
+      "dispersion_seconds": {
+        "lower": 2378.709,
+        "nominal": 2632.02,
+        "upper": 2962.805
+      },
+      "capacity_m3s": {
+        "lower": 0.2085,
+        "nominal": 0.2085,
+        "upper": 0.2085
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,3;1,1;1,0)_M(0,3;1,1;1,1)",
+      "delay_seconds": {
+        "lower": 5311.649,
+        "nominal": 6432.672,
+        "upper": 7792.076
+      },
+      "loss_fraction": {
+        "lower": 0.092899278,
+        "nominal": 0.195577427,
+        "upper": 0.308034447
+      },
+      "dispersion_seconds": {
+        "lower": 1540.145,
+        "nominal": 1685.049,
+        "upper": 1845.6
+      },
+      "capacity_m3s": {
+        "lower": 0.25125,
+        "nominal": 0.25125,
+        "upper": 0.25125
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,3;1,1;2,0)_M(0,3;1,1;2,1)",
+      "delay_seconds": {
+        "lower": 4983.631,
+        "nominal": 6039.032,
+        "upper": 7323.14
+      },
+      "loss_fraction": {
+        "lower": 0.108595849,
+        "nominal": 0.228622841,
+        "upper": 0.360080974
+      },
+      "dispersion_seconds": {
+        "lower": 1494.465,
+        "nominal": 1635.407,
+        "upper": 1789.288
+      },
+      "capacity_m3s": {
+        "lower": 0.1545,
+        "nominal": 0.1545,
+        "upper": 0.1545
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,12;1,0)_M(0,12;1,1)",
+      "delay_seconds": {
+        "lower": 1490.41,
+        "nominal": 1815.994,
+        "upper": 2212.654
+      },
+      "loss_fraction": {
+        "lower": 0.012096714,
+        "nominal": 0.025466766,
+        "upper": 0.040110157
+      },
+      "dispersion_seconds": {
+        "lower": 866.076,
+        "nominal": 945.259,
+        "upper": 1023.361
+      },
+      "capacity_m3s": {
+        "lower": 1.506,
+        "nominal": 1.506,
+        "upper": 1.506
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,12;1,1)_M(0,12;1,2)",
+      "delay_seconds": {
+        "lower": 1266.521,
+        "nominal": 1542.089,
+        "upper": 1880.0
+      },
+      "loss_fraction": {
+        "lower": 0.012948082,
+        "nominal": 0.02725912,
+        "upper": 0.042933114
+      },
+      "dispersion_seconds": {
+        "lower": 799.978,
+        "nominal": 878.132,
+        "upper": 948.463
+      },
+      "capacity_m3s": {
+        "lower": 1.7343,
+        "nominal": 1.7343,
+        "upper": 1.7343
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,12;1,2)_M(0,12;1,3)",
+      "delay_seconds": {
+        "lower": 1532.343,
+        "nominal": 1871.505,
+        "upper": 2270.327
+      },
+      "loss_fraction": {
+        "lower": 0.015449614,
+        "nominal": 0.032525502,
+        "upper": 0.051227666
+      },
+      "dispersion_seconds": {
+        "lower": 872.279,
+        "nominal": 943.271,
+        "upper": 1036.808
+      },
+      "capacity_m3s": {
+        "lower": 0.8265,
+        "nominal": 0.8265,
+        "upper": 0.8265
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,12;1,3)_M(0,12;1,4)",
+      "delay_seconds": {
+        "lower": 2628.28,
+        "nominal": 3182.829,
+        "upper": 3857.812
+      },
+      "loss_fraction": {
+        "lower": 0.03080851,
+        "nominal": 0.064860021,
+        "upper": 0.102154533
+      },
+      "dispersion_seconds": {
+        "lower": 1104.2,
+        "nominal": 1219.657,
+        "upper": 1325.361
+      },
+      "capacity_m3s": {
+        "lower": 0.5025,
+        "nominal": 0.5025,
+        "upper": 0.5025
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,12;1,4)_M(0,12;1,5)",
+      "delay_seconds": {
+        "lower": 3069.134,
+        "nominal": 3715.232,
+        "upper": 4493.733
+      },
+      "loss_fraction": {
+        "lower": 0.042769107,
+        "nominal": 0.090040226,
+        "upper": 0.141813356
+      },
+      "dispersion_seconds": {
+        "lower": 1187.02,
+        "nominal": 1305.896,
+        "upper": 1426.774
+      },
+      "capacity_m3s": {
+        "lower": 0.5025,
+        "nominal": 0.5025,
+        "upper": 0.5025
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,12;1,0;1,0)_M(0,12;1,0;1,1)",
+      "delay_seconds": {
+        "lower": 8166.223,
+        "nominal": 9923.104,
+        "upper": 12129.229
+      },
+      "loss_fraction": {
+        "lower": 0.161065669,
+        "nominal": 0.339085618,
+        "upper": 0.534059849
+      },
+      "dispersion_seconds": {
+        "lower": 1891.275,
+        "nominal": 2073.81,
+        "upper": 2279.986
+      },
+      "capacity_m3s": {
+        "lower": 0.19875,
+        "nominal": 0.19875,
+        "upper": 0.19875
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,12;1,1;1,0)_M(0,12;1,1;1,1)",
+      "delay_seconds": {
+        "lower": 535.31,
+        "nominal": 653.621,
+        "upper": 801.079
+      },
+      "loss_fraction": {
+        "lower": 0.007114941,
+        "nominal": 0.014978824,
+        "upper": 0.023591648
+      },
+      "dispersion_seconds": {
+        "lower": 539.409,
+        "nominal": 600.334,
+        "upper": 656.509
+      },
+      "capacity_m3s": {
+        "lower": 0.292,
+        "nominal": 0.292,
+        "upper": 0.292
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,12;1,1;1,1)_M(0,12;1,1;1,2)",
+      "delay_seconds": {
+        "lower": 7466.734,
+        "nominal": 9128.665,
+        "upper": 11314.937
+      },
+      "loss_fraction": {
+        "lower": 0.227390373,
+        "nominal": 0.478716574,
+        "upper": 0.753978604
+      },
+      "dispersion_seconds": {
+        "lower": 1811.222,
+        "nominal": 1993.673,
+        "upper": 2204.737
+      },
+      "capacity_m3s": {
+        "lower": 0.11325,
+        "nominal": 0.11325,
+        "upper": 0.11325
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,12;1,1;1,0;1,0)_M(0,12;1,1;1,0;1,1)",
+      "delay_seconds": {
+        "lower": 4528.74,
+        "nominal": 5480.087,
+        "upper": 6623.777
+      },
+      "loss_fraction": {
+        "lower": 0.059173015,
+        "nominal": 0.124574768,
+        "upper": 0.19620526
+      },
+      "dispersion_seconds": {
+        "lower": 1429.265,
+        "nominal": 1563.163,
+        "upper": 1711.441
+      },
+      "capacity_m3s": {
+        "lower": 0.27025,
+        "nominal": 0.27025,
+        "upper": 0.27025
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,12;1,1;1,0;1,1)_M(0,12;1,1;1,0;1,2)",
+      "delay_seconds": {
+        "lower": 9633.884,
+        "nominal": 11809.648,
+        "upper": 14728.004
+      },
+      "loss_fraction": {
+        "lower": 0.22854772,
+        "nominal": 0.481153094,
+        "upper": 0.757816124
+      },
+      "dispersion_seconds": {
+        "lower": 2044.972,
+        "nominal": 2253.768,
+        "upper": 2504.642
+      },
+      "capacity_m3s": {
+        "lower": 0.1545,
+        "nominal": 0.1545,
+        "upper": 0.1545
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,12;1,2;1,0)_M(0,12;1,2;1,1)",
+      "delay_seconds": {
+        "lower": 8286.085,
+        "nominal": 10075.941,
+        "upper": 12331.388
+      },
+      "loss_fraction": {
+        "lower": 0.143321165,
+        "nominal": 0.301728768,
+        "upper": 0.475222809
+      },
+      "dispersion_seconds": {
+        "lower": 1898.414,
+        "nominal": 2086.911,
+        "upper": 2301.486
+      },
+      "capacity_m3s": {
+        "lower": 0.2945,
+        "nominal": 0.2945,
+        "upper": 0.2945
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,12;1,2;1,1)_M(0,12;1,2;1,2)",
+      "delay_seconds": {
+        "lower": 659.649,
+        "nominal": 785.514,
+        "upper": 940.589
+      },
+      "loss_fraction": {
+        "lower": 0.043749521,
+        "nominal": 0.092104256,
+        "upper": 0.145064203
+      },
+      "dispersion_seconds": {
+        "lower": 376.68,
+        "nominal": 443.045,
+        "upper": 507.491
+      },
+      "capacity_m3s": {
+        "lower": 0.73575,
+        "nominal": 0.73575,
+        "upper": 0.73575
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,12;1,2;1,0;1,0)_M(0,12;1,2;1,0;1,1)",
+      "delay_seconds": {
+        "lower": 2640.35,
+        "nominal": 3197.188,
+        "upper": 3863.943
+      },
+      "loss_fraction": {
+        "lower": 0.05715571,
+        "nominal": 0.120327811,
+        "upper": 0.189516302
+      },
+      "dispersion_seconds": {
+        "lower": 1108.57,
+        "nominal": 1214.92,
+        "upper": 1327.684
+      },
+      "capacity_m3s": {
+        "lower": 0.1545,
+        "nominal": 0.1545,
+        "upper": 0.1545
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,12;1,3;1,0)_M(0,12;1,3;1,1)",
+      "delay_seconds": {
+        "lower": 4454.354,
+        "nominal": 5406.932,
+        "upper": 6571.966
+      },
+      "loss_fraction": {
+        "lower": 0.106604199,
+        "nominal": 0.224429893,
+        "upper": 0.353477081
+      },
+      "dispersion_seconds": {
+        "lower": 1423.5,
+        "nominal": 1558.074,
+        "upper": 1705.671
+      },
+      "capacity_m3s": {
+        "lower": 0.1545,
+        "nominal": 0.1545,
+        "upper": 0.1545
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    },
+    {
+      "reach_id": "C_M(0,12;1,4;1,0)_M(0,12;1,4;1,1)",
+      "delay_seconds": {
+        "lower": 4360.982,
+        "nominal": 5285.538,
+        "upper": 6397.5
+      },
+      "loss_fraction": {
+        "lower": 0.078389551,
+        "nominal": 0.165030633,
+        "upper": 0.259923247
+      },
+      "dispersion_seconds": {
+        "lower": 1403.4,
+        "nominal": 1532.019,
+        "upper": 1683.958
+      },
+      "capacity_m3s": {
+        "lower": 0.25125,
+        "nominal": 0.25125,
+        "upper": 0.25125
+      },
+      "evidence_refs": [
+        "canal_geometry",
+        "engineering_prior_policy",
+        "gate_calibrations",
+        "routing_topology"
+      ]
+    }
+  ],
+  "unavailable_reaches": [
+    {
+      "reach_id": "C_M(0,0)_J(LMC,0+170)",
+      "reason": "no authoritative cross-section, roughness, slope, or rating exists for this span and the engineering-prior policy forbids invented geometry (LMC 0+000-0+170 outlet flume)"
+    }
+  ],
+  "content_hash": "e1b1f3abe09cdd6a3a50ed507aef998c99ec6d9ce35769d9970815b4fa9ccf88"
+}

@@ -352,3 +352,60 @@ class TestBuildModelSnapshot:
                 config_sha256,
                 False,
             )
+
+
+def test_committed_release_snapshot_reports_partial_41_available_1_unavailable():
+    from pathlib import Path
+
+    from core.config_loader import (
+        file_sha256,
+        load_routing_topology,
+    )
+    from core.model_release import load_configured_hydraulic_model_release
+    from core.reach_response import reach_responses_from_model_release
+
+    service_root = Path(__file__).resolve().parents[2]
+    config_dir = service_root / "src" / "config"
+    topology = load_routing_topology(
+        str(config_dir / "routing_topology.json"),
+        str(config_dir / "network.json"),
+        str(config_dir / "geometry_coverage.json"),
+        str(config_dir / "canal_geometry.json"),
+    )
+    release = load_configured_hydraulic_model_release(
+        str(
+            service_root
+            / "data"
+            / "model-releases"
+            / "engineering-prior-v3-v1.json"
+        ),
+        topology.transport_reach_ids(),
+    )
+    config_sha256 = {
+        name: file_sha256(str(config_dir / f"{name}.json"))
+        for name in (
+            "network",
+            "canal_geometry",
+            "gate_calibrations",
+            "geometry_coverage",
+            "routing_topology",
+        )
+    }
+
+    snapshot = build_model_snapshot(
+        topology,
+        reach_responses_from_model_release(release),
+        release,
+        config_sha256,
+        False,
+    )
+
+    assert snapshot["data_status"] == "partial"
+    assert snapshot["transport_response_coverage"] == {
+        "total_transport_reaches": 42,
+        "available_transport_reaches": 41,
+        "unavailable_transport_reaches": 1,
+    }
+    assert snapshot["unavailable_transport_reaches"][0]["reach_id"] == (
+        "C_M(0,0)_J(LMC,0+170)"
+    )
