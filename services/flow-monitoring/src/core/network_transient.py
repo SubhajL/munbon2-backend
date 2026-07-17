@@ -17,6 +17,7 @@ from .reach_response import (
     route_reach_step,
     validate_reach_response,
 )
+from .routing_topology import RoutingRole, RoutingTopology
 
 __all__ = [
     "BranchAllocation",
@@ -159,7 +160,7 @@ def route_gate_events(
 
 
 def simulate_network_timeline(
-    network_edges: tuple[tuple[str, str], ...],
+    routing_topology: RoutingTopology,
     responses: tuple[ReachResponse, ...],
     initial_states: tuple[ReachState, ...],
     gate_events: tuple[GateFlowEvent, ...],
@@ -169,15 +170,26 @@ def simulate_network_timeline(
     ends_at: datetime,
     timestep_seconds: float,
 ) -> NetworkTimeline:
+    if not isinstance(routing_topology, RoutingTopology):
+        raise NetworkTransientError(
+            "simulate_network_timeline requires a typed RoutingTopology"
+        )
+    network_edges = routing_topology.routing_edges()
+    transport_edges = frozenset(
+        (element.upstream_node_id, element.downstream_node_id)
+        for element in routing_topology.elements
+        if element.role is RoutingRole.TRANSPORT
+    )
+    transport_reach_ids = routing_topology.transport_reach_ids()
     _validate_network_edges(network_edges)
     _validate_timeline(starts_at, ends_at, timestep_seconds)
     response_by_reach, model_release_id, member = _validate_response_coverage(
-        network_edges, responses, timestep_seconds
+        transport_reach_ids, responses, timestep_seconds
     )
     state_by_reach = _validate_initial_state_coverage(response_by_reach, initial_states)
     allocations = _validate_branch_allocations(network_edges, branch_allocations)
     requirements_by_node, fulfillment_by_id = _validate_requirements(
-        network_edges,
+        routing_topology.canonical_gate_node_ids(),
         requirements,
         starts_at,
         ends_at,
@@ -225,7 +237,8 @@ def simulate_network_timeline(
             step_boundary_inflow_m3,
         ) = _route_network_step(
             gate_step,
-            network_edges,
+            transport_reach_ids,
+            transport_edges,
             ordered_nodes,
             children,
             response_by_reach,
@@ -240,7 +253,9 @@ def simulate_network_timeline(
         terminal_outflow_m3 += network_step.terminal_outflow_m3
         timeline_steps.append(network_step)
 
-    final_states = tuple(state_by_reach[_reach_id(*edge)] for edge in network_edges)
+    final_states = tuple(
+        state_by_reach[reach_id] for reach_id in transport_reach_ids
+    )
     final_fulfillment = tuple(
         fulfillment_by_id[requirement.requirement_id] for requirement in requirements
     )
@@ -284,7 +299,8 @@ def simulate_network_timeline(
 
 def _route_network_step(
     gate_step: GateFlowStep,
-    network_edges: tuple[tuple[str, str], ...],
+    transport_reach_ids: tuple[str, ...],
+    transport_edges: frozenset[tuple[str, str]],
     ordered_nodes: list[str],
     children: dict[str, list[str]],
     responses: dict[str, ReachResponse],
@@ -343,7 +359,15 @@ def _route_network_step(
                 if len(downstream_nodes) == 1
                 else allocations[(node_id, downstream_node_id)]
             )
-            inflow_m3s = available_m3 * fraction / timestep_seconds
+            allocated_m3 = available_m3 * fraction
+            if (node_id, downstream_node_id) not in transport_edges:
+                # Boundary/branch/withdrawal structures are instantaneous
+                # non-transport transitions at V1 resolution: the allocated
+                # volume arrives downstream within the same step, with no
+                # storage, loss, capacity, or fabricated reach response.
+                available_by_node_m3[downstream_node_id] += allocated_m3
+                continue
+            inflow_m3s = allocated_m3 / timestep_seconds
             reach_id = _reach_id(node_id, downstream_node_id)
             response = responses[reach_id]
             try:
@@ -372,7 +396,9 @@ def _route_network_step(
         NetworkStep(
             starts_at=gate_step.starts_at,
             ends_at=gate_step.ends_at,
-            reaches=tuple(points_by_reach[_reach_id(*edge)] for edge in network_edges),
+            reaches=tuple(
+                points_by_reach[reach_id] for reach_id in transport_reach_ids
+            ),
             fulfillment=tuple(
                 next_fulfillment[requirement.requirement_id]
                 for requirement in requirements
@@ -404,7 +430,7 @@ def _validate_network_edges(
 
 
 def _validate_response_coverage(
-    network_edges: tuple[tuple[str, str], ...],
+    transport_reach_ids: tuple[str, ...],
     responses: tuple[ReachResponse, ...],
     timestep_seconds: float,
 ) -> tuple[dict[str, ReachResponse], str, ResponseMember]:
@@ -427,10 +453,10 @@ def _validate_response_coverage(
                 f"timestep is outside response envelope for {response.reach_id!r}"
             )
         response_by_reach[response.reach_id] = response
-    expected = {_reach_id(*edge) for edge in network_edges}
+    expected = set(transport_reach_ids)
     if set(response_by_reach) != expected:
         raise NetworkTransientError(
-            f"response coverage must exactly equal network reaches; "
+            f"response coverage must exactly equal transport reaches; "
             f"missing={sorted(expected - set(response_by_reach))!r}, "
             f"unknown={sorted(set(response_by_reach) - expected)!r}"
         )
@@ -519,7 +545,7 @@ def _validate_branch_allocations(
 
 
 def _validate_requirements(
-    network_edges: tuple[tuple[str, str], ...],
+    gate_node_ids: frozenset[str],
     requirements: tuple[SectionRequirement, ...],
     starts_at: datetime,
     ends_at: datetime,
@@ -529,7 +555,7 @@ def _validate_requirements(
 ]:
     if not isinstance(requirements, tuple):
         raise NetworkTransientError("requirements must be an immutable tuple")
-    nodes = nodes_of(network_edges)
+    nodes = gate_node_ids
     by_node: dict[str, list[SectionRequirement]] = defaultdict(list)
     states = {}
     for requirement in requirements:

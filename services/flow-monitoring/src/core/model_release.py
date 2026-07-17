@@ -197,16 +197,19 @@ def load_hydraulic_model_release(
 
 
 def load_configured_hydraulic_model_release(
-    path: str | None, network_edges: Iterable[tuple[str, str]]
+    path: str | None, expected_transport_reach_ids: Iterable[str]
 ) -> HydraulicModelRelease | None:
+    """Load the configured release against explicit transport reach IDs.
+
+    Coverage is defined by the typed routing topology's transport elements
+    only — boundary, branch, and withdrawal structures never carry reach
+    responses and must not appear in a release.
+    """
     if path is None:
         return None
     if not path.strip():
         raise ModelReleaseError("configured model release path must be non-empty")
-    expected_reach_ids = (
-        f"C_{upstream}_{downstream}" for upstream, downstream in network_edges
-    )
-    return load_hydraulic_model_release(path, expected_reach_ids)
+    return load_hydraulic_model_release(path, expected_transport_reach_ids)
 
 
 def _model_release_payload(release: HydraulicModelRelease) -> dict:

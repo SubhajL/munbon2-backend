@@ -692,3 +692,161 @@ def load_zone_topology_config(path: str) -> dict:
             seen.add(current)
             current = by_zone[current]["branches_from_zone"]
     return data
+
+
+def validate_routing_topology_artifact(
+    path: str,
+    artifact: dict,
+    topology,
+    source_file_sha256: dict[str, str],
+) -> None:
+    """The routing artifact must be the exact serialization of `topology`
+    with truthful root/summary/lineage — shared by startup loading (against
+    the re-derived topology) and the offline CLI (against the case topology).
+    """
+    from core.routing_topology import ROOT, routing_topology_payload
+
+    expected_keys = {
+        "metadata",
+        "schema_version",
+        "root_node_id",
+        "lineage",
+        "elements",
+        "summary",
+        "content_hash",
+    }
+    if set(artifact) != expected_keys:
+        raise ConfigError(
+            f"{path}: routing topology must have exactly the keys "
+            f"{sorted(expected_keys)}, got {sorted(artifact)}"
+        )
+    for object_key in ("metadata", "lineage", "summary"):
+        if not isinstance(artifact[object_key], dict):
+            raise ConfigError(
+                f"{path}: {object_key} must be a JSON object, "
+                f"got {type(artifact[object_key]).__name__}"
+            )
+    if artifact["root_node_id"] != ROOT:
+        raise ConfigError(
+            f"{path}: root_node_id must be {ROOT!r}, "
+            f"got {artifact['root_node_id']!r}"
+        )
+
+    declared_sources = artifact["lineage"].get("source_artifacts")
+    if not isinstance(declared_sources, list) or len(declared_sources) != len(
+        source_file_sha256
+    ):
+        raise ConfigError(
+            f"{path}: lineage.source_artifacts must declare exactly "
+            f"{sorted(source_file_sha256)}"
+        )
+    seen_sources = set()
+    for source in declared_sources:
+        if not isinstance(source, dict):
+            raise ConfigError(
+                f"{path}: lineage.source_artifacts entries must be JSON objects"
+            )
+        source_id = source.get("source_id")
+        if source_id not in source_file_sha256 or source_id in seen_sources:
+            raise ConfigError(
+                f"{path}: lineage.source_artifacts must declare exactly "
+                f"{sorted(source_file_sha256)} without duplicates"
+            )
+        seen_sources.add(source_id)
+        if source.get("filename") != f"{source_id}.json":
+            raise ConfigError(
+                f"{path}: source artifact {source_id!r} filename must be "
+                f"{source_id}.json"
+            )
+        if source.get("sha256") != source_file_sha256[source_id]:
+            raise ConfigError(
+                f"{path}: source artifact {source_id!r} bytes have drifted "
+                "since generation — regenerate via "
+                "scripts/build_scada_config.py"
+            )
+
+    if artifact["schema_version"] != topology.schema_version:
+        raise ConfigError(
+            f"{path}: schema_version {artifact['schema_version']!r} does not "
+            f"match derivation schema_version {topology.schema_version!r}"
+        )
+    payload = routing_topology_payload(topology)
+    if artifact["elements"] != payload["elements"]:
+        raise ConfigError(
+            f"{path}: elements disagree with the canonical derivation — "
+            "regenerate via scripts/build_scada_config.py"
+        )
+    if artifact["content_hash"] != topology.content_hash:
+        raise ConfigError(
+            f"{path}: content_hash {artifact['content_hash']!r} does not match "
+            f"derived content_hash {topology.content_hash!r}"
+        )
+    role_counts: dict[str, int] = {}
+    for element in topology.elements:
+        role_counts[element.role.value] = role_counts.get(element.role.value, 0) + 1
+    expected_summary = {
+        "total_nodes": len(
+            {ROOT} | {element.downstream_node_id for element in topology.elements}
+        ),
+        "total_elements": len(topology.elements),
+        "by_role": role_counts,
+    }
+    if artifact["summary"] != expected_summary:
+        raise ConfigError(
+            f"{path}: summary {artifact['summary']!r} does not match the "
+            f"derived topology summary {expected_summary!r}"
+        )
+    if artifact["metadata"].get("source_sha256") != topology.source_sha256:
+        raise ConfigError(
+            f"{path}: metadata.source_sha256 does not match the canonical "
+            "workbook hash"
+        )
+
+
+def load_routing_topology(
+    path: str,
+    network_path: str,
+    geometry_coverage_path: str,
+    canal_geometry_path: str,
+):
+    """The derived routing topology, verified against a fresh re-derivation.
+
+    The committed artifact is an interchange copy only — the canonical
+    network, geometry coverage, and canal geometry remain the source of
+    truth. Any element, schema, root, summary, lineage, or hash disagreement
+    with the in-process derivation is drift and fails startup.
+    """
+    from core.routing_topology import (
+        RoutingTopologyError,
+        derive_routing_topology,
+    )
+
+    artifact = load_strict_json_object(path)
+    source_paths = {
+        "network": network_path,
+        "geometry_coverage": geometry_coverage_path,
+        "canal_geometry": canal_geometry_path,
+    }
+    network = load_network_config(network_path)
+    geometry_coverage = load_strict_json_object(geometry_coverage_path)
+    canal_geometry = load_strict_json_object(canal_geometry_path)
+    try:
+        derived = derive_routing_topology(
+            network, geometry_coverage, canal_geometry
+        )
+    except RoutingTopologyError as exc:
+        raise ConfigError(
+            f"{path}: canonical artifacts no longer yield the reviewed "
+            f"routing derivation: {exc}"
+        ) from exc
+
+    validate_routing_topology_artifact(
+        path,
+        artifact,
+        derived,
+        {
+            source_id: file_sha256(source_path)
+            for source_id, source_path in source_paths.items()
+        },
+    )
+    return derived

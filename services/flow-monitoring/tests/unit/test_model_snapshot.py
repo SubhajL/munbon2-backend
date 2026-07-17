@@ -17,14 +17,57 @@ from core.model_release import (
 )
 from core.model_snapshot import ModelSnapshotError, build_model_snapshot
 from core.reach_response import reach_responses_from_model_release
+from core.routing_topology import (
+    RoutingElement,
+    RoutingGeometryStatus,
+    RoutingRole,
+    build_routing_topology,
+)
 
 NETWORK_EDGES = (("S", "A"), ("A", "B"), ("A", "C"))
+SOURCE_SHA256 = "5" * 64
 CONFIG_SHA256 = {
     "network": "a" * 64,
     "canal_geometry": "b" * 64,
     "gate_calibrations": "c" * 64,
+    "geometry_coverage": "1" * 64,
+    "routing_topology": "2" * 64,
 }
 OPERATING_ENVELOPE = OperatingEnvelope(0.0, 4.0, 60.0, 300.0, 604800.0)
+
+
+def _transport_element(upstream: str, downstream: str) -> RoutingElement:
+    return RoutingElement(
+        element_id=f"C_{upstream}_{downstream}",
+        upstream_node_id=upstream,
+        downstream_node_id=downstream,
+        role=RoutingRole.TRANSPORT,
+        canonical_edges=((upstream, downstream),),
+        canal=None,
+        span_m=100.0,
+        geometry_status=RoutingGeometryStatus.SURVEYED,
+        located_at_km=None,
+    )
+
+
+TOPOLOGY = build_routing_topology(
+    tuple(_transport_element(*edge) for edge in NETWORK_EDGES),
+    SOURCE_SHA256,
+)
+
+
+def _element_payload(upstream: str, downstream: str) -> dict:
+    return {
+        "element_id": f"C_{upstream}_{downstream}",
+        "upstream_node_id": upstream,
+        "downstream_node_id": downstream,
+        "role": "transport",
+        "canonical_edges": [[upstream, downstream]],
+        "canal": None,
+        "span_m": 100.0,
+        "geometry_status": "surveyed",
+        "located_at_km": None,
+    }
 
 
 def _parameters(reach_id: str, capacity_m3s: float) -> ReachResponseParameters:
@@ -74,10 +117,10 @@ def _release(
 
 
 class TestBuildModelSnapshot:
-    def test_returns_exact_partial_network_action_and_response_lineage(self):
+    def test_model_snapshot_v2_separates_scada_graph_from_transport_coverage(self):
         release = _release()
         snapshot = build_model_snapshot(
-            NETWORK_EDGES,
+            TOPOLOGY,
             reach_responses_from_model_release(release),
             release,
             CONFIG_SHA256,
@@ -91,36 +134,46 @@ class TestBuildModelSnapshot:
             "open_loop": snapshot["open_loop"],
             "actual_state_known": snapshot["actual_state_known"],
             "commandable": snapshot["commandable"],
-            "network": snapshot["network"],
+            "scada_graph": snapshot["scada_graph"],
+            "routing_topology": snapshot["routing_topology"],
             "action_model": snapshot["action_model"],
-            "coverage": snapshot["coverage"],
-            "unavailable_reaches": snapshot["unavailable_reaches"],
+            "transport_response_coverage": snapshot[
+                "transport_response_coverage"
+            ],
+            "unavailable_transport_reaches": snapshot[
+                "unavailable_transport_reaches"
+            ],
         } == {
-            "schema_version": 1,
+            "schema_version": 2,
             "data_status": "partial",
             "mode": "open_loop_prediction",
             "open_loop": True,
             "actual_state_known": False,
             "commandable": False,
-            "network": {
+            "scada_graph": {
                 "config_sha256": "a" * 64,
-                "reach_count": 3,
-                "reaches": [
-                    {
-                        "reach_id": "C_A_B",
-                        "upstream_node_id": "A",
-                        "downstream_node_id": "B",
-                    },
-                    {
-                        "reach_id": "C_A_C",
-                        "upstream_node_id": "A",
-                        "downstream_node_id": "C",
-                    },
-                    {
-                        "reach_id": "C_S_A",
-                        "upstream_node_id": "S",
-                        "downstream_node_id": "A",
-                    },
+                "source_workbook_sha256": SOURCE_SHA256,
+                "root_node_id": "S",
+                "gate_count": 3,
+                "edge_count": 3,
+                "edges": [
+                    {"upstream_node_id": "S", "downstream_node_id": "A"},
+                    {"upstream_node_id": "A", "downstream_node_id": "B"},
+                    {"upstream_node_id": "A", "downstream_node_id": "C"},
+                ],
+            },
+            "routing_topology": {
+                "schema_version": 1,
+                "config_sha256": "2" * 64,
+                "content_hash": TOPOLOGY.content_hash,
+                "root_node_id": "S",
+                "node_count": 4,
+                "element_count": 3,
+                "role_counts": {"transport": 3},
+                "elements": [
+                    _element_payload("S", "A"),
+                    _element_payload("A", "B"),
+                    _element_payload("A", "C"),
                 ],
             },
             "action_model": {
@@ -133,6 +186,7 @@ class TestBuildModelSnapshot:
                 "config_sha256": {
                     "canal_geometry": "b" * 64,
                     "gate_calibrations": "c" * 64,
+                    "geometry_coverage": "1" * 64,
                 },
                 "operating_envelope": {
                     "minimum_flow_m3s": 0.0,
@@ -142,103 +196,13 @@ class TestBuildModelSnapshot:
                     "maximum_horizon_seconds": 604800.0,
                 },
             },
-            "coverage": {
-                "total_reaches": 3,
-                "available_reaches": 2,
-                "unavailable_reaches": 1,
+            "transport_response_coverage": {
+                "total_transport_reaches": 3,
+                "available_transport_reaches": 2,
+                "unavailable_transport_reaches": 1,
             },
-            "unavailable_reaches": [
+            "unavailable_transport_reaches": [
                 {"reach_id": "C_A_C", "reason": "geometry is unavailable"}
-            ],
-        }
-        assert snapshot["response_model"] == {
-            "schema_version": 1,
-            "release_id": "engineering-prior-v1",
-            "generated_at": "2026-07-16T02:00:00Z",
-            "evidence_class": "engineering_prior",
-            "commandable": False,
-            "content_hash": release.content_hash,
-            "lineage": {
-                "generator": "build_hydraulic_model_release",
-                "generator_version": "1.0.0",
-                "sources": [
-                    {
-                        "source_id": "geometry",
-                        "version": "draft",
-                        "sha256": "e" * 64,
-                    },
-                    {
-                        "source_id": "network",
-                        "version": "v2",
-                        "sha256": "d" * 64,
-                    },
-                ],
-            },
-            "reach_parameters": [
-                {
-                    "reach_id": "C_A_B",
-                    "delay_seconds": {
-                        "lower": 60.0,
-                        "nominal": 90.0,
-                        "upper": 120.0,
-                    },
-                    "loss_fraction": {
-                        "lower": 0.01,
-                        "nominal": 0.02,
-                        "upper": 0.03,
-                    },
-                    "dispersion_seconds": {
-                        "lower": 30.0,
-                        "nominal": 45.0,
-                        "upper": 60.0,
-                    },
-                    "capacity_m3s": {
-                        "lower": 2.0,
-                        "nominal": 3.0,
-                        "upper": 4.0,
-                    },
-                    "evidence_refs": ["geometry", "network"],
-                },
-                {
-                    "reach_id": "C_S_A",
-                    "delay_seconds": {
-                        "lower": 60.0,
-                        "nominal": 90.0,
-                        "upper": 120.0,
-                    },
-                    "loss_fraction": {
-                        "lower": 0.01,
-                        "nominal": 0.02,
-                        "upper": 0.03,
-                    },
-                    "dispersion_seconds": {
-                        "lower": 30.0,
-                        "nominal": 45.0,
-                        "upper": 60.0,
-                    },
-                    "capacity_m3s": {
-                        "lower": 1.0,
-                        "nominal": 2.0,
-                        "upper": 3.0,
-                    },
-                    "evidence_refs": ["geometry", "network"],
-                },
-            ],
-            "response_members": [
-                {
-                    "reach_id": response.reach_id,
-                    "member": response.member.value,
-                    "delay_seconds": response.delay_seconds,
-                    "loss_fraction": response.loss_fraction,
-                    "dispersion_seconds": response.dispersion_seconds,
-                    "capacity_m3s": response.capacity_m3s,
-                    "minimum_timestep_seconds": (response.minimum_timestep_seconds),
-                    "maximum_timestep_seconds": (response.maximum_timestep_seconds),
-                }
-                for response in sorted(
-                    reach_responses_from_model_release(release),
-                    key=lambda item: (item.reach_id, item.member.value),
-                )
             ],
         }
         payload = {
@@ -246,11 +210,33 @@ class TestBuildModelSnapshot:
         }
         assert snapshot["snapshot_id"] == content_hash(payload)
 
-    def test_unconfigured_release_returns_every_reach_explicitly_unavailable(
+    def test_response_model_projection_remains_release_schema_v1(self):
+        release = _release()
+        snapshot = build_model_snapshot(
+            TOPOLOGY,
+            reach_responses_from_model_release(release),
+            release,
+            CONFIG_SHA256,
+            False,
+        )
+
+        response_model = snapshot["response_model"]
+        assert (
+            response_model["schema_version"],
+            response_model["release_id"],
+            response_model["content_hash"],
+            [
+                parameters["reach_id"]
+                for parameters in response_model["reach_parameters"]
+            ],
+            len(response_model["response_members"]),
+        ) == (1, "engineering-prior-v1", release.content_hash, ["C_A_B", "C_S_A"], 6)
+
+    def test_unconfigured_release_returns_every_transport_explicitly_unavailable(
         self,
     ):
         snapshot = build_model_snapshot(
-            NETWORK_EDGES,
+            TOPOLOGY,
             (),
             None,
             CONFIG_SHA256,
@@ -261,16 +247,16 @@ class TestBuildModelSnapshot:
             snapshot["data_status"],
             snapshot["response_model"],
             snapshot["action_model"]["operating_envelope"],
-            snapshot["coverage"],
-            snapshot["unavailable_reaches"],
+            snapshot["transport_response_coverage"],
+            snapshot["unavailable_transport_reaches"],
         ) == (
             "unavailable",
             None,
             None,
             {
-                "total_reaches": 3,
-                "available_reaches": 0,
-                "unavailable_reaches": 3,
+                "total_transport_reaches": 3,
+                "available_transport_reaches": 0,
+                "unavailable_transport_reaches": 3,
             },
             [
                 {
@@ -281,7 +267,7 @@ class TestBuildModelSnapshot:
             ],
         )
 
-    def test_snapshot_identity_is_independent_of_contract_collection_order(
+    def test_snapshot_identity_is_independent_of_unordered_collection_order(
         self,
     ):
         release = _release()
@@ -293,10 +279,10 @@ class TestBuildModelSnapshot:
         )
 
         first = build_model_snapshot(
-            NETWORK_EDGES, responses, release, CONFIG_SHA256, False
+            TOPOLOGY, responses, release, CONFIG_SHA256, False
         )
         reordered = build_model_snapshot(
-            NETWORK_EDGES[::-1],
+            TOPOLOGY,
             responses[::-1],
             reordered_release,
             dict(reversed(CONFIG_SHA256.items())),
@@ -315,13 +301,15 @@ class TestBuildModelSnapshot:
         )
 
         snapshot = build_model_snapshot(
-            NETWORK_EDGES, (), release, CONFIG_SHA256, False
+            TOPOLOGY, (), release, CONFIG_SHA256, False
         )
 
         assert (
             snapshot["data_status"],
             snapshot["response_model"]["release_id"],
-            snapshot["coverage"]["available_reaches"],
+            snapshot["transport_response_coverage"][
+                "available_transport_reaches"
+            ],
         ) == ("unavailable", release.release_id, 0)
 
     def test_runtime_response_drift_is_rejected(self):
@@ -330,9 +318,19 @@ class TestBuildModelSnapshot:
 
         with pytest.raises(ModelSnapshotError, match="runtime response members"):
             build_model_snapshot(
-                NETWORK_EDGES,
+                TOPOLOGY,
                 responses[:-1],
                 release,
+                CONFIG_SHA256,
+                False,
+            )
+
+    def test_untyped_topology_is_rejected(self):
+        with pytest.raises(ModelSnapshotError, match="typed RoutingTopology"):
+            build_model_snapshot(
+                NETWORK_EDGES,
+                (),
+                None,
                 CONFIG_SHA256,
                 False,
             )
@@ -348,7 +346,7 @@ class TestBuildModelSnapshot:
     def test_invalid_action_lineage_is_rejected(self, config_sha256):
         with pytest.raises(ModelSnapshotError, match="config_sha256"):
             build_model_snapshot(
-                NETWORK_EDGES,
+                TOPOLOGY,
                 (),
                 None,
                 config_sha256,

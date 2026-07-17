@@ -830,3 +830,127 @@ class TestRuntimeWiring:
         cal = loader.get_calibration("M(0,0)")
         assert cal.calibration_method == "measured"
         assert cal.k1 == 1.0693
+
+
+ROUTING_TOPOLOGY = str(SERVICE_ROOT / "src" / "config" / "routing_topology.json")
+GEOMETRY_COVERAGE = str(SERVICE_ROOT / "src" / "config" / "geometry_coverage.json")
+
+
+class TestLoadRoutingTopology:
+    """Strict loading of the derived routing artifact: the committed JSON must
+    byte-agree with a fresh re-derivation from the canonical artifacts, so any
+    hand edit, drift, or stale regeneration fails startup."""
+
+    def _load_committed(self):
+        from core.config_loader import load_routing_topology
+
+        return load_routing_topology(
+            ROUTING_TOPOLOGY, NETWORK, GEOMETRY_COVERAGE, GEOMETRY
+        )
+
+    def test_accepts_committed_artifact_and_returns_typed_topology(self):
+        topology = self._load_committed()
+
+        assert len(topology.elements) == 59
+        assert len(topology.transport_reach_ids()) == 42
+
+    def _tampered(self, tmp_path, mutate):
+        artifact = json.loads(Path(ROUTING_TOPOLOGY).read_text())
+        mutate(artifact)
+        return _write(tmp_path, artifact, name="routing.json")
+
+    def _load_tampered(self, path):
+        from core.config_loader import load_routing_topology
+
+        return load_routing_topology(path, NETWORK, GEOMETRY_COVERAGE, GEOMETRY)
+
+    def test_rejects_content_hash_drift(self, tmp_path):
+        path = self._tampered(
+            tmp_path, lambda a: a.update(content_hash="0" * 64)
+        )
+        with pytest.raises(ConfigError, match="content_hash"):
+            self._load_tampered(path)
+
+    def test_rejects_element_tampering(self, tmp_path):
+        def flip_role(artifact):
+            artifact["elements"][0]["role"] = "transport"
+
+        path = self._tampered(tmp_path, flip_role)
+        with pytest.raises(ConfigError, match="derivation"):
+            self._load_tampered(path)
+
+    def test_rejects_schema_version_drift(self, tmp_path):
+        path = self._tampered(tmp_path, lambda a: a.update(schema_version=2))
+        with pytest.raises(ConfigError, match="schema_version"):
+            self._load_tampered(path)
+
+    def test_rejects_source_artifact_byte_drift(self, tmp_path):
+        def stale_network_hash(artifact):
+            sources = artifact["lineage"]["source_artifacts"]
+            network_entry = next(
+                s for s in sources if s["source_id"] == "network"
+            )
+            network_entry["sha256"] = "f" * 64
+
+        path = self._tampered(tmp_path, stale_network_hash)
+        with pytest.raises(ConfigError, match="source artifact"):
+            self._load_tampered(path)
+
+    def test_rejects_missing_artifact_file(self, tmp_path):
+        from core.config_loader import load_routing_topology
+
+        with pytest.raises(ConfigError, match="cannot read"):
+            load_routing_topology(
+                str(tmp_path / "absent.json"), NETWORK, GEOMETRY_COVERAGE, GEOMETRY
+            )
+
+    @pytest.mark.parametrize(
+        ("description", "mutate"),
+        [
+            (
+                "foreign root node",
+                lambda a: a.update(root_node_id="ATTACKER_ROOT"),
+            ),
+            (
+                "false summary counts",
+                lambda a: a["summary"].update(total_nodes=999, total_elements=0),
+            ),
+            (
+                "lineage filename mismatch",
+                lambda a: a["lineage"]["source_artifacts"][0].update(
+                    filename="evil.json"
+                ),
+            ),
+            (
+                "duplicate lineage entry",
+                lambda a: a["lineage"]["source_artifacts"].append(
+                    dict(a["lineage"]["source_artifacts"][0])
+                ),
+            ),
+        ],
+    )
+    def test_rejects_root_summary_or_lineage_shape_tampering(
+        self, tmp_path, description, mutate
+    ):
+        path = self._tampered(tmp_path, mutate)
+        with pytest.raises(ConfigError):
+            self._load_tampered(path)
+
+    @pytest.mark.parametrize(
+        ("description", "mutate"),
+        [
+            ("lineage is a list", lambda a: a.update(lineage=["not", "a", "dict"])),
+            ("metadata is a list", lambda a: a.update(metadata=[])),
+            ("summary is a string", lambda a: a.update(summary="fine")),
+            (
+                "lineage source entry is a string",
+                lambda a: a["lineage"].update(source_artifacts=["network"]),
+            ),
+        ],
+    )
+    def test_structural_tampering_raises_config_error_not_tracebacks(
+        self, tmp_path, description, mutate
+    ):
+        path = self._tampered(tmp_path, mutate)
+        with pytest.raises(ConfigError):
+            self._load_tampered(path)

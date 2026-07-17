@@ -36,6 +36,7 @@ from core.config_loader import (  # noqa: E402
     file_sha256,
     load_canal_geometry_config,
     load_gate_calibrations_config,
+    load_routing_topology,
 )
 from core.demand_contract import content_hash  # noqa: E402
 from core.model_release import load_hydraulic_model_release  # noqa: E402
@@ -52,6 +53,8 @@ def run_comparison(
     network_path: str,
     canal_geometry_path: str,
     gate_calibrations_path: str,
+    geometry_coverage_path: str,
+    routing_topology_path: str,
     model_release_path: str,
     case_path: str,
     canonical_case_output_path: str,
@@ -64,6 +67,8 @@ def run_comparison(
             network_path,
             canal_geometry_path,
             gate_calibrations_path,
+            geometry_coverage_path,
+            routing_topology_path,
             model_release_path,
             case_path,
             reference_path,
@@ -75,6 +80,8 @@ def run_comparison(
         "network": file_sha256(network_path),
         "canal_geometry": file_sha256(canal_geometry_path),
         "gate_calibrations": file_sha256(gate_calibrations_path),
+        "geometry_coverage": file_sha256(geometry_coverage_path),
+        "routing_topology": file_sha256(routing_topology_path),
     }
     if actual_config_sha256 != dict(case.config_sha256):
         raise OfflineModelComparisonError(
@@ -92,20 +99,25 @@ def run_comparison(
         raise OfflineModelComparisonError(
             f"gate calibrations config is invalid: {exc}"
         ) from exc
-    network_edges = tuple(
-        sorted(
-            load_validated_network(network_path),
-            key=lambda edge: f"C_{edge[0]}_{edge[1]}",
+    load_validated_network(network_path)
+    try:
+        routing_topology = load_routing_topology(
+            routing_topology_path,
+            network_path,
+            geometry_coverage_path,
+            canal_geometry_path,
         )
-    )
-    if network_edges != case.network_edges:
+    except ConfigError as exc:
         raise OfflineModelComparisonError(
-            "network edges do not match the exported offline case"
+            f"routing topology artifact fails the startup gate: {exc}"
+        ) from exc
+    if routing_topology != case.routing_topology:
+        raise OfflineModelComparisonError(
+            "routing topology does not match the exported offline case"
         )
-    expected_reach_ids = tuple(
-        f"C_{upstream}_{downstream}" for upstream, downstream in network_edges
+    release = load_hydraulic_model_release(
+        model_release_path, routing_topology.transport_reach_ids()
     )
-    release = load_hydraulic_model_release(model_release_path, expected_reach_ids)
     if (release.release_id, release.content_hash) != (
         case.model_release_id,
         case.model_release_content_hash,
@@ -115,7 +127,7 @@ def run_comparison(
         )
     responses = reach_responses_from_model_release(release)
     snapshot = build_model_snapshot(
-        network_edges,
+        routing_topology,
         responses,
         release,
         actual_config_sha256,
@@ -134,7 +146,7 @@ def run_comparison(
         for response in member_responses
     )
     service = ControlPredictionService(
-        network_edges,
+        routing_topology,
         responses,
         release.operating_envelope.maximum_horizon_seconds,
     )
@@ -166,6 +178,7 @@ def _candidate_source_sha256() -> str:
         SERVICE_ROOT / "src" / "core" / "reach_response.py",
         SERVICE_ROOT / "src" / "core" / "network_topology.py",
         SERVICE_ROOT / "src" / "core" / "network_transient.py",
+        SERVICE_ROOT / "src" / "core" / "routing_topology.py",
         SERVICE_ROOT / "src" / "core" / "fulfillment.py",
         SERVICE_ROOT / "src" / "services" / "control_prediction_service.py",
     )
@@ -195,6 +208,8 @@ def main(argv=None) -> int:
     parser.add_argument("--network", required=True)
     parser.add_argument("--canal-geometry", required=True)
     parser.add_argument("--gate-calibrations", required=True)
+    parser.add_argument("--geometry-coverage", required=True)
+    parser.add_argument("--routing-topology", required=True)
     parser.add_argument("--model-release", required=True)
     parser.add_argument("--case", required=True)
     parser.add_argument("--canonical-case-output", required=True)
@@ -211,6 +226,8 @@ def main(argv=None) -> int:
         args.network,
         args.canal_geometry,
         args.gate_calibrations,
+        args.geometry_coverage,
+        args.routing_topology,
         args.model_release,
         args.case,
         args.canonical_case_output,

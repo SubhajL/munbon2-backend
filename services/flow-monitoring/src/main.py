@@ -14,6 +14,7 @@ from api import control as control_api
 from api import hydraulics as hydraulics_api
 from core.logging import setup_logging
 from core.metrics import setup_metrics
+from core.config_loader import file_sha256, load_routing_topology
 from core.model_release import load_configured_hydraulic_model_release
 from core.network_flow_controller import NetworkFlowController
 from core.reach_response import reach_responses_from_model_release
@@ -83,9 +84,33 @@ async def lifespan(app: FastAPI):
         control_api.flow_controller = flow_controller
         logger.info("Flow controller (demand->reach aggregation) initialized")
 
+        # Typed derived routing topology (PR 2.1a): loads unconditionally and
+        # fails startup on any drift, even when no model release is configured.
+        geometry_coverage_file = os.path.join(config_dir, "geometry_coverage.json")
+        routing_topology_file = os.path.join(config_dir, "routing_topology.json")
+        app.state.routing_topology = load_routing_topology(
+            routing_topology_file,
+            network_file,
+            geometry_coverage_file,
+            geometry_file,
+        )
+        logger.info(
+            "Routing topology loaded",
+            elements=len(app.state.routing_topology.elements),
+            transport_reaches=len(
+                app.state.routing_topology.transport_reach_ids()
+            ),
+            content_hash=app.state.routing_topology.content_hash,
+        )
+        app.state.model_config_sha256 = {
+            **flow_controller.config_sha256,
+            "geometry_coverage": file_sha256(geometry_coverage_file),
+            "routing_topology": file_sha256(routing_topology_file),
+        }
+
         app.state.hydraulic_model_release = load_configured_hydraulic_model_release(
             settings.hydraulic_model_release_path,
-            flow_controller.edges,
+            app.state.routing_topology.transport_reach_ids(),
         )
         if app.state.hydraulic_model_release is None:
             app.state.reach_responses = ()
@@ -102,7 +127,7 @@ async def lifespan(app: FastAPI):
             )
 
         app.state.control_prediction_service = ControlPredictionService(
-            network_edges=tuple(flow_controller.edges),
+            routing_topology=app.state.routing_topology,
             reach_responses=app.state.reach_responses,
             maximum_horizon_seconds=(
                 None

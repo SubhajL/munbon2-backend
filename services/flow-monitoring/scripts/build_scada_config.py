@@ -56,6 +56,10 @@ sys.path.insert(0, str(SERVICE_ROOT / "src"))
 from core.conveyance_loss import parse_chainage_m  # noqa: E402
 from core.network_topology import ROOT, edges_from_names  # noqa: E402
 from core.node_id import normalize_gate_id, parse_gate_id  # noqa: E402
+from core.routing_topology import (  # noqa: E402
+    derive_routing_topology,
+    routing_topology_payload,
+)
 
 DEFAULT_WORKBOOK = (
     SERVICE_ROOT
@@ -756,6 +760,14 @@ def _metadata(workbook: Path, sha256: str, description: str) -> dict:
     }
 
 
+def artifact_bytes(artifact: dict) -> bytes:
+    """The exact bytes main() writes for an artifact — shared so lineage
+    hashes always match the committed files."""
+    return (json.dumps(artifact, indent=2, ensure_ascii=False) + "\n").encode(
+        "utf-8"
+    )
+
+
 def calibration_similarity(target: dict, donor: dict) -> float:
     score = 0.0
     target_shape, donor_shape = target.get("shape"), donor.get("shape")
@@ -1164,11 +1176,55 @@ def build_all(workbook_path) -> dict:
         },
     }
     gate_calibrations = build_gate_calibrations(gates, workbook_path, sha256)
+    routing = derive_routing_topology(network, geometry_coverage, canal_geometry)
+    routing_payload = routing_topology_payload(routing)
+    role_counts: dict[str, int] = {}
+    for element in routing.elements:
+        role_counts[element.role.value] = role_counts.get(element.role.value, 0) + 1
+    routing_topology = {
+        "metadata": _metadata(
+            workbook_path,
+            sha256,
+            "Derived typed hydraulic-routing topology: boundary/transport/"
+            "branch-structure/withdrawal-structure elements over the canonical "
+            "network, with the single virtual junction J(LMC,0+170) splitting "
+            "the composite M(0,0)->M(0,2) span. Generated — never hand-edit.",
+        ),
+        "schema_version": routing_payload["schema_version"],
+        "root_node_id": ROOT,
+        "lineage": {
+            "source_artifacts": [
+                {
+                    "source_id": name,
+                    "filename": f"{name}.json",
+                    "sha256": hashlib.sha256(
+                        artifact_bytes(artifact)
+                    ).hexdigest(),
+                }
+                for name, artifact in (
+                    ("network", network),
+                    ("geometry_coverage", geometry_coverage),
+                    ("canal_geometry", canal_geometry),
+                )
+            ],
+        },
+        "elements": routing_payload["elements"],
+        "summary": {
+            "total_nodes": len(
+                {ROOT}
+                | {element.downstream_node_id for element in routing.elements}
+            ),
+            "total_elements": len(routing.elements),
+            "by_role": role_counts,
+        },
+        "content_hash": routing.content_hash,
+    }
     return {
         "network": network,
         "canal_geometry": canal_geometry,
         "geometry_coverage": geometry_coverage,
         "gate_calibrations": gate_calibrations,
+        "routing_topology": routing_topology,
     }
 
 
@@ -1180,12 +1236,15 @@ def main(argv=None) -> None:
     artifacts = build_all(args.workbook)
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    for name in ("network", "canal_geometry", "geometry_coverage", "gate_calibrations"):
+    for name in (
+        "network",
+        "canal_geometry",
+        "geometry_coverage",
+        "gate_calibrations",
+        "routing_topology",
+    ):
         path = out_dir / f"{name}.json"
-        path.write_text(
-            json.dumps(artifacts[name], indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
+        path.write_bytes(artifact_bytes(artifacts[name]))
         print(f"wrote {path}")
     summary = artifacts["geometry_coverage"]["summary"]
     print(
