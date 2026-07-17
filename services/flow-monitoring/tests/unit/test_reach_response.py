@@ -16,6 +16,7 @@ from core.model_release import (
     SourceArtifact,
 )
 from core.reach_response import (
+    ReachCapacityExceededError,
     ReachResponse,
     ReachResponseError,
     ReachState,
@@ -392,3 +393,36 @@ class TestRouteReachStepProperties:
         assert states[delay_steps].outflow_m3s == pytest.approx(
             inflow_m3s * (1.0 - loss_fraction)
         )
+
+
+def test_routed_volume_capacity_error_reports_flow_domain_attributes():
+    response = ReachResponse(
+        model_release_id="engineering-prior-2569-v1",
+        reach_id="C_S_A",
+        member=ResponseMember.NOMINAL,
+        delay_seconds=0.0,
+        loss_fraction=0.0,
+        dispersion_seconds=0.0,
+        capacity_m3s=1.0,
+        minimum_timestep_seconds=60.0,
+        maximum_timestep_seconds=60.0,
+    )
+    # Two stalled packets releasing in the same step route 80 m3 against a
+    # 60 m3 per-step capacity while the step's own inflow stays legal.
+    state = ReachState(
+        response.model_release_id,
+        response.reach_id,
+        response.member,
+        transit_volumes=(
+            TransitVolume(40.0, 0.0, 0.0),
+            TransitVolume(40.0, 0.0, 0.0),
+        ),
+        cumulative_inflow_m3=80.0,
+    )
+    with pytest.raises(ReachCapacityExceededError) as excinfo:
+        route_reach_step(response, state, 0.0, 60.0)
+    error = excinfo.value
+    assert (error.reach_id, error.kind) == ("C_S_A", "routed_volume")
+    assert error.attempted_flow_m3s == pytest.approx(80.0 / 60.0)
+    assert error.capacity_m3s == 1.0
+    assert "routed volume" in str(error)

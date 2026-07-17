@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from .model_release import HydraulicModelRelease, ParameterDistribution
 
 __all__ = [
+    "ReachCapacityExceededError",
     "ReachResponse",
     "ReachResponseError",
     "ReachState",
@@ -26,6 +27,27 @@ _MASS_BALANCE_ABS_TOLERANCE_M3 = 1e-8
 
 class ReachResponseError(ValueError):
     """A reach response or routing step violates its physical contract."""
+
+
+class ReachCapacityExceededError(ReachResponseError):
+    """A reach routing step exceeds the authoritative capacity.
+
+    Attributes are ALWAYS flow-domain (m3/s) so callers never have to guess the
+    unit; the message keeps the raise site's original volume/flow wording."""
+
+    def __init__(
+        self,
+        reach_id: str,
+        attempted_flow_m3s: float,
+        capacity_m3s: float,
+        kind: str,
+        message: str,
+    ) -> None:
+        self.reach_id = reach_id
+        self.attempted_flow_m3s = attempted_flow_m3s
+        self.capacity_m3s = capacity_m3s
+        self.kind = kind
+        super().__init__(message)
 
 
 class ResponseMember(str, Enum):
@@ -158,8 +180,13 @@ def route_reach_step(
             f"[{response.minimum_timestep_seconds}, {response.maximum_timestep_seconds}]"
         )
     if inflow_m3s > response.capacity_m3s:
-        raise ReachResponseError(
-            f"inflow_m3s {inflow_m3s} exceeds reach capacity {response.capacity_m3s}"
+        raise ReachCapacityExceededError(
+            response.reach_id,
+            inflow_m3s,
+            response.capacity_m3s,
+            "inflow",
+            f"inflow_m3s {inflow_m3s} exceeds reach capacity "
+            f"{response.capacity_m3s}",
         )
 
     inflow_volume_m3 = inflow_m3s * dt_s
@@ -185,8 +212,13 @@ def route_reach_step(
 
     capacity_volume_m3 = response.capacity_m3s * dt_s
     if routed_volume_m3 > capacity_volume_m3 + _mass_tolerance(capacity_volume_m3):
-        raise ReachResponseError(
-            f"routed volume {routed_volume_m3} exceeds reach capacity for timestep"
+        raise ReachCapacityExceededError(
+            response.reach_id,
+            routed_volume_m3 / dt_s,
+            response.capacity_m3s,
+            "routed_volume",
+            f"routed volume {routed_volume_m3} exceeds reach capacity "
+            "for timestep",
         )
     withdrawal_volume_m3 = withdrawal_m3s * dt_s
     operational_loss_volume_m3 = operational_loss_m3s * dt_s

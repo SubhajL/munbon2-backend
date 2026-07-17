@@ -16,6 +16,7 @@ synthetic-lineage rejection by policy.
 core + fastapi (no db / settings) so it stays unit-testable in isolation.
 """
 import json
+from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
@@ -46,6 +47,12 @@ from core.demand_store import (
 from core.design_profile import DesignProfileError
 from core.model_release import HydraulicModelRelease
 from core.model_snapshot import ModelSnapshotError
+from core.network_transient import (
+    BranchAllocation,
+    GateFlowEvent,
+    OperatorWithdrawalEvent,
+    SectionRequirement,
+)
 from core.branch_split import branch_split_summary
 from core.network_flow_controller import (
     LevelReading,
@@ -55,10 +62,13 @@ from core.network_topology import NetworkTopologyError
 from core.node_id import NodeIdError, normalize_gate_id, normalize_node_id
 from schemas.control import (
     ControlConfigSha256,
+    ControlPredictionRequest,
+    ControlPredictionResponse,
     DesignProfileRequest,
     DesignProfileResponse,
     DemandPlanInput,
     DemandVersionRef,
+    ExcludedTransportReachOut,
     OpeningsRequest,
     OpeningsResponse,
     OpeningsSummary,
@@ -66,12 +76,25 @@ from schemas.control import (
     PlanCoverage,
     PlanRequest,
     PlanResponse,
+    PredictionCoverageOut,
+    PredictionFinalFulfillmentOut,
+    PredictionInfeasibilityOut,
+    PredictionMassBalanceOut,
+    PredictionMemberOut,
+    PredictionReachSeriesOut,
+    PredictionRequirementSeriesOut,
+    PredictionTimelineOut,
+    PredictionWithdrawalSeriesOut,
     ReachChainageGap,
     ReachFlow,
     ReachOpeningOut,
+    RequirementShortfallViolationOut,
     StoredDemandPlanRequest,
     StoredDemandPlanResponse,
     UnavailableReachOut,
+    WithdrawalCapacityExceededViolationOut,
+    WithdrawalCapacityUnavailableViolationOut,
+    WithdrawalShortfallViolationOut,
 )
 from schemas.demand import (
     CurrentRecordsResponse,
@@ -82,7 +105,11 @@ from schemas.demand import (
     StoredRecordEnvelope,
 )
 from services.design_profile_service import DesignProfileService
-from services.control_prediction_service import ControlPredictionService
+from services.control_prediction_service import (
+    ControlPredictionService,
+    PredictionLineageConflictError,
+    PredictionModelUnavailableError,
+)
 
 logger = structlog.get_logger()
 router = APIRouter()
@@ -625,4 +652,261 @@ async def current_demand_records(
     return CurrentRecordsResponse(
         kind=kind,
         records=[StoredRecordEnvelope(**record) for record in records],
+    )
+
+
+_PREDICTION_VIOLATION_OUT = {
+    "requirement_shortfall": RequirementShortfallViolationOut,
+    "withdrawal_shortfall": WithdrawalShortfallViolationOut,
+    "withdrawal_capacity_exceeded": WithdrawalCapacityExceededViolationOut,
+    "withdrawal_capacity_unavailable": WithdrawalCapacityUnavailableViolationOut,
+}
+
+
+def map_prediction_violation(violation):
+    """Exact discriminated variant for one service-domain violation."""
+    return _PREDICTION_VIOLATION_OUT[violation.kind](**asdict(violation))
+
+
+def map_prediction_timeline(timeline, covered_order) -> PredictionTimelineOut:
+    """Columnar transpose of a completed NetworkTimeline; every series is
+    built over the same step sequence so lengths agree by construction, and
+    the per-index reach identity is asserted rather than assumed."""
+    steps = timeline.steps
+    reaches = []
+    for index, reach_id in enumerate(covered_order):
+        if any(step.reaches[index].reach_id != reach_id for step in steps):
+            raise ValueError(
+                f"timeline reach order drifted at index {index} "
+                f"({reach_id!r})"
+            )
+        reaches.append(
+            PredictionReachSeriesOut(
+                reach_id=reach_id,
+                inflow_m3s=[step.reaches[index].inflow_m3s for step in steps],
+                outflow_m3s=[
+                    step.reaches[index].outflow_m3s for step in steps
+                ],
+                in_transit_volume_m3=[
+                    step.reaches[index].in_transit_volume_m3 for step in steps
+                ],
+                cumulative_declared_loss_m3=[
+                    step.reaches[index].cumulative_declared_loss_m3
+                    for step in steps
+                ],
+            )
+        )
+    withdrawals = []
+    for index, point in enumerate(steps[0].withdrawals if steps else ()):
+        if any(
+            step.withdrawals[index].structure_id != point.structure_id
+            for step in steps
+        ):
+            raise ValueError(
+                f"timeline withdrawal order drifted at index {index} "
+                f"({point.structure_id!r})"
+            )
+        withdrawals.append(
+            PredictionWithdrawalSeriesOut(
+                structure_id=point.structure_id,
+                planned_flow_m3s=[
+                    step.withdrawals[index].planned_flow_m3s for step in steps
+                ],
+                hydraulically_available_flow_m3s=[
+                    step.withdrawals[index].hydraulically_available_flow_m3s
+                    for step in steps
+                ],
+                predicted_withdrawal_m3s=[
+                    step.withdrawals[index].predicted_withdrawal_m3s
+                    for step in steps
+                ],
+                shortfall_m3s=[
+                    step.withdrawals[index].shortfall_m3s for step in steps
+                ],
+                capacity_check_status=[
+                    step.withdrawals[index].capacity_check_status.value
+                    for step in steps
+                ],
+            )
+        )
+    requirement_series = []
+    for index, state in enumerate(steps[0].fulfillment if steps else ()):
+        if any(
+            step.fulfillment[index].requirement_id != state.requirement_id
+            for step in steps
+        ):
+            raise ValueError(
+                f"timeline requirement order drifted at index {index} "
+                f"({state.requirement_id!r})"
+            )
+        requirement_series.append(
+            PredictionRequirementSeriesOut(
+                requirement_id=state.requirement_id,
+                predicted_delivered_m3=[
+                    step.fulfillment[index].predicted_delivered_m3
+                    for step in steps
+                ],
+                status=[
+                    step.fulfillment[index].status.value for step in steps
+                ],
+            )
+        )
+    return PredictionTimelineOut(
+        sampled_at=[step.ends_at for step in steps],
+        reaches=reaches,
+        withdrawals=withdrawals,
+        requirements=requirement_series,
+        terminal_outflow_m3=[step.terminal_outflow_m3 for step in steps],
+        mass_balance=PredictionMassBalanceOut(
+            **asdict(timeline.mass_balance)
+        ),
+        final_fulfillment=[
+            PredictionFinalFulfillmentOut(
+                requirement_id=state.requirement_id,
+                section_id=state.section_id,
+                required_volume_m3=state.required_volume_m3,
+                approved_excess_m3=state.approved_excess_m3,
+                predicted_delivered_m3=state.predicted_delivered_m3,
+                status=state.status.value,
+            )
+            for state in timeline.final_fulfillment
+        ],
+    )
+
+
+def _map_prediction_member(entry, covered_order) -> PredictionMemberOut:
+    if entry.timeline is None:
+        infeasibility = entry.infeasibility
+        return PredictionMemberOut(
+            member=entry.member.value,
+            status="infeasible",
+            infeasibility=PredictionInfeasibilityOut(
+                kind="reach_capacity_exceeded",
+                reach_id=infeasibility.reach_id,
+                capacity_kind=infeasibility.kind,
+                attempted_flow_m3s=infeasibility.attempted_flow_m3s,
+                capacity_m3s=infeasibility.capacity_m3s,
+                interval_start=infeasibility.interval_start,
+                interval_end=infeasibility.interval_end,
+            ),
+            violations=[],
+            predicted_delivered_total_m3=None,
+            timeline=None,
+        )
+    return PredictionMemberOut(
+        member=entry.member.value,
+        status="completed",
+        infeasibility=None,
+        violations=[
+            map_prediction_violation(violation)
+            for violation in entry.violations
+        ],
+        predicted_delivered_total_m3=entry.predicted_delivered_total_m3,
+        timeline=map_prediction_timeline(entry.timeline, covered_order),
+    )
+
+
+@router.post("/predictions", response_model=ControlPredictionResponse)
+def control_predictions(
+    request: ControlPredictionRequest,
+    controller: NetworkFlowController = Depends(get_flow_controller),
+    service: ControlPredictionService = Depends(
+        get_control_prediction_service
+    ),
+    release: HydraulicModelRelease | None = Depends(
+        get_hydraulic_model_release
+    ),
+    config_sha256: dict = Depends(get_model_config_sha256),
+) -> ControlPredictionResponse:
+    """Three-member dynamic prediction on the EXACT pinned model snapshot.
+
+    Forecast-only and non-persisted: nothing is stored, nothing is commanded,
+    and an infeasible member is an explicit result, not an error. Missing
+    model/coverage/lineage fails closed (503/409/400) — never a default."""
+    gate_events = tuple(
+        GateFlowEvent(event.node_id, event.effective_at, event.flow_m3s)
+        for event in request.source_flow_events
+    )
+    withdrawal_events = tuple(
+        OperatorWithdrawalEvent(
+            structure_id=event.structure_id,
+            effective_at=event.effective_at,
+            planned_flow_m3s=event.planned_flow_m3s,
+            purpose=event.purpose,
+            operator_reference=event.operator_reference,
+        )
+        for event in request.operator_withdrawal_events
+    )
+    requirements = tuple(
+        SectionRequirement(
+            requirement_id=item.requirement_id,
+            section_id=item.section_id,
+            delivery_node_id=item.delivery_node_id,
+            window_start=item.window_start,
+            window_end=item.window_end,
+            required_volume_m3=item.required_volume_m3,
+            maximum_delivery_m3s=item.maximum_delivery_m3s,
+            approved_excess_m3=item.approved_excess_m3,
+        )
+        for item in request.section_requirements
+    )
+    allocations = tuple(
+        BranchAllocation(
+            upstream_node_id=item.upstream_node_id,
+            downstream_node_id=item.downstream_node_id,
+            fraction=item.fraction,
+        )
+        for item in request.branch_allocations
+    )
+    try:
+        outcome = service.predict_control_timeline(
+            release,
+            config_sha256,
+            controller.actuation_approved,
+            request.model_snapshot_id,
+            request.model_release_id,
+            request.model_release_content_hash,
+            gate_events,
+            withdrawal_events,
+            requirements,
+            allocations,
+            request.starts_at,
+            request.ends_at,
+            request.timestep_seconds,
+        )
+    except PredictionModelUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except PredictionLineageConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ModelSnapshotError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return ControlPredictionResponse(
+        schema_version=1,
+        mode="open_loop_prediction",
+        open_loop=True,
+        actual_state_known=False,
+        commandable=False,
+        persistence="none",
+        model_snapshot_id=request.model_snapshot_id,
+        model_release_id=request.model_release_id,
+        model_release_content_hash=request.model_release_content_hash,
+        config_sha256=dict(config_sha256),
+        starts_at=request.starts_at,
+        ends_at=request.ends_at,
+        timestep_seconds=request.timestep_seconds,
+        coverage=PredictionCoverageOut(
+            modeled_transport_reach_ids=list(
+                outcome.covered_transport_reach_ids
+            ),
+            excluded_transport_reaches=[
+                ExcludedTransportReachOut(reach_id=reach_id, reason=reason)
+                for reach_id, reason in outcome.excluded_transport_reaches
+            ],
+        ),
+        members=[
+            _map_prediction_member(entry, outcome.covered_transport_reach_ids)
+            for entry in outcome.members
+        ],
     )
