@@ -107,6 +107,77 @@ class TestCreateDraft:
         assert terminal.nominal_delivered_m3 == pytest.approx(6000.0)
 
     @pytest.mark.asyncio
+    async def test_v2_draft_stores_reference_without_prediction_response_copy(
+        self,
+    ):
+        # A fresh feasible draft is storage/identity v2: it persists a BOUNDED
+        # artifact reference (engine pins + artifact metadata + bounded summaries
+        # + ledger hash) and NEVER copies the full prediction response.
+        service, _, _, repository = _service()
+        record, _ = await service.create_draft(None, _request(), "operator-1")
+        assert record.provenance_version == 2
+        assert record.prediction_identity_version == 2
+        # The full response copy is gone; only the reference remains.
+        assert record.prediction_response_document_text is None
+        assert record.prediction_response_sha256 is None
+        assert record.artifact_sha256 and len(record.artifact_sha256) == 64
+        assert record.artifact_uncompressed_size_bytes > 0
+        assert record.artifact_media_type == "application/json"
+        assert record.artifact_encoding == "canonical-json+zlib"
+        assert record.engine_id == "munbon.flow-monitoring.network-transient"
+        assert record.engine_build_digest == "e" * 64
+        assert record.engine_descriptor_content_hash == "f" * 64
+        assert record.coverage_summary_document_text
+        assert (
+            record.coverage_summary_sha256
+            and len(record.coverage_summary_sha256) == 64
+        )
+        assert record.predicted_delivery_ledger_sha256
+        # The ledger rows tie to the artifact sha, not a full-response sha.
+        assert record.ledger_entries
+        assert all(
+            e.prediction_response_sha256 == record.artifact_sha256
+            for e in record.ledger_entries
+        )
+
+    @pytest.mark.asyncio
+    async def test_artifact_header_mismatch_aborts_draft_before_persistence(
+        self,
+    ):
+        # The strict Flow client recomputes the artifact sha/size and raises
+        # UpstreamContractViolation when they disagree with the headers; the draft
+        # must abort with NOTHING persisted (fail closed on the immutable path).
+        flow = FakeControlFlowClient(
+            snapshot_mirror(),
+            prediction_error=UpstreamContractViolation(
+                "recomputed prediction artifact sha256 does not match the "
+                "X-Prediction-Artifact-SHA256 header"
+            ),
+        )
+        service, _, _, repository = _service(flow=flow)
+        with pytest.raises(UpstreamContractViolation):
+            await service.create_draft(None, _request(), "operator-1")
+        assert repository.store_calls == 0
+        assert repository.by_input_hash == {}
+
+    @pytest.mark.asyncio
+    async def test_prediction_engine_mismatch_aborts_draft_before_persistence(
+        self,
+    ):
+        # A Flow/proxy serving engine-B headers (build_digest "9"*64) over the
+        # engine-A snapshot (whose embedded prediction_engine pins "e"*64) must be
+        # refused: the recorded engine can never diverge from the snapshot's own
+        # descriptor, and NOTHING persists on the immutable path.
+        flow = FakeControlFlowClient(snapshot_mirror(), build_digest="9" * 64)
+        service, _, _, repository = _service(flow=flow)
+        with pytest.raises(
+            UpstreamContractViolation, match="prediction_engine"
+        ):
+            await service.create_draft(None, _request(), "operator-1")
+        assert repository.store_calls == 0
+        assert repository.by_input_hash == {}
+
+    @pytest.mark.asyncio
     async def test_prediction_request_covers_horizon_start(self):
         service, _, flow, _ = _service()
         await service.create_draft(None, _request(), "operator-1")

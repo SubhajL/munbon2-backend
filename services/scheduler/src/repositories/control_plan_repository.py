@@ -21,12 +21,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.control_plan import (
+    canonical_json_text,
     control_plan_draft_hash,
     control_plan_input_hash,
 )
 from core.predicted_delivery_ledger import (
     LedgerEntry,
     LedgerProjectionError,
+    predicted_delivery_ledger_sha256,
     verify_ledger_entry_columns,
 )
 from models.control_plan import (
@@ -35,6 +37,9 @@ from models.control_plan import (
     ControlStateTransition,
     GatePlanEventRow,
     SectionDeliveryLedgerEntry,
+)
+from services.clients.control_flow_client import (
+    FLOW_PREDICTION_IDENTITY_VERSION_V2,
 )
 
 
@@ -138,6 +143,21 @@ class DraftPlanRecord:
     requirements: tuple[RequirementRecord, ...]
     events: tuple[GateEventRecord, ...]
     transitions: tuple[TransitionRecord, ...]
+    # Provenance v2 (PR 4.4b-2): all None on a v1 row; all present on a v2 row.
+    provenance_version: Optional[int] = None
+    prediction_identity_version: Optional[int] = None
+    engine_id: Optional[str] = None
+    engine_semantic_contract_version: Optional[int] = None
+    engine_build_digest: Optional[str] = None
+    engine_descriptor_content_hash: Optional[str] = None
+    artifact_sha256: Optional[str] = None
+    artifact_uncompressed_size_bytes: Optional[int] = None
+    artifact_media_type: Optional[str] = None
+    artifact_encoding: Optional[str] = None
+    artifact_encoding_version: Optional[int] = None
+    coverage_summary_document_text: Optional[str] = None
+    coverage_summary_sha256: Optional[str] = None
+    predicted_delivery_ledger_sha256: Optional[str] = None
     ledger_entries: tuple[LedgerEntry, ...] = ()
     created_at: Optional[datetime] = None
 
@@ -146,8 +166,110 @@ def text_sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+PROVENANCE_VERSION_V2 = 2
+PROVENANCE_REFERENCE_HASH_PREFIX = "scheduler:control-plan-provenance:v2\n"
+
+
+def build_provenance_reference_document(
+    *,
+    prediction_run_id: str,
+    prediction_identity_version: int,
+    engine_id: str,
+    engine_semantic_contract_version: int,
+    engine_build_digest: str,
+    engine_descriptor_content_hash: str,
+    artifact_sha256: str,
+    artifact_uncompressed_size_bytes: int,
+    artifact_media_type: str,
+    artifact_encoding: str,
+    artifact_encoding_version: int,
+    prediction_member_summaries_sha256: str,
+    coverage_summary_sha256: str,
+    predicted_delivery_ledger_sha256: str,
+) -> dict:
+    """The canonical, BOUNDED reference a v2 draft binds into its draft hash: the
+    run id + engine pins + artifact metadata + summary/ledger hashes — never the
+    trajectory. Recomputed on every v2 read so any column edited independently of
+    the hash is caught."""
+    return {
+        "provenance_version": PROVENANCE_VERSION_V2,
+        "prediction_run_id": prediction_run_id,
+        "prediction_identity_version": prediction_identity_version,
+        "engine": {
+            "engine_id": engine_id,
+            "semantic_contract_version": engine_semantic_contract_version,
+            "build_digest": engine_build_digest,
+            "engine_descriptor_content_hash": engine_descriptor_content_hash,
+        },
+        "artifact": {
+            "artifact_sha256": artifact_sha256,
+            "uncompressed_size_bytes": artifact_uncompressed_size_bytes,
+            "media_type": artifact_media_type,
+            "encoding": artifact_encoding,
+            "encoding_version": artifact_encoding_version,
+        },
+        "summaries": {
+            "prediction_member_summaries_sha256": (
+                prediction_member_summaries_sha256
+            ),
+            "coverage_summary_sha256": coverage_summary_sha256,
+        },
+        "predicted_delivery_ledger_sha256": predicted_delivery_ledger_sha256,
+    }
+
+
+def provenance_reference_sha256(document: dict) -> str:
+    return hashlib.sha256(
+        (PROVENANCE_REFERENCE_HASH_PREFIX + canonical_json_text(document)).encode(
+            "utf-8"
+        )
+    ).hexdigest()
+
+
+def provenance_reference_document_for_record(record: DraftPlanRecord) -> dict:
+    """Reconstruct a stored v2 record's provenance reference from its columns."""
+    return build_provenance_reference_document(
+        prediction_run_id=record.prediction_run_id,
+        prediction_identity_version=record.prediction_identity_version,
+        engine_id=record.engine_id,
+        engine_semantic_contract_version=record.engine_semantic_contract_version,
+        engine_build_digest=record.engine_build_digest,
+        engine_descriptor_content_hash=record.engine_descriptor_content_hash,
+        artifact_sha256=record.artifact_sha256,
+        artifact_uncompressed_size_bytes=record.artifact_uncompressed_size_bytes,
+        artifact_media_type=record.artifact_media_type,
+        artifact_encoding=record.artifact_encoding,
+        artifact_encoding_version=record.artifact_encoding_version,
+        prediction_member_summaries_sha256=text_sha256(
+            record.prediction_member_summaries
+        ),
+        coverage_summary_sha256=record.coverage_summary_sha256,
+        predicted_delivery_ledger_sha256=record.predicted_delivery_ledger_sha256,
+    )
+
+
 def verify_stored_draft(record: DraftPlanRecord) -> None:
-    """Fail closed if any stored canonical document drifted from its hash."""
+    """Fail closed if any stored canonical document drifted from its hash.
+
+    Dispatches by the row's storage version: a v2 (artifact-reference) row is
+    verified WITHOUT the full prediction response (which is NULL); a v1 row (NULL
+    provenance_version) keeps the original full-response verification unchanged.
+    Any OTHER non-null provenance_version is rejected as corrupt — never silently
+    dispatched to the v1 path (which would skip the v2 artifact-reference checks).
+    """
+    version = getattr(record, "provenance_version", None)
+    if version == PROVENANCE_VERSION_V2:
+        _verify_stored_draft_v2(record)
+    elif version is None:
+        _verify_stored_draft_v1(record)
+    else:
+        raise DraftStoreCorruptError(
+            f"stored draft carries unknown provenance_version {version!r}"
+        )
+
+
+def _verify_input_and_optimizer(record: DraftPlanRecord) -> dict:
+    """Shared v1/v2 checks: input hash, header pins, optimizer sha."""
     try:
         input_document = json.loads(record.canonical_input_document_text)
     except ValueError as error:
@@ -179,13 +301,14 @@ def verify_stored_draft(record: DraftPlanRecord) -> None:
         raise DraftStoreCorruptError(
             "stored optimizer result does not match its hash"
         )
-    if record.prediction_response_document_text is not None:
-        if record.prediction_response_sha256 is None or text_sha256(
-            record.prediction_response_document_text
-        ) != record.prediction_response_sha256:
-            raise DraftStoreCorruptError(
-                "stored prediction response does not match its hash"
-            )
+    return input_document
+
+
+def _draft_hash_over(
+    record: DraftPlanRecord,
+    input_document: dict,
+    prediction_binding: Optional[str],
+) -> None:
     draft_document = {
         "input_document": input_document,
         "optimizer_result_document": json.loads(
@@ -196,17 +319,149 @@ def verify_stored_draft(record: DraftPlanRecord) -> None:
             if record.prediction_request_document_text is None
             else json.loads(record.prediction_request_document_text)
         ),
-        "prediction_response_sha256": record.prediction_response_sha256,
+        "prediction_response_sha256": prediction_binding,
     }
     if control_plan_draft_hash(draft_document) != record.draft_content_hash:
         raise DraftStoreCorruptError(
             "stored draft content does not match its draft hash"
         )
+
+
+def _verify_ledger_columns(record: DraftPlanRecord) -> None:
     for entry in record.ledger_entries:
         try:
             verify_ledger_entry_columns(entry)
         except LedgerProjectionError as error:
             raise DraftStoreCorruptError(str(error)) from error
+
+
+def _verify_stored_draft_v1(record: DraftPlanRecord) -> None:
+    input_document = _verify_input_and_optimizer(record)
+    if record.prediction_response_document_text is not None:
+        if record.prediction_response_sha256 is None or text_sha256(
+            record.prediction_response_document_text
+        ) != record.prediction_response_sha256:
+            raise DraftStoreCorruptError(
+                "stored prediction response does not match its hash"
+            )
+    _draft_hash_over(record, input_document, record.prediction_response_sha256)
+    _verify_ledger_columns(record)
+
+
+def _verify_engine_matches_snapshot(record: DraftPlanRecord) -> None:
+    """Fail closed unless a v2 row's stored engine pins equal the prediction_engine
+    descriptor embedded in its stored model-snapshot document.
+
+    The scheduler stores the full model-snapshot document (a PR 4.4b-1 schema-v3
+    snapshot embeds its prediction_engine verbatim), so the recorded engine columns
+    can be cross-checked against the snapshot itself — an engine-B pin set stored on
+    an engine-A snapshot is corruption even when internally self-consistent with the
+    draft hash."""
+    try:
+        snapshot = json.loads(record.model_snapshot_document_text)
+    except ValueError as error:
+        raise DraftStoreCorruptError(
+            f"stored model snapshot document is not valid JSON: {error}"
+        ) from error
+    engine = snapshot.get("prediction_engine") if isinstance(
+        snapshot, dict
+    ) else None
+    if not isinstance(engine, dict):
+        raise DraftStoreCorruptError(
+            "stored v2 draft's model snapshot carries no embedded "
+            "prediction_engine descriptor"
+        )
+    if (
+        record.engine_id != engine.get("engine_id")
+        or record.engine_semantic_contract_version
+        != engine.get("semantic_contract_version")
+        or record.engine_build_digest != engine.get("build_digest")
+        or record.engine_descriptor_content_hash != engine.get("content_hash")
+    ):
+        raise DraftStoreCorruptError(
+            "stored engine pins disagree with the model snapshot's embedded "
+            "prediction_engine descriptor"
+        )
+
+
+def _verify_stored_draft_v2(record: DraftPlanRecord) -> None:
+    """Verify a v2 artifact-reference draft WITHOUT the full response.
+
+    The response copy MUST be absent; the engine pins + artifact metadata +
+    bounded summaries + ledger hash re-derive the provenance reference bound into
+    the draft hash, and every ledger row must reference this plan's run/artifact.
+    """
+    input_document = _verify_input_and_optimizer(record)
+    if (
+        record.prediction_response_document_text is not None
+        or record.prediction_response_sha256 is not None
+    ):
+        raise DraftStoreCorruptError(
+            "a v2 artifact-reference draft must not copy the prediction response"
+        )
+    required = {
+        "prediction_run_id": record.prediction_run_id,
+        "prediction_identity_version": record.prediction_identity_version,
+        "engine_id": record.engine_id,
+        "engine_semantic_contract_version": (
+            record.engine_semantic_contract_version
+        ),
+        "engine_build_digest": record.engine_build_digest,
+        "engine_descriptor_content_hash": record.engine_descriptor_content_hash,
+        "artifact_sha256": record.artifact_sha256,
+        "artifact_uncompressed_size_bytes": (
+            record.artifact_uncompressed_size_bytes
+        ),
+        "artifact_media_type": record.artifact_media_type,
+        "artifact_encoding": record.artifact_encoding,
+        "artifact_encoding_version": record.artifact_encoding_version,
+        "prediction_member_summaries": record.prediction_member_summaries,
+        "coverage_summary_document_text": record.coverage_summary_document_text,
+        "coverage_summary_sha256": record.coverage_summary_sha256,
+        "predicted_delivery_ledger_sha256": (
+            record.predicted_delivery_ledger_sha256
+        ),
+    }
+    missing = [name for name, value in required.items() if value is None]
+    if missing:
+        raise DraftStoreCorruptError(
+            f"v2 artifact-reference draft is missing columns: {sorted(missing)}"
+        )
+    # A v2 provenance row pins Flow's identity-v2 contract: the prediction
+    # identity version is exactly 2 (not merely present/truthy).
+    if record.prediction_identity_version != FLOW_PREDICTION_IDENTITY_VERSION_V2:
+        raise DraftStoreCorruptError(
+            "v2 artifact-reference draft prediction_identity_version is not "
+            f"{FLOW_PREDICTION_IDENTITY_VERSION_V2}"
+        )
+    _verify_engine_matches_snapshot(record)
+    if text_sha256(record.coverage_summary_document_text) != (
+        record.coverage_summary_sha256
+    ):
+        raise DraftStoreCorruptError(
+            "stored coverage summary does not match its hash"
+        )
+    recomputed_ledger_sha = predicted_delivery_ledger_sha256(
+        record.ledger_entries
+    )
+    if recomputed_ledger_sha != record.predicted_delivery_ledger_sha256:
+        raise DraftStoreCorruptError(
+            "stored predicted-delivery ledger hash does not match its rows"
+        )
+    _verify_ledger_columns(record)
+    for entry in record.ledger_entries:
+        if (
+            entry.prediction_run_id != record.prediction_run_id
+            or entry.prediction_response_sha256 != record.artifact_sha256
+        ):
+            raise DraftStoreCorruptError(
+                f"ledger row for {entry.requirement_id} references a different "
+                "prediction than the v2 artifact reference"
+            )
+    reference_sha = provenance_reference_sha256(
+        provenance_reference_document_for_record(record)
+    )
+    _draft_hash_over(record, input_document, reference_sha)
 
 
 def build_draft_hash_document(
@@ -288,6 +543,30 @@ class PostgresControlPlanRepository:
                 record.prediction_response_document_text
             ),
             "prediction_response_sha256": record.prediction_response_sha256,
+            "provenance_version": record.provenance_version,
+            "prediction_identity_version": record.prediction_identity_version,
+            "engine_id": record.engine_id,
+            "engine_semantic_contract_version": (
+                record.engine_semantic_contract_version
+            ),
+            "engine_build_digest": record.engine_build_digest,
+            "engine_descriptor_content_hash": (
+                record.engine_descriptor_content_hash
+            ),
+            "artifact_sha256": record.artifact_sha256,
+            "artifact_uncompressed_size_bytes": (
+                record.artifact_uncompressed_size_bytes
+            ),
+            "artifact_media_type": record.artifact_media_type,
+            "artifact_encoding": record.artifact_encoding,
+            "artifact_encoding_version": record.artifact_encoding_version,
+            "coverage_summary_document_text": (
+                record.coverage_summary_document_text
+            ),
+            "coverage_summary_sha256": record.coverage_summary_sha256,
+            "predicted_delivery_ledger_sha256": (
+                record.predicted_delivery_ledger_sha256
+            ),
             "created_by_subject": record.created_by_subject,
             "created_at": record.created_at,
         }
@@ -476,6 +755,26 @@ class PostgresControlPlanRepository:
                 run.prediction_response_document_text
             ),
             prediction_response_sha256=run.prediction_response_sha256,
+            provenance_version=run.provenance_version,
+            prediction_identity_version=run.prediction_identity_version,
+            engine_id=run.engine_id,
+            engine_semantic_contract_version=(
+                run.engine_semantic_contract_version
+            ),
+            engine_build_digest=run.engine_build_digest,
+            engine_descriptor_content_hash=run.engine_descriptor_content_hash,
+            artifact_sha256=run.artifact_sha256,
+            artifact_uncompressed_size_bytes=(
+                run.artifact_uncompressed_size_bytes
+            ),
+            artifact_media_type=run.artifact_media_type,
+            artifact_encoding=run.artifact_encoding,
+            artifact_encoding_version=run.artifact_encoding_version,
+            coverage_summary_document_text=run.coverage_summary_document_text,
+            coverage_summary_sha256=run.coverage_summary_sha256,
+            predicted_delivery_ledger_sha256=(
+                run.predicted_delivery_ledger_sha256
+            ),
             created_by_subject=run.created_by_subject,
             requirements=tuple(
                 RequirementRecord(
@@ -591,8 +890,11 @@ def _ledger_row_values(
         ),
         "projection_document_text": entry.projection_document_text,
         "projection_sha256": entry.projection_sha256,
-        "prediction_run_id": record.prediction_run_id,
-        "prediction_response_sha256": record.prediction_response_sha256,
+        # The entry's OWN lineage (equal to the record's for a v1 draft; the
+        # artifact sha256 for a v2 draft, whose header prediction_response_sha256
+        # column is NULL) — the value that the row's content hash covers.
+        "prediction_run_id": entry.prediction_run_id,
+        "prediction_response_sha256": entry.prediction_response_sha256,
         "projected_at": record.created_at,
     }
 

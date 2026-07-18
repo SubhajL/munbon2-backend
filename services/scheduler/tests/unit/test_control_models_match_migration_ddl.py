@@ -22,6 +22,35 @@ def _ddl_block(table_name: str) -> str:
     return match.group(0)
 
 
+def _added_columns(table_name: str) -> set:
+    """Columns introduced by a later additive `ALTER TABLE ... ADD COLUMN` — the
+    ORM must mirror these too, even though they are not in the CREATE TABLE block."""
+    added: set = set()
+    for statement in re.findall(
+        rf"ALTER TABLE scheduler\.{table_name}\b(?s:.*?);", ALL_UP
+    ):
+        added.update(re.findall(r"\bADD COLUMN (\w+)\b", statement))
+    return added
+
+
+def _declared_columns(qualified: str, table) -> set:
+    """Every column the migrations declare for a table: CREATE-block columns plus
+    additive ALTER ADD COLUMNs."""
+    table_name = qualified.split(".", 1)[1]
+    block = _ddl_block(table_name)
+    body = block.split("(", 1)[1]
+    from_create = {
+        match.group(1)
+        for match in re.finditer(
+            r"^\s{4}(\w+) (?:UUID|INTEGER|SMALLINT|BIGINT|TEXT|CHAR|DATE|"
+            r"TIMESTAMPTZ|DOUBLE)",
+            body,
+            re.MULTILINE,
+        )
+    }
+    return from_create | _added_columns(table_name)
+
+
 def _code_lines(sql: str) -> str:
     return "\n".join(
         line for line in sql.splitlines() if not line.lstrip().startswith("--")
@@ -49,25 +78,21 @@ class TestMigrationPairShape:
 
     def test_every_orm_column_appears_in_its_table_ddl(self):
         for qualified, table in ControlBase.metadata.tables.items():
-            block = _ddl_block(qualified.split(".", 1)[1])
+            table_name = qualified.split(".", 1)[1]
+            block = _ddl_block(table_name)
+            added = _added_columns(table_name)
             for column in table.columns:
-                assert re.search(
+                in_create = re.search(
                     rf"^\s+{re.escape(column.name)} ", block, re.MULTILINE
-                ), f"{qualified}.{column.name} missing from up.sql"
+                )
+                assert in_create or column.name in added, (
+                    f"{qualified}.{column.name} missing from up.sql "
+                    "(neither CREATE TABLE nor ALTER ADD COLUMN)"
+                )
 
     def test_ddl_declares_no_columns_missing_from_orm(self):
         for qualified, table in ControlBase.metadata.tables.items():
-            block = _ddl_block(qualified.split(".", 1)[1])
-            body = block.split("(", 1)[1]
-            declared = {
-                match.group(1)
-                for match in re.finditer(
-                    r"^\s{4}(\w+) (?:UUID|INTEGER|SMALLINT|TEXT|CHAR|DATE|"
-                    r"TIMESTAMPTZ|DOUBLE)",
-                    body,
-                    re.MULTILINE,
-                )
-            }
+            declared = _declared_columns(qualified, table)
             orm_columns = {column.name for column in table.columns}
             assert declared == orm_columns, (
                 f"{qualified}: DDL columns {sorted(declared)} != ORM "

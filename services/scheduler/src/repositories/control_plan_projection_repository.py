@@ -28,7 +28,7 @@ from __future__ import annotations
 import json
 from typing import Optional
 
-from sqlalchemy import select, tuple_
+from sqlalchemy import func, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth import is_trusted_shadow_approval
@@ -45,6 +45,17 @@ from schemas.control_plan import (
     ControlPlanListFilters,
     ControlPlanListPage,
     ControlPlanSummaryOut,
+)
+
+# The queryable per-plan prediction CONTENT hash: the v1 full-response sha for a
+# v1 row, the artifact sha for a v2 (artifact-reference) row whose response sha is
+# NULL. Exposing it as one COALESCE keeps the BFF 4.4 content-hash filter and the
+# served ``prediction_response_sha256`` non-null and consistent across BOTH storage
+# versions. Both operands are small CHAR(64) scalars, so the projection stays
+# bounded.
+_PREDICTION_CONTENT_SHA256 = func.coalesce(
+    ControlPlanRun.prediction_response_sha256,
+    ControlPlanRun.artifact_sha256,
 )
 
 # The exact header columns a summary row is built from — small scalars only.
@@ -64,7 +75,7 @@ _SUMMARY_COLUMNS = (
     ControlPlanRun.optimizer_status,
     ControlPlanRun.prediction_status,
     ControlPlanRun.prediction_run_id,
-    ControlPlanRun.prediction_response_sha256,
+    _PREDICTION_CONTENT_SHA256.label("prediction_response_sha256"),
     ControlPlanRun.created_by_subject,
     ControlPlanRun.created_at,
 )
@@ -147,8 +158,7 @@ def _apply_filters(stmt, filters: ControlPlanListFilters):
         )
     if filters.prediction_content_sha256 is not None:
         stmt = stmt.where(
-            ControlPlanRun.prediction_response_sha256
-            == filters.prediction_content_sha256
+            _PREDICTION_CONTENT_SHA256 == filters.prediction_content_sha256
         )
     return stmt
 

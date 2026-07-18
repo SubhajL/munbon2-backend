@@ -1,0 +1,21 @@
+# PR 4.4b-2 — scheduler prediction ARTIFACT REFERENCE (impl log)
+
+**Date:** 2026-07-19 · **Base:** main `5bd7426c` (post-4.4b-1) · **Branch:** `feat/scheduler-artifact-reference`
+**Plan:** `coding-logs/2026-07-18 Plan (pr-4-4a-4-4b-...).md` (4.4b artifact-reference). Second of the 4.4b split.
+
+## What shipped
+- **Scheduler stops copying Flow's up-to-64 MiB prediction response** into its immutable drafts. `ControlFlowClient.create_prediction` → typed `FlowPredictionResult` carrying the parsed response, transient bytes, run_id, identity_version, engine pins, and verified artifact metadata; it RECOMPUTES sha256 + byte-size over the body and rejects any missing/mismatched `X-Prediction-Artifact-*`/engine/identity header as `UpstreamContractViolation`.
+- **v2 create_draft**: the full response is used ONLY in-memory to project the predicted-delivery ledger, then DISCARDED. The row stores run_id + engine pins + artifact sha/size/media/encoding + bounded coverage summary(+sha) + 3 member summaries(+sha) + ledger sha256, with `prediction_response_document_text`/`_sha256 = NULL`. A canonical provenance-reference sha (covering all 14 v2 columns) is bound into the draft hash; content-addressed idempotency (keyed on input_content_hash) is preserved.
+- **Migration 0005_control_plan_provenance_v2** (additive; never edits 0001): 14 nullable v2 columns; v1/v2 feasible branches + infeasible-all-NULL; EVERY hash column guarded `IS NULL OR ~ regex` with presence asserted by explicit `IS NOT NULL` (the SQL NULL-in-CHECK gotcha); `provenance_version IS NULL OR = 2`; `provenance_version=2 ⇒ prediction_identity_version=2`; down refuses once a v2 row exists.
+- **verify_stored_draft_v2** (dispatch v1-unchanged / v2 / reject unknown): ties engine pins to the snapshot's embedded `prediction_engine`, artifact-metadata shapes, coverage/member summary hashes, ledger sha256, and every ledger row's lineage; requires the response text NULL. **coverage_v2** proves completion from the 3 hashed member summaries + coverage + ledger with NO full-trajectory refetch. **Approval freeze v3** freezes engine descriptor content_hash + build_digest + identity version + run id + artifact sha/size/media/encoding/version + member-summaries sha + ledger sha256, inside the unchanged 4.4a-1 `{schema_version:2, lineage_freeze, authorization_evidence}` wrapper.
+- **List projection**: v2 content hash surfaced via `COALESCE(prediction_response_sha256, artifact_sha256)` so v2 plans stay filterable by content sha.
+
+## Gate
+scheduler **459 passed / 14 skipped** (baseline 420+10; +39 tests, +4 env-gated Postgres skips) — ×3, nothing weakened. pyflakes clean. Migration 0005 apply/rollback/reapply + down-refusal + v1/v2 CHECK branches proven on a DISPOSABLE loopback Postgres (the live remote never touched). v1 drafts byte-unchanged (proven by a real FEASIBLE v1 round-trip).
+
+## 2-tier QCHECK (the tiers DIVERGED — Opus 1 LOW, Codex 1 HIGH+2 MED+3 LOW — adjudicated)
+- **HIGH (Codex): recorded engine not tied to the snapshot's embedded engine** — a response with engine-B headers on an engine-A snapshot would be recorded/approved unverified. FIXED: `_require_prediction_engine_matches_snapshot` (pre-persist) + `_verify_engine_matches_snapshot` (on load) require the response engine == the snapshot's `prediction_engine` (schema v3 required); mismatch → contract violation / 503.
+- **MED**: freeze v3 completeness (added member-summaries sha + artifact encoding/version); pin `prediction_identity_version=2` for v2 rows (CHECK + verifier `==2` + reject unknown provenance versions). **LOW**: v2 content sha in list projection (Opus); strengthened v1-compat round-trip test; independent canonical-digest oracle (broke the circular writer/verifier oracle). All fixed + regression-tested; both tiers confirmed the 4.4a-3 keyset-fixture retarget (6200–6400 genuinely infeasible → 6000–6100 feasible) is a legit fixture fix.
+
+## External ops (documented)
+Apply flow 0002 + scheduler 0005 to the remote via the controlled cutover; deploy dual-schema readers before scheduler emits v2. Old v1 drafts remain readable; no rewrite. Deep artifact audit is only via Flow `GET /predictions/{run_id}` verified against the stored reference.

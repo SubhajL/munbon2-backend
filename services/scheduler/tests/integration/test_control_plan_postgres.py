@@ -33,6 +33,23 @@ MIGRATION_ID = "0001_control_plan_drafts"
 LEDGER_MIGRATION_ID = "0002_predicted_delivery_ledger"
 LIFECYCLE_MIGRATION_ID = "0003_control_plan_review_lifecycle"
 LIST_INDEX_MIGRATION_ID = "0004_control_plan_list_indexes"
+PROVENANCE_MIGRATION_ID = "0005_control_plan_provenance_v2"
+PROVENANCE_V2_COLUMNS = (
+    "provenance_version",
+    "prediction_identity_version",
+    "engine_id",
+    "engine_semantic_contract_version",
+    "engine_build_digest",
+    "engine_descriptor_content_hash",
+    "artifact_sha256",
+    "artifact_uncompressed_size_bytes",
+    "artifact_media_type",
+    "artifact_encoding",
+    "artifact_encoding_version",
+    "coverage_summary_document_text",
+    "coverage_summary_sha256",
+    "predicted_delivery_ledger_sha256",
+)
 LIST_INDEXES = (
     "scheduler.control_plan_runs_created_at_plan_id_idx",
     "scheduler.control_plan_runs_model_snapshot_id_idx",
@@ -152,6 +169,12 @@ async def test_control_plan_migration_and_repository_on_real_postgres():
             == "applied"
         )
         assert await _regclass(conn, LEDGER_TABLE) is not None
+        # A fresh feasible draft is stored as v2, so the provenance columns must
+        # exist before create_draft runs.
+        assert (
+            await migrate.apply_migration(conn, PROVENANCE_MIGRATION_ID)
+            == "applied"
+        )
 
         engine = create_async_engine(_sqlalchemy_url())
         sessions = async_sessionmaker(engine, expire_on_commit=False)
@@ -243,6 +266,8 @@ async def test_control_plan_migration_and_repository_on_real_postgres():
             )
             from repositories.control_plan_repository import (
                 build_draft_hash_document,
+                provenance_reference_document_for_record,
+                provenance_reference_sha256,
                 text_sha256,
             )
 
@@ -251,12 +276,16 @@ async def test_control_plan_migration_and_repository_on_real_postgres():
             )
             divergent_optimizer["infeasible_reasons"] = ["divergent-solve"]
             divergent_optimizer_text = canonical_json_text(divergent_optimizer)
+            # A v2 draft binds the provenance REFERENCE (not a response sha) into
+            # its draft hash — reconstruct it the same way.
             divergent_draft_hash = control_plan_draft_hash(
                 build_draft_hash_document(
                     record.canonical_input_document_text,
                     divergent_optimizer_text,
                     record.prediction_request_document_text,
-                    record.prediction_response_sha256,
+                    provenance_reference_sha256(
+                        provenance_reference_document_for_record(record)
+                    ),
                 )
             )
             divergent = dc_replace(
@@ -299,10 +328,10 @@ async def test_control_plan_migration_and_repository_on_real_postgres():
         finally:
             await engine.dispose()
     finally:
-        # Leave the disposable database empty for the next run (child first).
+        # v2 rows now make the 0005 down refuse, so hard-reset the whole schema
+        # for the shared disposable container.
         try:
-            await migrate.rollback_migration(conn, LEDGER_MIGRATION_ID)
-            await migrate.rollback_migration(conn, MIGRATION_ID)
+            await conn.execute("DROP SCHEMA IF EXISTS scheduler CASCADE")
         finally:
             await conn.close()
 
@@ -411,9 +440,10 @@ async def test_list_projection_keyset_over_real_rows_no_dup_or_gap():
         try:
             # Five distinct drafts (distinct volumes → distinct input hashes →
             # distinct plan_ids), each committed in its own transaction so the
-            # created_at timestamps advance.
+            # created_at timestamps advance. Volumes stay inside the feasible band
+            # (>=6200 is infeasible for this fixture) so every draft is feasible.
             created = []
-            for volume in (6000.0, 6100.0, 6200.0, 6300.0, 6400.0):
+            for volume in (6000.0, 6025.0, 6050.0, 6075.0, 6100.0):
                 async with sessions() as session:
                     record, _ = await _service_vol(
                         repository, volume
@@ -647,6 +677,11 @@ async def test_review_lifecycle_and_edge_graph_on_real_postgres():
             await migrate.apply_migration(conn, LIFECYCLE_MIGRATION_ID)
             == "applied"
         )
+        # v2 storage columns for the feasible draft this test approves.
+        assert (
+            await migrate.apply_migration(conn, PROVENANCE_MIGRATION_ID)
+            == "applied"
+        )
 
         engine = create_async_engine(_sqlalchemy_url())
         sessions = async_sessionmaker(engine, expire_on_commit=False)
@@ -738,6 +773,368 @@ async def test_review_lifecycle_and_edge_graph_on_real_postgres():
     finally:
         # Hard reset for the shared disposable container (lifecycle rows make
         # the 0003 down impossible, so drop the whole schema instead).
+        try:
+            await conn.execute("DROP SCHEMA IF EXISTS scheduler CASCADE")
+        finally:
+            await conn.close()
+
+
+async def _column_exists(conn, column: str) -> bool:
+    return (
+        await conn.fetchval(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_schema = 'scheduler' "
+            "AND table_name = 'control_plan_runs' AND column_name = $1",
+            column,
+        )
+    ) == 1
+
+
+def _hex64(seed: int) -> str:
+    return (f"{seed:064x}")[:64]
+
+
+@pytest.mark.asyncio
+async def test_0005_apply_rollback_reapply_and_down_refuses_on_v2_rows():
+    conn = await _connect()
+    try:
+        await conn.execute("DROP SCHEMA IF EXISTS scheduler CASCADE")
+        # apply-all reaches 0005; every provenance column exists.
+        outcomes = dict(await migrate.apply_all_migrations(conn))
+        assert outcomes[PROVENANCE_MIGRATION_ID] == "applied"
+        for column in PROVENANCE_V2_COLUMNS:
+            assert await _column_exists(conn, column)
+
+        # On an empty-of-v2 table the down rolls back cleanly and reapplies.
+        assert (
+            await migrate.rollback_migration(conn, PROVENANCE_MIGRATION_ID)
+            == "rolled-back"
+        )
+        for column in PROVENANCE_V2_COLUMNS:
+            assert not await _column_exists(conn, column)
+        assert (
+            await migrate.apply_migration(conn, PROVENANCE_MIGRATION_ID)
+            == "applied"
+        )
+
+        engine = create_async_engine(_sqlalchemy_url())
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
+        repository = PostgresControlPlanRepository()
+        try:
+            # One real v2 draft: stored without the response and reloaded (its row
+            # hashes re-verified) without any Flow network call.
+            async with sessions() as session:
+                record, _ = await _service(repository).create_draft(
+                    session, _request(), "operator-1"
+                )
+            assert record.provenance_version == 2
+            assert record.prediction_response_document_text is None
+            stored = await conn.fetchrow(
+                "SELECT provenance_version, prediction_response_document_text, "
+                "prediction_response_sha256, artifact_sha256, "
+                "predicted_delivery_ledger_sha256 "
+                "FROM scheduler.control_plan_runs WHERE plan_id = $1",
+                record.plan_id,
+            )
+            assert stored["provenance_version"] == 2
+            assert stored["prediction_response_document_text"] is None
+            assert stored["prediction_response_sha256"] is None
+            assert stored["artifact_sha256"] == record.artifact_sha256
+            async with sessions() as session:
+                loaded = await repository.load_draft_plan(
+                    session, record.plan_id, 1
+                )
+            assert loaded.provenance_version == 2
+            assert loaded.prediction_response_document_text is None
+            assert loaded.artifact_sha256 == record.artifact_sha256
+
+            # The 0005 down now REFUSES: a v2 row's provenance can't be restored.
+            with pytest.raises(
+                asyncpg.exceptions.RaiseError, match="v2 artifact-reference"
+            ):
+                await migrate.rollback_migration(conn, PROVENANCE_MIGRATION_ID)
+            # The row and its columns survive the refused rollback.
+            assert await _column_exists(conn, "provenance_version")
+        finally:
+            await engine.dispose()
+    finally:
+        try:
+            await conn.execute("DROP SCHEMA IF EXISTS scheduler CASCADE")
+        finally:
+            await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_0005_v2_check_rejects_null_engine_or_artifact_or_ledger():
+    conn = await _connect()
+    try:
+        await conn.execute("DROP SCHEMA IF EXISTS scheduler CASCADE")
+        await migrate.apply_all_migrations(conn)
+
+        engine = create_async_engine(_sqlalchemy_url())
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
+        repository = PostgresControlPlanRepository()
+        try:
+            async with sessions() as session:
+                record, _ = await _service(repository).create_draft(
+                    session, _request(), "operator-1"
+                )
+        finally:
+            await engine.dispose()
+
+        template = dict(
+            await conn.fetchrow(
+                "SELECT * FROM scheduler.control_plan_runs WHERE plan_id = $1",
+                record.plan_id,
+            )
+        )
+
+        def _fresh(seed, **changes):
+            row = dict(template)
+            row["plan_id"] = UUID(int=seed)
+            row["input_content_hash"] = _hex64(seed)
+            row["draft_content_hash"] = _hex64(seed + 10_000)
+            row.update(changes)
+            return row
+
+        async def _insert(row):
+            columns = list(row)
+            placeholders = ", ".join(f"${i + 1}" for i in range(len(columns)))
+            await conn.execute(
+                "INSERT INTO scheduler.control_plan_runs "
+                f"({', '.join(columns)}) VALUES ({placeholders})",
+                *[row[c] for c in columns],
+            )
+
+        # A fresh, fully-populated v2 row inserts fine (the CHECK admits it).
+        await _insert(_fresh(1))
+
+        # Dropping any REQUIRED v2 column (engine / artifact / ledger) is rejected.
+        for column in (
+            "engine_build_digest",
+            "engine_descriptor_content_hash",
+            "artifact_sha256",
+            "artifact_uncompressed_size_bytes",
+            "coverage_summary_sha256",
+            "predicted_delivery_ledger_sha256",
+        ):
+            with pytest.raises(asyncpg.exceptions.CheckViolationError):
+                await _insert(_fresh(1000 + hash(column) % 1000, **{column: None}))
+
+        # A v2 row that keeps a response copy is rejected (must be NULL for v2).
+        with pytest.raises(asyncpg.exceptions.CheckViolationError):
+            await _insert(
+                _fresh(
+                    5,
+                    prediction_response_document_text="{}",
+                    prediction_response_sha256=_hex64(999),
+                )
+            )
+
+        # A v2 row that pins prediction_identity_version != 2 is rejected: the
+        # dedicated CHECK ties provenance_version = 2 to identity version = 2.
+        with pytest.raises(asyncpg.exceptions.CheckViolationError):
+            await _insert(_fresh(6, prediction_identity_version=1))
+
+        # A legacy v1 feasible row (no provenance, full response kept, sha matching
+        # the response) still inserts fine under the v1 branch.
+        from repositories.control_plan_repository import text_sha256
+
+        v1_response = (
+            '{"members":[{"member":"lower","status":"completed"},'
+            '{"member":"nominal","status":"completed"},'
+            '{"member":"upper","status":"completed"}]}'
+        )
+        v1_columns = {column: None for column in PROVENANCE_V2_COLUMNS}
+        await _insert(
+            _fresh(
+                7,
+                prediction_response_document_text=v1_response,
+                prediction_response_sha256=text_sha256(v1_response),
+                **v1_columns,
+            )
+        )
+    finally:
+        try:
+            await conn.execute("DROP SCHEMA IF EXISTS scheduler CASCADE")
+        finally:
+            await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_v2_content_sha_lists_and_filters_on_real_postgres():
+    """FIX 4: a feasible+completed v2 plan (response sha NULL) lists with a content
+    sha equal to its artifact_sha256 and is filterable by ?prediction_content_sha256
+    — the COALESCE(prediction_response_sha256, artifact_sha256) projection."""
+    from repositories.control_plan_projection_repository import (
+        PostgresControlPlanProjectionRepository,
+    )
+    from schemas.control_plan import ControlPlanListFilters
+
+    conn = await _connect()
+    try:
+        await conn.execute("DROP SCHEMA IF EXISTS scheduler CASCADE")
+        await migrate.apply_all_migrations(conn)
+
+        engine = create_async_engine(_sqlalchemy_url())
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
+        repository = PostgresControlPlanRepository()
+        projection = PostgresControlPlanProjectionRepository()
+        try:
+            async with sessions() as session:
+                record, _ = await _service(repository).create_draft(
+                    session, _request(), "operator-1"
+                )
+            assert record.provenance_version == 2
+            assert record.prediction_response_sha256 is None
+            assert record.artifact_sha256
+
+            # Lists with a NON-null content sha == artifact_sha256.
+            async with sessions() as session:
+                page = await projection.list_plan_summaries(
+                    session,
+                    filters=ControlPlanListFilters(),
+                    cursor=None,
+                    limit=25,
+                )
+            assert [i.plan_id for i in page.items] == [record.plan_id]
+            assert page.items[0].prediction_response_sha256 == (
+                record.artifact_sha256
+            )
+
+            # Returned by a content-hash filter on the artifact sha ...
+            async with sessions() as session:
+                hit = await projection.list_plan_summaries(
+                    session,
+                    filters=ControlPlanListFilters(
+                        prediction_content_sha256=record.artifact_sha256
+                    ),
+                    cursor=None,
+                    limit=25,
+                )
+            assert [i.plan_id for i in hit.items] == [record.plan_id]
+
+            # ... and excluded by a non-matching content hash.
+            async with sessions() as session:
+                miss = await projection.list_plan_summaries(
+                    session,
+                    filters=ControlPlanListFilters(
+                        prediction_content_sha256="0" * 64
+                    ),
+                    cursor=None,
+                    limit=25,
+                )
+            assert miss.items == []
+        finally:
+            await engine.dispose()
+    finally:
+        try:
+            await conn.execute("DROP SCHEMA IF EXISTS scheduler CASCADE")
+        finally:
+            await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_v1_feasible_row_loads_verifies_and_approves_on_real_postgres():
+    """FIX 5: a VALID v1 feasible row (real response text + matching sha, all v2
+    columns NULL) round-trips through the real repository — stored, reloaded
+    byte-identically, re-verified on load, and still certifiable for approval."""
+    import json as _json
+    from dataclasses import replace as dc_replace
+
+    from core.control_plan import control_plan_draft_hash
+    from core.control_plan_lifecycle import validate_shadow_approval_coverage
+    from repositories.control_plan_repository import (
+        build_draft_hash_document,
+        text_sha256,
+    )
+    from tests.control_plan_test_support import FakeRepository
+
+    conn = await _connect()
+    try:
+        await conn.execute("DROP SCHEMA IF EXISTS scheduler CASCADE")
+        await migrate.apply_all_migrations(conn)
+
+        engine = create_async_engine(_sqlalchemy_url())
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
+        repository = PostgresControlPlanRepository()
+        try:
+            # Build a real v2 record IN MEMORY (nothing persisted) to reuse its
+            # exact input/optimizer/prediction-request/requirements/events/ledger.
+            v2, _ = await _service(FakeRepository()).create_draft(
+                None, _request(), "operator-1"
+            )
+            assert v2.provenance_version == 2
+
+            # The exact canonical response the fake served; its sha IS the artifact
+            # sha, i.e. precisely what a v1 draft of this plan binds. Independently
+            # recomputed here (not read back from the discarded v2 response).
+            fake = FakeControlFlowClient(snapshot_mirror())
+            served = await fake.create_prediction(
+                _json.loads(v2.prediction_request_document_text)
+            )
+            response_text = served.response_text
+            response_sha = text_sha256(response_text)
+            assert response_sha == v2.artifact_sha256  # oracle
+
+            v1 = dc_replace(
+                v2,
+                plan_id=UUID("00000000-0000-4000-8000-0000000000a1"),
+                prediction_response_document_text=response_text,
+                prediction_response_sha256=response_sha,
+                draft_content_hash=control_plan_draft_hash(
+                    build_draft_hash_document(
+                        v2.canonical_input_document_text,
+                        v2.optimizer_result_document_text,
+                        v2.prediction_request_document_text,
+                        response_sha,
+                    )
+                ),
+                provenance_version=None,
+                prediction_identity_version=None,
+                engine_id=None,
+                engine_semantic_contract_version=None,
+                engine_build_digest=None,
+                engine_descriptor_content_hash=None,
+                artifact_sha256=None,
+                artifact_uncompressed_size_bytes=None,
+                artifact_media_type=None,
+                artifact_encoding=None,
+                artifact_encoding_version=None,
+                coverage_summary_document_text=None,
+                coverage_summary_sha256=None,
+                predicted_delivery_ledger_sha256=None,
+            )
+
+            async with sessions() as session:
+                _, replayed = await repository.store_draft_plan(session, v1)
+            assert not replayed
+
+            # Reload: full response byte-identical + every content hash re-verified
+            # on load (the v1 path), with NO Flow network call.
+            async with sessions() as session:
+                loaded = await repository.load_draft_plan(session, v1.plan_id, 1)
+            assert loaded is not None
+            assert loaded.provenance_version is None
+            assert loaded.prediction_response_document_text == response_text
+            assert loaded.prediction_response_sha256 == response_sha
+            assert loaded.draft_content_hash == v1.draft_content_hash
+            assert loaded.ledger_entries == v2.ledger_entries
+            assert all(
+                column is None
+                for column in (
+                    loaded.engine_id,
+                    loaded.artifact_sha256,
+                    loaded.coverage_summary_sha256,
+                    loaded.predicted_delivery_ledger_sha256,
+                )
+            )
+
+            # Approval coverage still certifies the v1 record from its response.
+            validate_shadow_approval_coverage(loaded)
+        finally:
+            await engine.dispose()
+    finally:
         try:
             await conn.execute("DROP SCHEMA IF EXISTS scheduler CASCADE")
         finally:

@@ -9,6 +9,7 @@ Rows are immutable: DB triggers reject UPDATE and DELETE on all four tables.
 
 from sqlalchemy import (
     CHAR,
+    BigInteger,
     Column,
     Date,
     DateTime,
@@ -62,6 +63,23 @@ class ControlPlanRun(ControlBase):
     prediction_request_document_text = Column(Text, nullable=True)
     prediction_response_document_text = Column(Text, nullable=True)
     prediction_response_sha256 = Column(CHAR(64), nullable=True)
+    # Provenance v2 (PR 4.4b-2): a feasible draft stores a BOUNDED artifact
+    # reference (engine pins + artifact sha/size/media + summary/ledger hashes)
+    # instead of copying the full prediction response. All NULL on a v1 row.
+    provenance_version = Column(SmallInteger, nullable=True)
+    prediction_identity_version = Column(SmallInteger, nullable=True)
+    engine_id = Column(Text, nullable=True)
+    engine_semantic_contract_version = Column(Integer, nullable=True)
+    engine_build_digest = Column(CHAR(64), nullable=True)
+    engine_descriptor_content_hash = Column(CHAR(64), nullable=True)
+    artifact_sha256 = Column(CHAR(64), nullable=True)
+    artifact_uncompressed_size_bytes = Column(BigInteger, nullable=True)
+    artifact_media_type = Column(Text, nullable=True)
+    artifact_encoding = Column(Text, nullable=True)
+    artifact_encoding_version = Column(Integer, nullable=True)
+    coverage_summary_document_text = Column(Text, nullable=True)
+    coverage_summary_sha256 = Column(CHAR(64), nullable=True)
+    predicted_delivery_ledger_sha256 = Column(CHAR(64), nullable=True)
     created_by_subject = Column(Text, nullable=False)
     created_at = Column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

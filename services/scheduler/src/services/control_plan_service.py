@@ -36,17 +36,22 @@ from core.control_plan import (
 from core.predicted_delivery_ledger import (
     GateEvent,
     ScheduledRequirement,
+    predicted_delivery_ledger_sha256,
     project_predicted_delivery_ledger,
 )
 from repositories.control_plan_repository import (
+    PROVENANCE_VERSION_V2,
     DraftPlanRecord,
     GateEventRecord,
     PlanContentConflictError,
     RequirementRecord,
     TransitionRecord,
     build_draft_hash_document,
+    build_provenance_reference_document,
+    provenance_reference_sha256,
     text_sha256,
 )
+from services.clients.control_client_errors import UpstreamContractViolation
 from schemas.control_plan import DraftControlPlanRequest
 
 IDENTITY_VERSION = 1
@@ -208,6 +213,10 @@ class ControlPlanDraftService:
         prediction_response_text: Optional[str] = None
         prediction_response_sha: Optional[str] = None
         ledger_entries: tuple = ()
+        # Draft-hash prediction binding: None for infeasible, the provenance
+        # reference sha256 for a feasible v2 draft (see below).
+        prediction_binding: Optional[str] = None
+        provenance: dict[str, Any] = {}
         if plan.status is PlanStatus.FEASIBLE:
             obligation_by_id = {
                 entry["requirement_id"]: entry
@@ -255,11 +264,21 @@ class ControlPlanDraftService:
                 ],
             )
             prediction_request_text = canonical_json_text(prediction_document)
-            (
-                prediction_response_text,
-                prediction_parsed,
-            ) = await self._flow.create_prediction(prediction_document)
-            prediction_run_id = prediction_parsed["prediction_run_id"]
+            # The full response is used ONLY in-memory (ledger projection +
+            # bounded summaries) and then DISCARDED: only the verified artifact
+            # reference and bounded summaries are persisted (v2). The client has
+            # already recomputed + verified the artifact sha/size vs headers.
+            prediction_result = await self._flow.create_prediction(
+                prediction_document
+            )
+            # Tie the RECORDED engine pins to the snapshot's OWN embedded engine
+            # descriptor: a Flow/proxy returning engine-B headers on an engine-A
+            # snapshot is refused here, before anything is projected or persisted.
+            self._require_prediction_engine_matches_snapshot(
+                snapshot, prediction_result
+            )
+            prediction_parsed = prediction_result.parsed
+            prediction_run_id = prediction_result.prediction_run_id
             prediction_status = summarize_prediction_status(prediction_parsed)
             member_summaries_text = canonical_json_text(
                 [
@@ -270,7 +289,7 @@ class ControlPlanDraftService:
                     for member in prediction_parsed["members"]
                 ]
             )
-            prediction_response_sha = text_sha256(prediction_response_text)
+            artifact = prediction_result.artifact
             ledger_entries = tuple(
                 project_predicted_delivery_ledger(
                     self._scheduled_requirements(
@@ -279,7 +298,68 @@ class ControlPlanDraftService:
                     prediction_parsed,
                     self._gate_events(plan),
                     prediction_run_id=prediction_run_id,
-                    prediction_response_sha256=prediction_response_sha,
+                    prediction_response_sha256=artifact.artifact_sha256,
+                )
+            )
+            coverage_summary_text = canonical_json_text(
+                self._coverage_summary(
+                    request,
+                    prediction_run_id,
+                    prediction_status,
+                    prediction_parsed,
+                    ledger_entries,
+                )
+            )
+            coverage_summary_sha = text_sha256(coverage_summary_text)
+            ledger_sha = predicted_delivery_ledger_sha256(ledger_entries)
+            provenance = {
+                "provenance_version": PROVENANCE_VERSION_V2,
+                "prediction_identity_version": prediction_result.identity_version,
+                "engine_id": prediction_result.engine_id,
+                "engine_semantic_contract_version": (
+                    prediction_result.semantic_contract_version
+                ),
+                "engine_build_digest": prediction_result.build_digest,
+                "engine_descriptor_content_hash": (
+                    prediction_result.engine_descriptor_content_hash
+                ),
+                "artifact_sha256": artifact.artifact_sha256,
+                "artifact_uncompressed_size_bytes": (
+                    artifact.uncompressed_size_bytes
+                ),
+                "artifact_media_type": artifact.media_type,
+                "artifact_encoding": artifact.encoding,
+                "artifact_encoding_version": artifact.encoding_version,
+                "coverage_summary_document_text": coverage_summary_text,
+                "coverage_summary_sha256": coverage_summary_sha,
+                "predicted_delivery_ledger_sha256": ledger_sha,
+            }
+            prediction_binding = provenance_reference_sha256(
+                build_provenance_reference_document(
+                    prediction_run_id=prediction_run_id,
+                    prediction_identity_version=(
+                        prediction_result.identity_version
+                    ),
+                    engine_id=prediction_result.engine_id,
+                    engine_semantic_contract_version=(
+                        prediction_result.semantic_contract_version
+                    ),
+                    engine_build_digest=prediction_result.build_digest,
+                    engine_descriptor_content_hash=(
+                        prediction_result.engine_descriptor_content_hash
+                    ),
+                    artifact_sha256=artifact.artifact_sha256,
+                    artifact_uncompressed_size_bytes=(
+                        artifact.uncompressed_size_bytes
+                    ),
+                    artifact_media_type=artifact.media_type,
+                    artifact_encoding=artifact.encoding,
+                    artifact_encoding_version=artifact.encoding_version,
+                    prediction_member_summaries_sha256=text_sha256(
+                        member_summaries_text
+                    ),
+                    coverage_summary_sha256=coverage_summary_sha,
+                    predicted_delivery_ledger_sha256=ledger_sha,
                 )
             )
 
@@ -288,7 +368,7 @@ class ControlPlanDraftService:
                 input_text,
                 optimizer_text,
                 prediction_request_text,
-                prediction_response_sha,
+                prediction_binding,
             )
         )
 
@@ -320,6 +400,34 @@ class ControlPlanDraftService:
             prediction_request_document_text=prediction_request_text,
             prediction_response_document_text=prediction_response_text,
             prediction_response_sha256=prediction_response_sha,
+            provenance_version=provenance.get("provenance_version"),
+            prediction_identity_version=provenance.get(
+                "prediction_identity_version"
+            ),
+            engine_id=provenance.get("engine_id"),
+            engine_semantic_contract_version=provenance.get(
+                "engine_semantic_contract_version"
+            ),
+            engine_build_digest=provenance.get("engine_build_digest"),
+            engine_descriptor_content_hash=provenance.get(
+                "engine_descriptor_content_hash"
+            ),
+            artifact_sha256=provenance.get("artifact_sha256"),
+            artifact_uncompressed_size_bytes=provenance.get(
+                "artifact_uncompressed_size_bytes"
+            ),
+            artifact_media_type=provenance.get("artifact_media_type"),
+            artifact_encoding=provenance.get("artifact_encoding"),
+            artifact_encoding_version=provenance.get(
+                "artifact_encoding_version"
+            ),
+            coverage_summary_document_text=provenance.get(
+                "coverage_summary_document_text"
+            ),
+            coverage_summary_sha256=provenance.get("coverage_summary_sha256"),
+            predicted_delivery_ledger_sha256=provenance.get(
+                "predicted_delivery_ledger_sha256"
+            ),
             created_by_subject=actor_subject,
             requirements=self._requirement_records(
                 request, items, derived_document
@@ -353,6 +461,35 @@ class ControlPlanDraftService:
                 f"no control plan {plan_id} version {plan_version}"
             )
         return record
+
+    @staticmethod
+    def _require_prediction_engine_matches_snapshot(
+        snapshot: dict[str, Any], prediction_result
+    ) -> None:
+        """Fail closed unless the served prediction's engine identity EXACTLY
+        equals the prediction_engine descriptor the model snapshot embeds.
+
+        The snapshot's descriptor is the authority (its content_hash enters the
+        snapshot id); the response headers are only trusted once they match it, so
+        engine-B headers served over an engine-A snapshot can never be recorded."""
+        engine = snapshot.get("prediction_engine")
+        if not isinstance(engine, dict):
+            raise UpstreamContractViolation(
+                "model snapshot carries no embedded prediction_engine descriptor; "
+                "the engine identity cannot be bound to the snapshot"
+            )
+        if (
+            prediction_result.engine_id != engine.get("engine_id")
+            or prediction_result.semantic_contract_version
+            != engine.get("semantic_contract_version")
+            or prediction_result.build_digest != engine.get("build_digest")
+            or prediction_result.engine_descriptor_content_hash
+            != engine.get("content_hash")
+        ):
+            raise UpstreamContractViolation(
+                "prediction engine identity does not match the model snapshot's "
+                "embedded prediction_engine descriptor"
+            )
 
     @staticmethod
     def _binding_for(request: DraftControlPlanRequest, section_id: str):
@@ -400,6 +537,40 @@ class ControlPlanDraftService:
                 )
             )
         return scheduled
+
+    @staticmethod
+    def _coverage_summary(
+        request: DraftControlPlanRequest,
+        prediction_run_id: str,
+        prediction_status: str,
+        prediction_parsed: dict[str, Any],
+        ledger_entries: tuple,
+    ) -> dict[str, Any]:
+        """A BOUNDED per-member delivery-coverage summary — never the trajectory.
+
+        Captures the three member labels/statuses/totals plus the horizon and the
+        set of ledger-covered requirements, so a v2 read can prove completion
+        without the full response."""
+        return {
+            "prediction_run_id": prediction_run_id,
+            "prediction_status": prediction_status,
+            "horizon_start": canonical_instant(request.starts_at),
+            "horizon_end": canonical_instant(request.ends_at),
+            "scheduled_requirement_ids": sorted(
+                {entry.requirement_id for entry in ledger_entries}
+            ),
+            "ledger_entry_count": len(ledger_entries),
+            "members": [
+                {
+                    "member": member.get("member"),
+                    "status": member.get("status"),
+                    "predicted_delivered_total_m3": member.get(
+                        "predicted_delivered_total_m3"
+                    ),
+                }
+                for member in prediction_parsed["members"]
+            ],
+        }
 
     @staticmethod
     def _gate_events(plan: LimitedAdjustmentPlan) -> list[GateEvent]:
