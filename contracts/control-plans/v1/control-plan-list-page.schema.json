@@ -27,6 +27,7 @@
       "required": [
         "plan_id",
         "plan_version",
+        "campaign_id",
         "lifecycle_state",
         "approval_trust",
         "horizon_start",
@@ -46,6 +47,11 @@
       "properties": {
         "plan_id": { "type": "string", "format": "uuid" },
         "plan_version": { "type": "integer", "minimum": 1 },
+        "campaign_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "The stable campaign this version belongs to (PR 4.4b-4). A legacy singleton campaign's id equals its plan_id."
+        },
         "lifecycle_state": {
           "type": "string",
           "enum": [

@@ -3,6 +3,7 @@
     {
       "plan_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       "plan_version": 1,
+      "campaign_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       "lifecycle_state": "approved_for_shadow",
       "approval_trust": true,
       "horizon_start": "2026-07-20T00:00:00Z",
@@ -22,6 +23,7 @@
     {
       "plan_id": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
       "plan_version": 2,
+      "campaign_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
       "lifecycle_state": "draft",
       "approval_trust": false,
       "horizon_start": "2026-07-27T00:00:00Z",

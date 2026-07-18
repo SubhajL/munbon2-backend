@@ -130,6 +130,7 @@ class ControlPlanProjection(StrictControlPlanModel):
 
     plan_id: UUID
     plan_version: StrictInt
+    campaign_id: UUID
     lifecycle_state: LifecycleState
     input_content_hash: str
     draft_content_hash: str
@@ -201,6 +202,7 @@ class ControlPlanPredictionCoverage(StrictControlPlanModel):
 
     plan_id: UUID
     plan_version: StrictInt
+    campaign_id: UUID
     requirement_run_id: UUID
     requirement_version: StrictInt
     model_snapshot_id: str
@@ -236,6 +238,7 @@ class ControlPlanSummaryProjection(StrictControlPlanModel):
 
     plan_id: UUID
     plan_version: StrictInt
+    campaign_id: UUID
     lifecycle_state: LifecycleState
     approval_trust: StrictBool
     horizon_start: datetime

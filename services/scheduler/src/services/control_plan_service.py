@@ -13,7 +13,7 @@ import json
 from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Optional
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -165,9 +165,20 @@ class ControlPlanDraftService:
             (self._requirement_document(item) for item in items),
             key=lambda document: document["requirement_id"],
         )
+        # The optional campaign_id joined the request schema in PR 4.4b-4, but it
+        # must NOT perturb the content-addressed identity of a request that omits
+        # it: a byte-identical pre-4.4b-4 request (which had no campaign_id field at
+        # all) has to keep the SAME input_content_hash and replay its stored draft.
+        # So a NULL campaign_id is EXCLUDED from the hashed request document, making
+        # the new-campaign path serialize exactly as it did pre-4.4b-4; a PRESENT
+        # campaign_id stays in (a campaign-pinned request is a distinct draft).
+        request_document = request.model_dump(
+            mode="json",
+            exclude={"campaign_id"} if request.campaign_id is None else set(),
+        )
         input_document = {
             "identity_version": IDENTITY_VERSION,
-            "request": request.model_dump(mode="json"),
+            "request": request_document,
             "requirements": item_documents,
             "snapshot_pins": {
                 "model_snapshot_id": snapshot["snapshot_id"],
@@ -372,10 +383,21 @@ class ControlPlanDraftService:
             )
         )
 
+        # Only a GENUINE new input reaches here (the replay check above returned
+        # early), so allocate exactly one campaign version now — after all compute
+        # succeeded, minimizing the advisory-lock hold. A present-but-unknown
+        # campaign_id fails closed here; a failed store consumes no version (the
+        # lock releases at txn end without a committed mapping row).
+        campaign_id, plan_version, plan_id = (
+            await self._repository.allocate_campaign_version(
+                session, request.campaign_id
+            )
+        )
         created_at = self._clock()
         record = DraftPlanRecord(
-            plan_id=uuid4(),
-            plan_version=1,
+            plan_id=plan_id,
+            plan_version=plan_version,
+            campaign_id=campaign_id,
             identity_version=IDENTITY_VERSION,
             input_content_hash=input_hash,
             draft_content_hash=draft_hash,

@@ -135,6 +135,11 @@ class BranchAllocationIn(_StrictModel):
 
 
 class DraftControlPlanRequest(_StrictModel):
+    # Optional campaign identity (PR 4.4b-4): absent -> a NEW campaign at version
+    # 1; present -> the next immutable version of that EXISTING campaign (a
+    # present-but-unknown campaign_id fails closed, never auto-creates). It is part
+    # of the canonical hashed input, so idempotency is per (campaign_id, input).
+    campaign_id: Optional[UUID] = None
     requirement_run_id: UUID
     requirement_version: StrictInt = Field(gt=0)
     requirement_scopes: list[RequirementScopeIn] = Field(min_length=1)
@@ -305,6 +310,9 @@ _LIFECYCLE_STATE = Literal[
 class DraftControlPlanResponse(_StrictModel):
     plan_id: UUID
     plan_version: int
+    # The stable campaign identity this version belongs to (PR 4.4b-4); a legacy
+    # singleton campaign's id equals its plan_id.
+    campaign_id: UUID
     lifecycle_state: _LIFECYCLE_STATE
     input_content_hash: str
     draft_content_hash: str
@@ -341,6 +349,9 @@ class ControlPlanPredictionCoverageResponse(_StrictModel):
 
     plan_id: UUID
     plan_version: int
+    # The campaign this version belongs to, sourced from the mapping table via a
+    # small indexed join (PR 4.4b-4).
+    campaign_id: UUID
     requirement_run_id: UUID
     requirement_version: int
     model_snapshot_id: str
@@ -406,6 +417,8 @@ class ControlPlanSummaryOut(_StrictModel):
 
     plan_id: UUID
     plan_version: int
+    # Stable campaign identity (PR 4.4b-4), joined from the mapping table.
+    campaign_id: UUID
     lifecycle_state: _LIFECYCLE_STATE
     approval_trust: bool
     horizon_start: datetime

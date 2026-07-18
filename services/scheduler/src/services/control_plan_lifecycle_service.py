@@ -224,6 +224,27 @@ class ControlPlanLifecycleService:
             raise SupersedeScopeError(
                 "the successor does not control the same physical scope"
             )
+        # A supersede stays WITHIN one campaign: a rolling plan's successor must be
+        # a later version of the SAME campaign (PR 4.4b-4), never a cross-campaign
+        # swap. A legacy singleton campaign's id equals its own plan_id. Both ids
+        # come from the immutable mapping (populated on every load / fail-closed).
+        if record.campaign_id is None or successor.campaign_id is None:
+            raise LifecycleHistoryCorruptError(
+                "a control plan version is missing its campaign identity"
+            )
+        if successor.campaign_id != record.campaign_id:
+            raise SupersedeScopeError(
+                "the successor belongs to a different campaign"
+            )
+        # A supersede rolls STRICTLY FORWARD within the campaign: the successor must
+        # be a LATER version than the target, so an approved earlier version can
+        # never retire a newer approved version (which would put stale control back
+        # in charge). (campaign_id, plan_version) is unique, so plan_version totally
+        # orders a campaign's append-only chain.
+        if successor.plan_version <= record.plan_version:
+            raise SupersedeScopeError(
+                "a plan can only be superseded by a LATER version of its campaign"
+            )
         document = shadow_approval_freeze_text(
             {
                 "schema_version": 1,

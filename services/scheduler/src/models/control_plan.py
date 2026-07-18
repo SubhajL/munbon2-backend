@@ -180,6 +180,34 @@ class ControlStateTransition(ControlBase):
     )
 
 
+class ControlPlanCampaignVersion(ControlBase):
+    """Immutable campaign_id -> monotonic plan_version mapping (PR 4.4b-4).
+
+    One row per persisted control-plan version. A campaign carries an append-only
+    chain of versions under a single stable ``campaign_id``; ``plan_id`` stays a
+    fresh per-version uuid (so every version keeps its own immutable run + FKs).
+    The composite FK to ``control_plan_runs`` is DEFERRABLE INITIALLY DEFERRED so
+    the run row and this mapping row commit atomically. Rows are immutable (a DB
+    trigger rejects UPDATE and DELETE)."""
+
+    __tablename__ = "control_plan_campaign_versions"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["plan_id", "plan_version"],
+            [f"{SCHEMA}.control_plan_runs.plan_id",
+             f"{SCHEMA}.control_plan_runs.plan_version"],
+            deferrable=True,
+            initially="DEFERRED",
+        ),
+        UniqueConstraint("plan_id", "plan_version"),
+        {"schema": SCHEMA},
+    )
+
+    campaign_id = Column(UUID(as_uuid=True), primary_key=True)
+    plan_version = Column(Integer, primary_key=True)
+    plan_id = Column(UUID(as_uuid=True), nullable=False)
+
+
 class SectionDeliveryLedgerEntry(ControlBase):
     """Append-only projection of a feasible draft's prediction (PR 5.1)."""
 

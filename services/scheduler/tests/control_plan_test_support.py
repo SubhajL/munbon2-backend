@@ -10,7 +10,7 @@ import json
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timezone
 from typing import Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from core.control_plan import canonical_json_text
 from services.clients.control_flow_client import (
@@ -29,6 +29,7 @@ from repositories.control_plan_repository import (
     PlanContentConflictError,
     TransitionConflictError,
     TransitionRecord,
+    UnknownCampaignError,
 )
 from schemas.control_plan import (
     PROJECTION_SCHEMA_VERSION,
@@ -408,6 +409,22 @@ class FakeRepository:
         self.by_input_hash = {}
         self.by_key = {}
         self.store_calls = 0
+        # campaign_id -> highest committed plan_version, mirroring the immutable
+        # control_plan_campaign_versions table's max(plan_version) per campaign.
+        self.campaign_versions = {}
+
+    async def allocate_campaign_version(self, session, campaign_id):
+        # Interface-pinned twin of the Postgres advisory-lock allocator: absent ->
+        # a NEW campaign (fresh uuid, distinct from plan_id) at version 1; present
+        # -> next version of an existing campaign; present-but-unknown fails closed.
+        if campaign_id is None:
+            return uuid4(), 1, uuid4()
+        max_version = self.campaign_versions.get(campaign_id)
+        if max_version is None:
+            raise UnknownCampaignError(
+                f"campaign {campaign_id} does not exist"
+            )
+        return campaign_id, max_version + 1, uuid4()
 
     async def find_by_input_hash(self, session, input_content_hash):
         return self.by_input_hash.get(input_content_hash)
@@ -430,6 +447,11 @@ class FakeRepository:
             return existing, True
         self.by_input_hash[record.input_content_hash] = record
         self.by_key[(record.plan_id, record.plan_version)] = record
+        # A version is consumed ONLY when the run commits (monotonic per campaign).
+        current = self.campaign_versions.get(record.campaign_id, 0)
+        self.campaign_versions[record.campaign_id] = max(
+            current, record.plan_version
+        )
         return record, False
 
     async def load_draft_plan(self, session, plan_id, plan_version):
@@ -540,6 +562,7 @@ class ProjectionRecord:
 
     plan_id: UUID
     plan_version: int
+    campaign_id: UUID
     created_at: datetime
     horizon_start: datetime
     horizon_end: datetime
@@ -568,6 +591,7 @@ def projection_record(
     created_at: datetime,
     *,
     plan_version: int = 1,
+    campaign_id: Optional[UUID] = None,
     lifecycle: str = "draft",
     approval_document: Optional[dict] = None,
     horizon_start: Optional[datetime] = None,
@@ -587,6 +611,8 @@ def projection_record(
     return ProjectionRecord(
         plan_id=plan_id,
         plan_version=plan_version,
+        # Default to a legacy singleton (campaign_id == plan_id) unless overridden.
+        campaign_id=campaign_id if campaign_id is not None else plan_id,
         created_at=created_at,
         horizon_start=horizon_start
         or datetime(2026, 7, 20, tzinfo=timezone.utc),
@@ -659,6 +685,7 @@ def _summary_from(record: ProjectionRecord) -> ControlPlanSummaryOut:
     return ControlPlanSummaryOut(
         plan_id=record.plan_id,
         plan_version=record.plan_version,
+        campaign_id=record.campaign_id,
         lifecycle_state=derive_control_plan_state(record.transitions),
         approval_trust=trust,
         horizon_start=record.horizon_start,

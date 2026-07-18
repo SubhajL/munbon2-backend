@@ -53,6 +53,7 @@ from core.predicted_delivery_ledger import (
     verify_ledger_entry_columns,
 )
 from models.control_plan import (
+    ControlPlanCampaignVersion,
     ControlPlanRequirement,
     ControlPlanRun,
     ControlStateTransition,
@@ -117,6 +118,25 @@ _SUMMARY_COLUMNS = (
     ControlPlanRun.created_by_subject,
     ControlPlanRun.created_at,
 )
+
+
+def _campaign_id_subquery():
+    """The stable campaign identity as a correlated scalar subquery over the
+    immutable mapping (PR 4.4b-4).
+
+    Keyed on the row's total identity ``(plan_id, plan_version)`` (UNIQUE in the
+    mapping, so at most one match), it selects ONLY ``campaign_id`` — a small UUID
+    scalar — so a bounded read stays bounded. A NULL result (no mapping row) is
+    corruption the caller fails closed on, never a legitimate state."""
+    return (
+        select(ControlPlanCampaignVersion.campaign_id)
+        .where(
+            ControlPlanCampaignVersion.plan_id == ControlPlanRun.plan_id,
+            ControlPlanCampaignVersion.plan_version == ControlPlanRun.plan_version,
+        )
+        .limit(1)
+        .scalar_subquery()
+    )
 
 
 def _latest_state_subquery():
@@ -212,6 +232,7 @@ def build_summary_query(
     DESC, plan_version DESC``, fetching ``limit + 1``."""
     stmt = select(
         *_SUMMARY_COLUMNS,
+        _campaign_id_subquery().label("campaign_id"),
         _latest_state_subquery().label("derived_state"),
         _shadow_approval_document_subquery().label(
             "shadow_approval_document_text"
@@ -320,7 +341,10 @@ _COVERAGE_COLUMNS = (
 
 
 def coverage_query(plan_id: UUID, plan_version: int):
-    return select(*_COVERAGE_COLUMNS).where(
+    return select(
+        *_COVERAGE_COLUMNS,
+        _campaign_id_subquery().label("campaign_id"),
+    ).where(
         ControlPlanRun.plan_id == plan_id,
         ControlPlanRun.plan_version == plan_version,
     )
@@ -396,10 +420,16 @@ def build_prediction_coverage(header) -> ControlPlanPredictionCoverageResponse:
         raise ProjectionCorruptError(
             f"stored control plan carries unknown provenance_version {version!r}"
         )
+    campaign_id = getattr(header, "campaign_id", None)
+    if campaign_id is None:
+        raise ProjectionCorruptError(
+            "a control plan is missing its campaign mapping"
+        )
     return _model_or_corrupt(
         lambda: ControlPlanPredictionCoverageResponse(
             plan_id=header.plan_id,
             plan_version=header.plan_version,
+            campaign_id=campaign_id,
             requirement_run_id=header.requirement_run_id,
             requirement_version=header.requirement_version,
             model_snapshot_id=header.model_snapshot_id,
@@ -843,10 +873,18 @@ class PostgresControlPlanProjectionRepository:
                     f"control plan {row.plan_id} v{row.plan_version} has no "
                     "transition history"
                 )
+            if row.campaign_id is None:
+                # Every stored run has an immutable campaign mapping (backfilled or
+                # inserted atomically) — a null join is fail-closed corruption (503).
+                raise LifecycleHistoryCorruptError(
+                    f"control plan {row.plan_id} v{row.plan_version} has no "
+                    "campaign mapping row"
+                )
             items.append(
                 ControlPlanSummaryOut(
                     plan_id=row.plan_id,
                     plan_version=row.plan_version,
+                    campaign_id=row.campaign_id,
                     lifecycle_state=row.derived_state,
                     approval_trust=_approval_trust_from_document(
                         row.shadow_approval_document_text

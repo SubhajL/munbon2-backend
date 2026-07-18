@@ -27,6 +27,7 @@ from clients.scheduler_client import (
 
 PLAN_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 REQ_RUN_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+CAMPAIGN_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
 TOKEN = "operator-jwt-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
@@ -35,6 +36,7 @@ def _summary(**overrides) -> dict:
     row = {
         "plan_id": PLAN_ID,
         "plan_version": 1,
+        "campaign_id": CAMPAIGN_ID,
         "lifecycle_state": "approved_for_shadow",
         "approval_trust": True,
         "horizon_start": "2026-07-20T00:00:00Z",

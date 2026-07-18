@@ -34,6 +34,8 @@ LEDGER_MIGRATION_ID = "0002_predicted_delivery_ledger"
 LIFECYCLE_MIGRATION_ID = "0003_control_plan_review_lifecycle"
 LIST_INDEX_MIGRATION_ID = "0004_control_plan_list_indexes"
 PROVENANCE_MIGRATION_ID = "0005_control_plan_provenance_v2"
+CAMPAIGN_MIGRATION_ID = "0006_control_plan_campaign_identity"
+CAMPAIGN_TABLE = "scheduler.control_plan_campaign_versions"
 PROVENANCE_V2_COLUMNS = (
     "provenance_version",
     "prediction_identity_version",
@@ -64,7 +66,7 @@ PLAN_TABLES = (
     "scheduler.gate_plan_events",
     "scheduler.control_state_transitions",
 )
-TABLES = PLAN_TABLES + (LEDGER_TABLE,)
+TABLES = PLAN_TABLES + (LEDGER_TABLE, CAMPAIGN_TABLE)
 
 pytestmark = pytest.mark.skipif(
     _test_url_loopback() is None,
@@ -175,6 +177,12 @@ async def test_control_plan_migration_and_repository_on_real_postgres():
             await migrate.apply_migration(conn, PROVENANCE_MIGRATION_ID)
             == "applied"
         )
+        # A fresh draft now also allocates + inserts an immutable campaign mapping,
+        # so the mapping table (0006) must exist before create_draft runs.
+        assert (
+            await migrate.apply_migration(conn, CAMPAIGN_MIGRATION_ID)
+            == "applied"
+        )
 
         engine = create_async_engine(_sqlalchemy_url())
         sessions = async_sessionmaker(engine, expire_on_commit=False)
@@ -199,6 +207,30 @@ async def test_control_plan_migration_and_repository_on_real_postgres():
             assert loaded.draft_content_hash == record.draft_content_hash
             assert loaded.requirements == record.requirements
             assert loaded.events == record.events
+            # Campaign identity (PR 4.4b-4): a fresh draft mints a NEW campaign
+            # (distinct from its plan_id) at version 1, stored in the immutable
+            # mapping and re-derived on load.
+            assert record.campaign_id is not None
+            assert record.campaign_id != record.plan_id
+            assert record.plan_version == 1
+            assert loaded.campaign_id == record.campaign_id
+            mapping = await conn.fetchrow(
+                "SELECT campaign_id, plan_version, plan_id FROM "
+                "scheduler.control_plan_campaign_versions WHERE plan_id = $1",
+                record.plan_id,
+            )
+            assert mapping["campaign_id"] == record.campaign_id
+            assert mapping["plan_version"] == 1
+            # The mapping row is immutable (UPDATE and DELETE are rejected).
+            for statement in (
+                "UPDATE scheduler.control_plan_campaign_versions "
+                "SET plan_version = 9",
+                "DELETE FROM scheduler.control_plan_campaign_versions",
+            ):
+                with pytest.raises(
+                    asyncpg.exceptions.RaiseError, match="immutable"
+                ):
+                    await conn.execute(statement)
             # PR 5.1: the feasible draft persisted ledger rows atomically and
             # they reload byte-identically (row hashes re-verified on load).
             assert record.ledger_entries
@@ -542,6 +574,21 @@ async def test_list_keyset_breaks_ties_on_plan_version_real_postgres():
                 "$1, 2, 1, 'draft_created', NULL, 'draft', 'operator-1')",
                 plan_id,
             )
+            # The bounded list now joins the campaign mapping, so the hand-inserted
+            # v2 run needs its own immutable mapping row — version 2 of v1's
+            # campaign — or the join is a null (fail-closed) campaign_id.
+            campaign_id = await conn.fetchval(
+                "SELECT campaign_id FROM "
+                "scheduler.control_plan_campaign_versions "
+                "WHERE plan_id = $1 AND plan_version = 1",
+                plan_id,
+            )
+            await conn.execute(
+                "INSERT INTO scheduler.control_plan_campaign_versions ("
+                "campaign_id, plan_version, plan_id) VALUES ($1, 2, $2)",
+                campaign_id,
+                plan_id,
+            )
 
             # Walk with limit=1 so every hop relies solely on the cursor tie-break.
             walked = []
@@ -680,6 +727,11 @@ async def test_review_lifecycle_and_edge_graph_on_real_postgres():
         # v2 storage columns for the feasible draft this test approves.
         assert (
             await migrate.apply_migration(conn, PROVENANCE_MIGRATION_ID)
+            == "applied"
+        )
+        # The campaign mapping (0006) is required for create_draft to store.
+        assert (
+            await migrate.apply_migration(conn, CAMPAIGN_MIGRATION_ID)
             == "applied"
         )
 
@@ -1308,6 +1360,389 @@ async def test_projections_over_real_postgres_match_detail():
                     1,
                 )
             assert missing is None
+        finally:
+            await engine.dispose()
+    finally:
+        try:
+            await conn.execute("DROP SCHEMA IF EXISTS scheduler CASCADE")
+        finally:
+            await conn.close()
+
+
+def _request_campaign(campaign_id):
+    return DraftControlPlanRequest.model_validate(
+        draft_payload(campaign_id=str(campaign_id))
+    )
+
+
+def _run_columns(record) -> dict:
+    """The control_plan_runs column dict for a DraftPlanRecord (mirrors the
+    repository's store header) — for raw-inserting a legacy (pre-0006) run row that
+    the 0006 backfill must map. campaign_id is NOT a runs column."""
+    from datetime import datetime, timezone
+
+    return {
+        "plan_id": record.plan_id,
+        "plan_version": record.plan_version,
+        "identity_version": record.identity_version,
+        "input_content_hash": record.input_content_hash,
+        "draft_content_hash": record.draft_content_hash,
+        "lifecycle_state": record.lifecycle_state,
+        "optimizer_status": record.optimizer_status,
+        "prediction_status": record.prediction_status,
+        "requirement_run_id": record.requirement_run_id,
+        "requirement_version": record.requirement_version,
+        "model_snapshot_id": record.model_snapshot_id,
+        "model_release_id": record.model_release_id,
+        "model_release_content_hash": record.model_release_content_hash,
+        "prediction_run_id": record.prediction_run_id,
+        "prediction_member_summaries": record.prediction_member_summaries,
+        "horizon_start": record.horizon_start,
+        "horizon_end": record.horizon_end,
+        "model_step_seconds": record.model_step_seconds,
+        "max_intermediate_trims": record.max_intermediate_trims,
+        "canonical_input_document_text": record.canonical_input_document_text,
+        "model_snapshot_document_text": record.model_snapshot_document_text,
+        "optimizer_result_document_text": record.optimizer_result_document_text,
+        "optimizer_result_sha256": record.optimizer_result_sha256,
+        "prediction_request_document_text": (
+            record.prediction_request_document_text
+        ),
+        "prediction_response_document_text": (
+            record.prediction_response_document_text
+        ),
+        "prediction_response_sha256": record.prediction_response_sha256,
+        "provenance_version": record.provenance_version,
+        "prediction_identity_version": record.prediction_identity_version,
+        "engine_id": record.engine_id,
+        "engine_semantic_contract_version": (
+            record.engine_semantic_contract_version
+        ),
+        "engine_build_digest": record.engine_build_digest,
+        "engine_descriptor_content_hash": record.engine_descriptor_content_hash,
+        "artifact_sha256": record.artifact_sha256,
+        "artifact_uncompressed_size_bytes": (
+            record.artifact_uncompressed_size_bytes
+        ),
+        "artifact_media_type": record.artifact_media_type,
+        "artifact_encoding": record.artifact_encoding,
+        "artifact_encoding_version": record.artifact_encoding_version,
+        "coverage_summary_document_text": record.coverage_summary_document_text,
+        "coverage_summary_sha256": record.coverage_summary_sha256,
+        "predicted_delivery_ledger_sha256": (
+            record.predicted_delivery_ledger_sha256
+        ),
+        "created_by_subject": record.created_by_subject,
+        "created_at": record.created_at
+        or datetime.now(timezone.utc),
+    }
+
+
+async def _insert_run(conn, columns: dict):
+    names = list(columns)
+    placeholders = ", ".join(f"${i + 1}" for i in range(len(names)))
+    await conn.execute(
+        "INSERT INTO scheduler.control_plan_runs "
+        f"({', '.join(names)}) VALUES ({placeholders})",
+        *[columns[c] for c in names],
+    )
+
+
+@pytest.mark.asyncio
+async def test_0006_apply_rollback_reapply_backfill_and_down_refuses_on_multi_version():
+    """0006: legacy runs backfill as SINGLETON campaigns (campaign_id = plan_id)
+    without touching the immutable run rows; the down round-trips cleanly while only
+    singletons exist and REFUSES once a real (non-singleton / multi-version)
+    campaign exists."""
+    from tests.control_plan_test_support import FakeRepository
+
+    conn = await _connect()
+    try:
+        await conn.execute("DROP SCHEMA IF EXISTS scheduler CASCADE")
+        # Apply through 0005 ONLY (NOT 0006): the mapping table does not exist yet.
+        for mid in (
+            MIGRATION_ID,
+            LEDGER_MIGRATION_ID,
+            LIFECYCLE_MIGRATION_ID,
+            LIST_INDEX_MIGRATION_ID,
+            PROVENANCE_MIGRATION_ID,
+        ):
+            assert await migrate.apply_migration(conn, mid) == "applied"
+        assert await _regclass(conn, CAMPAIGN_TABLE) is None
+
+        # Two genuine, LEGACY (pre-0006) run rows built from real in-memory drafts
+        # (distinct volumes -> distinct input/draft hashes + fresh plan_ids) and
+        # raw-inserted, so the backfill has pre-existing runs to map.
+        legacy_a, _ = await _service(FakeRepository()).create_draft(
+            None, _request(), "operator-1"
+        )
+        legacy_b, _ = await _service_vol(FakeRepository(), 6050.0).create_draft(
+            None, _request(), "operator-1"
+        )
+        await _insert_run(conn, _run_columns(legacy_a))
+        await _insert_run(conn, _run_columns(legacy_b))
+
+        runs_before = [
+            tuple(r)
+            for r in await conn.fetch(
+                "SELECT plan_id, plan_version, input_content_hash, "
+                "draft_content_hash FROM scheduler.control_plan_runs "
+                "ORDER BY plan_id"
+            )
+        ]
+
+        # Apply 0006 -> the backfill maps each legacy run as a SINGLETON campaign.
+        assert (
+            await migrate.apply_migration(conn, CAMPAIGN_MIGRATION_ID)
+            == "applied"
+        )
+        mappings = await conn.fetch(
+            "SELECT campaign_id, plan_version, plan_id FROM "
+            "scheduler.control_plan_campaign_versions ORDER BY plan_id"
+        )
+        assert len(mappings) == 2
+        for mapping in mappings:
+            assert mapping["campaign_id"] == mapping["plan_id"]  # singleton
+            assert mapping["plan_version"] == 1
+
+        # The immutable run rows are byte-for-byte unchanged by the backfill.
+        runs_after = [
+            tuple(r)
+            for r in await conn.fetch(
+                "SELECT plan_id, plan_version, input_content_hash, "
+                "draft_content_hash FROM scheduler.control_plan_runs "
+                "ORDER BY plan_id"
+            )
+        ]
+        assert runs_after == runs_before
+
+        # DOWN succeeds while ONLY legacy singletons exist (pure backfill form);
+        # the immutable runs survive; reapply re-backfills.
+        assert (
+            await migrate.rollback_migration(conn, CAMPAIGN_MIGRATION_ID)
+            == "rolled-back"
+        )
+        assert await _regclass(conn, CAMPAIGN_TABLE) is None
+        assert (
+            await conn.fetchval(
+                "SELECT count(*) FROM scheduler.control_plan_runs"
+            )
+            == 2
+        )
+        assert (
+            await migrate.apply_migration(conn, CAMPAIGN_MIGRATION_ID)
+            == "applied"
+        )
+
+        # A REAL multi-version campaign now exists (created through the real
+        # repository): a fresh campaign (campaign_id != plan_id) plus its version 2.
+        engine = create_async_engine(_sqlalchemy_url())
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
+        repository = PostgresControlPlanRepository()
+        try:
+            async with sessions() as session:
+                base, _ = await _service_vol(repository, 6075.0).create_draft(
+                    session, _request(), "operator-2"
+                )
+            assert base.campaign_id != base.plan_id
+            async with sessions() as session:
+                second, _ = await _service_vol(repository, 6100.0).create_draft(
+                    session, _request_campaign(base.campaign_id), "operator-2"
+                )
+            assert (
+                second.campaign_id == base.campaign_id
+                and second.plan_version == 2
+            )
+        finally:
+            await engine.dispose()
+
+        # DOWN now REFUSES: the campaign->version identity is load-bearing.
+        with pytest.raises(
+            asyncpg.exceptions.RaiseError, match="roll back 0006"
+        ):
+            await migrate.rollback_migration(conn, CAMPAIGN_MIGRATION_ID)
+        assert await _regclass(conn, CAMPAIGN_TABLE) is not None
+    finally:
+        try:
+            await conn.execute("DROP SCHEMA IF EXISTS scheduler CASCADE")
+        finally:
+            await conn.close()
+
+
+async def _wait_until_advisory_contended(conn, *, timeout=10.0):
+    """Block until some backend is WAITING (granted = false) on an advisory lock —
+    i.e. a real lock contention exists. Lets the concurrency test proceed ONLY once
+    the racer is provably blocked on the campaign lock, never on a lucky
+    interleaving. The disposable DB has no other advisory-lock traffic."""
+    loop = asyncio.get_event_loop()
+    deadline = loop.time() + timeout
+    while True:
+        waiting = await conn.fetchval(
+            "SELECT count(*) FROM pg_locks "
+            "WHERE locktype = 'advisory' AND NOT granted"
+        )
+        if waiting:
+            return
+        if loop.time() >= deadline:
+            raise AssertionError(
+                "no advisory-lock contention appeared; the racer never blocked"
+            )
+        await asyncio.sleep(0.02)
+
+
+@pytest.mark.asyncio
+async def test_run_without_campaign_mapping_fails_closed_on_read():
+    """FIX 3 (drained-writer cutover safety net): a control_plan_runs row with NO
+    campaign mapping — the orphan a legacy pre-0006 writer could commit AFTER the
+    0006 backfill scanned the runs table — is NEVER served. The repository read
+    fails closed (DraftStoreCorruptError -> HTTP 503) rather than fabricating or
+    backfilling a campaign on the read path (which would mutate an immutable row).
+    """
+    from repositories.control_plan_repository import DraftStoreCorruptError
+    from tests.control_plan_test_support import FakeRepository
+
+    conn = await _connect()
+    try:
+        await conn.execute("DROP SCHEMA IF EXISTS scheduler CASCADE")
+        await migrate.apply_all_migrations(conn)
+
+        # A genuine in-memory draft; raw-insert ONLY its run row (NO mapping),
+        # exactly the orphan a legacy writer leaves if it commits after backfill.
+        orphan, _ = await _service(FakeRepository()).create_draft(
+            None, _request(), "operator-1"
+        )
+        await _insert_run(conn, _run_columns(orphan))
+        assert (
+            await conn.fetchval(
+                "SELECT count(*) FROM "
+                "scheduler.control_plan_campaign_versions WHERE plan_id = $1",
+                orphan.plan_id,
+            )
+            == 0
+        )
+
+        engine = create_async_engine(_sqlalchemy_url())
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
+        repository = PostgresControlPlanRepository()
+        try:
+            async with sessions() as session:
+                with pytest.raises(
+                    DraftStoreCorruptError, match="campaign mapping"
+                ):
+                    await repository.load_draft_plan(
+                        session, orphan.plan_id, orphan.plan_version
+                    )
+        finally:
+            await engine.dispose()
+    finally:
+        try:
+            await conn.execute("DROP SCHEMA IF EXISTS scheduler CASCADE")
+        finally:
+            await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_campaign_allocation_serializes_on_advisory_lock():
+    """DETERMINISTIC proof that the campaign advisory lock serializes read->insert.
+
+    Session A takes the lock + allocates v2 and inserts its run+mapping but HOLDS
+    the transaction open; session B's allocate BLOCKS on the same campaign lock
+    (proven via pg_locks: a non-granted advisory lock appears and B's task stays
+    pending). Once A COMMITS, B observes A's committed max and allocates v3 —
+    distinct, monotonic, no duplicate. Also pins the allocate path to READ
+    COMMITTED (FIX 6): B, after unblocking, must read A's LATEST committed max; a
+    REPEATABLE READ snapshot would predate A's commit and re-mint a duplicate."""
+    from dataclasses import replace as dc_replace
+
+    from sqlalchemy import text as sa_text
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    from models.control_plan import (
+        ControlPlanCampaignVersion,
+        ControlPlanRun,
+    )
+
+    conn = await _connect()
+    try:
+        await conn.execute("DROP SCHEMA IF EXISTS scheduler CASCADE")
+        await migrate.apply_all_migrations(conn)
+
+        engine = create_async_engine(_sqlalchemy_url())
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
+        repository = PostgresControlPlanRepository()
+        try:
+            # Base v1 of a fresh campaign, committed (max(plan_version) == 1).
+            async with sessions() as session:
+                base, _ = await _service(repository).create_draft(
+                    session, _request(), "operator-1"
+                )
+            campaign = base.campaign_id
+            assert base.plan_version == 1
+
+            async with sessions() as session_a:
+                # A acquires the campaign advisory lock and allocates v2.
+                camp_a, va, plan_a = await repository.allocate_campaign_version(
+                    session_a, campaign
+                )
+                assert (camp_a, va) == (campaign, 2)
+                # A inserts a REAL v2 run + its mapping in the same held txn (reusing
+                # base's valid v2 columns; only identity + the two unique hashes
+                # differ) so the mapping's deferred FK is satisfied at commit and B
+                # will read a committed max of 2.
+                a_run = dc_replace(
+                    base,
+                    plan_id=plan_a,
+                    plan_version=va,
+                    input_content_hash="a" * 64,
+                    draft_content_hash="b" * 64,
+                )
+                await session_a.execute(
+                    pg_insert(ControlPlanRun).values(**_run_columns(a_run))
+                )
+                await session_a.execute(
+                    pg_insert(ControlPlanCampaignVersion).values(
+                        campaign_id=campaign, plan_version=va, plan_id=plan_a
+                    )
+                )
+                # A holds the lock + its uncommitted v2 rows; it releases only on
+                # commit below.
+
+                async with sessions() as session_b:
+                    b_task = asyncio.create_task(
+                        repository.allocate_campaign_version(session_b, campaign)
+                    )
+                    # B must BLOCK on A's campaign lock: wait until a non-granted
+                    # advisory lock appears (B is provably waiting), then confirm the
+                    # allocate has not completed.
+                    await _wait_until_advisory_contended(conn)
+                    assert not b_task.done()
+
+                    # Release the lock: A's v2 is now committed and visible.
+                    await session_a.commit()
+
+                    camp_b, vb, plan_b = await asyncio.wait_for(b_task, timeout=10)
+                    # B observed A's committed max (2) and took the NEXT version.
+                    assert (camp_b, vb) == (campaign, 3)
+                    assert vb != va and plan_b != plan_a
+                    # FIX 6: the allocate path runs under READ COMMITTED, so B's
+                    # post-block read sees A's commit. A REPEATABLE READ default here
+                    # would BOTH fail this assertion and re-read the stale max=1.
+                    level = (
+                        await session_b.execute(
+                            sa_text("SHOW transaction_isolation")
+                        )
+                    ).scalar()
+                    assert level == "read committed"
+
+            # Exactly the committed monotonic chain 1,2 exists (B allocated v3 but
+            # never persisted it — allocate alone consumes no version).
+            rows = await conn.fetch(
+                "SELECT plan_version FROM "
+                "scheduler.control_plan_campaign_versions "
+                "WHERE campaign_id = $1 ORDER BY plan_version",
+                campaign,
+            )
+            assert [r["plan_version"] for r in rows] == [1, 2]
         finally:
             await engine.dispose()
     finally:

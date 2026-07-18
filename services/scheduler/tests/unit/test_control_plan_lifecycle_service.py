@@ -53,7 +53,7 @@ def _draft_service(repository, flow=None, items=None):
 
 
 async def _make_draft(
-    repository, volume=6000.0, flow=None, run_id=None, version=3
+    repository, volume=6000.0, flow=None, run_id=None, version=3, campaign_id=None
 ):
     items = [requirement_item(volume=volume, run_id=run_id, version=version)]
     payload = draft_payload()
@@ -61,6 +61,8 @@ async def _make_draft(
         payload["requirement_run_id"] = str(run_id)
     if version != 3:
         payload["requirement_version"] = version
+    if campaign_id is not None:
+        payload["campaign_id"] = str(campaign_id)
     request = DraftControlPlanRequest.model_validate(payload)
     record, _ = await _draft_service(
         repository, flow=flow, items=items
@@ -236,17 +238,21 @@ class TestNewRequirementRun:
 class TestSupersede:
     async def _two_approved(self, repo):
         # Both feasible (single-open delivers within [required, required+excess])
-        # and share the SEC-1/G1 physical scope, but differ in volume so they are
-        # distinct content-addressed plans.
+        # and share the SEC-1/G1 physical scope. B is the NEXT VERSION of A's
+        # campaign (PR 4.4b-4: a supersede rolls forward within one campaign), and
+        # differs in volume so it is a distinct content-addressed plan.
         a = await _make_draft(repo, volume=6000.0)
-        b = await _make_draft(repo, volume=6100.0)
+        b = await _make_draft(repo, volume=6100.0, campaign_id=a.campaign_id)
+        assert b.campaign_id == a.campaign_id and b.plan_version == 2
         svc = _lifecycle(repo)
         for plan in (a, b):
-            await svc.review_control_plan(None, plan.plan_id, 1, "r")
+            await svc.review_control_plan(
+                None, plan.plan_id, plan.plan_version, "r"
+            )
             await svc.approve_shadow_plan(
                 None,
                 plan.plan_id,
-                1,
+                plan.plan_version,
                 "a",
                 authorization_evidence=_strict_evidence(),
             )
@@ -257,13 +263,76 @@ class TestSupersede:
         repo = FakeRepository()
         a, b, svc = await self._two_approved(repo)
         superseded = await svc.supersede_control_plan(
-            None, a.plan_id, 1, b.plan_id, 1, "op", "roll"
+            None, a.plan_id, 1, b.plan_id, b.plan_version, "op", "roll"
         )
         assert current_lifecycle_state(superseded) == "superseded"
         # The successor stays approved.
         assert current_lifecycle_state(
-            await repo.load_draft_plan(None, b.plan_id, 1)
+            await repo.load_draft_plan(None, b.plan_id, b.plan_version)
         ) == "approved_for_shadow"
+
+    @pytest.mark.asyncio
+    async def test_supersede_must_roll_forward_within_campaign(self):
+        # a is v1, b is v2 of the SAME campaign — both approved, trusted, same
+        # physical scope. Retiring the NEWER v2 with the OLDER v1 is rejected: a
+        # supersede rolls STRICTLY FORWARD, so an approved earlier version can never
+        # retire a newer approved version (which would reinstate stale control).
+        repo = FakeRepository()
+        a, b, svc = await self._two_approved(repo)
+        assert a.plan_version == 1 and b.plan_version == 2
+        with pytest.raises(SupersedeScopeError, match="LATER"):
+            await svc.supersede_control_plan(
+                None,
+                b.plan_id,
+                b.plan_version,
+                a.plan_id,
+                a.plan_version,
+                "op",
+                "roll",
+            )
+        # The forward direction (v1 retired by v2) is still allowed.
+        superseded = await svc.supersede_control_plan(
+            None, a.plan_id, a.plan_version, b.plan_id, b.plan_version, "op", "roll"
+        )
+        assert current_lifecycle_state(superseded) == "superseded"
+
+    @pytest.mark.asyncio
+    async def test_supersede_requires_same_campaign(self):
+        # A successor that is approved, trusted, and shares the physical scope but
+        # belongs to a DIFFERENT campaign (its own fresh campaign, not a version of
+        # A's) cannot supersede A — PR 4.4b-4 restricts supersede to one campaign.
+        repo = FakeRepository()
+        a = await _make_draft(repo, volume=6000.0)
+        b = await _make_draft(repo, volume=6100.0)  # a NEW, distinct campaign
+        assert b.campaign_id != a.campaign_id
+        svc = _lifecycle(repo)
+        for plan in (a, b):
+            await svc.review_control_plan(None, plan.plan_id, 1, "r")
+            await svc.approve_shadow_plan(
+                None,
+                plan.plan_id,
+                1,
+                "a",
+                authorization_evidence=_strict_evidence(),
+            )
+        with pytest.raises(SupersedeScopeError, match="campaign"):
+            await svc.supersede_control_plan(
+                None, a.plan_id, 1, b.plan_id, 1, "op", "roll"
+            )
+        # A same-campaign successor (version 2 of A) IS accepted.
+        c = await _make_draft(repo, volume=6050.0, campaign_id=a.campaign_id)
+        await svc.review_control_plan(None, c.plan_id, c.plan_version, "r")
+        await svc.approve_shadow_plan(
+            None,
+            c.plan_id,
+            c.plan_version,
+            "a",
+            authorization_evidence=_strict_evidence(),
+        )
+        superseded = await svc.supersede_control_plan(
+            None, a.plan_id, 1, c.plan_id, c.plan_version, "op", "roll"
+        )
+        assert current_lifecycle_state(superseded) == "superseded"
 
     @pytest.mark.asyncio
     async def test_supersede_requires_approved_successor(self):

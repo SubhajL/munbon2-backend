@@ -662,7 +662,8 @@ class TestFakeInterfacePins:
             (FakeControlFlowClient, ControlFlowClient,
              ["create_model_snapshot", "create_prediction"]),
             (FakeRepository, PostgresControlPlanRepository,
-             ["find_by_input_hash", "store_draft_plan", "load_draft_plan"]),
+             ["find_by_input_hash", "store_draft_plan", "load_draft_plan",
+              "allocate_campaign_version"]),
         ]
         for fake, real, methods in pairs:
             for method in methods:
