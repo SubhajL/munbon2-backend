@@ -79,6 +79,8 @@ class LedgerEntry:
     nominal_path_in_transit_m3: Optional[float]
     upper_path_in_transit_m3: Optional[float]
     checkpoint_reasons: tuple[str, ...]
+    prediction_run_id: str
+    prediction_response_sha256: str
     projection_sha256: str
     projection_document_text: str
 
@@ -118,6 +120,8 @@ def verify_ledger_entry_columns(entry: "LedgerEntry") -> None:
         "status": entry.status,
         "required_volume_m3": entry.required_volume_m3,
         "approved_excess_m3": entry.approved_excess_m3,
+        "prediction_run_id": entry.prediction_run_id,
+        "prediction_response_sha256": entry.prediction_response_sha256,
     }
     for key, value in checks.items():
         if document.get(key) != value:
@@ -487,6 +491,8 @@ def _build_entry(
         nominal_path_in_transit_m3=transit.get("nominal"),
         upper_path_in_transit_m3=transit.get("upper"),
         checkpoint_reasons=reasons,
+        prediction_run_id=prediction_run_id,
+        prediction_response_sha256=prediction_response_sha256,
         projection_sha256=digest,
         projection_document_text=text,
     )

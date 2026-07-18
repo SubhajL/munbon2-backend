@@ -465,6 +465,8 @@ class TestSafeHandover:
                 nominal_path_in_transit_m3=0.0,
                 upper_path_in_transit_m3=0.0,
                 checkpoint_reasons=("horizon_end",),
+                prediction_run_id="c" * 64,
+                prediction_response_sha256="d" * 64,
                 projection_sha256="a" * 64,
                 projection_document_text="{}",
             )

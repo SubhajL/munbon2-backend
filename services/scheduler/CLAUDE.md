@@ -50,6 +50,24 @@ per-checkpoint delivery rows, committed atomically inside `create_draft`. Key se
   BFF (4.4) consumes this route. `evaluate_safe_handover` is a pure predicate — no lifecycle
   transition (4.3b owns supersede).
 
+## Review lifecycle (PR 4.3b) — EVENT-SOURCED, append-only
+`control_plan_runs` is fully immutable, so the current lifecycle state is DERIVED, fail-closed, from
+the append-only `control_state_transitions` history (`core.control_plan_lifecycle.derive_control_plan_state`);
+the runs `lifecycle_state` column stays `'draft'` (creation metadata) and the response's
+`lifecycle_state` is the derived value. States: draft → under_review → approved_for_shadow, with
+cancelled/superseded/invalidated terminal. Migration `0003_control_plan_review_lifecycle` relaxes ONLY
+the four narrow 0001 transition CHECKs (never edits 0001) and adds an edge-graph CHECK — **use
+`COALESCE(from_state,'__initial__')`: a tuple CHECK containing SQL NULL passes on UNKNOWN.** The down
+restores the narrow checks and only succeeds while no seq>1 row exists (once lifecycle rows exist,
+forward-fix, never down). Endpoints (POST `/control-plans/{id}/versions/{v}/{review,approve-for-shadow,
+cancel,invalidate,supersede}`): each appends ONE transition in a txn; the (plan,version,sequence) PK is
+the concurrency backstop (409). `approve_shadow_plan` runs the coverage gate (feasible optimizer +
+completed 3-member prediction + no manual_review/invalidated ledger row; `predicted_excess_risk` stays
+approvable) and FREEZES the exact requirement/model/prediction/ledger hashes into the shadow_approved
+transition document (`machine_authority_granted=false`). Shadow approval grants NO machine authority;
+supersede requires an approved successor with the SAME physical `(section_id, gate_id)` scope but NO
+safe-handover (activation/4.3c owns that) and NO one-approved-per-scope uniqueness (deferred to 4.3c).
+
 ## Tests
 - Bare pytest = the gate; discovery confined to tests/ (root EC2 probes moved to
   `scripts/ops/*_probe.py`, non-test filenames — never collected).

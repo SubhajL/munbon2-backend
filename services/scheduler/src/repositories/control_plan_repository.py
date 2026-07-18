@@ -17,6 +17,7 @@ from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.control_plan import (
@@ -47,6 +48,10 @@ class PlanContentConflictError(ControlPlanRepositoryError):
 
 class DraftStoreCorruptError(ControlPlanRepositoryError):
     """Stored draft fails its own content-hash verification."""
+
+
+class TransitionConflictError(ControlPlanRepositoryError):
+    """A concurrent writer already claimed this transition sequence."""
 
 
 @dataclass(frozen=True)
@@ -358,6 +363,40 @@ class PostgresControlPlanRepository:
             )
         return winner, True
 
+    async def append_state_transition(
+        self,
+        session: AsyncSession,
+        plan_id: UUID,
+        plan_version: int,
+        transition: "TransitionRecord",
+    ) -> None:
+        """Append one immutable lifecycle transition. The (plan, version,
+        sequence) primary key is the concurrency backstop: a racer that computed
+        the same next sequence loses with a conflict, never a double-append."""
+        try:
+            await session.execute(
+                pg_insert(ControlStateTransition).values(
+                    plan_id=plan_id,
+                    plan_version=plan_version,
+                    **transition.__dict__,
+                )
+            )
+            await session.commit()
+        except IntegrityError as error:
+            await session.rollback()
+            # Only a sequence-PK UNIQUE violation (23505) is a concurrency
+            # conflict → 409. A CHECK (23514) / FK (23503) violation means the
+            # service let an illegal transition through — a bug, not a race, so
+            # re-raise it rather than mislabel it as concurrency.
+            if getattr(error.orig, "sqlstate", None) == "23505":
+                raise TransitionConflictError(
+                    "a concurrent lifecycle action already advanced this plan"
+                ) from error
+            raise
+        except BaseException:
+            await session.rollback()
+            raise
+
     async def _assemble(
         self, session: AsyncSession, run: ControlPlanRun
     ) -> DraftPlanRecord:
@@ -515,6 +554,8 @@ class PostgresControlPlanRepository:
                     checkpoint_reasons=tuple(
                         json.loads(row.checkpoint_reasons_document_text)
                     ),
+                    prediction_run_id=row.prediction_run_id,
+                    prediction_response_sha256=row.prediction_response_sha256,
                     projection_sha256=row.projection_sha256,
                     projection_document_text=row.projection_document_text,
                 )
