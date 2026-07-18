@@ -1,5 +1,12 @@
 from fastapi import APIRouter
-from .endpoints import schedule, operations, teams, monitoring, adaptation
+from .endpoints import (
+    adaptation,
+    control_plans,
+    monitoring,
+    operations,
+    schedule,
+    teams,
+)
 
 api_router = APIRouter()
 
@@ -9,3 +16,6 @@ api_router.include_router(operations.router, prefix="/operations", tags=["operat
 api_router.include_router(teams.router, prefix="/teams", tags=["teams"])
 api_router.include_router(monitoring.router, prefix="/monitoring", tags=["monitoring"])
 api_router.include_router(adaptation.router, prefix="/adaptation", tags=["adaptation"])
+api_router.include_router(
+    control_plans.router, prefix="/control-plans", tags=["control-plans"]
+)

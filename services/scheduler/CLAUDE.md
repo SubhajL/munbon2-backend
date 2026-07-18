@@ -24,7 +24,12 @@ migration, pair checksums in `scheduler.schema_migrations`, drift refusal both d
 `POSTGRES_URL` only. **Control-domain tables attach to `models/control_base.ControlBase`
 and are migration-owned ONLY** — the legacy `Base.metadata.create_all()` (main.py /
 core/database.py) must never see them (locked by tests/unit/test_create_all_isolation.py;
-legacy 11-table set pinned). No control migration ships until its consuming PR (4.3a).
+legacy 11-table set pinned). PR 4.3a shipped the first pair (`0001_control_plan_drafts`:
+control_plan_runs / control_plan_requirements / gate_plan_events /
+control_state_transitions, all in the `scheduler` schema, immutability triggers, TEXT
+canonical documents — never JSONB). ORM ↔ DDL drift is locked by
+tests/unit/test_control_models_match_migration_ddl.py; 4.3b relaxes the narrow
+transition checks via a NEW migration, never by editing an applied pair.
 
 ## Tests
 - Bare pytest = the gate; discovery confined to tests/ (root EC2 probes moved to

@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     ros_service_url: str
     gis_service_url: str
     flow_monitoring_url: str
+    ros_gis_url: str
     weather_service_url: str
     auth_service_url: str
 
