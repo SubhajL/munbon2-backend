@@ -33,6 +33,11 @@ from core.control_plan import (
     serialize_limited_adjustment_plan,
     summarize_prediction_status,
 )
+from core.predicted_delivery_ledger import (
+    GateEvent,
+    ScheduledRequirement,
+    project_predicted_delivery_ledger,
+)
 from repositories.control_plan_repository import (
     DraftPlanRecord,
     GateEventRecord,
@@ -202,6 +207,7 @@ class ControlPlanDraftService:
         prediction_request_text: Optional[str] = None
         prediction_response_text: Optional[str] = None
         prediction_response_sha: Optional[str] = None
+        ledger_entries: tuple = ()
         if plan.status is PlanStatus.FEASIBLE:
             obligation_by_id = {
                 entry["requirement_id"]: entry
@@ -265,6 +271,17 @@ class ControlPlanDraftService:
                 ]
             )
             prediction_response_sha = text_sha256(prediction_response_text)
+            ledger_entries = tuple(
+                project_predicted_delivery_ledger(
+                    self._scheduled_requirements(
+                        request, items, derived_document
+                    ),
+                    prediction_parsed,
+                    self._gate_events(plan),
+                    prediction_run_id=prediction_run_id,
+                    prediction_response_sha256=prediction_response_sha,
+                )
+            )
 
         draft_hash = control_plan_draft_hash(
             build_draft_hash_document(
@@ -320,6 +337,7 @@ class ControlPlanDraftService:
                     occurred_at=created_at,
                 ),
             ),
+            ledger_entries=ledger_entries,
             created_at=created_at,
         )
         return await self._repository.store_draft_plan(session, record)
@@ -353,6 +371,47 @@ class ControlPlanDraftService:
         raise UpstreamContractError(
             f"requirement {requirement_id!r} lost its policy mid-orchestration"
         )
+
+    def _scheduled_requirements(
+        self,
+        request: DraftControlPlanRequest,
+        items: list[dict[str, Any]],
+        derived_document: dict[str, Any],
+    ) -> list[ScheduledRequirement]:
+        obligation_by_id = {
+            entry["requirement_id"]: entry
+            for entry in derived_document["obligations"]
+        }
+        item_by_id = {item["requirement_id"]: item for item in items}
+        scheduled = []
+        for requirement_id, obligation in obligation_by_id.items():
+            item = item_by_id[requirement_id]
+            policy = self._policy_for(request, requirement_id)
+            scheduled.append(
+                ScheduledRequirement(
+                    requirement_id=requirement_id,
+                    section_id=item["section_id"],
+                    gate_id=obligation["gate_id"],
+                    required_volume_m3=float(item["required_volume_m3"]),
+                    approved_excess_m3=float(policy.approved_excess_m3),
+                    path_reach_ids=tuple(obligation["path_reach_ids"]),
+                    window_start=item["window_start"],
+                    window_end=item["window_end"],
+                )
+            )
+        return scheduled
+
+    @staticmethod
+    def _gate_events(plan: LimitedAdjustmentPlan) -> list[GateEvent]:
+        return [
+            GateEvent(
+                gate_id=event.gate_id,
+                kind=event.kind.value,
+                planned_at=event.planned_at,
+                target_position_m=event.target_position_m,
+            )
+            for event in plan.events
+        ]
 
     @staticmethod
     def _requirement_document(item: dict[str, Any]) -> dict[str, Any]:

@@ -160,3 +160,47 @@ class ControlStateTransition(ControlBase):
     occurred_at = Column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class SectionDeliveryLedgerEntry(ControlBase):
+    """Append-only projection of a feasible draft's prediction (PR 5.1)."""
+
+    __tablename__ = "section_delivery_ledger"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["plan_id", "plan_version", "requirement_id"],
+            [f"{SCHEMA}.control_plan_requirements.plan_id",
+             f"{SCHEMA}.control_plan_requirements.plan_version",
+             f"{SCHEMA}.control_plan_requirements.requirement_id"],
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint("plan_id", "plan_version", "requirement_id",
+                         "checkpoint_at"),
+        UniqueConstraint("plan_id", "plan_version", "projection_sha256"),
+        {"schema": SCHEMA},
+    )
+
+    plan_id = Column(UUID(as_uuid=True), primary_key=True)
+    plan_version = Column(Integer, primary_key=True)
+    requirement_id = Column(UUID(as_uuid=True), primary_key=True)
+    checkpoint_index = Column(Integer, primary_key=True)
+    ledger_schema_version = Column(SmallInteger, nullable=False, default=1)
+    section_id = Column(Text, nullable=False)
+    checkpoint_at = Column(DateTime(timezone=True), nullable=False)
+    status = Column(String, nullable=False)
+    required_volume_m3 = Column(Float(53), nullable=False)
+    approved_excess_m3 = Column(Float(53), nullable=False)
+    lower_delivered_m3 = Column(Float(53), nullable=True)
+    nominal_delivered_m3 = Column(Float(53), nullable=True)
+    upper_delivered_m3 = Column(Float(53), nullable=True)
+    lower_path_in_transit_m3 = Column(Float(53), nullable=True)
+    nominal_path_in_transit_m3 = Column(Float(53), nullable=True)
+    upper_path_in_transit_m3 = Column(Float(53), nullable=True)
+    checkpoint_reasons_document_text = Column(Text, nullable=False)
+    projection_document_text = Column(Text, nullable=False)
+    projection_sha256 = Column(CHAR(64), nullable=False)
+    prediction_run_id = Column(CHAR(64), nullable=False)
+    prediction_response_sha256 = Column(CHAR(64), nullable=False)
+    projected_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

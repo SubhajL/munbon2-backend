@@ -30,12 +30,15 @@ from tests.control_plan_test_support import (
 from tests.integration.test_scheduler_postgres import _test_url_loopback
 
 MIGRATION_ID = "0001_control_plan_drafts"
-TABLES = (
+LEDGER_MIGRATION_ID = "0002_predicted_delivery_ledger"
+LEDGER_TABLE = "scheduler.section_delivery_ledger"
+PLAN_TABLES = (
     "scheduler.control_plan_runs",
     "scheduler.control_plan_requirements",
     "scheduler.gate_plan_events",
     "scheduler.control_state_transitions",
 )
+TABLES = PLAN_TABLES + (LEDGER_TABLE,)
 
 pytestmark = pytest.mark.skipif(
     _test_url_loopback() is None,
@@ -101,7 +104,7 @@ async def test_control_plan_migration_and_repository_on_real_postgres():
 
         # Apply -> all objects exist; reapply is a no-op.
         assert await migrate.apply_migration(conn, MIGRATION_ID) == "applied"
-        for table in TABLES:
+        for table in PLAN_TABLES:
             assert await _regclass(conn, table) is not None
         assert (
             await migrate.apply_migration(conn, MIGRATION_ID)
@@ -113,9 +116,15 @@ async def test_control_plan_migration_and_repository_on_real_postgres():
             await migrate.rollback_migration(conn, MIGRATION_ID)
             == "rolled-back"
         )
-        for table in TABLES:
+        for table in PLAN_TABLES:
             assert await _regclass(conn, table) is None
         assert await migrate.apply_migration(conn, MIGRATION_ID) == "applied"
+        # The ledger migration (0002) sits on top of the plan tables.
+        assert (
+            await migrate.apply_migration(conn, LEDGER_MIGRATION_ID)
+            == "applied"
+        )
+        assert await _regclass(conn, LEDGER_TABLE) is not None
 
         engine = create_async_engine(_sqlalchemy_url())
         sessions = async_sessionmaker(engine, expire_on_commit=False)
@@ -140,6 +149,14 @@ async def test_control_plan_migration_and_repository_on_real_postgres():
             assert loaded.draft_content_hash == record.draft_content_hash
             assert loaded.requirements == record.requirements
             assert loaded.events == record.events
+            # PR 5.1: the feasible draft persisted ledger rows atomically and
+            # they reload byte-identically (row hashes re-verified on load).
+            assert record.ledger_entries
+            assert loaded.ledger_entries == record.ledger_entries
+            ledger_count = await conn.fetchval(
+                "SELECT count(*) FROM scheduler.section_delivery_ledger"
+            )
+            assert ledger_count == len(record.ledger_entries)
 
             # Replay: the same request returns the stored draft untouched.
             async with sessions() as session:
@@ -160,6 +177,9 @@ async def test_control_plan_migration_and_repository_on_real_postgres():
                 "DELETE FROM scheduler.gate_plan_events",
                 "UPDATE scheduler.control_state_transitions SET reason = 'x'",
                 "DELETE FROM scheduler.control_state_transitions",
+                "UPDATE scheduler.section_delivery_ledger SET status = "
+                "'invalidated'",
+                "DELETE FROM scheduler.section_delivery_ledger",
             ):
                 with pytest.raises(
                     asyncpg.exceptions.RaiseError, match="immutable"
@@ -252,8 +272,55 @@ async def test_control_plan_migration_and_repository_on_real_postgres():
         finally:
             await engine.dispose()
     finally:
-        # Leave the disposable database empty for the next run.
+        # Leave the disposable database empty for the next run (child first).
         try:
+            await migrate.rollback_migration(conn, LEDGER_MIGRATION_ID)
+            await migrate.rollback_migration(conn, MIGRATION_ID)
+        finally:
+            await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_ledger_migration_apply_rollback_reapply_is_clean():
+    conn = await _connect()
+    try:
+        for table in TABLES:
+            if await _regclass(conn, table) is not None:
+                raise RuntimeError(f"{table} exists; not a disposable database")
+        assert await migrate.apply_migration(conn, MIGRATION_ID) == "applied"
+        assert (
+            await migrate.apply_migration(conn, LEDGER_MIGRATION_ID)
+            == "applied"
+        )
+        assert await _regclass(conn, LEDGER_TABLE) is not None
+        # An illegal ledger status is rejected by the CHECK constraint.
+        with pytest.raises(asyncpg.exceptions.CheckViolationError):
+            await conn.execute(
+                "INSERT INTO scheduler.section_delivery_ledger ("
+                "plan_id, plan_version, requirement_id, checkpoint_index, "
+                "section_id, checkpoint_at, status, required_volume_m3, "
+                "approved_excess_m3, checkpoint_reasons_document_text, "
+                "projection_document_text, projection_sha256, "
+                "prediction_run_id, prediction_response_sha256) VALUES ("
+                "'00000000-0000-4000-8000-000000000001', 1, "
+                "'00000000-0000-4000-8000-000000000002', 1, 'SEC', now(), "
+                "'confirmed', 1.0, 0.0, '[]', '{}', "
+                "'" + "a" * 64 + "', '" + "b" * 64 + "', '" + "c" * 64 + "')"
+            )
+        # Rollback drops only the ledger; the 0001 tables remain.
+        assert (
+            await migrate.rollback_migration(conn, LEDGER_MIGRATION_ID)
+            == "rolled-back"
+        )
+        assert await _regclass(conn, LEDGER_TABLE) is None
+        assert await _regclass(conn, "scheduler.control_plan_runs") is not None
+        assert (
+            await migrate.apply_migration(conn, LEDGER_MIGRATION_ID)
+            == "applied"
+        )
+    finally:
+        try:
+            await migrate.rollback_migration(conn, LEDGER_MIGRATION_ID)
             await migrate.rollback_migration(conn, MIGRATION_ID)
         finally:
             await conn.close()
