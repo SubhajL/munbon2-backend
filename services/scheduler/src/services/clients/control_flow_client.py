@@ -9,7 +9,9 @@ equal the submitted pins or the response is refused.
 
 from __future__ import annotations
 
+import hashlib
 import re
+from dataclasses import dataclass
 from typing import Any, Optional
 
 import httpx
@@ -26,6 +28,86 @@ _TIMEOUT = httpx.Timeout(120.0, connect=5.0)
 _SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
 _PREDICTION_MEMBERS = frozenset({"lower", "nominal", "upper"})
 _PREDICTION_STATUSES = frozenset({"completed", "infeasible"})
+
+# PR 4.4b-1 always emits identity-v2 predictions: the engine-identity headers
+# are mandatory and a missing/mismatched artifact header is a contract violation
+# (there is no legacy header-less Flow to fall back to).
+FLOW_PREDICTION_IDENTITY_VERSION_V2 = 2
+
+# PR 4.4b-1 model snapshots are schema v3 and embed the prediction engine
+# descriptor VERBATIM, so a served prediction's engine headers can be tied back
+# to the exact engine the snapshot was taken over.
+SNAPSHOT_SCHEMA_VERSION_V3 = 3
+
+_H_IDENTITY = "X-Prediction-Identity-Version"
+_H_ARTIFACT_SHA = "X-Prediction-Artifact-SHA256"
+_H_ARTIFACT_MEDIA = "X-Prediction-Artifact-Media-Type"
+_H_ARTIFACT_ENCODING = "X-Prediction-Artifact-Encoding"
+_H_ARTIFACT_ENCODING_VERSION = "X-Prediction-Artifact-Encoding-Version"
+_H_ARTIFACT_SIZE = "X-Prediction-Artifact-Uncompressed-Size"
+_H_ENGINE_ID = "X-Prediction-Engine-Id"
+_H_SEMANTIC = "X-Prediction-Semantic-Contract-Version"
+_H_BUILD_DIGEST = "X-Prediction-Build-Digest"
+_H_ENGINE_CONTENT_HASH = "X-Prediction-Engine-Content-Hash"
+
+
+@dataclass(frozen=True)
+class FlowArtifactReference:
+    """The BOUNDED, verified metadata of a served prediction artifact — never
+    the trajectory bytes. ``artifact_sha256``/``uncompressed_size_bytes`` are the
+    scheduler's OWN recomputation over the returned body, proven equal to the
+    ``X-Prediction-Artifact-*`` headers before this is constructed."""
+
+    artifact_sha256: str
+    uncompressed_size_bytes: int
+    media_type: str
+    encoding: str
+    encoding_version: int
+
+
+@dataclass(frozen=True)
+class FlowPredictionResult:
+    """One prediction: the TRANSIENT full response (``response_text``/``parsed``,
+    used only in-memory to project the ledger, then discarded) plus the durable
+    artifact reference and identity-v2 engine pins the scheduler persists."""
+
+    prediction_run_id: str
+    identity_version: int
+    engine_id: str
+    semantic_contract_version: int
+    build_digest: str
+    engine_descriptor_content_hash: str
+    artifact: FlowArtifactReference
+    response_text: str
+    parsed: dict[str, Any]
+
+
+def _require_header(headers: httpx.Headers, name: str) -> str:
+    value = headers.get(name)
+    if value is None or not value.strip():
+        raise UpstreamContractViolation(
+            f"prediction response is missing the required {name} header"
+        )
+    return value
+
+
+def _require_int_header(headers: httpx.Headers, name: str) -> int:
+    raw = _require_header(headers, name)
+    try:
+        return int(raw)
+    except ValueError as error:
+        raise UpstreamContractViolation(
+            f"prediction response {name} header {raw!r} is not an integer"
+        ) from error
+
+
+def _require_sha256_header(headers: httpx.Headers, name: str) -> str:
+    value = _require_header(headers, name)
+    if _SHA256_HEX.fullmatch(value) is None:
+        raise UpstreamContractViolation(
+            f"prediction response {name} header is not a sha256 digest"
+        )
+    return value
 
 
 class _Mirror(BaseModel):
@@ -74,9 +156,22 @@ class _UnavailableReachMirror(_Mirror):
     reason: str
 
 
+class _PredictionEngineMirror(_Mirror):
+    """The snapshot's EMBEDDED prediction-engine descriptor (PR 4.4b-1). Its four
+    identity fields are the authority the served prediction's engine headers must
+    equal — the scheduler never trusts the response engine pins alone."""
+
+    engine_id: str
+    semantic_contract_version: int
+    build_digest: str
+    content_hash: str
+
+
 class _SnapshotMirror(_Mirror):
+    schema_version: int
     snapshot_id: str
     data_status: str
+    prediction_engine: _PredictionEngineMirror
     routing_topology: _RoutingTopologyMirror
     action_model: _ActionModelMirror
     response_model_release: Optional[_ReleaseMirror] = Field(
@@ -132,6 +227,12 @@ class ControlFlowClient:
             raise UpstreamContractViolation(
                 f"model-snapshot response violates its contract: {error}"
             ) from error
+        if mirror.schema_version != SNAPSHOT_SCHEMA_VERSION_V3:
+            raise UpstreamContractViolation(
+                f"model snapshot schema_version {mirror.schema_version} is not "
+                f"{SNAPSHOT_SCHEMA_VERSION_V3}; the embedded prediction engine "
+                "contract is not satisfied"
+            )
         if _SHA256_HEX.fullmatch(mirror.snapshot_id) is None:
             raise UpstreamContractViolation(
                 "model snapshot_id is not a sha256 digest"
@@ -140,8 +241,15 @@ class ControlFlowClient:
 
     async def create_prediction(
         self, request_document: dict[str, Any]
-    ) -> tuple[str, dict[str, Any]]:
-        """POST the composed prediction request; return (exact text, parsed)."""
+    ) -> FlowPredictionResult:
+        """POST the composed prediction request; return a verified reference.
+
+        The full response is parsed (for in-memory ledger projection) but the
+        durable outcome is a BOUNDED reference: the identity-v2 engine pins and
+        the artifact metadata read from the ``X-Prediction-*`` headers, with the
+        artifact sha256/byte-size RECOMPUTED over the returned body and required
+        to equal the headers. Any missing/mismatched header or engine field is a
+        fail-closed contract violation — never a silently-trusted reference."""
         url = f"{self._base_url}/api/v1/control/predictions"
         try:
             response = await self._client.post(url, json=request_document)
@@ -194,7 +302,63 @@ class ControlFlowClient:
                     "submitted pin"
                 )
         _validate_prediction_members(parsed.get("members"))
-        return response.text, parsed
+        return self._verified_artifact_reference(response, run_id, parsed)
+
+    def _verified_artifact_reference(
+        self, response: httpx.Response, run_id: str, parsed: dict[str, Any]
+    ) -> FlowPredictionResult:
+        headers = response.headers
+        identity_version = _require_int_header(headers, _H_IDENTITY)
+        if identity_version != FLOW_PREDICTION_IDENTITY_VERSION_V2:
+            raise UpstreamContractViolation(
+                f"prediction response identity_version {identity_version} is "
+                f"not {FLOW_PREDICTION_IDENTITY_VERSION_V2}; the engine-identity "
+                "contract is not satisfied"
+            )
+        artifact_sha = _require_sha256_header(headers, _H_ARTIFACT_SHA)
+        declared_size = _require_int_header(headers, _H_ARTIFACT_SIZE)
+        media_type = _require_header(headers, _H_ARTIFACT_MEDIA)
+        encoding = _require_header(headers, _H_ARTIFACT_ENCODING)
+        encoding_version = _require_int_header(
+            headers, _H_ARTIFACT_ENCODING_VERSION
+        )
+        engine_id = _require_header(headers, _H_ENGINE_ID)
+        semantic_contract_version = _require_int_header(headers, _H_SEMANTIC)
+        build_digest = _require_sha256_header(headers, _H_BUILD_DIGEST)
+        engine_content_hash = _require_sha256_header(
+            headers, _H_ENGINE_CONTENT_HASH
+        )
+        # Recompute over the EXACT returned bytes and reject any drift from the
+        # upstream-declared headers before the reference is trusted.
+        body_bytes = response.content
+        recomputed_sha = hashlib.sha256(body_bytes).hexdigest()
+        if recomputed_sha != artifact_sha:
+            raise UpstreamContractViolation(
+                "recomputed prediction artifact sha256 does not match the "
+                f"{_H_ARTIFACT_SHA} header"
+            )
+        if len(body_bytes) != declared_size:
+            raise UpstreamContractViolation(
+                "recomputed prediction artifact byte size does not match the "
+                f"{_H_ARTIFACT_SIZE} header"
+            )
+        return FlowPredictionResult(
+            prediction_run_id=run_id,
+            identity_version=identity_version,
+            engine_id=engine_id,
+            semantic_contract_version=semantic_contract_version,
+            build_digest=build_digest,
+            engine_descriptor_content_hash=engine_content_hash,
+            artifact=FlowArtifactReference(
+                artifact_sha256=artifact_sha,
+                uncompressed_size_bytes=declared_size,
+                media_type=media_type,
+                encoding=encoding,
+                encoding_version=encoding_version,
+            ),
+            response_text=response.text,
+            parsed=parsed,
+        )
 
 
 def _validate_prediction_members(members: Any) -> None:

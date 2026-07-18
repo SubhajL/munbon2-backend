@@ -1,5 +1,6 @@
 """Strict upstream clients: contract enforcement without any network."""
 
+import hashlib
 import inspect
 import json
 from datetime import date
@@ -283,9 +284,16 @@ class TestRosGisRequirementsClient:
 
 def _snapshot_body(**overrides):
     body = {
-        "schema_version": 2,
+        "schema_version": 3,
         "snapshot_id": "a" * 64,
         "data_status": "complete",
+        "prediction_engine": {
+            "schema_version": 1,
+            "engine_id": "munbon.flow-monitoring.network-transient",
+            "semantic_contract_version": 1,
+            "build_digest": "a" * 64,
+            "content_hash": "b" * 64,
+        },
         "routing_topology": {
             "elements": [
                 {
@@ -363,6 +371,39 @@ def _prediction_body(**overrides):
     return body
 
 
+def _artifact_headers(content: bytes, overrides=None):
+    """The PR 4.4b-1 identity-v2 artifact + engine headers over ``content``."""
+    headers = {
+        "X-Prediction-Identity-Version": "2",
+        "X-Prediction-Artifact-SHA256": hashlib.sha256(content).hexdigest(),
+        "X-Prediction-Artifact-Media-Type": "application/json",
+        "X-Prediction-Artifact-Encoding": "canonical-json+zlib",
+        "X-Prediction-Artifact-Encoding-Version": "1",
+        "X-Prediction-Artifact-Uncompressed-Size": str(len(content)),
+        "X-Prediction-Engine-Id": "munbon.flow-monitoring.network-transient",
+        "X-Prediction-Semantic-Contract-Version": "1",
+        "X-Prediction-Build-Digest": "a" * 64,
+        "X-Prediction-Engine-Content-Hash": "b" * 64,
+    }
+    for key, value in (overrides or {}).items():
+        if value is None:
+            headers.pop(key, None)
+        else:
+            headers[key] = value
+    return headers
+
+
+def _prediction_response(body, header_overrides=None):
+    """A 200 prediction response whose bytes ARE the canonical artifact and whose
+    headers describe them (overridable to exercise the recompute/reject checks)."""
+    content = json.dumps(
+        body, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
+    return httpx.Response(
+        200, content=content, headers=_artifact_headers(content, header_overrides)
+    )
+
+
 class TestControlFlowClient:
     @pytest.mark.asyncio
     async def test_snapshot_returns_exact_text_and_mirror(self):
@@ -376,9 +417,39 @@ class TestControlFlowClient:
         text, mirror = await client.create_model_snapshot()
         assert json.loads(text) == body
         assert mirror["snapshot_id"] == "a" * 64
+        assert mirror["schema_version"] == 3
         assert mirror["response_model_release"]["release_id"] == (
             "release-2026-07"
         )
+        # The embedded engine descriptor is captured verbatim for the engine
+        # cross-check the scheduler performs before recording a prediction.
+        assert mirror["prediction_engine"] == {
+            "engine_id": "munbon.flow-monitoring.network-transient",
+            "semantic_contract_version": 1,
+            "build_digest": "a" * 64,
+            "content_hash": "b" * 64,
+        }
+
+    @pytest.mark.asyncio
+    async def test_snapshot_non_v3_schema_is_contract_violation(self):
+        def handler(request):
+            return httpx.Response(200, json=_snapshot_body(schema_version=2))
+
+        client = _flow_client(handler)
+        with pytest.raises(UpstreamContractViolation, match="schema_version"):
+            await client.create_model_snapshot()
+
+    @pytest.mark.asyncio
+    async def test_snapshot_without_prediction_engine_is_contract_violation(self):
+        body = _snapshot_body()
+        del body["prediction_engine"]
+
+        def handler(request):
+            return httpx.Response(200, json=body)
+
+        client = _flow_client(handler)
+        with pytest.raises(UpstreamContractViolation):
+            await client.create_model_snapshot()
 
     @pytest.mark.asyncio
     async def test_snapshot_503_is_unavailable(self):
@@ -399,17 +470,93 @@ class TestControlFlowClient:
             await client.create_model_snapshot()
 
     @pytest.mark.asyncio
-    async def test_prediction_returns_exact_text_and_parsed(self):
+    async def test_flow_client_returns_verified_artifact_reference(self):
         body = _prediction_body()
+        content = json.dumps(
+            body, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
 
         def handler(request):
             assert request.url.path == "/api/v1/control/predictions"
-            return httpx.Response(200, json=body)
+            return _prediction_response(body)
 
         client = _flow_client(handler)
-        text, parsed = await client.create_prediction(_prediction_request())
-        assert json.loads(text) == body
-        assert parsed["prediction_run_id"] == "c" * 64
+        result = await client.create_prediction(_prediction_request())
+        assert result.prediction_run_id == "c" * 64
+        assert result.parsed["prediction_run_id"] == "c" * 64
+        assert result.identity_version == 2
+        assert result.engine_id == "munbon.flow-monitoring.network-transient"
+        assert result.semantic_contract_version == 1
+        assert result.build_digest == "a" * 64
+        assert result.engine_descriptor_content_hash == "b" * 64
+        # The reference sha/size are the client's OWN recomputation over the bytes.
+        assert result.artifact.artifact_sha256 == hashlib.sha256(content).hexdigest()
+        assert result.artifact.uncompressed_size_bytes == len(content)
+        assert result.artifact.media_type == "application/json"
+        assert result.artifact.encoding == "canonical-json+zlib"
+        assert result.artifact.encoding_version == 1
+
+    @pytest.mark.asyncio
+    async def test_prediction_artifact_sha_mismatch_is_contract_violation(self):
+        def handler(request):
+            return _prediction_response(
+                _prediction_body(),
+                header_overrides={"X-Prediction-Artifact-SHA256": "0" * 64},
+            )
+
+        client = _flow_client(handler)
+        with pytest.raises(UpstreamContractViolation, match="sha256"):
+            await client.create_prediction(_prediction_request())
+
+    @pytest.mark.asyncio
+    async def test_prediction_artifact_size_mismatch_is_contract_violation(self):
+        def handler(request):
+            return _prediction_response(
+                _prediction_body(),
+                header_overrides={
+                    "X-Prediction-Artifact-Uncompressed-Size": "999999"
+                },
+            )
+
+        client = _flow_client(handler)
+        with pytest.raises(UpstreamContractViolation, match="byte size"):
+            await client.create_prediction(_prediction_request())
+
+    @pytest.mark.asyncio
+    async def test_prediction_missing_artifact_header_is_contract_violation(self):
+        def handler(request):
+            return _prediction_response(
+                _prediction_body(),
+                header_overrides={"X-Prediction-Artifact-SHA256": None},
+            )
+
+        client = _flow_client(handler)
+        with pytest.raises(UpstreamContractViolation, match="missing"):
+            await client.create_prediction(_prediction_request())
+
+    @pytest.mark.asyncio
+    async def test_prediction_missing_engine_header_is_contract_violation(self):
+        def handler(request):
+            return _prediction_response(
+                _prediction_body(),
+                header_overrides={"X-Prediction-Engine-Id": None},
+            )
+
+        client = _flow_client(handler)
+        with pytest.raises(UpstreamContractViolation, match="missing"):
+            await client.create_prediction(_prediction_request())
+
+    @pytest.mark.asyncio
+    async def test_prediction_non_v2_identity_is_contract_violation(self):
+        def handler(request):
+            return _prediction_response(
+                _prediction_body(),
+                header_overrides={"X-Prediction-Identity-Version": "1"},
+            )
+
+        client = _flow_client(handler)
+        with pytest.raises(UpstreamContractViolation, match="identity_version"):
+            await client.create_prediction(_prediction_request())
 
     @pytest.mark.asyncio
     async def test_prediction_409_is_lineage_conflict(self):

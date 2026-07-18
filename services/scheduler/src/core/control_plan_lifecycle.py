@@ -14,8 +14,19 @@ import json
 from datetime import timezone
 from typing import Any, Mapping, Optional, Sequence
 
+from core.predicted_delivery_ledger import predicted_delivery_ledger_sha256
+
+
+def _sha256_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
 REQUIREMENT_SET_HASH_PREFIX = "scheduler:control-plan-requirements:v1\n"
 APPROVAL_FREEZE_SCHEMA_VERSION = 1
+# A v2 (artifact-reference) record freezes engine + artifact identity, so its
+# lineage-freeze schema advances to 3 (v1 records keep schema 1).
+APPROVAL_FREEZE_SCHEMA_VERSION_V3 = 3
+PROVENANCE_VERSION_V2 = 2
+_PREDICTION_MEMBERS = frozenset({"lower", "nominal", "upper"})
 
 STATE_DRAFT = "draft"
 STATE_UNDER_REVIEW = "under_review"
@@ -181,7 +192,13 @@ def validate_shadow_approval_coverage(record: Any) -> None:
     """Fail closed unless the draft is a fully-covered, feasible, completed
     prediction with a clean ledger whose lineage matches the plan header.
     `predicted_excess_risk` is approvable (shadow grants no authority); a terminal
-    `not_started`/`predicted_in_progress` (a projected shortfall) is NOT."""
+    `not_started`/`predicted_in_progress` (a projected shortfall) is NOT.
+
+    Dispatches by storage version: a v2 (artifact-reference) record proves
+    completion from the bounded member/coverage summaries + ledger WITHOUT the
+    full trajectory; a v1 record re-derives it from the persisted response."""
+    if getattr(record, "provenance_version", None) == PROVENANCE_VERSION_V2:
+        return validate_shadow_approval_coverage_v2(record)
     from core.control_plan import summarize_prediction_status
 
     if record.optimizer_status != "feasible":
@@ -212,7 +229,91 @@ def validate_shadow_approval_coverage(record: Any) -> None:
         raise ApprovalCoverageError(
             "shadow approval requires a completed three-member prediction"
         )
+    _validate_scheduled_and_ledger(record, record.prediction_response_sha256)
 
+
+def validate_shadow_approval_coverage_v2(record: Any) -> None:
+    """Prove a v2 draft is fully covered WITHOUT the full trajectory.
+
+    Completion is proven from the exact THREE hashed member summaries and the
+    bounded coverage summary (whose sha and run id must tie to the header), and
+    the ledger's lineage must reference this plan's run + artifact sha256 — never
+    a refetch/reparse of the up-to-64 MiB response."""
+    if record.optimizer_status != "feasible":
+        raise ApprovalCoverageError(
+            "only a feasible optimizer result can be approved for shadow"
+        )
+    if (
+        record.prediction_run_id is None
+        or record.artifact_sha256 is None
+        or record.prediction_member_summaries is None
+        or record.coverage_summary_document_text is None
+        or record.coverage_summary_sha256 is None
+        or record.predicted_delivery_ledger_sha256 is None
+    ):
+        raise ApprovalCoverageError(
+            "the v2 draft carries no complete artifact reference"
+        )
+    # Prove three-member completion from the hashed member summaries alone.
+    try:
+        summaries = json.loads(record.prediction_member_summaries)
+    except ValueError as error:
+        raise ApprovalCoverageError(
+            f"stored member summaries are not valid JSON: {error}"
+        ) from error
+    if not isinstance(summaries, list) or len(summaries) != 3:
+        raise ApprovalCoverageError(
+            "shadow approval requires exactly three member summaries"
+        )
+    labels = {
+        entry.get("member") for entry in summaries if isinstance(entry, dict)
+    }
+    if labels != _PREDICTION_MEMBERS or any(
+        entry.get("status") != "completed" for entry in summaries
+    ):
+        raise ApprovalCoverageError(
+            "shadow approval requires a completed three-member prediction"
+        )
+    if record.prediction_status != "completed":
+        raise ApprovalCoverageError(
+            "shadow approval requires a completed three-member prediction"
+        )
+    # The bounded coverage summary must be intact and tie to this plan's run.
+    if _sha256_text(record.coverage_summary_document_text) != (
+        record.coverage_summary_sha256
+    ):
+        raise ApprovalCoverageError(
+            "stored coverage summary does not match its hash"
+        )
+    try:
+        coverage = json.loads(record.coverage_summary_document_text)
+    except ValueError as error:
+        raise ApprovalCoverageError(
+            f"stored coverage summary is not valid JSON: {error}"
+        ) from error
+    if not isinstance(coverage, dict) or (
+        coverage.get("prediction_run_id") != record.prediction_run_id
+    ):
+        raise ApprovalCoverageError(
+            "coverage summary does not tie to the plan's prediction run"
+        )
+    # The ledger set must be exactly the one the header pins.
+    if predicted_delivery_ledger_sha256(record.ledger_entries) != (
+        record.predicted_delivery_ledger_sha256
+    ):
+        raise ApprovalCoverageError(
+            "ledger rows do not match the pinned ledger hash"
+        )
+    _validate_scheduled_and_ledger(record, record.artifact_sha256)
+
+
+def _validate_scheduled_and_ledger(
+    record: Any, expected_response_sha256: str
+) -> None:
+    """Shared coverage: every scheduled requirement has a valid delivery path, the
+    ledger covers exactly that set, every row references this plan's prediction
+    (run id + ``expected_response_sha256``), and each requirement's terminal row
+    lands at the horizon end predicting satisfaction."""
     scheduled = _scheduled_requirements(record)
     if not scheduled:
         raise ApprovalCoverageError("the draft has no scheduled requirement")
@@ -245,8 +346,7 @@ def validate_shadow_approval_coverage(record: Any) -> None:
     for entry in record.ledger_entries:
         if (
             entry.prediction_run_id != record.prediction_run_id
-            or entry.prediction_response_sha256
-            != record.prediction_response_sha256
+            or entry.prediction_response_sha256 != expected_response_sha256
         ):
             raise ApprovalCoverageError(
                 f"ledger row for {entry.requirement_id} references a different "
@@ -288,8 +388,10 @@ def _as_utc(instant):
 def build_shadow_approval_freeze(
     record: Any, *, ledger_sha256: str, requirement_set_sha256: str
 ) -> dict:
+    """The recomputable lineage freeze. A v2 record freezes the engine + artifact
+    identity (schema 3); a v1 record freezes the response sha (schema 1)."""
     scheduled = _scheduled_requirements(record)
-    return {
+    freeze = {
         "schema_version": APPROVAL_FREEZE_SCHEMA_VERSION,
         "approval_mode": "shadow",
         "machine_authority_granted": False,
@@ -320,6 +422,36 @@ def build_shadow_approval_freeze(
             "scheduled_requirement_count": len(scheduled),
         },
     }
+    if getattr(record, "provenance_version", None) == PROVENANCE_VERSION_V2:
+        freeze["schema_version"] = APPROVAL_FREEZE_SCHEMA_VERSION_V3
+        # v2 freezes the engine + artifact identity in place of the response copy.
+        freeze["prediction"] = {
+            "prediction_run_id": record.prediction_run_id,
+            "prediction_identity_version": record.prediction_identity_version,
+            "engine_id": record.engine_id,
+            "engine_semantic_contract_version": (
+                record.engine_semantic_contract_version
+            ),
+            "engine_build_digest": record.engine_build_digest,
+            "engine_descriptor_content_hash": (
+                record.engine_descriptor_content_hash
+            ),
+            "artifact_sha256": record.artifact_sha256,
+            "artifact_uncompressed_size_bytes": (
+                record.artifact_uncompressed_size_bytes
+            ),
+            "artifact_media_type": record.artifact_media_type,
+            "artifact_encoding": record.artifact_encoding,
+            "artifact_encoding_version": record.artifact_encoding_version,
+            "prediction_member_summaries_sha256": _sha256_text(
+                record.prediction_member_summaries
+            ),
+            "coverage_summary_sha256": record.coverage_summary_sha256,
+        }
+        freeze["ledger"]["predicted_delivery_ledger_sha256"] = (
+            record.predicted_delivery_ledger_sha256
+        )
+    return freeze
 
 
 def shadow_approval_freeze_text(freeze: Mapping[str, Any]) -> str:

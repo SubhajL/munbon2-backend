@@ -5,6 +5,7 @@ interfaces — tests/unit/test_control_service_clients.py asserts their method
 signatures match the production classes exactly.
 """
 
+import hashlib
 import json
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timezone
@@ -12,6 +13,10 @@ from typing import Optional
 from uuid import UUID
 
 from core.control_plan import canonical_json_text
+from services.clients.control_flow_client import (
+    FlowArtifactReference,
+    FlowPredictionResult,
+)
 from core.control_plan_cursor import decode_plan_cursor, encode_plan_cursor
 from core.control_plan_lifecycle import derive_control_plan_state
 from core.auth import is_trusted_shadow_approval
@@ -51,8 +56,19 @@ def requirement_item(volume=6000.0, run_id=None, requirement_id=None, version=3)
 
 def snapshot_mirror():
     return {
+        "schema_version": 3,
         "snapshot_id": "a" * 64,
         "data_status": "complete",
+        # The PR 4.4b-1 schema-v3 snapshot embeds the prediction engine descriptor
+        # verbatim; these four fields are the authority the served prediction's
+        # engine pins must equal (they match FakeControlFlowClient's defaults).
+        "prediction_engine": {
+            "schema_version": 1,
+            "engine_id": "munbon.flow-monitoring.network-transient",
+            "semantic_contract_version": 1,
+            "build_digest": "e" * 64,
+            "content_hash": "f" * 64,
+        },
         "routing_topology": {
             # N1 is a genuine branching node (children N2, N3), matching flow's
             # network-wide allocation contract. Delivery for SEC-1 is at N4 via
@@ -281,6 +297,10 @@ class FakeControlFlowClient:
         snapshot_error=None,
         with_timeline=True,
         infeasible_members=None,
+        engine_id="munbon.flow-monitoring.network-transient",
+        semantic_contract_version=1,
+        build_digest="e" * 64,
+        engine_descriptor_content_hash="f" * 64,
     ):
         self.snapshot = snapshot
         # When prediction_members is given, the caller controls the members
@@ -292,13 +312,21 @@ class FakeControlFlowClient:
         self.snapshot_error = snapshot_error
         self.with_timeline = with_timeline
         self.infeasible_members = set(infeasible_members or ())
+        # Identity-v2 engine pins the real client would read from Flow headers.
+        self.engine_id = engine_id
+        self.semantic_contract_version = semantic_contract_version
+        self.build_digest = build_digest
+        self.engine_descriptor_content_hash = engine_descriptor_content_hash
         self.prediction_requests = []
 
     async def create_model_snapshot(self):
         if self.snapshot_error is not None:
             raise self.snapshot_error
+        # Mirror production: the stored document text IS the full snapshot (which
+        # embeds prediction_engine), so a v2 row's engine pins can be cross-checked
+        # against the snapshot itself on reload.
         return (
-            canonical_json_text({"snapshot": self.snapshot["snapshot_id"]}),
+            canonical_json_text(self.snapshot),
             json.loads(json.dumps(self.snapshot)),
         )
 
@@ -347,7 +375,27 @@ class FakeControlFlowClient:
             "ends_at": request_document["ends_at"],
             "members": members,
         }
-        return canonical_json_text(body), body
+        response_text = canonical_json_text(body)
+        response_bytes = response_text.encode("utf-8")
+        return FlowPredictionResult(
+            prediction_run_id=body["prediction_run_id"],
+            identity_version=2,
+            engine_id=self.engine_id,
+            semantic_contract_version=self.semantic_contract_version,
+            build_digest=self.build_digest,
+            engine_descriptor_content_hash=(
+                self.engine_descriptor_content_hash
+            ),
+            artifact=FlowArtifactReference(
+                artifact_sha256=hashlib.sha256(response_bytes).hexdigest(),
+                uncompressed_size_bytes=len(response_bytes),
+                media_type="application/json",
+                encoding="canonical-json+zlib",
+                encoding_version=1,
+            ),
+            response_text=response_text,
+            parsed=body,
+        )
 
 
 class FakeRepository:
@@ -499,8 +547,15 @@ class ProjectionRecord:
     prediction_status: str
     prediction_run_id: Optional[str]
     prediction_response_sha256: Optional[str]
+    artifact_sha256: Optional[str]
     created_by_subject: str
     transitions: tuple = field(default_factory=tuple)
+
+    @property
+    def prediction_content_sha256(self) -> Optional[str]:
+        """The served/filterable content hash: the v1 response sha, else the v2
+        artifact sha — the exact COALESCE the Postgres projection selects."""
+        return self.prediction_response_sha256 or self.artifact_sha256
 
 
 def projection_record(
@@ -521,6 +576,7 @@ def projection_record(
     prediction_status: str = "completed",
     prediction_run_id: Optional[str] = "c" * 64,
     prediction_response_sha256: Optional[str] = "d" * 64,
+    artifact_sha256: Optional[str] = None,
     created_by_subject: str = "operator-1",
 ) -> ProjectionRecord:
     return ProjectionRecord(
@@ -539,6 +595,7 @@ def projection_record(
         prediction_status=prediction_status,
         prediction_run_id=prediction_run_id,
         prediction_response_sha256=prediction_response_sha256,
+        artifact_sha256=artifact_sha256,
         created_by_subject=created_by_subject,
         transitions=_transition_chain(lifecycle, approval_document),
     )
@@ -581,7 +638,7 @@ def _record_matches(record: ProjectionRecord, filters: ControlPlanListFilters) -
     ):
         return False
     if filters.prediction_content_sha256 is not None and (
-        record.prediction_response_sha256 != filters.prediction_content_sha256
+        record.prediction_content_sha256 != filters.prediction_content_sha256
     ):
         return False
     return True
@@ -609,7 +666,7 @@ def _summary_from(record: ProjectionRecord) -> ControlPlanSummaryOut:
         optimizer_status=record.optimizer_status,
         prediction_status=record.prediction_status,
         prediction_run_id=record.prediction_run_id,
-        prediction_response_sha256=record.prediction_response_sha256,
+        prediction_response_sha256=record.prediction_content_sha256,
         created_by_subject=record.created_by_subject,
         created_at=record.created_at,
     )

@@ -328,6 +328,60 @@ def test_list_summary_loads_only_the_shadow_approval_document():
     assert "control_state_transitions.to_state" in compiled
 
 
+def test_list_content_sha_coalesces_response_and_artifact_sha():
+    # BFF 4.4 filters/reads the prediction CONTENT hash, which is NULL on the
+    # response column for every v2 (artifact-reference) row. The projection must
+    # expose COALESCE(prediction_response_sha256, artifact_sha256) in BOTH the
+    # selected column and the content-hash filter, or a v2 plan lists with a null
+    # sha and is unfilterable by content hash.
+    stmt = build_summary_query(
+        ControlPlanListFilters(prediction_content_sha256="a" * 64), None, 25
+    )
+    compiled = str(
+        stmt.compile(
+            dialect=postgresql.dialect(),
+            compile_kwargs={"literal_binds": True},
+        )
+    ).lower()
+    coalesced = (
+        "coalesce(scheduler.control_plan_runs.prediction_response_sha256, "
+        "scheduler.control_plan_runs.artifact_sha256)"
+    )
+    # Selected as the served content sha AND used as the filter predicate.
+    assert coalesced in compiled
+    assert f"{coalesced} as prediction_response_sha256" in compiled
+    assert f"{coalesced} = '{'a' * 64}'" in compiled
+
+
+@pytest.mark.asyncio
+async def test_v2_row_lists_and_filters_on_artifact_sha():
+    # A feasible+completed v2 row (response sha NULL, artifact sha set) lists with
+    # a non-null content sha equal to its artifact_sha256 and is returned by
+    # ?prediction_content_sha256=<artifact_sha256>.
+    artifact = "7" * 64
+    v2 = projection_record(
+        _IDS[0],
+        created_at=datetime(2026, 7, 18, 8, 0, tzinfo=timezone.utc),
+        lifecycle="draft",
+        prediction_response_sha256=None,
+        artifact_sha256=artifact,
+    )
+    repo = FakeControlPlanProjectionRepository([v2])
+
+    page = await repo.list_plan_summaries(
+        None, filters=ControlPlanListFilters(), cursor=None, limit=25
+    )
+    assert [i.prediction_response_sha256 for i in page.items] == [artifact]
+
+    filtered = await repo.list_plan_summaries(
+        None,
+        filters=ControlPlanListFilters(prediction_content_sha256=artifact),
+        cursor=None,
+        limit=25,
+    )
+    assert [i.plan_id for i in filtered.items] == [_IDS[0]]
+
+
 def test_projection_repository_never_calls_assemble():
     source = inspect.getsource(projection_module)
     # The full-aggregate detail path must never be reached from the projection:
