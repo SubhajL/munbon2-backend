@@ -21,6 +21,7 @@ from fastapi.testclient import TestClient
 from api.routes import control_plans
 from clients.scheduler_client import (
     SchedulerAuthError,
+    SchedulerBadRequestError,
     SchedulerClient,
     SchedulerContractError,
     SchedulerControlPlanNotFoundError,
@@ -224,6 +225,49 @@ def _ledger_payload(*, entry_status: str = "predicted_fulfilled") -> dict:
     }
 
 
+def _coverage_payload(
+    *,
+    optimizer_status: str = "feasible",
+    prediction_status: str = "completed",
+    member_status: str = "completed",
+) -> dict:
+    """The scheduler's DEDICATED bounded coverage response (PR 4.4b-3) — a strict
+    subset, NOT the full detail. Mirrors ControlPlanPredictionCoverage exactly."""
+    return {
+        "plan_id": PLAN_ID,
+        "plan_version": PLAN_VERSION,
+        "requirement_run_id": REQ_RUN_ID,
+        "requirement_version": 2,
+        "model_snapshot_id": "model-snap-1",
+        "model_release_id": "model-rel-1",
+        "model_release_content_hash": "sha256:model-hash",
+        "input_content_hash": "sha256:input-hash",
+        "draft_content_hash": "sha256:draft-hash",
+        "optimizer_status": optimizer_status,
+        "prediction_status": prediction_status,
+        "prediction_run_id": "pred-run-1"
+        if prediction_status != "not_requested"
+        else None,
+        "prediction_member_statuses": [
+            {"member": "lower", "status": member_status},
+            {"member": "nominal", "status": member_status},
+            {"member": "upper", "status": member_status},
+        ],
+    }
+
+
+def _history_payload(*, lifecycle: str = "approved_for_shadow") -> dict:
+    """The scheduler's DEDICATED bounded lifecycle-history response (PR 4.4b-3)."""
+    return {
+        "plan_id": PLAN_ID,
+        "plan_version": PLAN_VERSION,
+        "lifecycle_state": lifecycle,
+        "created_by_subject": "operator-7",
+        "created_at": "2026-07-16T02:00:00Z",
+        "transitions": _transitions(lifecycle=lifecycle),
+    }
+
+
 # --- client stub + app builder for route tests ------------------------------
 class _StubSchedulerClient:
     def __init__(
@@ -231,13 +275,21 @@ class _StubSchedulerClient:
         *,
         projection: dict | None = None,
         ledger: dict | None = None,
+        coverage: dict | None = None,
+        history: dict | None = None,
         projection_error: Exception | None = None,
         ledger_error: Exception | None = None,
+        coverage_error: Exception | None = None,
+        history_error: Exception | None = None,
     ):
         self.projection = projection
         self.ledger = ledger
+        self.coverage = coverage
+        self.history = history
         self.projection_error = projection_error
         self.ledger_error = ledger_error
+        self.coverage_error = coverage_error
+        self.history_error = history_error
         self.calls: list[tuple] = []
 
     async def get_control_plan_projection(self, plan_id, plan_version, bearer_token):
@@ -251,6 +303,18 @@ class _StubSchedulerClient:
         if self.ledger_error is not None:
             raise self.ledger_error
         return self.ledger
+
+    async def get_prediction_coverage(self, plan_id, plan_version, bearer_token):
+        self.calls.append(("coverage", str(plan_id), plan_version, bearer_token))
+        if self.coverage_error is not None:
+            raise self.coverage_error
+        return self.coverage
+
+    async def get_lifecycle_history(self, plan_id, plan_version, bearer_token):
+        self.calls.append(("history", str(plan_id), plan_version, bearer_token))
+        if self.history_error is not None:
+            raise self.history_error
+        return self.history
 
 
 def _app(stub: _StubSchedulerClient) -> TestClient:
@@ -302,6 +366,45 @@ async def test_client_forwards_bearer_to_both_reads_at_exact_paths():
         f"http://scheduler.test/api/v1/control-plans/{PLAN_ID}/versions/{PLAN_VERSION}/ledger",
     ]
     assert all(r.headers["Authorization"] == f"Bearer {TOKEN}" for r in captured)
+
+
+@pytest.mark.asyncio
+async def test_client_forwards_bearer_to_dedicated_projection_paths():
+    # PR 4.4b-3: the two dedicated reads hit their OWN scheduler paths (not detail)
+    # and forward the operator bearer.
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/prediction-coverage"):
+            return httpx.Response(200, json=_coverage_payload(), request=request)
+        return httpx.Response(200, json=_history_payload(), request=request)
+
+    client, captured = _client(handler)
+
+    coverage = await client.get_prediction_coverage(PLAN_ID, PLAN_VERSION, TOKEN)
+    history = await client.get_lifecycle_history(PLAN_ID, PLAN_VERSION, TOKEN)
+
+    assert coverage["draft_content_hash"] == "sha256:draft-hash"
+    assert history["lifecycle_state"] == "approved_for_shadow"
+    base = f"http://scheduler.test/api/v1/control-plans/{PLAN_ID}/versions/{PLAN_VERSION}"
+    assert [str(r.url) for r in captured] == [
+        f"{base}/prediction-coverage",
+        f"{base}/lifecycle-history",
+    ]
+    assert all(r.headers["Authorization"] == f"Bearer {TOKEN}" for r in captured)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [400, 422])
+async def test_dedicated_reads_map_client_error_to_bad_request(status):
+    # The 4.4b-2 400/422 → BadRequest mapping is preserved on the dedicated reads.
+    def handler(request):
+        return httpx.Response(status, json={"detail": "bad"}, request=request)
+
+    client, _ = _client(handler)
+    with pytest.raises(SchedulerBadRequestError) as cov:
+        await client.get_prediction_coverage(PLAN_ID, PLAN_VERSION, TOKEN)
+    assert cov.value.status_code == status
+    with pytest.raises(SchedulerBadRequestError):
+        await client.get_lifecycle_history(PLAN_ID, PLAN_VERSION, TOKEN)
 
 
 @pytest.mark.asyncio
@@ -447,9 +550,34 @@ def test_bff_plan_projection_retains_exact_lineage():
     assert stub.calls == [("projection", PLAN_ID, PLAN_VERSION, TOKEN)]
 
 
+def test_bff_coverage_uses_dedicated_scheduler_endpoint():
+    # PR 4.4b-3: the route reads the scheduler's DEDICATED coverage endpoint, NOT
+    # the full detail — so the client is asked for coverage and never for detail.
+    stub = _StubSchedulerClient(coverage=_coverage_payload())
+    response = _app(stub).get(_base("/prediction-coverage"), headers=AUTH)
+
+    assert response.status_code == 200, response.text
+    assert stub.calls == [("coverage", PLAN_ID, PLAN_VERSION, TOKEN)]
+    body = response.json()
+    assert body["draft_content_hash"] == "sha256:draft-hash"
+    assert [m["status"] for m in body["prediction_member_statuses"]] == [
+        "completed",
+        "completed",
+        "completed",
+    ]
+
+
+def test_bff_history_uses_dedicated_endpoint():
+    stub = _StubSchedulerClient(history=_history_payload())
+    response = _app(stub).get(_base("/lifecycle-history"), headers=AUTH)
+
+    assert response.status_code == 200, response.text
+    assert stub.calls == [("history", PLAN_ID, PLAN_VERSION, TOKEN)]
+
+
 def test_bff_preserves_unavailable_prediction_status():
     stub = _StubSchedulerClient(
-        projection_error=SchedulerUnavailableError("scheduler is unavailable")
+        coverage_error=SchedulerUnavailableError("scheduler is unavailable")
     )
     response = _app(stub).get(_base("/prediction-coverage"), headers=AUTH)
 
@@ -462,7 +590,7 @@ def test_bff_preserves_unavailable_prediction_status():
 
 def test_bff_prediction_coverage_preserves_infeasible_members_without_completing():
     stub = _StubSchedulerClient(
-        projection=_detail_payload(
+        coverage=_coverage_payload(
             optimizer_status="infeasible",
             prediction_status="infeasible",
             member_status="infeasible",
@@ -486,7 +614,7 @@ def test_bff_prediction_coverage_preserves_infeasible_members_without_completing
 
 
 def test_bff_preserves_invalidated_lifecycle_in_history():
-    stub = _StubSchedulerClient(projection=_detail_payload(lifecycle="invalidated"))
+    stub = _StubSchedulerClient(history=_history_payload(lifecycle="invalidated"))
     response = _app(stub).get(_base("/lifecycle-history"), headers=AUTH)
 
     assert response.status_code == 200
@@ -498,6 +626,72 @@ def test_bff_preserves_invalidated_lifecycle_in_history():
     assert last["transition_document"] == {
         "invalidation_cause": "model_release_revoked"
     }
+
+
+def test_bff_projection_preserves_failure_taxonomy():
+    # Each dedicated read preserves the SAME fail-closed taxonomy as the detail
+    # reads: 404→404, auth→same, client 400/422→same, unavailable→503, drift→502.
+    cases = [
+        (SchedulerControlPlanNotFoundError("gone"), 404),
+        (SchedulerAuthError(401, "expired"), 401),
+        (SchedulerAuthError(403, "forbidden"), 403),
+        (SchedulerBadRequestError(422, "bad filter"), 422),
+        (SchedulerUnavailableError("scheduler is unavailable"), 503),
+        (SchedulerContractError("malformed"), 502),
+        (SchedulerUpstreamError("unexpected 500"), 502),
+    ]
+    for error, expected in cases:
+        cov = _app(
+            _StubSchedulerClient(coverage_error=error)
+        ).get(_base("/prediction-coverage"), headers=AUTH)
+        hist = _app(
+            _StubSchedulerClient(history_error=error)
+        ).get(_base("/lifecycle-history"), headers=AUTH)
+        assert cov.status_code == expected, (error, cov.text)
+        assert hist.status_code == expected, (error, hist.text)
+
+
+def test_bff_never_fabricates_on_projection_failure():
+    # A failed coverage/history read yields ONLY an error detail — never a
+    # fabricated coverage/history body with zeroed/empty fields.
+    for suffix, kwargs in (
+        ("/prediction-coverage", {"coverage_error": SchedulerUnavailableError("x")}),
+        ("/lifecycle-history", {"history_error": SchedulerUnavailableError("x")}),
+    ):
+        response = _app(_StubSchedulerClient(**kwargs)).get(
+            _base(suffix), headers=AUTH
+        )
+        assert response.status_code == 503
+        assert set(response.json()) == {"detail"}
+        for fabricated in (
+            "prediction_member_statuses",
+            "lifecycle_state",
+            "transitions",
+            "optimizer_status",
+        ):
+            assert fabricated not in response.text
+
+
+def test_bff_coverage_mismatched_identity_fails_closed_502():
+    # The scheduler returns a structurally valid coverage document for a DIFFERENT
+    # plan (upstream cache/routing defect); the BFF must not serve it as 200.
+    other_plan = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+    stub = _StubSchedulerClient(coverage=_coverage_payload())  # carries PLAN_ID
+    response = _app(stub).get(
+        f"/api/v1/control-plans/{other_plan}/versions/{PLAN_VERSION}"
+        "/prediction-coverage",
+        headers=AUTH,
+    )
+    assert response.status_code == 502
+    assert PLAN_ID not in response.text  # no wrong-plan body leaked
+
+
+def test_bff_coverage_drift_fails_closed_502():
+    drifted = _coverage_payload()
+    drifted["surprise_new_field"] = "unexpected"
+    stub = _StubSchedulerClient(coverage=drifted)
+    response = _app(stub).get(_base("/prediction-coverage"), headers=AUTH)
+    assert response.status_code == 502
 
 
 def test_bff_preserves_invalidated_ledger_row_status():

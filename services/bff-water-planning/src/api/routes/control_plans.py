@@ -134,6 +134,56 @@ async def _load_control_plan_projection(
     return projection
 
 
+async def _load_prediction_coverage(
+    client: SchedulerClient, plan_id: UUID, plan_version: int, token: str
+) -> ControlPlanPredictionCoverage:
+    """Fetch + strictly validate the scheduler's DEDICATED bounded coverage read
+    (PR 4.4b-3), not a projection of the full detail; drift → 502 (fail-closed)."""
+    try:
+        payload = await client.get_prediction_coverage(plan_id, plan_version, token)
+    except SchedulerControlPlanError as exc:
+        raise _raise_for_client_error(exc) from exc
+    try:
+        coverage = ControlPlanPredictionCoverage.model_validate(payload)
+    except ValidationError as exc:
+        logger.warning(
+            "scheduler prediction coverage failed strict validation",
+            plan_id=str(plan_id),
+            plan_version=plan_version,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="scheduler control-plan response failed validation",
+        ) from exc
+    _verify_identity(coverage.plan_id, coverage.plan_version, plan_id, plan_version)
+    return coverage
+
+
+async def _load_lifecycle_history(
+    client: SchedulerClient, plan_id: UUID, plan_version: int, token: str
+) -> ControlPlanLifecycleHistory:
+    """Fetch + strictly validate the scheduler's DEDICATED bounded lifecycle-history
+    read (PR 4.4b-3), not a projection of the full detail; drift → 502."""
+    try:
+        payload = await client.get_lifecycle_history(plan_id, plan_version, token)
+    except SchedulerControlPlanError as exc:
+        raise _raise_for_client_error(exc) from exc
+    try:
+        history = ControlPlanLifecycleHistory.model_validate(payload)
+    except ValidationError as exc:
+        logger.warning(
+            "scheduler lifecycle history failed strict validation",
+            plan_id=str(plan_id),
+            plan_version=plan_version,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="scheduler control-plan response failed validation",
+        ) from exc
+    _verify_identity(history.plan_id, history.plan_version, plan_id, plan_version)
+    return history
+
+
 async def _load_control_plan_ledger(
     client: SchedulerClient, plan_id: UUID, plan_version: int, token: str
 ) -> ControlPlanLedgerProjection:
@@ -230,24 +280,11 @@ async def get_prediction_coverage(
     token: str = Depends(get_operator_bearer_token),
     client: SchedulerClient = Depends(get_scheduler_client),
 ) -> ControlPlanPredictionCoverage:
-    projection = await _load_control_plan_projection(
-        client, plan_id, plan_version, token
-    )
-    return ControlPlanPredictionCoverage(
-        plan_id=projection.plan_id,
-        plan_version=projection.plan_version,
-        requirement_run_id=projection.requirement_run_id,
-        requirement_version=projection.requirement_version,
-        model_snapshot_id=projection.model_snapshot_id,
-        model_release_id=projection.model_release_id,
-        model_release_content_hash=projection.model_release_content_hash,
-        input_content_hash=projection.input_content_hash,
-        draft_content_hash=projection.draft_content_hash,
-        optimizer_status=projection.optimizer_status,
-        prediction_status=projection.prediction_status,
-        prediction_run_id=projection.prediction_run_id,
-        prediction_member_statuses=projection.prediction_member_statuses,
-    )
+    # PR 4.4b-3: read the scheduler's DEDICATED bounded coverage endpoint rather
+    # than projecting a subset out of the full detail. Deployment ordering (no
+    # feature flag): the scheduler must ship this endpoint before the BFF calls it
+    # — otherwise the 404 fails closed here rather than fabricating coverage.
+    return await _load_prediction_coverage(client, plan_id, plan_version, token)
 
 
 @router.get(
@@ -273,14 +310,6 @@ async def get_lifecycle_history(
     token: str = Depends(get_operator_bearer_token),
     client: SchedulerClient = Depends(get_scheduler_client),
 ) -> ControlPlanLifecycleHistory:
-    projection = await _load_control_plan_projection(
-        client, plan_id, plan_version, token
-    )
-    return ControlPlanLifecycleHistory(
-        plan_id=projection.plan_id,
-        plan_version=projection.plan_version,
-        lifecycle_state=projection.lifecycle_state,
-        created_by_subject=projection.created_by_subject,
-        created_at=projection.created_at,
-        transitions=projection.transitions,
-    )
+    # PR 4.4b-3: read the scheduler's DEDICATED bounded lifecycle-history endpoint
+    # rather than projecting the full detail (same deployment ordering as coverage).
+    return await _load_lifecycle_history(client, plan_id, plan_version, token)

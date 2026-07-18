@@ -20,6 +20,11 @@ from services.clients.control_flow_client import (
 from core.control_plan_cursor import decode_plan_cursor, encode_plan_cursor
 from core.control_plan_lifecycle import derive_control_plan_state
 from core.auth import is_trusted_shadow_approval
+from repositories.control_plan_projection_repository import (
+    build_ledger_projection,
+    build_lifecycle_history,
+    build_prediction_coverage,
+)
 from repositories.control_plan_repository import (
     PlanContentConflictError,
     TransitionConflictError,
@@ -717,4 +722,44 @@ class FakeControlPlanProjectionRepository:
             items=[_summary_from(r) for r in page],
             next_cursor=next_cursor,
             projection_schema_version=PROJECTION_SCHEMA_VERSION,
+        )
+
+
+# --- Bounded per-plan read-projection fake (PR 4.4b-3) ----------------------
+class FakeReadProjectionRepository:
+    """In-memory twin of the bounded per-plan reads (coverage / history / ledger).
+
+    It reads the SAME stored ``DraftPlanRecord``s a ``FakeRepository`` holds and
+    runs the PRODUCTION ``build_*`` projections over them, so it exercises the exact
+    projection logic the Postgres methods do (a divergence would fail an equivalence
+    test) and its method signatures are pinned to the real repository by
+    ``test_control_plan_read_projections``. Returns None for an absent plan, exactly
+    as the Postgres methods do (the route maps that to a 404)."""
+
+    def __init__(self, repository):
+        self._repository = repository
+
+    def _record(self, plan_id, plan_version):
+        return self._repository.by_key.get((plan_id, plan_version))
+
+    async def load_prediction_coverage(self, session, plan_id, plan_version):
+        record = self._record(plan_id, plan_version)
+        return None if record is None else build_prediction_coverage(record)
+
+    async def load_lifecycle_history(self, session, plan_id, plan_version):
+        record = self._record(plan_id, plan_version)
+        return (
+            None
+            if record is None
+            else build_lifecycle_history(record, record.transitions)
+        )
+
+    async def load_ledger_projection(self, session, plan_id, plan_version):
+        record = self._record(plan_id, plan_version)
+        return (
+            None
+            if record is None
+            else build_ledger_projection(
+                record, record.ledger_entries, record.events, record.requirements
+            )
         )

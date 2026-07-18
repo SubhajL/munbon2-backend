@@ -28,11 +28,7 @@ from core.control_plan import (
     UpstreamContractError,
 )
 from core.predicted_delivery_ledger import (
-    GateEvent,
     LedgerProjectionError,
-    ScheduledRequirement,
-    evaluate_safe_handover,
-    predicted_delivery_ledger_sha256,
 )
 from core.auth import (
     build_authorization_evidence,
@@ -55,18 +51,18 @@ from repositories.control_plan_repository import (
 )
 from repositories.control_plan_projection_repository import (
     PostgresControlPlanProjectionRepository,
+    ProjectionCorruptError,
 )
 from schemas.control_plan import (
     ControlPlanLedgerResponse,
+    ControlPlanLifecycleHistoryResponse,
     ControlPlanListFilters,
     ControlPlanListPage,
+    ControlPlanPredictionCoverageResponse,
     DraftControlPlanRequest,
     DraftControlPlanResponse,
     GatePlanEventOut,
-    HandoverVerdictOut,
-    LedgerEntryOut,
     LifecycleActionRequest,
-    MemberBoundsOut,
     PlanRequirementOut,
     PlanTransitionOut,
     PredictionMemberStatusOut,
@@ -445,6 +441,89 @@ async def get_control_plan_version(
     return _build_or_503(_response_from_record, record)
 
 
+def _projection_or_error(projection, plan_id: UUID, plan_version: int):
+    """A bounded read returned None → the plan does not exist (404). A present
+    projection is served as-is."""
+    if projection is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"control plan {plan_id} v{plan_version} not found",
+        )
+    return projection
+
+
+def _map_projection_errors(error: Exception, action: str) -> HTTPException:
+    """A stored document a bounded read loaded is corrupt (bad hash / bad JSON /
+    a null derived history) → fail closed with a 503, matching the detail read
+    paths; a store outage is also a 503. Never an opaque 500, never a partial
+    projection."""
+    if isinstance(error, (ProjectionCorruptError, LifecycleHistoryCorruptError)):
+        return HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)
+        )
+    if isinstance(error, SQLAlchemyError):
+        logger.error(f"{action} load failed", error=str(error))
+        return HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="control-plan store is unavailable",
+        )
+    raise error
+
+
+@router.get(
+    "/{plan_id}/versions/{plan_version}/prediction-coverage",
+    response_model=ControlPlanPredictionCoverageResponse,
+    dependencies=[Depends(require_operator)],
+)
+async def get_control_plan_prediction_coverage(
+    plan_id: UUID,
+    plan_version: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Dict = Depends(get_current_user),
+    repository: PostgresControlPlanProjectionRepository = Depends(
+        get_control_plan_projection_repository
+    ),
+):
+    """Bounded prediction-coverage read (require_operator): prediction lineage +
+    exact per-member statuses, projected WITHOUT loading the full aggregate. It
+    returns the same coverage data as projecting from the full detail."""
+    _actor_subject(current_user)
+    try:
+        coverage = await repository.load_prediction_coverage(
+            db, plan_id, plan_version
+        )
+    except Exception as error:  # noqa: BLE001 — remapped to a typed HTTP status
+        raise _map_projection_errors(error, "prediction-coverage")
+    return _projection_or_error(coverage, plan_id, plan_version)
+
+
+@router.get(
+    "/{plan_id}/versions/{plan_version}/lifecycle-history",
+    response_model=ControlPlanLifecycleHistoryResponse,
+    dependencies=[Depends(require_operator)],
+)
+async def get_control_plan_lifecycle_history(
+    plan_id: UUID,
+    plan_version: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Dict = Depends(get_current_user),
+    repository: PostgresControlPlanProjectionRepository = Depends(
+        get_control_plan_projection_repository
+    ),
+):
+    """Bounded lifecycle-history read (require_operator): plan identity + derived
+    lifecycle state + the COMPLETE ordered transition history (documents verbatim),
+    without loading the run's large documents."""
+    _actor_subject(current_user)
+    try:
+        history = await repository.load_lifecycle_history(
+            db, plan_id, plan_version
+        )
+    except Exception as error:  # noqa: BLE001 — remapped to a typed HTTP status
+        raise _map_projection_errors(error, "lifecycle-history")
+    return _projection_or_error(history, plan_id, plan_version)
+
+
 @router.get(
     "/{plan_id}/versions/{plan_version}/ledger",
     response_model=ControlPlanLedgerResponse,
@@ -455,144 +534,21 @@ async def get_control_plan_ledger(
     plan_version: int,
     db: AsyncSession = Depends(get_db),
     current_user: Dict = Depends(get_current_user),
-    service: ControlPlanDraftService = Depends(get_control_plan_service),
+    repository: PostgresControlPlanProjectionRepository = Depends(
+        get_control_plan_projection_repository
+    ),
 ):
+    """Bounded predicted-delivery ledger read (require_operator): the EXACT ledger
+    response the full ``_assemble`` path produced, projected from the bounded
+    ledger/requirement/event rows — never the run's large documents."""
     _actor_subject(current_user)
     try:
-        record = await service.get_draft(db, plan_id, plan_version)
-    except PlanNotFoundError as error:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(error)
+        ledger = await repository.load_ledger_projection(
+            db, plan_id, plan_version
         )
-    except DraftStoreCorruptError as error:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(error),
-        )
-    except SQLAlchemyError as error:
-        logger.error("ledger load failed", error=str(error))
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="draft store is unavailable",
-        )
-    return _build_or_503(_ledger_response_from_record, record)
-
-
-def _bounds(values: list) -> MemberBoundsOut:
-    present = [v for v in values if v is not None]
-    lower = min(present) if present else None
-    upper = max(present) if present else None
-    nominal = values[1] if len(values) == 3 else None
-    return MemberBoundsOut(lower_bound=lower, nominal=nominal, upper_bound=upper)
-
-
-def _ledger_response_from_record(record) -> ControlPlanLedgerResponse:
-    entries = []
-    for entry in record.ledger_entries:
-        delivered = _bounds(
-            [
-                entry.lower_delivered_m3,
-                entry.nominal_delivered_m3,
-                entry.upper_delivered_m3,
-            ]
-        )
-        # remaining is a bound: worst case (most remaining) comes from the
-        # least-delivered member, best case from the most-delivered member.
-        def _remaining(delivered_value):
-            return (
-                None
-                if delivered_value is None
-                else max(0.0, entry.required_volume_m3 - delivered_value)
-            )
-
-        remaining = MemberBoundsOut(
-            lower_bound=_remaining(delivered.upper_bound),
-            nominal=_remaining(delivered.nominal),
-            upper_bound=_remaining(delivered.lower_bound),
-        )
-        entries.append(
-            LedgerEntryOut(
-                requirement_id=entry.requirement_id,
-                section_id=entry.section_id,
-                checkpoint_index=entry.checkpoint_index,
-                checkpoint_at=entry.checkpoint_at,
-                status=entry.status,
-                required_volume_m3=entry.required_volume_m3,
-                approved_excess_m3=entry.approved_excess_m3,
-                delivered_m3=delivered,
-                path_in_transit_m3=_bounds(
-                    [
-                        entry.lower_path_in_transit_m3,
-                        entry.nominal_path_in_transit_m3,
-                        entry.upper_path_in_transit_m3,
-                    ]
-                ),
-                remaining_m3=remaining,
-                checkpoint_reasons=list(entry.checkpoint_reasons),
-            )
-        )
-    handover = [
-        HandoverVerdictOut(
-            gate_id=gate_id,
-            requirement_ids=requirement_ids,
-            is_safe=verdict.is_safe,
-            reasons=list(verdict.reasons),
-        )
-        for gate_id, requirement_ids, verdict in _handover_verdicts(record)
-    ]
-    return ControlPlanLedgerResponse(
-        plan_id=record.plan_id,
-        plan_version=record.plan_version,
-        prediction_run_id=record.prediction_run_id,
-        prediction_status=record.prediction_status,
-        ledger_sha256=predicted_delivery_ledger_sha256(record.ledger_entries),
-        entries=entries,
-        handover=handover,
-    )
-
-
-def _handover_verdicts(record):
-    gate_events = [
-        GateEvent(
-            gate_id=event.gate_id,
-            kind=event.event_kind,
-            planned_at=event.planned_at,
-            target_position_m=event.target_position_m,
-        )
-        for event in record.events
-    ]
-    all_completed = record.prediction_status == "completed"
-    by_gate: dict = {}
-    for requirement in record.requirements:
-        if requirement.planning_disposition != "scheduled":
-            continue
-        by_gate.setdefault(requirement.gate_id, []).append(
-            ScheduledRequirement(
-                requirement_id=str(requirement.requirement_id),
-                section_id=requirement.section_id,
-                gate_id=requirement.gate_id,
-                required_volume_m3=requirement.required_volume_m3,
-                approved_excess_m3=requirement.approved_excess_m3,
-                path_reach_ids=tuple(
-                    json.loads(requirement.path_reach_ids_document_text)
-                ),
-                window_start=requirement.window_start,
-                window_end=requirement.window_end,
-            )
-        )
-    for gate_id in sorted(by_gate):
-        gate_requirements = by_gate[gate_id]
-        verdict = evaluate_safe_handover(
-            gate_requirements,
-            record.ledger_entries,
-            gate_events,
-            all_members_completed=all_completed,
-        )
-        yield (
-            gate_id,
-            [r.requirement_id for r in gate_requirements],
-            verdict,
-        )
+    except Exception as error:  # noqa: BLE001 — remapped to a typed HTTP status
+        raise _map_projection_errors(error, "ledger")
+    return _projection_or_error(ledger, plan_id, plan_version)
 
 
 def _map_lifecycle_errors(error: Exception) -> HTTPException:

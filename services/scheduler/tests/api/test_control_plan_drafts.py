@@ -25,6 +25,7 @@ from services.control_plan_lifecycle_service import (
 
 from tests.control_plan_test_support import (
     FakeControlFlowClient,
+    FakeReadProjectionRepository,
     FakeRepository,
     FakeRosGisClient,
     draft_payload,
@@ -86,6 +87,11 @@ def _build_app(flow=None, repository=None, user=None):
     app.dependency_overrides[
         control_plans.get_lifecycle_service
     ] = override_lifecycle
+    # The bounded ledger/coverage/history reads go through the projection
+    # repository; back it with the SAME in-memory records the draft POST stores.
+    app.dependency_overrides[
+        control_plans.get_control_plan_projection_repository
+    ] = lambda: FakeReadProjectionRepository(repository)
     app.dependency_overrides[get_db] = override_db
     app.dependency_overrides[get_current_user] = lambda: (
         user
