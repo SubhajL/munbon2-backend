@@ -14,11 +14,17 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import json
+
+from core.auth import is_trusted_shadow_approval
 from core.control_plan_lifecycle import (
+    LifecycleHistoryCorruptError,
+    build_shadow_approval_document,
     build_shadow_approval_freeze,
     control_plan_requirement_set_sha256,
     derive_control_plan_state,
     next_state,
+    shadow_approval_document_text,
     shadow_approval_freeze_text,
     validate_shadow_approval_coverage,
     verify_shadow_approval_freeze,
@@ -106,7 +112,14 @@ class ControlPlanLifecycleService:
         )
 
     async def approve_shadow_plan(
-        self, session, plan_id, plan_version, actor_subject, reason=None
+        self,
+        session,
+        plan_id,
+        plan_version,
+        actor_subject,
+        reason=None,
+        authorization_evidence: Optional[dict] = None,
+        evidence_refs: Optional[list] = None,
     ) -> DraftPlanRecord:
         record = await self._load(session, plan_id, plan_version)
         # Coverage gate + lineage freeze BEFORE the edge is appended.
@@ -117,13 +130,19 @@ class ControlPlanLifecycleService:
             ledger_sha256=ledger_sha256,
             requirement_set_sha256=self._requirement_set_hash(record),
         )
+        # The endpoint always supplies real strict-mode evidence; internal/test
+        # callers may omit it, in which case the v2 wrapper still carries an
+        # empty (untrusted) evidence block so the document shape is consistent.
+        document = build_shadow_approval_document(
+            freeze, authorization_evidence or {}
+        )
         return await self._append(
             session,
             record,
             "shadow_approved",
             actor_subject,
             reason,
-            shadow_approval_freeze_text(freeze),
+            shadow_approval_document_text(document),
         )
 
     async def cancel_control_plan(
@@ -172,6 +191,21 @@ class ControlPlanLifecycleService:
         if approval is None:
             raise SupersedeScopeError(
                 "the successor has no shadow-approval freeze"
+            )
+        # Only a strict-policy (trusted) shadow approval may back a supersede: a
+        # legacy v1 freeze or a compat-mode v2 approval is not trusted evidence.
+        try:
+            approval_document = json.loads(approval.transition_document_text)
+        except (TypeError, ValueError) as error:
+            # A corrupt stored approval document is fail-closed corruption (503),
+            # never an opaque 500.
+            raise LifecycleHistoryCorruptError(
+                f"successor approval document is not valid JSON: {error}"
+            ) from error
+        if not is_trusted_shadow_approval(approval_document):
+            raise SupersedeScopeError(
+                "successor approval is not a trusted (strict-policy) shadow "
+                "approval"
             )
         verify_shadow_approval_freeze(
             approval.transition_document_text,

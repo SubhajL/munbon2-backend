@@ -8,6 +8,12 @@ const REQUIRED_ENV: Record<string, string> = {
   GIS_DATABASE_URL: 'postgresql://user:pw@test-host:5432/munbon_gis',
   TIMESCALE_PASSWORD: 'test-timescale-pw',
   POSTGRES_PASSWORD: 'test-postgres-pw',
+  // Control-plane trust hardening (PR 4.4a-1): the scheduler JWT config is
+  // host-required and never hardcoded.
+  JWT_SECRET_KEY: 'strong-test-jwt-secret-0123456789abcdef',
+  JWT_ISSUER: 'munbon-auth',
+  JWT_AUDIENCE: 'munbon-scheduler',
+  JWT_CLAIM_POLICY_MODE: 'strict',
 };
 
 describe('build-irrigation-config', () => {
@@ -45,6 +51,35 @@ describe('build-irrigation-config', () => {
       const awd = processes.find(p => p.name === 'awd-control');
       expect(awd?.env?.POSTGRES_PASSWORD).toBe(REQUIRED_ENV.POSTGRES_PASSWORD);
       expect(awd?.env?.TIMESCALE_PASSWORD).toBe(REQUIRED_ENV.TIMESCALE_PASSWORD);
+    });
+
+    it('never hardcodes the scheduler JWT secret and requires it from env', () => {
+      const prev = process.env.JWT_SECRET_KEY;
+      delete process.env.JWT_SECRET_KEY;
+      try {
+        expect(() => getIrrigationProcesses()).toThrow(/JWT_SECRET_KEY must be set/);
+      } finally {
+        process.env.JWT_SECRET_KEY = prev;
+      }
+
+      const scheduler = getIrrigationProcesses().find(p => p.name === 'scheduler');
+      // The old hardcoded 'change-me' secret is gone; the host value flows through.
+      expect(scheduler?.env?.JWT_SECRET_KEY).toBe(REQUIRED_ENV.JWT_SECRET_KEY);
+      expect(scheduler?.env?.JWT_SECRET_KEY).not.toBe('change-me');
+      expect(scheduler?.env?.JWT_ISSUER).toBe(REQUIRED_ENV.JWT_ISSUER);
+      expect(scheduler?.env?.JWT_AUDIENCE).toBe(REQUIRED_ENV.JWT_AUDIENCE);
+      expect(scheduler?.env?.JWT_CLAIM_POLICY_MODE).toBe(REQUIRED_ENV.JWT_CLAIM_POLICY_MODE);
+      expect(scheduler?.env?.JWT_ACCESS_TOKEN_TYPE).toBe('access');
+    });
+
+    it('requires the scheduler claim-policy mode from env (fail-closed)', () => {
+      const prev = process.env.JWT_CLAIM_POLICY_MODE;
+      delete process.env.JWT_CLAIM_POLICY_MODE;
+      try {
+        expect(() => getIrrigationProcesses()).toThrow(/JWT_CLAIM_POLICY_MODE must be set/);
+      } finally {
+        process.env.JWT_CLAIM_POLICY_MODE = prev;
+      }
     });
   });
 

@@ -267,6 +267,14 @@ class ReasonedActionRequest(_StrictModel):
     reason: NonBlank
 
 
+class ShadowApprovalRequest(_StrictModel):
+    """Approve-for-shadow now REQUIRES a reason and at least one non-blank
+    evidence reference (the human authorization trail pinned into the freeze)."""
+
+    reason: NonBlank
+    evidence_refs: list[NonBlank] = Field(min_length=1, max_length=20)
+
+
 class SupersedeRequest(_StrictModel):
     successor_plan_id: UUID
     successor_plan_version: StrictInt = Field(gt=0)

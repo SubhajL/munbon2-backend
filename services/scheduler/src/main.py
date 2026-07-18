@@ -10,6 +10,7 @@ from core.config import settings
 from core.database import Base, engine
 from core.redis import get_redis
 from core.logger import setup_logging, get_logger
+from api.middleware.request_id import RequestIDMiddleware
 from api.v1.routes import api_router
 from models import *  # noqa: F401,F403
 from algorithms.hydraulic_schedule_optimizer import (
@@ -70,6 +71,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Bounded request id so approval evidence can capture a safe correlation id.
+# (The fail-open AuthMiddleware is intentionally NOT wired.)
+app.add_middleware(RequestIDMiddleware)
 
 
 # Root endpoint

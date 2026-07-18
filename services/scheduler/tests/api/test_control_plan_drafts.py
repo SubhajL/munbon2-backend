@@ -1,7 +1,8 @@
-"""Control-plans API: auth, replay semantics, exact GET, error mapping."""
+"""Control-plans API: auth, RBAC, replay semantics, exact GET, error mapping."""
 
+import json
 from functools import partial
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -9,7 +10,9 @@ from fastapi.testclient import TestClient
 from algorithms.hydraulic_schedule_optimizer import (
     optimize_limited_adjustment_plan,
 )
+from api.middleware.request_id import RequestIDMiddleware
 from api.v1.endpoints import control_plans
+from core import deps
 from core.deps import get_current_user, get_db
 from services.clients.control_client_errors import (
     UpstreamContractViolation,
@@ -29,9 +32,21 @@ from tests.control_plan_test_support import (
     snapshot_mirror,
 )
 
+# Role-bearing principals as get_current_user would return them (the raw JWT
+# payload shape). A supervisor satisfies require_operator via the hierarchy.
+_OPERATOR = {"sub": "operator-1", "roles": ["operator"], "iss": "munbon-auth"}
+_SUPERVISOR = {
+    "sub": "supervisor-1",
+    "roles": ["supervisor"],
+    "jti": "jti-approve",
+    "iss": "munbon-auth",
+}
+_APPROVAL_BODY = {"reason": "coverage verified", "evidence_refs": ["ticket-77"]}
 
-def _build_app(flow=None, repository=None):
+
+def _build_app(flow=None, repository=None, user=None):
     app = FastAPI()
+    app.add_middleware(RequestIDMiddleware)
     app.include_router(control_plans.router, prefix="/api/v1/control-plans")
     app.state.optimize_limited_adjustment_plan = partial(
         optimize_limited_adjustment_plan,
@@ -72,8 +87,18 @@ def _build_app(flow=None, repository=None):
         control_plans.get_lifecycle_service
     ] = override_lifecycle
     app.dependency_overrides[get_db] = override_db
-    app.dependency_overrides[get_current_user] = lambda: {"sub": "operator-1"}
+    app.dependency_overrides[get_current_user] = lambda: (
+        user
+        if user is not None
+        # Default principal is admin-roled so non-RBAC roundtrip tests exercise
+        # the handler; RBAC-specific tests inject explicit principals via _as_user.
+        else {"sub": "operator-1", "roles": ["admin"]}
+    )
     return app, repository
+
+
+def _as_user(app, user):
+    app.dependency_overrides[get_current_user] = lambda: user
 
 
 class TestAuth:
@@ -92,7 +117,9 @@ class TestAuth:
 
     def test_token_without_subject_is_401(self):
         app, _ = _build_app()
-        app.dependency_overrides[get_current_user] = lambda: {}
+        # Carries a role (so RBAC passes) but no subject: the handler's defensive
+        # _actor_subject check must still reject it as 401.
+        app.dependency_overrides[get_current_user] = lambda: {"roles": ["admin"]}
         client = TestClient(app)
         response = client.post(
             "/api/v1/control-plans/drafts", json=draft_payload()
@@ -255,8 +282,9 @@ class TestLifecycleEndpoints:
         assert created.status_code == 201, created.text
         return created.json()["plan_id"]
 
-    def test_review_then_approve_advances_derived_state(self):
-        app, _ = _build_app()
+    def test_review_then_approve_advances_derived_state(self, monkeypatch):
+        monkeypatch.setattr(deps.settings, "jwt_claim_policy_mode", "strict")
+        app, _ = _build_app(user=_SUPERVISOR)
         client = TestClient(app)
         plan_id = self._create(client)
         base = f"/api/v1/control-plans/{plan_id}/versions/1"
@@ -265,29 +293,34 @@ class TestLifecycleEndpoints:
         assert review.status_code == 200, review.text
         assert review.json()["lifecycle_state"] == "under_review"
 
-        approve = client.post(f"{base}/approve-for-shadow", json={})
+        approve = client.post(f"{base}/approve-for-shadow", json=_APPROVAL_BODY)
         assert approve.status_code == 200, approve.text
         body = approve.json()
         assert body["lifecycle_state"] == "approved_for_shadow"
-        freeze = next(
+        document = next(
             t["transition_document"]
             for t in body["transitions"]
             if t["transition_type"] == "shadow_approved"
         )
-        assert freeze["machine_authority_granted"] is False
+        assert document["schema_version"] == 2
+        assert document["lineage_freeze"]["machine_authority_granted"] is False
+        assert document["authorization_evidence"]["claim_policy_mode"] == (
+            "strict"
+        )
 
-    def test_approve_without_review_is_409(self):
-        app, _ = _build_app()
+    def test_approve_without_review_is_409(self, monkeypatch):
+        monkeypatch.setattr(deps.settings, "jwt_claim_policy_mode", "strict")
+        app, _ = _build_app(user=_SUPERVISOR)
         client = TestClient(app)
         plan_id = self._create(client)
         response = client.post(
             f"/api/v1/control-plans/{plan_id}/versions/1/approve-for-shadow",
-            json={},
+            json=_APPROVAL_BODY,
         )
         assert response.status_code == 409
 
     def test_cancel_requires_reason(self):
-        app, _ = _build_app()
+        app, _ = _build_app(user=_SUPERVISOR)
         client = TestClient(app)
         plan_id = self._create(client)
         missing = client.post(
@@ -301,16 +334,17 @@ class TestLifecycleEndpoints:
         assert ok.status_code == 200
         assert ok.json()["lifecycle_state"] == "cancelled"
 
-    def test_coverage_rejection_maps_to_409(self):
+    def test_coverage_rejection_maps_to_409(self, monkeypatch):
+        monkeypatch.setattr(deps.settings, "jwt_claim_policy_mode", "strict")
         flow = FakeControlFlowClient(
             snapshot_mirror(), infeasible_members={"lower"}
         )
-        app, _ = _build_app(flow=flow)
+        app, _ = _build_app(flow=flow, user=_SUPERVISOR)
         client = TestClient(app)
         plan_id = self._create(client)
         base = f"/api/v1/control-plans/{plan_id}/versions/1"
         assert client.post(f"{base}/review", json={}).status_code == 200
-        approve = client.post(f"{base}/approve-for-shadow", json={})
+        approve = client.post(f"{base}/approve-for-shadow", json=_APPROVAL_BODY)
         assert approve.status_code == 409
 
     def test_lifecycle_routes_require_auth(self):
@@ -331,3 +365,144 @@ class TestLifecycleEndpoints:
             f"/api/v1/control-plans/{uuid4()}/versions/1/review", json={}
         )
         assert r.status_code == 404
+
+
+class TestRbacMatrix:
+    """The RBAC matrix is enforced per action (strict mode = production posture:
+    a present-but-insufficient role is 403; role-less is 403)."""
+
+    def _draft(self, client):
+        created = client.post(
+            "/api/v1/control-plans/drafts", json=draft_payload()
+        )
+        assert created.status_code == 201, created.text
+        return created.json()["plan_id"]
+
+    def test_control_plan_role_matrix_enforced_per_action(self, monkeypatch):
+        monkeypatch.setattr(deps.settings, "jwt_claim_policy_mode", "strict")
+        app, _ = _build_app(user=_SUPERVISOR)
+        client = TestClient(app)
+        # An operator can create the draft (require_operator) ...
+        _as_user(app, _OPERATOR)
+        plan_id = self._draft(client)
+        base = f"/api/v1/control-plans/{plan_id}/versions/1"
+
+        # ... but an operator cannot drive any supervisor-gated action.
+        _as_user(app, _OPERATOR)
+        assert client.post(f"{base}/review", json={}).status_code == 403
+        assert client.post(
+            f"{base}/approve-for-shadow", json=_APPROVAL_BODY
+        ).status_code == 403
+        assert client.post(
+            f"{base}/invalidate", json={"reason": "x"}
+        ).status_code == 403
+        assert client.post(
+            f"{base}/supersede",
+            json={
+                "successor_plan_id": str(uuid4()),
+                "successor_plan_version": 1,
+                "reason": "roll",
+            },
+        ).status_code == 403
+
+        # A field_team token (present but too low) cannot even read a draft.
+        _as_user(app, {"sub": "ft-1", "roles": ["field_team"]})
+        assert client.get(base).status_code == 403
+
+        # A supervisor can review.
+        _as_user(app, _SUPERVISOR)
+        assert client.post(f"{base}/review", json={}).status_code == 200
+
+    def test_operator_can_cancel_but_not_invalidate(self, monkeypatch):
+        monkeypatch.setattr(deps.settings, "jwt_claim_policy_mode", "strict")
+        app, _ = _build_app(user=_OPERATOR)
+        client = TestClient(app)
+        plan_id = self._draft(client)
+        base = f"/api/v1/control-plans/{plan_id}/versions/1"
+        # invalidate is supervisor-gated: an operator is 403.
+        assert client.post(
+            f"{base}/invalidate", json={"reason": "x"}
+        ).status_code == 403
+        # cancel is operator-gated (per the RBAC matrix): an operator succeeds.
+        assert client.post(
+            f"{base}/cancel", json={"reason": "withdraw"}
+        ).status_code == 200
+
+
+class TestApproveForShadowStrictPolicy:
+    def _reviewed_plan(self, client):
+        created = client.post(
+            "/api/v1/control-plans/drafts", json=draft_payload()
+        )
+        assert created.status_code == 201, created.text
+        plan_id = created.json()["plan_id"]
+        base = f"/api/v1/control-plans/{plan_id}/versions/1"
+        assert client.post(f"{base}/review", json={}).status_code == 200
+        return base
+
+    def test_approve_for_shadow_requires_strict_policy(self, monkeypatch):
+        app, _ = _build_app(user=_SUPERVISOR)
+        client = TestClient(app)
+        base = self._reviewed_plan(client)
+
+        # Compat: the strict-policy guard makes approval UNAVAILABLE (503) so a
+        # compat token can never mint a trusted approval.
+        monkeypatch.setattr(deps.settings, "jwt_claim_policy_mode", "compat")
+        compat = client.post(f"{base}/approve-for-shadow", json=_APPROVAL_BODY)
+        assert compat.status_code == 503
+
+        # Strict: the guard opens and the approval proceeds.
+        monkeypatch.setattr(deps.settings, "jwt_claim_policy_mode", "strict")
+        strict = client.post(f"{base}/approve-for-shadow", json=_APPROVAL_BODY)
+        assert strict.status_code == 200, strict.text
+        assert strict.json()["lifecycle_state"] == "approved_for_shadow"
+
+    def test_approve_for_shadow_requires_reason_and_evidence_refs(
+        self, monkeypatch
+    ):
+        monkeypatch.setattr(deps.settings, "jwt_claim_policy_mode", "strict")
+        app, _ = _build_app(user=_SUPERVISOR)
+        client = TestClient(app)
+        base = self._reviewed_plan(client)
+
+        missing_reason = client.post(
+            f"{base}/approve-for-shadow", json={"evidence_refs": ["t-1"]}
+        )
+        assert missing_reason.status_code == 422
+        empty_refs = client.post(
+            f"{base}/approve-for-shadow",
+            json={"reason": "ok", "evidence_refs": []},
+        )
+        assert empty_refs.status_code == 422
+        blank_ref = client.post(
+            f"{base}/approve-for-shadow",
+            json={"reason": "ok", "evidence_refs": ["  "]},
+        )
+        assert blank_ref.status_code == 422
+
+    def test_approval_persists_authorization_evidence(self, monkeypatch):
+        monkeypatch.setattr(deps.settings, "jwt_claim_policy_mode", "strict")
+        app, repository = _build_app(user=_SUPERVISOR)
+        client = TestClient(app)
+        base = self._reviewed_plan(client)
+        plan_id = base.split("/")[-3]
+
+        approve = client.post(f"{base}/approve-for-shadow", json=_APPROVAL_BODY)
+        assert approve.status_code == 200, approve.text
+
+        record = repository.by_key[(UUID(plan_id), 1)]
+        approval = next(
+            t
+            for t in record.transitions
+            if t.transition_type == "shadow_approved"
+        )
+        document = json.loads(approval.transition_document_text)
+        assert document["schema_version"] == 2
+        evidence = document["authorization_evidence"]
+        assert evidence["subject"] == _SUPERVISOR["sub"]
+        assert evidence["claim_policy_mode"] == "strict"
+        assert evidence["authorization_policy_version"] == "control-plan-rbac-v1"
+        assert evidence["evidence_refs"] == _APPROVAL_BODY["evidence_refs"]
+        # A safe correlation id was captured, and the raw jti never leaked.
+        assert isinstance(evidence["request_id"], str) and evidence["request_id"]
+        assert _SUPERVISOR["jti"] not in json.dumps(document)

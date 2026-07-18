@@ -2,6 +2,23 @@ from typing import List, Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, field_validator
 
+# Well-known weak/default signing secrets that must never sign a live token.
+_WEAK_JWT_SECRET_DENYLIST = frozenset(
+    {
+        "change-me",
+        "changeme",
+        "secret",
+        "password",
+        "dev",
+        "development",
+        "test",
+        "testing",
+        "default",
+        "jwt-secret",
+        "your-secret-key",
+    }
+)
+
 
 class Settings(BaseSettings):
     # Service Configuration
@@ -36,6 +53,15 @@ class Settings(BaseSettings):
     jwt_secret_key: str
     jwt_algorithm: str = "HS256"
     jwt_access_token_expire_minutes: int = 60
+    # Control-plane trust hardening (PR 4.4a-1): issuer/audience/mode are
+    # REQUIRED (no default) so a deployment cannot silently run without an
+    # explicit claim policy. `strict` mints trusted approvals; `compat` cannot.
+    jwt_issuer: str
+    jwt_audience: str
+    jwt_access_token_type: str = "access"
+    jwt_claim_policy_mode: str
+    jwt_clock_skew_seconds: int = 30
+    control_plan_authorization_policy_version: str = "control-plan-rbac-v1"
 
     # Optimization Settings
     optimization_timeout_seconds: int = 60
@@ -74,6 +100,52 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore",
     )
+
+    @field_validator("jwt_secret_key")
+    @classmethod
+    def reject_weak_jwt_secret(cls, v: str) -> str:
+        """Fail closed: a weak signing secret breaks Settings construction so
+        the service can never boot on a guessable key."""
+        if not isinstance(v, str) or not v.strip():
+            raise ValueError("jwt_secret_key must be a non-blank secret")
+        if len(v.encode("utf-8")) < 32:
+            raise ValueError(
+                "jwt_secret_key must be at least 32 bytes of entropy"
+            )
+        if v.strip().lower() in _WEAK_JWT_SECRET_DENYLIST:
+            raise ValueError(
+                "jwt_secret_key is a well-known weak/default value"
+            )
+        # Reject low-entropy patterned secrets: a short unit repeated to reach the
+        # length (e.g. "ab"*16, "abc"*n, a single char) is guessable despite being
+        # >=32 bytes, and so is a secret drawn from a tiny alphabet.
+        n = len(v)
+        for period in range(1, n // 4 + 1):
+            if n % period == 0 and v == v[:period] * (n // period):
+                raise ValueError(
+                    "jwt_secret_key must not be a short repeated pattern"
+                )
+        if len(set(v)) < 5:
+            raise ValueError(
+                "jwt_secret_key has too little character diversity"
+            )
+        return v
+
+    @field_validator("jwt_algorithm")
+    @classmethod
+    def require_hs256(cls, v: str) -> str:
+        if v != "HS256":
+            raise ValueError("jwt_algorithm must be pinned to HS256")
+        return v
+
+    @field_validator("jwt_claim_policy_mode")
+    @classmethod
+    def require_known_policy_mode(cls, v: str) -> str:
+        if v not in ("compat", "strict"):
+            raise ValueError(
+                "jwt_claim_policy_mode must be exactly 'compat' or 'strict'"
+            )
+        return v
 
     @field_validator("database_url", mode="before")
     @classmethod
