@@ -33,6 +33,20 @@ class SchedulerControlPlanNotFoundError(SchedulerControlPlanError):
         self.detail = detail
 
 
+class SchedulerBadRequestError(SchedulerControlPlanError):
+    """The scheduler rejected the request as a CLIENT error (400/422): a stale or
+    cross-filter cursor, an invalid lifecycle_state, or a malformed UUID filter.
+
+    These are the caller's fault, not an upstream outage, so the route forwards the
+    exact status (422→422, 400→400) instead of masking it as a 502 and firing a
+    false outage alert."""
+
+    def __init__(self, status_code: int, detail: str) -> None:
+        super().__init__(detail)
+        self.status_code = status_code
+        self.detail = detail
+
+
 class SchedulerUnavailableError(SchedulerControlPlanError):
     """The scheduler store/model is unavailable or unreachable (→ 503)."""
 
@@ -197,7 +211,10 @@ class SchedulerClient:
             return None
     # --- Fail-closed control-plan reads (PR 4.4) ----------------------------
     async def _get_control_plan_document(
-        self, path: str, bearer_token: str
+        self,
+        path: str,
+        bearer_token: str,
+        params: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """One authenticated GET that NEVER swallows failure: it raises a typed
         error carrying the upstream status, and returns only a JSON object on a
@@ -207,13 +224,15 @@ class SchedulerClient:
         try:
             if self._http_client is not None:
                 response = await self._http_client.get(
-                    url, headers=headers, timeout=self.timeout
+                    url, headers=headers, params=params, timeout=self.timeout
                 )
             else:
                 async with httpx.AsyncClient(
                     timeout=self.timeout, transport=self._transport
                 ) as client:
-                    response = await client.get(url, headers=headers)
+                    response = await client.get(
+                        url, headers=headers, params=params
+                    )
         except httpx.HTTPError as exc:
             self.logger.error(
                 "scheduler control-plan request failed to connect",
@@ -248,6 +267,10 @@ class SchedulerClient:
             raise SchedulerAuthError(status, detail)
         if status == 404:
             raise SchedulerControlPlanNotFoundError(detail)
+        if status in (400, 422):
+            # A CLIENT error the BFF forwards opaquely (stale/cross-filter cursor,
+            # invalid lifecycle_state, malformed UUID filter) — NOT an outage.
+            raise SchedulerBadRequestError(status, detail)
         if status == 503:
             raise SchedulerUnavailableError(detail)
         raise SchedulerUpstreamError(
@@ -270,6 +293,31 @@ class SchedulerClient:
         return await self._get_control_plan_document(
             f"/api/v1/control-plans/{plan_id}/versions/{plan_version}/ledger",
             bearer_token,
+        )
+
+    async def list_control_plans(
+        self,
+        *,
+        filters: Dict[str, Any],
+        cursor: Optional[str],
+        limit: int,
+        bearer_token: str,
+    ) -> Dict[str, Any]:
+        """Fetch one bounded page of the scheduler control-plan list.
+
+        Forwards the operator bearer + the exact filters/cursor/limit as query
+        params and preserves the SAME fail-closed taxonomy as the detail reads
+        (404→NotFound, 401/403→Auth, 503/transport→Unavailable, malformed→
+        Contract, other→Upstream). It NEVER fabricates an empty page on failure:
+        every non-200 raises a typed error the route re-raises as a status."""
+        params: Dict[str, Any] = {
+            key: value for key, value in filters.items() if value is not None
+        }
+        params["limit"] = limit
+        if cursor is not None:
+            params["cursor"] = cursor
+        return await self._get_control_plan_document(
+            "/api/v1/control-plans", bearer_token, params=params
         )
 
 

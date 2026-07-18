@@ -213,6 +213,16 @@ samconfig.toml
 
 # GitHub workflows (if private)
 .github/
+# ...but keep the control-plane hardening CI workflow tracked (PR 4.4a-3) despite
+# the blanket .github/ ignore above. Re-including a nested file requires
+# re-admitting each parent directory, then re-excluding its other contents. These
+# are ROOT-ANCHORED (leading slash) so ONLY this repo-root workflow becomes
+# trackable and nested service-level .github/ dirs stay ignored.
+!/.github/
+/.github/*
+!/.github/workflows/
+/.github/workflows/*
+!/.github/workflows/control-plane-hardening-tests.yml
 
 # Roo framework
 .roo/

@@ -58,6 +58,15 @@ StrictNumber = Annotated[float, BeforeValidator(_finite_number)]
 StrictInt = Annotated[int, BeforeValidator(_reject_bool)]
 StrictId = Annotated[str, Field(min_length=1), AfterValidator(_no_boundary_whitespace)]
 NonBlank = Annotated[str, Field(min_length=1), AfterValidator(_non_blank)]
+# Bounded, non-blank text for the persisted shadow-approval document: the list
+# projection loads this document per row, so its size is capped at the source to
+# keep the bounded projection genuinely bounded.
+BoundedReason = Annotated[
+    str, Field(min_length=1, max_length=2000), AfterValidator(_non_blank)
+]
+BoundedEvidenceRef = Annotated[
+    str, Field(min_length=1, max_length=200), AfterValidator(_non_blank)
+]
 
 
 class _StrictModel(BaseModel):
@@ -268,11 +277,13 @@ class ReasonedActionRequest(_StrictModel):
 
 
 class ShadowApprovalRequest(_StrictModel):
-    """Approve-for-shadow now REQUIRES a reason and at least one non-blank
-    evidence reference (the human authorization trail pinned into the freeze)."""
+    """Approve-for-shadow REQUIRES a reason and at least one non-blank evidence
+    reference (the human authorization trail pinned into the freeze). Both the
+    reason and each evidence ref are length-capped so the stored approval document
+    the bounded list projection later reads per row can never grow unbounded."""
 
-    reason: NonBlank
-    evidence_refs: list[NonBlank] = Field(min_length=1, max_length=20)
+    reason: BoundedReason
+    evidence_refs: list[BoundedEvidenceRef] = Field(min_length=1, max_length=20)
 
 
 class SupersedeRequest(_StrictModel):
@@ -316,3 +327,70 @@ class DraftControlPlanResponse(_StrictModel):
     transitions: list[PlanTransitionOut]
     created_by_subject: str
     created_at: datetime
+
+
+# --- Bounded list projection (PR 4.4a-3) ------------------------------------
+# The list page is a HEADER-ONLY projection: it MUST NOT carry any large
+# document (optimizer_result, prediction response, requirements/events/
+# transitions/ledger, trajectory). Bumping this version signals an incompatible
+# change to the list-page shape to every consumer (scheduler + BFF + contracts).
+PROJECTION_SCHEMA_VERSION = 1
+
+
+class ControlPlanListFilters(_StrictModel):
+    """The exact, optional filter set for the list route.
+
+    Doubles as the cursor's filter identity: a cursor is bound to
+    ``model_dump(mode="json", exclude_none=True)`` of these fields, so it cannot
+    be replayed across a different filter set. ``lifecycle_state`` filters on the
+    DERIVED current state (the terminal transition's ``to_state``), not the
+    frozen creation-metadata column.
+    """
+
+    lifecycle_state: Optional[_LIFECYCLE_STATE] = None
+    horizon_start_gte: Optional[AwareUtc] = None
+    horizon_end_lte: Optional[AwareUtc] = None
+    requirement_run_id: Optional[UUID] = None
+    requirement_version: Optional[StrictInt] = Field(default=None, gt=0)
+    input_content_hash: Optional[str] = None
+    model_snapshot_id: Optional[str] = None
+    model_release_content_hash: Optional[str] = None
+    prediction_run_id: Optional[str] = None
+    prediction_content_sha256: Optional[str] = None
+
+    def cursor_identity(self) -> dict[str, Any]:
+        return self.model_dump(mode="json", exclude_none=True)
+
+
+class ControlPlanSummaryOut(_StrictModel):
+    """One row of the bounded list projection — header columns + a derived
+    lifecycle state and approval-trust flag. NO optimizer_result, NO
+    requirements/events/transitions/ledger, NO trajectory."""
+
+    plan_id: UUID
+    plan_version: int
+    lifecycle_state: _LIFECYCLE_STATE
+    approval_trust: bool
+    horizon_start: datetime
+    horizon_end: datetime
+    requirement_run_id: UUID
+    requirement_version: int
+    input_content_hash: str
+    model_snapshot_id: str
+    model_release_content_hash: str
+    optimizer_status: Literal["feasible", "infeasible"]
+    prediction_status: Literal["not_requested", "completed", "infeasible"]
+    prediction_run_id: Optional[str]
+    prediction_response_sha256: Optional[str]
+    created_by_subject: str
+    created_at: datetime
+
+
+class ControlPlanListPage(_StrictModel):
+    items: list[ControlPlanSummaryOut]
+    next_cursor: Optional[str]
+    # Pinned to the CURRENT projection shape (== PROJECTION_SCHEMA_VERSION). Typing
+    # it as a Literal (not a bare int) means bumping the projection is a deliberate
+    # code change on both the scheduler and the BFF mirror, and an unexpected
+    # version can never round-trip silently.
+    projection_schema_version: Literal[1]

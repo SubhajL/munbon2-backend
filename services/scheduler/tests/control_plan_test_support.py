@@ -6,14 +6,25 @@ signatures match the production classes exactly.
 """
 
 import json
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timezone
+from typing import Optional
 from uuid import UUID
 
 from core.control_plan import canonical_json_text
+from core.control_plan_cursor import decode_plan_cursor, encode_plan_cursor
+from core.control_plan_lifecycle import derive_control_plan_state
+from core.auth import is_trusted_shadow_approval
 from repositories.control_plan_repository import (
     PlanContentConflictError,
     TransitionConflictError,
+    TransitionRecord,
+)
+from schemas.control_plan import (
+    PROJECTION_SCHEMA_VERSION,
+    ControlPlanListFilters,
+    ControlPlanListPage,
+    ControlPlanSummaryOut,
 )
 
 RUN_ID = UUID("8e0b0e6a-6c1e-5f5e-9d5c-2f6a8b1c2d3e")
@@ -391,3 +402,262 @@ class FakeRepository:
         )
         self.by_key[(plan_id, plan_version)] = updated
         self.by_input_hash[record.input_content_hash] = updated
+
+
+# --- Bounded list-projection fixtures + fake (PR 4.4a-3) --------------------
+# A complete strict-mode v2 approval evidence block (is_trusted_shadow_approval
+# returns True) versus a compat-mode v2 block (returns False). Built as literals
+# so the fake stays independent of the production freeze builders.
+TRUSTED_APPROVAL_DOCUMENT = {
+    "schema_version": 2,
+    "lineage_freeze": {"machine_authority_granted": False},
+    "authorization_evidence": {
+        "authorization_policy_version": "control-plan-rbac-v1",
+        "claim_policy_mode": "strict",
+        "subject": "supervisor-1",
+        "roles": ["supervisor"],
+        "token_identity_sha256": "a" * 64,
+        "request_id": "req-123",
+        "evidence_refs": ["ticket-77"],
+    },
+}
+UNTRUSTED_APPROVAL_DOCUMENT = {
+    "schema_version": 2,
+    "lineage_freeze": {"machine_authority_granted": False},
+    "authorization_evidence": {
+        "authorization_policy_version": "control-plan-rbac-v1",
+        "claim_policy_mode": "compat",
+        "subject": "supervisor-1",
+        "roles": ["supervisor"],
+        "token_identity_sha256": "a" * 64,
+        "request_id": "req-123",
+        "evidence_refs": ["ticket-77"],
+    },
+}
+
+# The transition chain that reaches each lifecycle state (matching the declared
+# edge graph in core.control_plan_lifecycle).
+_CHAIN_TO_STATE = {
+    "draft": [("draft_created", None, "draft")],
+    "under_review": [
+        ("draft_created", None, "draft"),
+        ("review_requested", "draft", "under_review"),
+    ],
+    "approved_for_shadow": [
+        ("draft_created", None, "draft"),
+        ("review_requested", "draft", "under_review"),
+        ("shadow_approved", "under_review", "approved_for_shadow"),
+    ],
+    "cancelled": [
+        ("draft_created", None, "draft"),
+        ("cancelled", "draft", "cancelled"),
+    ],
+    "invalidated": [
+        ("draft_created", None, "draft"),
+        ("invalidated", "draft", "invalidated"),
+    ],
+}
+
+
+def _transition_chain(lifecycle: str, approval_document: Optional[dict]):
+    chain = _CHAIN_TO_STATE[lifecycle]
+    transitions = []
+    for sequence, (kind, from_state, to_state) in enumerate(chain, start=1):
+        document_text = None
+        if kind == "shadow_approved" and approval_document is not None:
+            document_text = json.dumps(approval_document, separators=(",", ":"))
+        transitions.append(
+            TransitionRecord(
+                transition_sequence=sequence,
+                transition_type=kind,
+                from_state=from_state,
+                to_state=to_state,
+                actor_subject="actor",
+                reason=None,
+                transition_document_text=document_text,
+            )
+        )
+    return tuple(transitions)
+
+
+@dataclass(frozen=True)
+class ProjectionRecord:
+    """In-memory stand-in for a control_plan_runs header + its transition chain,
+    carrying exactly the columns the bounded list projection reads."""
+
+    plan_id: UUID
+    plan_version: int
+    created_at: datetime
+    horizon_start: datetime
+    horizon_end: datetime
+    requirement_run_id: UUID
+    requirement_version: int
+    input_content_hash: str
+    model_snapshot_id: str
+    model_release_content_hash: str
+    optimizer_status: str
+    prediction_status: str
+    prediction_run_id: Optional[str]
+    prediction_response_sha256: Optional[str]
+    created_by_subject: str
+    transitions: tuple = field(default_factory=tuple)
+
+
+def projection_record(
+    plan_id: UUID,
+    created_at: datetime,
+    *,
+    plan_version: int = 1,
+    lifecycle: str = "draft",
+    approval_document: Optional[dict] = None,
+    horizon_start: Optional[datetime] = None,
+    horizon_end: Optional[datetime] = None,
+    requirement_run_id: UUID = RUN_ID,
+    requirement_version: int = 3,
+    input_content_hash: str = "1" * 64,
+    model_snapshot_id: str = "a" * 64,
+    model_release_content_hash: str = "b" * 64,
+    optimizer_status: str = "feasible",
+    prediction_status: str = "completed",
+    prediction_run_id: Optional[str] = "c" * 64,
+    prediction_response_sha256: Optional[str] = "d" * 64,
+    created_by_subject: str = "operator-1",
+) -> ProjectionRecord:
+    return ProjectionRecord(
+        plan_id=plan_id,
+        plan_version=plan_version,
+        created_at=created_at,
+        horizon_start=horizon_start
+        or datetime(2026, 7, 20, tzinfo=timezone.utc),
+        horizon_end=horizon_end or datetime(2026, 7, 21, tzinfo=timezone.utc),
+        requirement_run_id=requirement_run_id,
+        requirement_version=requirement_version,
+        input_content_hash=input_content_hash,
+        model_snapshot_id=model_snapshot_id,
+        model_release_content_hash=model_release_content_hash,
+        optimizer_status=optimizer_status,
+        prediction_status=prediction_status,
+        prediction_run_id=prediction_run_id,
+        prediction_response_sha256=prediction_response_sha256,
+        created_by_subject=created_by_subject,
+        transitions=_transition_chain(lifecycle, approval_document),
+    )
+
+
+def _record_matches(record: ProjectionRecord, filters: ControlPlanListFilters) -> bool:
+    if filters.lifecycle_state is not None:
+        if derive_control_plan_state(record.transitions) != filters.lifecycle_state:
+            return False
+    if filters.horizon_start_gte is not None and (
+        record.horizon_start < filters.horizon_start_gte
+    ):
+        return False
+    if filters.horizon_end_lte is not None and (
+        record.horizon_end > filters.horizon_end_lte
+    ):
+        return False
+    if filters.requirement_run_id is not None and (
+        record.requirement_run_id != filters.requirement_run_id
+    ):
+        return False
+    if filters.requirement_version is not None and (
+        record.requirement_version != filters.requirement_version
+    ):
+        return False
+    if filters.input_content_hash is not None and (
+        record.input_content_hash != filters.input_content_hash
+    ):
+        return False
+    if filters.model_snapshot_id is not None and (
+        record.model_snapshot_id != filters.model_snapshot_id
+    ):
+        return False
+    if filters.model_release_content_hash is not None and (
+        record.model_release_content_hash != filters.model_release_content_hash
+    ):
+        return False
+    if filters.prediction_run_id is not None and (
+        record.prediction_run_id != filters.prediction_run_id
+    ):
+        return False
+    if filters.prediction_content_sha256 is not None and (
+        record.prediction_response_sha256 != filters.prediction_content_sha256
+    ):
+        return False
+    return True
+
+
+def _summary_from(record: ProjectionRecord) -> ControlPlanSummaryOut:
+    trust = False
+    for transition in record.transitions:
+        if transition.transition_type != "shadow_approved":
+            continue
+        text = transition.transition_document_text
+        trust = bool(text) and is_trusted_shadow_approval(json.loads(text))
+    return ControlPlanSummaryOut(
+        plan_id=record.plan_id,
+        plan_version=record.plan_version,
+        lifecycle_state=derive_control_plan_state(record.transitions),
+        approval_trust=trust,
+        horizon_start=record.horizon_start,
+        horizon_end=record.horizon_end,
+        requirement_run_id=record.requirement_run_id,
+        requirement_version=record.requirement_version,
+        input_content_hash=record.input_content_hash,
+        model_snapshot_id=record.model_snapshot_id,
+        model_release_content_hash=record.model_release_content_hash,
+        optimizer_status=record.optimizer_status,
+        prediction_status=record.prediction_status,
+        prediction_run_id=record.prediction_run_id,
+        prediction_response_sha256=record.prediction_response_sha256,
+        created_by_subject=record.created_by_subject,
+        created_at=record.created_at,
+    )
+
+
+class FakeControlPlanProjectionRepository:
+    """In-memory twin of PostgresControlPlanProjectionRepository: same
+    ``list_plan_summaries`` signature and identical keyset semantics (order
+    ``created_at DESC, plan_id DESC, plan_version DESC``, row-value keyset over the
+    row's TOTAL identity, limit+1 for next_cursor), implemented independently so a
+    divergence fails a test. The Python ``(created_at, plan_id, plan_version)``
+    tuple order matches Postgres's row-value comparison because ``UUID.__lt__`` is
+    the same big-endian byte order Postgres uses for ``uuid`` and ``plan_version``
+    is a plain integer."""
+
+    def __init__(self, records):
+        self.records = list(records)
+
+    async def list_plan_summaries(
+        self, session, *, filters: ControlPlanListFilters, cursor, limit: int
+    ) -> ControlPlanListPage:
+        identity = filters.cursor_identity()
+        keyset = decode_plan_cursor(cursor, identity) if cursor is not None else None
+        selected = [r for r in self.records if _record_matches(r, filters)]
+        selected.sort(
+            key=lambda r: (r.created_at, r.plan_id, r.plan_version), reverse=True
+        )
+        if keyset is not None:
+            cursor_created_at, cursor_plan_id, cursor_plan_version = keyset
+            selected = [
+                r
+                for r in selected
+                if (r.created_at, r.plan_id, r.plan_version)
+                < (cursor_created_at, cursor_plan_id, cursor_plan_version)
+            ]
+        window = selected[: limit + 1]
+        has_more = len(window) > limit
+        page = window[:limit]
+        next_cursor = None
+        if has_more and page:
+            next_cursor = encode_plan_cursor(
+                page[-1].created_at,
+                page[-1].plan_id,
+                page[-1].plan_version,
+                identity,
+            )
+        return ControlPlanListPage(
+            items=[_summary_from(r) for r in page],
+            next_cursor=next_cursor,
+            projection_schema_version=PROJECTION_SCHEMA_VERSION,
+        )

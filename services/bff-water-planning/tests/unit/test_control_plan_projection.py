@@ -677,12 +677,15 @@ def test_router_exposes_only_read_operations():
     assert methods == {"GET"}
 
 
-def test_openapi_advertises_no_list_route():
+def test_openapi_advertises_the_list_and_detail_routes():
+    # PR 4.4a-3 added the bounded LIST route at the collection path; the four
+    # per-plan detail routes remain unchanged.
     app = FastAPI()
     app.include_router(control_plans.router)
     paths = app.openapi()["paths"]
     template = "/api/v1/control-plans/{plan_id}/versions/{plan_version}"
-    assert "/api/v1/control-plans" not in paths
+    assert "/api/v1/control-plans" in paths  # the new list route
+    assert "get" in paths["/api/v1/control-plans"]
     assert template in paths
     assert f"{template}/prediction-coverage" in paths
     assert f"{template}/ledger" in paths

@@ -1,16 +1,27 @@
 """Draft control-plan endpoints (PR 4.3a) — non-commanding, immutable drafts."""
 
 import json
-from typing import Dict
+from datetime import datetime
+from typing import Dict, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    status,
+)
 from fastapi.concurrency import run_in_threadpool
+from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from algorithms.hydraulic_schedule_optimizer import HydraulicScheduleError
 from core.config import settings
+from core.control_plan_cursor import CursorError
 from core.control_plan import (
     DraftInputError,
     InternalPlanInvariantError,
@@ -42,8 +53,13 @@ from repositories.control_plan_repository import (
     PlanContentConflictError,
     PostgresControlPlanRepository,
 )
+from repositories.control_plan_projection_repository import (
+    PostgresControlPlanProjectionRepository,
+)
 from schemas.control_plan import (
     ControlPlanLedgerResponse,
+    ControlPlanListFilters,
+    ControlPlanListPage,
     DraftControlPlanRequest,
     DraftControlPlanResponse,
     GatePlanEventOut,
@@ -116,6 +132,12 @@ def get_lifecycle_service() -> ControlPlanLifecycleService:
     return ControlPlanLifecycleService(
         repository=PostgresControlPlanRepository()
     )
+
+
+def get_control_plan_projection_repository() -> (
+    PostgresControlPlanProjectionRepository
+):
+    return PostgresControlPlanProjectionRepository()
 
 
 class StoredDocumentError(Exception):
@@ -316,6 +338,78 @@ async def post_draft_control_plan(
     )
     response.headers["Idempotent-Replay"] = "true" if replayed else "false"
     return _build_or_503(_response_from_record, record)
+
+
+@router.get(
+    "",
+    response_model=ControlPlanListPage,
+    dependencies=[Depends(require_operator)],
+)
+async def list_control_plans(
+    limit: int = Query(25, ge=1, le=50),
+    cursor: Optional[str] = Query(default=None),
+    lifecycle_state: Optional[str] = Query(default=None),
+    horizon_start_gte: Optional[datetime] = Query(default=None),
+    horizon_end_lte: Optional[datetime] = Query(default=None),
+    requirement_run_id: Optional[UUID] = Query(default=None),
+    requirement_version: Optional[int] = Query(default=None),
+    input_content_hash: Optional[str] = Query(default=None),
+    model_snapshot_id: Optional[str] = Query(default=None),
+    model_release_content_hash: Optional[str] = Query(default=None),
+    prediction_run_id: Optional[str] = Query(default=None),
+    prediction_content_sha256: Optional[str] = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    current_user: Dict = Depends(get_current_user),
+    repository: PostgresControlPlanProjectionRepository = Depends(
+        get_control_plan_projection_repository
+    ),
+):
+    """Cursor-paginated, header-only list of control plans (require_operator).
+
+    The response is a BOUNDED projection — no optimizer_result, no prediction
+    response, no requirements/events/transitions/ledger, no trajectory. The
+    cursor is opaque and bound to this exact filter set: replaying it against a
+    different filter set is a 422 (CursorError), never a silently-wrong page.
+    """
+    _actor_subject(current_user)
+    try:
+        filters = ControlPlanListFilters(
+            lifecycle_state=lifecycle_state,
+            horizon_start_gte=horizon_start_gte,
+            horizon_end_lte=horizon_end_lte,
+            requirement_run_id=requirement_run_id,
+            requirement_version=requirement_version,
+            input_content_hash=input_content_hash,
+            model_snapshot_id=model_snapshot_id,
+            model_release_content_hash=model_release_content_hash,
+            prediction_run_id=prediction_run_id,
+            prediction_content_sha256=prediction_content_sha256,
+        )
+    except ValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"invalid list filter: {error.errors()[0]['msg']}",
+        )
+    try:
+        return await repository.list_plan_summaries(
+            db, filters=filters, cursor=cursor, limit=limit
+        )
+    except CursorError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)
+        )
+    except LifecycleHistoryCorruptError as error:
+        # A corrupt derived history is fail-closed corruption (503), matching the
+        # detail/lifecycle read paths — never an opaque 500.
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)
+        )
+    except SQLAlchemyError as error:
+        logger.error("control-plan list failed", error=str(error))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="control-plan store is unavailable",
+        )
 
 
 @router.get(

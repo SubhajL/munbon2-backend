@@ -5,6 +5,7 @@ from .awd_client import AWDControlClient
 from .flow_monitoring_client import FlowMonitoringClient
 from .scheduler_client import (
     SchedulerAuthError,
+    SchedulerBadRequestError,
     SchedulerClient,
     SchedulerContractError,
     SchedulerControlPlanError,
@@ -29,6 +30,7 @@ __all__ = [
     "SchedulerClient",
     "SchedulerControlPlanError",
     "SchedulerAuthError",
+    "SchedulerBadRequestError",
     "SchedulerControlPlanNotFoundError",
     "SchedulerUnavailableError",
     "SchedulerContractError",
