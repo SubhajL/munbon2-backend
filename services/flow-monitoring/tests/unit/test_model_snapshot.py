@@ -1,9 +1,14 @@
 from dataclasses import replace
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
 from core.demand_contract import content_hash
+from core.prediction_engine import (
+    build_prediction_engine_descriptor,
+    descriptor_from_build_digest,
+)
 from core.model_release import (
     EvidenceClass,
     HydraulicModelRelease,
@@ -34,6 +39,8 @@ CONFIG_SHA256 = {
     "routing_topology": "2" * 64,
 }
 OPERATING_ENVELOPE = OperatingEnvelope(0.0, 4.0, 60.0, 300.0, 604800.0)
+SERVICE_ROOT = Path(__file__).resolve().parents[2]
+ENGINE_DESCRIPTOR = build_prediction_engine_descriptor(SERVICE_ROOT)
 
 
 def _transport_element(upstream: str, downstream: str) -> RoutingElement:
@@ -117,7 +124,7 @@ def _release(
 
 
 class TestBuildModelSnapshot:
-    def test_model_snapshot_v2_separates_scada_graph_from_transport_coverage(self):
+    def test_model_snapshot_v3_separates_scada_graph_from_transport_coverage(self):
         release = _release()
         snapshot = build_model_snapshot(
             TOPOLOGY,
@@ -125,6 +132,7 @@ class TestBuildModelSnapshot:
             release,
             CONFIG_SHA256,
             False,
+            ENGINE_DESCRIPTOR,
         )
 
         assert {
@@ -134,6 +142,7 @@ class TestBuildModelSnapshot:
             "open_loop": snapshot["open_loop"],
             "actual_state_known": snapshot["actual_state_known"],
             "commandable": snapshot["commandable"],
+            "prediction_engine": snapshot["prediction_engine"],
             "scada_graph": snapshot["scada_graph"],
             "routing_topology": snapshot["routing_topology"],
             "action_model": snapshot["action_model"],
@@ -144,12 +153,13 @@ class TestBuildModelSnapshot:
                 "unavailable_transport_reaches"
             ],
         } == {
-            "schema_version": 2,
+            "schema_version": 3,
             "data_status": "partial",
             "mode": "open_loop_prediction",
             "open_loop": True,
             "actual_state_known": False,
             "commandable": False,
+            "prediction_engine": ENGINE_DESCRIPTOR,
             "scada_graph": {
                 "config_sha256": "a" * 64,
                 "source_workbook_sha256": SOURCE_SHA256,
@@ -210,6 +220,42 @@ class TestBuildModelSnapshot:
         }
         assert snapshot["snapshot_id"] == content_hash(payload)
 
+    def test_snapshot_id_changes_when_engine_digest_changes(self):
+        release = _release()
+        responses = reach_responses_from_model_release(release)
+        engine_b = descriptor_from_build_digest("d" * 64)
+        assert ENGINE_DESCRIPTOR["build_digest"] != engine_b["build_digest"]
+
+        snapshot_a = build_model_snapshot(
+            TOPOLOGY, responses, release, CONFIG_SHA256, False, ENGINE_DESCRIPTOR
+        )
+        snapshot_b = build_model_snapshot(
+            TOPOLOGY, responses, release, CONFIG_SHA256, False, engine_b
+        )
+
+        assert snapshot_a["prediction_engine"] == ENGINE_DESCRIPTOR
+        assert snapshot_b["prediction_engine"] == engine_b
+        # Only the engine differs, so ONLY the snapshot id may move.
+        assert snapshot_a["snapshot_id"] != snapshot_b["snapshot_id"]
+        assert {
+            key: value
+            for key, value in snapshot_a.items()
+            if key not in ("snapshot_id", "prediction_engine")
+        } == {
+            key: value
+            for key, value in snapshot_b.items()
+            if key not in ("snapshot_id", "prediction_engine")
+        }
+
+    def test_build_model_snapshot_rejects_invalid_engine_descriptor(self):
+        release = _release()
+        responses = reach_responses_from_model_release(release)
+        with pytest.raises(ModelSnapshotError, match="prediction engine descriptor"):
+            build_model_snapshot(
+                TOPOLOGY, responses, release, CONFIG_SHA256, False,
+                {"schema_version": 1, "engine_id": "x"},
+            )
+
     def test_response_model_projection_remains_release_schema_v1(self):
         release = _release()
         snapshot = build_model_snapshot(
@@ -218,6 +264,7 @@ class TestBuildModelSnapshot:
             release,
             CONFIG_SHA256,
             False,
+            ENGINE_DESCRIPTOR,
         )
 
         response_model = snapshot["response_model"]
@@ -241,6 +288,7 @@ class TestBuildModelSnapshot:
             None,
             CONFIG_SHA256,
             False,
+            ENGINE_DESCRIPTOR,
         )
 
         assert (
@@ -279,7 +327,8 @@ class TestBuildModelSnapshot:
         )
 
         first = build_model_snapshot(
-            TOPOLOGY, responses, release, CONFIG_SHA256, False
+            TOPOLOGY, responses, release, CONFIG_SHA256, False,
+            ENGINE_DESCRIPTOR
         )
         reordered = build_model_snapshot(
             TOPOLOGY,
@@ -287,6 +336,7 @@ class TestBuildModelSnapshot:
             reordered_release,
             dict(reversed(CONFIG_SHA256.items())),
             False,
+            ENGINE_DESCRIPTOR,
         )
 
         assert reordered == first
@@ -301,7 +351,8 @@ class TestBuildModelSnapshot:
         )
 
         snapshot = build_model_snapshot(
-            TOPOLOGY, (), release, CONFIG_SHA256, False
+            TOPOLOGY, (), release, CONFIG_SHA256, False,
+            ENGINE_DESCRIPTOR
         )
 
         assert (
@@ -323,6 +374,7 @@ class TestBuildModelSnapshot:
                 release,
                 CONFIG_SHA256,
                 False,
+                ENGINE_DESCRIPTOR,
             )
 
     def test_untyped_topology_is_rejected(self):
@@ -333,6 +385,7 @@ class TestBuildModelSnapshot:
                 None,
                 CONFIG_SHA256,
                 False,
+                ENGINE_DESCRIPTOR,
             )
 
     @pytest.mark.parametrize(
@@ -351,6 +404,7 @@ class TestBuildModelSnapshot:
                 None,
                 config_sha256,
                 False,
+                ENGINE_DESCRIPTOR,
             )
 
 
@@ -398,6 +452,7 @@ def test_committed_release_snapshot_reports_partial_41_available_1_unavailable()
         release,
         config_sha256,
         False,
+        ENGINE_DESCRIPTOR,
     )
 
     assert snapshot["data_status"] == "partial"

@@ -42,6 +42,9 @@ from core.demand_contract import content_hash  # noqa: E402
 from core.model_release import load_hydraulic_model_release  # noqa: E402
 from core.model_snapshot import build_model_snapshot  # noqa: E402
 from core.network_topology import load_validated_network  # noqa: E402
+from core.prediction_engine import (  # noqa: E402
+    build_prediction_engine_descriptor,
+)
 from core.reach_response import (  # noqa: E402
     ReachState,
     reach_responses_from_model_release,
@@ -145,6 +148,7 @@ def run_comparison(
         release,
         actual_config_sha256,
         actuation_approved=False,
+        prediction_engine=build_prediction_engine_descriptor(SERVICE_ROOT),
     )
     if snapshot["snapshot_id"] != case.model_snapshot_id:
         raise OfflineModelComparisonError(

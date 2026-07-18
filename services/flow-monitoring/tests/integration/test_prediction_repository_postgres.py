@@ -19,7 +19,10 @@ from urllib.parse import urlsplit
 import asyncpg
 import pytest
 
+from core.prediction_engine import descriptor_from_build_digest, engine_identity_fields
 from core.prediction_repository import (
+    PREDICTION_ENGINE_REQUEST_KEY,
+    PREDICTION_RUN_IDENTITY_VERSION_V2,
     PredictionArtifactCorrupt,
 
     PredictionArtifactRecord,
@@ -97,17 +100,51 @@ async def _ensure_schema_registry(conn: asyncpg.Connection) -> None:
 # ---------------------------------------------------------------------------
 
 
+_MIGRATION_IDS = (
+    "0001_prediction_persistence",
+    "0002_prediction_engine_identity_v2",
+)
+
+
+async def _purge_prediction_rows(conn: asyncpg.Connection) -> None:
+    """Delete all prediction rows (immutability triggers block DELETE) so that
+    0002's v2-row down-refusal does not block teardown of a disposable DB.
+
+    The triggers are left disabled: the caller immediately rolls the migrations
+    back (DROP TABLE), so re-enabling them would only trip the pending
+    deferred-FK events inside this transaction."""
+    exists = await conn.fetchval(
+        "SELECT to_regclass('flow_monitoring.prediction_runs')"
+    )
+    if exists is None:
+        return
+    async with conn.transaction():
+        await conn.execute(
+            "ALTER TABLE flow_monitoring.prediction_runs "
+            "DISABLE TRIGGER prediction_runs_are_immutable"
+        )
+        await conn.execute(
+            "ALTER TABLE flow_monitoring.prediction_artifacts "
+            "DISABLE TRIGGER prediction_artifacts_are_immutable"
+        )
+        await conn.execute("DELETE FROM flow_monitoring.prediction_artifacts")
+        await conn.execute("DELETE FROM flow_monitoring.prediction_runs")
+
+
 @asynccontextmanager
 async def migrated_pool(test_pg_kwargs: dict):
-    """Apply the migration, yield a pool, roll back on exit. A context
-    manager rather than an async fixture: pytest-asyncio 0.21.1 async-gen
-    fixtures are broken on pytest 8.4 (FixtureDef.unittest removed), and the
-    per-test apply/rollback also isolates every test's schema state."""
+    """Apply BOTH prediction migrations, yield a pool, roll back on exit. A
+    context manager rather than an async fixture: pytest-asyncio 0.21.1
+    async-gen fixtures are broken on pytest 8.4 (FixtureDef.unittest removed),
+    and the per-test apply/rollback also isolates every test's schema state."""
     conn = await asyncpg.connect(**test_pg_kwargs)
     await _ensure_schema_registry(conn)
     try:
-        result = await apply_migration(conn, "0001_prediction_persistence")
-        assert result in ("applied", "already-applied"), f"apply returned {result}"
+        for migration_id in _MIGRATION_IDS:
+            result = await apply_migration(conn, migration_id)
+            assert result in ("applied", "already-applied"), (
+                f"apply {migration_id} returned {result}"
+            )
     finally:
         await conn.close()
 
@@ -118,7 +155,9 @@ async def migrated_pool(test_pg_kwargs: dict):
         await pool.close()
         rollback_conn = await asyncpg.connect(**test_pg_kwargs)
         try:
-            await rollback_migration(rollback_conn, "0001_prediction_persistence")
+            await _purge_prediction_rows(rollback_conn)
+            for migration_id in reversed(_MIGRATION_IDS):
+                await rollback_migration(rollback_conn, migration_id)
         finally:
             await rollback_conn.close()
 
@@ -130,6 +169,42 @@ async def migrated_pool(test_pg_kwargs: dict):
 
 def _artifact_record_response(response_bytes: bytes) -> PredictionArtifactRecord:
     return encode_prediction_artifact(response_bytes)
+
+
+async def _insert_raw_v2_row(
+    conn: asyncpg.Connection,
+    *,
+    build_digest: str | None,
+    content_hash: str | None,
+) -> None:
+    """Raw identity_version=2 header INSERT that bypasses the record's Python
+    validation, to exercise the DB CHECK directly. The engine columns are the
+    only ones varied; everything else is well-formed."""
+    await conn.execute(
+        """
+        INSERT INTO flow_monitoring.prediction_runs (
+            prediction_run_id, identity_version, response_schema_version,
+            request_payload, model_snapshot_id, model_release_id,
+            model_release_content_hash, starts_at, ends_at, timestep_seconds,
+            member_summaries, artifact_sha256,
+            engine_id, semantic_contract_version, build_digest,
+            engine_descriptor_content_hash
+        ) VALUES (
+            $1, 2, 2, '{}', $2, 'test-release', $3,
+            '2026-07-20T23:00:00+00'::timestamptz,
+            '2026-07-21T05:00:00+00'::timestamptz,
+            300.0, $4::jsonb, $5,
+            'munbon.flow-monitoring.network-transient', 1, $6, $7
+        )
+        """,
+        "a" * 64,
+        "b" * 64,
+        "c" * 64,
+        '[{"m":"lower"},{"m":"nominal"},{"m":"upper"}]',
+        "d" * 64,
+        build_digest,
+        content_hash,
+    )
 
 
 def _prediction_run(payload_override: dict | None = None) -> PredictionRunRecord:
@@ -196,6 +271,65 @@ def _prediction_run(payload_override: dict | None = None) -> PredictionRunRecord
         timestep_seconds=300.0,
         member_summaries=summarize_prediction_members(response),
         artifact=_artifact_record_response(response_bytes),
+    )
+
+
+def _prediction_run_v2(
+    build_digest: str = "e" * 64, payload_override: dict | None = None
+) -> PredictionRunRecord:
+    """An identity-v2 run whose payload embeds the engine descriptor and whose
+    columns pin the same engine identity (mirrors the API write path)."""
+    descriptor = descriptor_from_build_digest(build_digest)
+    base_payload = {
+        "model_snapshot_id": "a" * 64,
+        "model_release_id": "test-release",
+        "model_release_content_hash": "b" * 64,
+        "starts_at": "2026-07-20T23:00:00Z",
+        "ends_at": "2026-07-21T05:00:00Z",
+        "timestep_seconds": 300.0,
+    }
+    payload = {
+        **base_payload,
+        **(payload_override or {}),
+        PREDICTION_ENGINE_REQUEST_KEY: {
+            key: descriptor[key]
+            for key in (
+                "schema_version", "engine_id", "semantic_contract_version",
+                "build_digest", "content_hash",
+            )
+        },
+    }
+    run_id = prediction_run_id_for(payload, PREDICTION_RUN_IDENTITY_VERSION_V2)
+    response = {
+        "schema_version": 2,
+        "persistence": "stored",
+        "prediction_run_id": run_id,
+        "members": [
+            {
+                "member": member,
+                "status": "completed",
+                "predicted_delivered_total_m3": 300.0,
+                "violations": [{"kind": "requirement_shortfall"}],
+                "infeasibility": None,
+            }
+            for member in ("lower", "nominal", "upper")
+        ],
+    }
+    response_bytes = canonical_json_bytes(response)
+    return PredictionRunRecord(
+        prediction_run_id=run_id,
+        identity_version=PREDICTION_RUN_IDENTITY_VERSION_V2,
+        response_schema_version=2,
+        request_payload=payload,
+        model_snapshot_id=payload["model_snapshot_id"],
+        model_release_id=payload["model_release_id"],
+        model_release_content_hash=payload["model_release_content_hash"],
+        starts_at=datetime(2026, 7, 20, 23, 0, tzinfo=timezone.utc),
+        ends_at=datetime(2026, 7, 21, 5, 0, tzinfo=timezone.utc),
+        timestep_seconds=300.0,
+        member_summaries=summarize_prediction_members(response),
+        artifact=_artifact_record_response(response_bytes),
+        **engine_identity_fields(descriptor),
     )
 
 
@@ -456,3 +590,112 @@ class TestLoadPredictionRunErrors:
 
             with pytest.raises(PredictionArtifactCorrupt):
                 await repo.load_prediction_run(run.prediction_run_id)
+
+
+@pytest.mark.asyncio
+class TestEngineIdentityV2Migration:
+    async def test_v1_and_v2_prediction_migrations_roundtrip_on_postgres(
+        self, test_pg_kwargs: dict
+    ):
+        """Both a v1 (no engine pins) and a v2 (engine columns populated) run
+        persist and load byte-exactly under the 0001+0002 schema."""
+        async with migrated_pool(test_pg_kwargs) as pool:
+            repo = PostgresPredictionRepository(pool)
+
+            v1 = _prediction_run()
+            stored_v1, replayed_v1 = await repo.persist_prediction_run(v1)
+            assert replayed_v1 is False
+            loaded_v1 = await repo.load_prediction_run(v1.prediction_run_id)
+            assert loaded_v1 is not None
+            assert loaded_v1.identity_version == 1
+            assert loaded_v1.engine_id is None
+            assert loaded_v1.build_digest is None
+
+            v2 = _prediction_run_v2()
+            stored_v2, replayed_v2 = await repo.persist_prediction_run(v2)
+            assert replayed_v2 is False
+            loaded_v2 = await repo.load_prediction_run(v2.prediction_run_id)
+            assert loaded_v2 is not None
+            assert loaded_v2.identity_version == 2
+            assert loaded_v2.engine_id == v2.engine_id
+            assert loaded_v2.build_digest == v2.build_digest
+            assert loaded_v2.engine_descriptor_content_hash == (
+                v2.engine_descriptor_content_hash
+            )
+            assert loaded_v2.artifact.compressed_payload == (
+                v2.artifact.compressed_payload
+            )
+
+    async def test_v2_engine_digest_changes_the_stored_run_id(
+        self, test_pg_kwargs: dict
+    ):
+        async with migrated_pool(test_pg_kwargs) as pool:
+            repo = PostgresPredictionRepository(pool)
+            first = _prediction_run_v2(build_digest="a" * 64)
+            second = _prediction_run_v2(build_digest="c" * 64)
+            assert first.prediction_run_id != second.prediction_run_id
+            await repo.persist_prediction_run(first)
+            await repo.persist_prediction_run(second)
+            assert await repo.load_prediction_run(first.prediction_run_id)
+            assert await repo.load_prediction_run(second.prediction_run_id)
+
+    async def test_v2_check_rejects_null_engine_digests(self, test_pg_kwargs: dict):
+        """The identity_version=2 CHECK must REJECT a row whose build_digest or
+        content_hash is NULL. `NULL ~ regex` is SQL NULL and Postgres treats a
+        NULL CHECK result as satisfied, so without an explicit IS NOT NULL guard
+        such a row would COMMIT with fabricated (empty) provenance. A well-formed
+        v2 row still passes the CHECK (only the deferred artifact FK stops it)."""
+        async with migrated_pool(test_pg_kwargs) as pool:
+            async with pool.acquire() as conn:
+                # NULL build_digest -> CHECK violation (immediate, at INSERT).
+                with pytest.raises(asyncpg.exceptions.CheckViolationError):
+                    async with conn.transaction():
+                        await _insert_raw_v2_row(
+                            conn, build_digest=None, content_hash="e" * 64
+                        )
+                # NULL content_hash -> CHECK violation too.
+                with pytest.raises(asyncpg.exceptions.CheckViolationError):
+                    async with conn.transaction():
+                        await _insert_raw_v2_row(
+                            conn, build_digest="e" * 64, content_hash=None
+                        )
+                # Well-formed engine pins pass the CHECK: the INSERT does NOT
+                # raise CheckViolationError; only the deferred artifact FK (no
+                # matching artifact row) rejects at COMMIT.
+                with pytest.raises(asyncpg.exceptions.ForeignKeyViolationError):
+                    async with conn.transaction():
+                        await _insert_raw_v2_row(
+                            conn, build_digest="e" * 64, content_hash="e" * 64
+                        )
+
+    async def test_down_refuses_while_a_v2_row_exists(self, test_pg_kwargs: dict):
+        """Rolling 0002 back once identity-v2 rows exist must fail closed —
+        those rows depend on the engine columns and relaxed CHECK."""
+        conn = await asyncpg.connect(**test_pg_kwargs)
+        await _ensure_schema_registry(conn)
+        try:
+            for migration_id in _MIGRATION_IDS:
+                await apply_migration(conn, migration_id)
+        finally:
+            await conn.close()
+
+        pool = await asyncpg.create_pool(**test_pg_kwargs)
+        try:
+            repo = PostgresPredictionRepository(pool)
+            await repo.persist_prediction_run(_prediction_run_v2())
+        finally:
+            await pool.close()
+
+        rollback_conn = await asyncpg.connect(**test_pg_kwargs)
+        try:
+            with pytest.raises(asyncpg.PostgresError, match="cannot roll back 0002"):
+                await rollback_migration(
+                    rollback_conn, "0002_prediction_engine_identity_v2"
+                )
+            # Purge the v2 row so the standard rollback can proceed and leave a
+            # pristine database.
+            await _purge_prediction_rows(rollback_conn)
+            for migration_id in reversed(_MIGRATION_IDS):
+                await rollback_migration(rollback_conn, migration_id)
+        finally:
+            await rollback_conn.close()

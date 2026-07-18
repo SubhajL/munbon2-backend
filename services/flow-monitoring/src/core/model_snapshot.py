@@ -1,9 +1,12 @@
 """Content-addressed snapshot of the sensorless hydraulic model.
 
-Schema version 2: canonical SCADA graph identity, the derived typed
-routing topology, and transport-response coverage are exposed as separate
-concepts. Only transport elements can carry reach responses; boundary,
-branch, and withdrawal structures are structural transitions.
+Schema version 3 (PR 4.4b-1): additionally embeds the running prediction
+ENGINE descriptor, so a change to the prediction closure's bytes changes the
+snapshot id (and therefore the identity-v2 prediction run id). Schema version 2
+introduced the canonical SCADA graph identity, the derived typed routing
+topology, and transport-response coverage as separate concepts. Only transport
+elements can carry reach responses; boundary, branch, and withdrawal structures
+are structural transitions.
 """
 
 from __future__ import annotations
@@ -13,6 +16,10 @@ from datetime import timezone
 import re
 
 from .demand_contract import content_hash
+from .prediction_engine import (
+    PredictionEngineError,
+    validate_prediction_engine_descriptor,
+)
 from .model_release import (
     HydraulicModelRelease,
     ModelReleaseError,
@@ -53,8 +60,14 @@ def build_model_snapshot(
     release: HydraulicModelRelease | None,
     config_sha256: Mapping[str, str],
     actuation_approved: bool,
+    prediction_engine: Mapping,
 ) -> dict:
-    """Return one deterministic, non-commanding view of the runtime model."""
+    """Return one deterministic, non-commanding view of the runtime model.
+
+    The prediction engine descriptor is embedded verbatim, so its content_hash
+    (over the closure's file bytes) enters the snapshot id — an engine change is
+    a snapshot change is an identity-v2 run-id change.
+    """
     _validate_runtime_contract(
         routing_topology,
         reach_responses,
@@ -62,6 +75,12 @@ def build_model_snapshot(
         config_sha256,
         actuation_approved,
     )
+    try:
+        validate_prediction_engine_descriptor(prediction_engine)
+    except PredictionEngineError as exc:
+        raise ModelSnapshotError(
+            f"model snapshot requires a valid prediction engine descriptor: {exc}"
+        ) from exc
     transport_reach_ids = routing_topology.transport_reach_ids()
     unavailable = _unavailable_transport_reaches(transport_reach_ids, release)
     available_count = len(transport_reach_ids) - len(unavailable)
@@ -74,12 +93,21 @@ def build_model_snapshot(
         element.downstream_node_id for element in routing_topology.elements
     }
     payload = {
-        "schema_version": 2,
+        "schema_version": 3,
         "data_status": _data_status(available_count, len(transport_reach_ids)),
         "mode": "open_loop_prediction",
         "open_loop": True,
         "actual_state_known": False,
         "commandable": False,
+        "prediction_engine": {
+            "schema_version": prediction_engine["schema_version"],
+            "engine_id": prediction_engine["engine_id"],
+            "semantic_contract_version": prediction_engine[
+                "semantic_contract_version"
+            ],
+            "build_digest": prediction_engine["build_digest"],
+            "content_hash": prediction_engine["content_hash"],
+        },
         "scada_graph": {
             "config_sha256": config_sha256["network"],
             "source_workbook_sha256": routing_topology.source_sha256,

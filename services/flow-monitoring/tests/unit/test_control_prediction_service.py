@@ -1,7 +1,10 @@
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
+
+from core.prediction_engine import build_prediction_engine_descriptor
 
 from core.fulfillment import (
     ClosureProjection,
@@ -43,6 +46,8 @@ from services.control_prediction_service import (
 )
 
 START = datetime(2026, 7, 16, tzinfo=timezone.utc)
+SERVICE_ROOT = Path(__file__).resolve().parents[2]
+ENGINE_DESCRIPTOR = build_prediction_engine_descriptor(SERVICE_ROOT)
 
 
 def _topology(edges):
@@ -322,6 +327,7 @@ def test_prediction_service_returns_snapshot_bound_to_its_release_horizon():
         _topology((("S", "A"),)),
         reach_responses_from_model_release(release),
         release.operating_envelope.maximum_horizon_seconds,
+        prediction_engine_descriptor=ENGINE_DESCRIPTOR,
     )
 
     snapshot = service.model_snapshot(release, CONFIG_SHA256, False)
@@ -400,6 +406,7 @@ def _timeline_service(release: HydraulicModelRelease) -> ControlPredictionServic
         _topology((("S", "A"),)),
         reach_responses_from_model_release(release),
         release.operating_envelope.maximum_horizon_seconds,
+        prediction_engine_descriptor=ENGINE_DESCRIPTOR,
     )
 
 

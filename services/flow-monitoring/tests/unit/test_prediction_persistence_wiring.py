@@ -50,3 +50,36 @@ def test_migration_pair_is_tracked_and_nonempty():
     down = MIGRATIONS_DIR / "0001_prediction_persistence.down.sql"
     assert up.is_file() and up.stat().st_size > 0
     assert down.is_file() and down.stat().st_size > 0
+
+
+def test_engine_identity_v2_migration_pair_is_tracked_and_shaped():
+    up = MIGRATIONS_DIR / "0002_prediction_engine_identity_v2.up.sql"
+    down = MIGRATIONS_DIR / "0002_prediction_engine_identity_v2.down.sql"
+    assert up.is_file() and up.stat().st_size > 0
+    assert down.is_file() and down.stat().st_size > 0
+
+    up_sql = up.read_text(encoding="utf-8")
+    # Additive nullable engine columns, relaxed identity CHECK, v2-requires-engine.
+    for column in (
+        "engine_id",
+        "semantic_contract_version",
+        "build_digest",
+        "engine_descriptor_content_hash",
+    ):
+        assert f"ADD COLUMN {column}" in up_sql, column
+    assert "identity_version IN (1, 2)" in up_sql
+    assert "prediction_runs_engine_fields_match_identity" in up_sql
+    # No fresh table creation or create_all — 0001 owns the tables.
+    assert "CREATE TABLE" not in up_sql
+
+    down_sql = down.read_text(encoding="utf-8")
+    # Down refuses to run once any identity_version=2 row exists.
+    assert "identity_version = 2" in down_sql
+    assert "RAISE EXCEPTION" in down_sql
+    for column in (
+        "engine_id",
+        "semantic_contract_version",
+        "build_digest",
+        "engine_descriptor_content_hash",
+    ):
+        assert f"DROP COLUMN IF EXISTS {column}" in down_sql, column

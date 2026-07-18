@@ -391,7 +391,18 @@ class TestDiscoverAndApplyAll:
         ids = discover_migration_ids()
         assert ids == sorted(ids)
         assert "0001_prediction_persistence" in ids
+        assert "0002_prediction_engine_identity_v2" in ids
+        # 0002 applies strictly after 0001 (additive engine columns).
+        assert ids.index("0002_prediction_engine_identity_v2") > (
+            ids.index("0001_prediction_persistence")
+        )
         assert "apply-all" in migrate.CLI_VERBS
+
+    def test_engine_identity_v2_checksum_is_stable(self):
+        digest_a = migration_checksum("0002_prediction_engine_identity_v2")
+        digest_b = migration_checksum("0002_prediction_engine_identity_v2")
+        assert digest_a == digest_b
+        assert len(digest_a) == 64
 
     @pytest.mark.asyncio
     async def test_apply_all_applies_pending_pairs_in_sorted_order(

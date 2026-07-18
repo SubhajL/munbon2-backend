@@ -25,11 +25,24 @@ from core.network_transient import (
 )
 from core.model_release import HydraulicModelRelease
 from core.model_snapshot import ModelSnapshotError, build_model_snapshot
+from core.prediction_engine import (
+    PredictionEngineError,
+    validate_prediction_engine_descriptor,
+)
+from core.prediction_repository import PREDICTION_ENGINE_REQUEST_KEY
 from core.reach_response import ReachResponse, ReachState, ResponseMember
 from core.routing_topology import RoutingRole, RoutingTopology
 
 _VOLUME_TOLERANCE_M3 = 1e-9
 _FLOW_TOLERANCE_M3S = 1e-9
+
+_ENGINE_DESCRIPTOR_EMBED_FIELDS = (
+    "schema_version",
+    "engine_id",
+    "semantic_contract_version",
+    "build_digest",
+    "content_hash",
+)
 
 
 class PredictionModelUnavailableError(ValueError):
@@ -38,6 +51,40 @@ class PredictionModelUnavailableError(ValueError):
 
 class PredictionLineageConflictError(ValueError):
     """The request pins a snapshot/release the runtime does not serve."""
+
+
+class PredictionEngineIdentityError(ValueError):
+    """The identity rollout cannot proceed: the current engine descriptor is
+    missing or the request does not carry it (fail closed)."""
+
+
+def normalize_prediction_request_identity_v2(
+    normalized_request: dict, engine_descriptor: dict | None
+) -> dict:
+    """The identity-v2 payload: the normalized request augmented with the
+    CURRENT engine descriptor. The engine thus enters the v2 run id and can be
+    re-checked on load. Fail closed when the descriptor is absent/invalid."""
+    if engine_descriptor is None:
+        raise PredictionEngineIdentityError(
+            "prediction engine descriptor is not loaded; identity-v2 "
+            "predictions are unavailable"
+        )
+    try:
+        validate_prediction_engine_descriptor(engine_descriptor)
+    except PredictionEngineError as exc:
+        raise PredictionEngineIdentityError(str(exc)) from exc
+    if PREDICTION_ENGINE_REQUEST_KEY in normalized_request:
+        raise PredictionEngineIdentityError(
+            f"request must not pre-carry the {PREDICTION_ENGINE_REQUEST_KEY!r} "
+            "identity block"
+        )
+    return {
+        **normalized_request,
+        PREDICTION_ENGINE_REQUEST_KEY: {
+            field: engine_descriptor[field]
+            for field in _ENGINE_DESCRIPTOR_EMBED_FIELDS
+        },
+    }
 
 
 @dataclass(frozen=True)
@@ -165,8 +212,18 @@ class ControlPredictionService:
     reach_responses: tuple[ReachResponse, ...]
     maximum_horizon_seconds: float | None
     structure_max_flow_m3s_by_id: tuple[tuple[str, float | None], ...] = ()
+    prediction_engine_descriptor: dict | None = None
 
     def __post_init__(self) -> None:
+        if self.prediction_engine_descriptor is not None:
+            try:
+                validate_prediction_engine_descriptor(
+                    self.prediction_engine_descriptor
+                )
+            except PredictionEngineError as exc:
+                raise NetworkTransientError(
+                    f"prediction_engine_descriptor is invalid: {exc}"
+                ) from exc
         if not isinstance(self.routing_topology, RoutingTopology):
             raise NetworkTransientError(
                 "routing_topology must be a typed RoutingTopology"
@@ -506,12 +563,18 @@ class ControlPredictionService:
             raise ModelSnapshotError(
                 "runtime prediction horizon does not match the model release"
             )
+        if self.prediction_engine_descriptor is None:
+            raise ModelSnapshotError(
+                "prediction engine descriptor is not loaded; model snapshots "
+                "are unavailable"
+            )
         return build_model_snapshot(
             self.routing_topology,
             self.reach_responses,
             release,
             config_sha256,
             actuation_approved,
+            self.prediction_engine_descriptor,
         )
 
 
