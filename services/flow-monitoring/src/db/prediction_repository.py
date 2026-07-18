@@ -59,9 +59,10 @@ def _row_to_run(row: dict) -> PredictionRunRecord:
     try:
         return _record_from_row_fields(row, artifact, summaries,
                                        starts_at, ends_at)
-    except PredictionRunConflict as exc:
-        # A stored row whose payload no longer hashes to its own id is
-        # STORAGE corruption, not a client conflict — surface it as such.
+    except (PredictionRunConflict, ValueError) as exc:
+        # A stored row whose payload no longer hashes to its own id, or whose
+        # engine pins no longer match, is STORAGE corruption, not a client
+        # conflict — surface it as such.
         raise PredictionArtifactCorrupt(
             f"stored prediction run {row['prediction_run_id']!r} fails "
             f"identity recomputation: {exc}"
@@ -82,6 +83,10 @@ def _record_from_row_fields(row, artifact, summaries, starts_at, ends_at):
         timestep_seconds=row["timestep_seconds"],
         member_summaries=summaries,
         artifact=artifact,
+        engine_id=row["engine_id"],
+        semantic_contract_version=row["semantic_contract_version"],
+        build_digest=row["build_digest"],
+        engine_descriptor_content_hash=row["engine_descriptor_content_hash"],
     )
 
 
@@ -185,9 +190,14 @@ class PostgresPredictionRepository:
                     ends_at,
                     timestep_seconds,
                     member_summaries,
-                    artifact_sha256
+                    artifact_sha256,
+                    engine_id,
+                    semantic_contract_version,
+                    build_digest,
+                    engine_descriptor_content_hash
                 ) VALUES (
-                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+                    $13, $14, $15, $16
                 )
                 """,
                 run.prediction_run_id,
@@ -204,6 +214,10 @@ class PostgresPredictionRepository:
                     "utf-8"
                 ),
                 run.artifact.artifact_sha256,
+                run.engine_id,
+                run.semantic_contract_version,
+                run.build_digest,
+                run.engine_descriptor_content_hash,
             )
             # Insert artifact — deferred FK validates at commit
             await conn.execute(
@@ -250,6 +264,10 @@ class PostgresPredictionRepository:
                         r.timestep_seconds,
                         r.member_summaries,
                         r.artifact_sha256,
+                        r.engine_id,
+                        r.semantic_contract_version,
+                        r.build_digest,
+                        r.engine_descriptor_content_hash,
                         r.stored_at,
                         a.media_type,
                         a.encoding,

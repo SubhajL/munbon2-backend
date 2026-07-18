@@ -16,6 +16,7 @@ from core.config_loader import file_sha256, load_routing_topology
 from core.demand_contract import content_hash
 from core.model_release import load_hydraulic_model_release
 from core.model_snapshot import build_model_snapshot
+from core.prediction_engine import build_prediction_engine_descriptor
 from core.network_transient import (
     BranchAllocation,
     GateFlowEvent,
@@ -260,6 +261,7 @@ def _artifacts(
         release,
         config_sha256,
         actuation_approved=False,
+        prediction_engine=build_prediction_engine_descriptor(SERVICE_ROOT),
     )
     if case_capacity is None:
         case_capacity = {

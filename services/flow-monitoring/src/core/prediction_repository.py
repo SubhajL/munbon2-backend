@@ -18,6 +18,19 @@ from typing import Protocol
 
 PREDICTION_RUN_IDENTITY_PREFIX = b"flow-monitoring:prediction-run:v1\n"
 PREDICTION_RUN_IDENTITY_VERSION = 1
+# Identity v2 (PR 4.4b-1): a NEW domain-separated prefix so an identity-v2 run
+# id can never collide with a v1 one. The v1 prefix and canonicalization are
+# frozen forever — old rows must recompute and replay byte-identically.
+PREDICTION_RUN_IDENTITY_PREFIX_V2 = b"flow-monitoring:prediction-run:v2\n"
+PREDICTION_RUN_IDENTITY_VERSION_V2 = 2
+# The key under which an identity-v2 request payload embeds the engine
+# descriptor so the engine enters the run id AND can be re-checked on load.
+PREDICTION_ENGINE_REQUEST_KEY = "prediction_engine"
+
+_IDENTITY_PREFIXES = {
+    PREDICTION_RUN_IDENTITY_VERSION: PREDICTION_RUN_IDENTITY_PREFIX,
+    PREDICTION_RUN_IDENTITY_VERSION_V2: PREDICTION_RUN_IDENTITY_PREFIX_V2,
+}
 
 
 class PredictionRunConflict(ValueError):
@@ -48,11 +61,17 @@ def canonical_json_bytes(payload) -> bytes:
     ).encode("utf-8")
 
 
-def prediction_run_id_for(request_payload: dict) -> str:
+def prediction_run_id_for(
+    request_payload: dict, identity_version: int = PREDICTION_RUN_IDENTITY_VERSION
+) -> str:
     if not isinstance(request_payload, dict):
         raise ValueError("request_payload must be a mapping")
+    try:
+        prefix = _IDENTITY_PREFIXES[identity_version]
+    except (KeyError, TypeError):
+        raise ValueError(f"unsupported identity_version {identity_version!r}")
     return hashlib.sha256(
-        PREDICTION_RUN_IDENTITY_PREFIX + canonical_json_bytes(request_payload)
+        prefix + canonical_json_bytes(request_payload)
     ).hexdigest()
 
 
@@ -80,17 +99,80 @@ class PredictionRunRecord:
     timestep_seconds: float
     member_summaries: tuple[dict, ...]
     artifact: PredictionArtifactRecord
+    # Identity-v2 engine pins (PR 4.4b-1). All None for v1 rows; all present
+    # for v2 rows and consistent with the descriptor embedded in the request.
+    engine_id: str | None = None
+    semantic_contract_version: int | None = None
+    build_digest: str | None = None
+    engine_descriptor_content_hash: str | None = None
 
     def __post_init__(self) -> None:
-        expected = prediction_run_id_for(self.request_payload)
+        if self.identity_version not in _IDENTITY_PREFIXES:
+            raise ValueError(
+                f"unsupported identity_version {self.identity_version!r}"
+            )
+        expected = prediction_run_id_for(
+            self.request_payload, self.identity_version
+        )
         if self.prediction_run_id != expected:
             raise PredictionRunConflict(
                 "prediction_run_id does not match its canonical request "
                 f"content: {self.prediction_run_id!r} vs {expected!r}"
             )
-        if self.identity_version != PREDICTION_RUN_IDENTITY_VERSION:
+        self._validate_engine_identity()
+
+    def _validate_engine_identity(self) -> None:
+        engine_fields = (
+            self.engine_id,
+            self.semantic_contract_version,
+            self.build_digest,
+            self.engine_descriptor_content_hash,
+        )
+        if self.identity_version == PREDICTION_RUN_IDENTITY_VERSION:
+            if any(field is not None for field in engine_fields):
+                raise ValueError(
+                    "identity_version 1 runs must not carry engine identity fields"
+                )
+            return
+        # identity_version 2: the engine pins are mandatory and must match the
+        # descriptor embedded in the request payload (fail closed on drift).
+        if any(field is None for field in engine_fields):
             raise ValueError(
-                f"unsupported identity_version {self.identity_version!r}"
+                "identity_version 2 runs require the four engine identity fields"
+            )
+        embedded = self.request_payload.get(PREDICTION_ENGINE_REQUEST_KEY)
+        if not isinstance(embedded, dict):
+            raise PredictionRunConflict(
+                "identity_version 2 request payload must embed the prediction "
+                f"engine descriptor under {PREDICTION_ENGINE_REQUEST_KEY!r}"
+            )
+        # Validate the embedded block's FULL shape before comparing pins:
+        # matching the four columns to an arbitrarily shaped block (bad
+        # schema_version, extra keys, self-consistent-but-fabricated
+        # content_hash) would let a replay carry fabricated provenance. Lazy
+        # import: prediction_engine imports canonical_json_bytes from this
+        # module, so a top-level import would be circular.
+        from .prediction_engine import (
+            PredictionEngineError,
+            validate_prediction_engine_descriptor,
+        )
+
+        try:
+            validate_prediction_engine_descriptor(embedded)
+        except PredictionEngineError as exc:
+            raise PredictionRunConflict(
+                "identity_version 2 request payload embeds a malformed "
+                f"prediction engine descriptor: {exc}"
+            ) from exc
+        if (
+            embedded["engine_id"],
+            embedded["semantic_contract_version"],
+            embedded["build_digest"],
+            embedded["content_hash"],
+        ) != engine_fields:
+            raise PredictionRunConflict(
+                "engine identity fields do not match the descriptor embedded in "
+                "the request payload"
             )
 
 
@@ -129,6 +211,10 @@ def _copied(run: PredictionRunRecord) -> PredictionRunRecord:
             for summary in run.member_summaries
         ),
         artifact=run.artifact,
+        engine_id=run.engine_id,
+        semantic_contract_version=run.semantic_contract_version,
+        build_digest=run.build_digest,
+        engine_descriptor_content_hash=run.engine_descriptor_content_hash,
     )
 
 

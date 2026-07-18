@@ -62,8 +62,10 @@ from core.network_flow_controller import (
 )
 from core.network_topology import NetworkTopologyError
 from core.node_id import NodeIdError, normalize_gate_id, normalize_node_id
+from core.prediction_engine import engine_identity_fields
 from core.prediction_repository import (
     PREDICTION_RUN_IDENTITY_VERSION,
+    PREDICTION_RUN_IDENTITY_VERSION_V2,
     PredictionArtifactCorrupt,
     PredictionRunConflict,
     PredictionRunRecord,
@@ -118,8 +120,10 @@ from schemas.demand import (
 from services.design_profile_service import DesignProfileService
 from services.control_prediction_service import (
     ControlPredictionService,
+    PredictionEngineIdentityError,
     PredictionLineageConflictError,
     PredictionModelUnavailableError,
+    normalize_prediction_request_identity_v2,
 )
 from services.prediction_artifact_service import (
     decode_prediction_artifact,
@@ -845,6 +849,96 @@ async def get_prediction_repository(request: Request):
     return repository
 
 
+PREDICTION_IDENTITY_ROLLOUT_MODES = ("accept-v1-write-v2", "require-v2")
+
+# The client's explicit engine pin. In require-v2 the caller MUST send this
+# header equal to the current descriptor's content_hash, acknowledging the exact
+# engine it is asking to run against. It is a HEADER (not a body field) so it
+# never enters the frozen v1/v2 canonical identity payload.
+PREDICTION_ENGINE_CONTENT_HASH_HEADER = "X-Prediction-Engine-Content-Hash"
+
+
+def get_prediction_identity_rollout_mode(request: Request) -> str:
+    """The identity rollout mode from app state (default accept-v1-write-v2).
+
+    An unrecognized configured value fails closed (503) rather than silently
+    picking a mode — the choice governs whether legacy v1 requests are still
+    accepted."""
+    mode = getattr(
+        request.app.state,
+        "prediction_identity_rollout_mode",
+        "accept-v1-write-v2",
+    )
+    if mode not in PREDICTION_IDENTITY_ROLLOUT_MODES:
+        raise HTTPException(
+            status_code=503,
+            detail="prediction identity rollout mode is not configured",
+        )
+    return mode
+
+
+def _require_explicit_engine_pin(http_request: Request, descriptor: dict | None) -> None:
+    """require-v2 gate: the caller MUST explicitly pin the current engine.
+
+    Without the descriptor loaded, the mode cannot run at all (503). Otherwise
+    the request must carry X-Prediction-Engine-Content-Hash equal to the current
+    descriptor's content_hash: absent → 400 (the caller never acknowledged an
+    engine), mismatched → 409 (the caller pinned a different engine than the
+    server runs). Never a silent accept and never a v1 fallback."""
+    if descriptor is None:
+        raise HTTPException(
+            status_code=503,
+            detail="prediction engine descriptor is not loaded; require-v2 "
+            "predictions are unavailable",
+        )
+    pin = http_request.headers.get(PREDICTION_ENGINE_CONTENT_HASH_HEADER)
+    if pin is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"require-v2 mode requires the "
+            f"{PREDICTION_ENGINE_CONTENT_HASH_HEADER} header pinning the "
+            "current engine descriptor content hash",
+        )
+    if pin != descriptor["content_hash"]:
+        raise HTTPException(
+            status_code=409,
+            detail="client engine pin "
+            f"{PREDICTION_ENGINE_CONTENT_HASH_HEADER} does not match the "
+            "current prediction engine descriptor",
+        )
+
+
+def _prediction_response_headers(record: PredictionRunRecord) -> dict:
+    """Artifact + identity metadata headers for a served prediction. The bytes
+    stay the exact stored artifact; these headers describe the stored row."""
+    headers = {
+        "X-Prediction-Artifact-SHA256": record.artifact.artifact_sha256,
+        "X-Prediction-Artifact-Media-Type": record.artifact.media_type,
+        "X-Prediction-Artifact-Encoding": record.artifact.encoding,
+        "X-Prediction-Artifact-Encoding-Version": str(
+            record.artifact.encoding_version
+        ),
+        "X-Prediction-Artifact-Uncompressed-Size": str(
+            record.artifact.uncompressed_size_bytes
+        ),
+        "X-Prediction-Identity-Version": str(record.identity_version),
+    }
+    if record.identity_version == PREDICTION_RUN_IDENTITY_VERSION_V2:
+        headers.update(
+            {
+                "X-Prediction-Engine-Id": record.engine_id,
+                "X-Prediction-Semantic-Contract-Version": str(
+                    record.semantic_contract_version
+                ),
+                "X-Prediction-Build-Digest": record.build_digest,
+                "X-Prediction-Engine-Content-Hash": (
+                    record.engine_descriptor_content_hash
+                ),
+            }
+        )
+    return headers
+
+
 def _validated_stored_bytes(stored, expected_run_id: str) -> bytes:
     """Decode + validate a stored artifact before serving it: it must parse
     as a ControlPredictionResponse whose embedded run id matches the header —
@@ -969,18 +1063,24 @@ def _compute_control_prediction_response(
 
 def _build_prediction_record(
     request: ControlPredictionRequest,
-    normalized_request: dict,
+    v2_request_payload: dict,
     response_model: ControlPredictionResponse,
     run_id: str,
+    engine_descriptor: dict,
 ) -> PredictionRunRecord:
-    """Canonicalize, summarize, and compress the fresh result (CPU-bound)."""
+    """Canonicalize, summarize, and compress the fresh result (CPU-bound).
+
+    A fresh write is ALWAYS identity_version 2: the request payload embeds the
+    current engine descriptor and the run carries its engine pins. There is no
+    new-v1 write path."""
     response_payload = response_model.model_dump(mode="json")
     response_bytes = canonical_json_bytes(response_payload)
+    engine_fields = engine_identity_fields(engine_descriptor)
     return PredictionRunRecord(
         prediction_run_id=run_id,
-        identity_version=PREDICTION_RUN_IDENTITY_VERSION,
+        identity_version=PREDICTION_RUN_IDENTITY_VERSION_V2,
         response_schema_version=2,
-        request_payload=normalized_request,
+        request_payload=v2_request_payload,
         model_snapshot_id=request.model_snapshot_id,
         model_release_id=request.model_release_id,
         model_release_content_hash=request.model_release_content_hash,
@@ -989,12 +1089,29 @@ def _build_prediction_record(
         timestep_seconds=request.timestep_seconds,
         member_summaries=summarize_prediction_members(response_payload),
         artifact=encode_prediction_artifact(response_bytes),
+        engine_id=engine_fields["engine_id"],
+        semantic_contract_version=engine_fields["semantic_contract_version"],
+        build_digest=engine_fields["build_digest"],
+        engine_descriptor_content_hash=engine_fields[
+            "engine_descriptor_content_hash"
+        ],
+    )
+
+
+async def _serve_stored_prediction(stored, run_id: str) -> Response:
+    """Validate the stored artifact and return it with metadata headers."""
+    content = await run_in_threadpool(_validated_stored_bytes, stored, run_id)
+    return Response(
+        content=content,
+        media_type="application/json",
+        headers=_prediction_response_headers(stored),
     )
 
 
 @router.post("/predictions", response_model=ControlPredictionResponse)
 async def control_predictions(
     request: ControlPredictionRequest,
+    http_request: Request,
     controller: NetworkFlowController = Depends(get_flow_controller),
     service: ControlPredictionService = Depends(
         get_control_prediction_service
@@ -1004,34 +1121,77 @@ async def control_predictions(
     ),
     config_sha256: dict = Depends(get_model_config_sha256),
     repository=Depends(get_prediction_repository),
+    rollout_mode: str = Depends(get_prediction_identity_rollout_mode),
 ) -> Response:
-    """Replay-first persisted prediction: an identical request returns the
-    stored bytes without recomputation; a fresh result is computed in a
-    threadpool and persisted atomically BEFORE it is returned — an
-    unpersisted success never leaves this handler."""
+    """Replay-first persisted prediction under the identity-v2 rollout.
+
+    A fresh result is ALWAYS persisted as identity_version 2 (the request
+    payload embeds the current engine descriptor) atomically BEFORE it is
+    returned. An existing identity-v2 run replays its stored bytes. In
+    `accept-v1-write-v2` a legacy identity-v1 run still replays by its v1 run
+    id; in `require-v2` the caller MUST explicitly pin the current engine via
+    the X-Prediction-Engine-Content-Hash header or it fails closed. There is no
+    new-v1 write path."""
+    descriptor = service.prediction_engine_descriptor
+
+    # require-v2: the caller must explicitly acknowledge the exact engine
+    # (header, kept OUT of the hashed identity payload) before anything runs.
+    if rollout_mode == "require-v2":
+        _require_explicit_engine_pin(http_request, descriptor)
+
     try:
         normalized_request = request.model_dump(mode="json")
-        run_id = prediction_run_id_for(normalized_request)
     except (ValueError, UnicodeEncodeError) as exc:
         raise HTTPException(
             status_code=400,
             detail=f"request is not canonically serializable: {exc}",
         ) from exc
+
+    v2_payload: dict | None = None
+    v2_run_id: str | None = None
     try:
-        stored = await repository.load_prediction_run(run_id)
-        if stored is not None:
-            if canonical_json_bytes(stored.request_payload) != (
-                canonical_json_bytes(normalized_request)
-            ):
-                raise PredictionRunConflict(
-                    f"prediction run {run_id!r} exists with different "
-                    "request content"
-                )
-            return Response(
-                content=await run_in_threadpool(
-                    _validated_stored_bytes, stored, run_id
-                ),
-                media_type="application/json",
+        # 1. Replay an existing identity-v2 run (requires the current engine).
+        if descriptor is not None:
+            v2_payload = normalize_prediction_request_identity_v2(
+                normalized_request, descriptor
+            )
+            v2_run_id = prediction_run_id_for(
+                v2_payload, PREDICTION_RUN_IDENTITY_VERSION_V2
+            )
+            stored = await repository.load_prediction_run(v2_run_id)
+            if stored is not None:
+                if canonical_json_bytes(stored.request_payload) != (
+                    canonical_json_bytes(v2_payload)
+                ):
+                    raise PredictionRunConflict(
+                        f"prediction run {v2_run_id!r} exists with different "
+                        "request content"
+                    )
+                return await _serve_stored_prediction(stored, v2_run_id)
+
+        # 2. Replay a legacy identity-v1 run (accept-v1-write-v2 only). The v1
+        #    prefix/canonicalization are frozen, so old rows load byte-exactly.
+        if rollout_mode == "accept-v1-write-v2":
+            v1_run_id = prediction_run_id_for(
+                normalized_request, PREDICTION_RUN_IDENTITY_VERSION
+            )
+            stored_v1 = await repository.load_prediction_run(v1_run_id)
+            if stored_v1 is not None:
+                if canonical_json_bytes(stored_v1.request_payload) != (
+                    canonical_json_bytes(normalized_request)
+                ):
+                    raise PredictionRunConflict(
+                        f"prediction run {v1_run_id!r} exists with different "
+                        "request content"
+                    )
+                return await _serve_stored_prediction(stored_v1, v1_run_id)
+
+        # 3. Fresh compute → persist as identity_version 2 (fail closed if the
+        #    engine descriptor is unavailable — there is no new-v1 write path).
+        if descriptor is None or v2_payload is None or v2_run_id is None:
+            raise PredictionEngineIdentityError(
+                "prediction engine descriptor is not loaded; identity-v2 "
+                "predictions are unavailable"
             )
         response_model = await run_in_threadpool(
             _compute_control_prediction_response,
@@ -1040,24 +1200,21 @@ async def control_predictions(
             service,
             release,
             config_sha256,
-            run_id,
+            v2_run_id,
         )
         record = await run_in_threadpool(
-            _build_prediction_record, request, normalized_request,
-            response_model, run_id,
+            _build_prediction_record, request, v2_payload,
+            response_model, v2_run_id, descriptor,
         )
         stored_record, _ = await repository.persist_prediction_run(record)
-        return Response(
-            content=await run_in_threadpool(
-                _validated_stored_bytes, stored_record, run_id
-            ),
-            media_type="application/json",
-        )
+        return await _serve_stored_prediction(stored_record, v2_run_id)
     except PredictionRunConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except PredictionArtifactCorrupt as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except PredictionStoreUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except PredictionEngineIdentityError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
         # e.g. a non-finite float escaping the engine into canonical
@@ -1086,12 +1243,7 @@ async def get_control_prediction(
                 status_code=404,
                 detail=f"prediction run {prediction_run_id!r} is not stored",
             )
-        return Response(
-            content=await run_in_threadpool(
-                _validated_stored_bytes, stored, prediction_run_id
-            ),
-            media_type="application/json",
-        )
+        return await _serve_stored_prediction(stored, prediction_run_id)
     except (PredictionArtifactCorrupt, PredictionRunConflict) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except PredictionStoreUnavailable as exc:

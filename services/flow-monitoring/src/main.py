@@ -22,6 +22,11 @@ from core.config_loader import (
 )
 from core.model_release import load_configured_hydraulic_model_release
 from core.network_flow_controller import NetworkFlowController
+from core.prediction_engine import (
+    PredictionEngineError,
+    build_prediction_engine_descriptor,
+    load_prediction_engine_descriptor,
+)
 from core.reach_response import reach_responses_from_model_release
 from db.connections import DatabaseManager
 from db.demand_store_postgres import PostgresDemandStore
@@ -43,6 +48,51 @@ logger = structlog.get_logger()
 db_manager = DatabaseManager()
 kafka_consumer = None
 gate_controller = None
+
+
+def _load_prediction_engine_descriptor(descriptor_path: str, service_root: str):
+    """Load the committed engine descriptor and confirm it still matches the
+    LIVE source bytes. Fail CLOSED (return None) on a missing/malformed file, an
+    unbuildable source, or ANY drift from the running engine.
+
+    Serving a stale descriptor would advertise engine A while the process runs
+    engine B — a false provenance / wrong-replay risk. When the descriptor is
+    None, fresh identity-v2 writes, require-v2, and model-snapshot construction
+    all fail closed at request time, while v1 replays (which never need the
+    current descriptor) keep working."""
+    try:
+        descriptor = load_prediction_engine_descriptor(descriptor_path)
+    except (PredictionEngineError, OSError) as exc:
+        logger.warning(
+            "Prediction engine descriptor unavailable",
+            path=descriptor_path,
+            error=str(exc),
+        )
+        return None
+    try:
+        rebuilt = build_prediction_engine_descriptor(service_root)
+    except (PredictionEngineError, OSError) as exc:
+        logger.error(
+            "Prediction engine descriptor cannot be verified against the live "
+            "source; refusing to serve it",
+            path=descriptor_path,
+            error=str(exc),
+        )
+        return None
+    if rebuilt.get("content_hash") != descriptor.get("content_hash"):
+        logger.error(
+            "Prediction engine descriptor drifted from source; refusing to "
+            "serve a stale identity (re-pin the descriptor)",
+            committed_build_digest=descriptor.get("build_digest"),
+            source_build_digest=rebuilt.get("build_digest"),
+        )
+        return None
+    logger.info(
+        "Prediction engine descriptor loaded",
+        engine_id=descriptor["engine_id"],
+        build_digest=descriptor["build_digest"],
+    )
+    return descriptor
 
 
 @asynccontextmanager
@@ -134,6 +184,20 @@ async def lifespan(app: FastAPI):
                 reach_response_members=len(app.state.reach_responses),
             )
 
+        # PR 4.4b-1: load the content-addressed prediction ENGINE descriptor.
+        # Missing/drifted is a boot warning (like the release) — a prediction
+        # in require-v2 without it fails closed at request time.
+        service_root = os.path.dirname(os.path.dirname(__file__))
+        descriptor_path = settings.prediction_engine_descriptor_path or os.path.join(
+            service_root, "data", "prediction-engine", "prediction-engine-v1.json"
+        )
+        app.state.prediction_engine_descriptor = _load_prediction_engine_descriptor(
+            descriptor_path, service_root
+        )
+        app.state.prediction_identity_rollout_mode = (
+            settings.prediction_identity_rollout_mode
+        )
+
         withdrawal_capacity = build_withdrawal_structure_max_flow_map(
             app.state.routing_topology,
             load_gate_calibrations_config(calibration_file),
@@ -147,8 +211,17 @@ async def lifespan(app: FastAPI):
                 if app.state.hydraulic_model_release is None
                 else app.state.hydraulic_model_release.operating_envelope.maximum_horizon_seconds
             ),
+            prediction_engine_descriptor=app.state.prediction_engine_descriptor,
         )
-        logger.info("Control prediction service initialized (non-commanding)")
+        logger.info(
+            "Control prediction service initialized (non-commanding)",
+            prediction_identity_rollout_mode=(
+                app.state.prediction_identity_rollout_mode
+            ),
+            prediction_engine_loaded=(
+                app.state.prediction_engine_descriptor is not None
+            ),
+        )
 
         control_api.design_profile_service = DesignProfileService(
             network_file,

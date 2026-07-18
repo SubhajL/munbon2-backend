@@ -359,14 +359,23 @@ class ModelSnapshotUnavailableReach(_StrictModelSnapshotSchema):
     reason: str
 
 
+class ModelSnapshotPredictionEngine(_StrictModelSnapshotSchema):
+    schema_version: Literal[1]
+    engine_id: str
+    semantic_contract_version: int
+    build_digest: Sha256Hex
+    content_hash: Sha256Hex
+
+
 class ModelSnapshotResponse(_StrictModelSnapshotSchema):
-    schema_version: Literal[2]
+    schema_version: Literal[3]
     snapshot_id: Sha256Hex
     data_status: Literal["complete", "partial", "unavailable"]
     mode: Literal["open_loop_prediction"]
     open_loop: Literal[True]
     actual_state_known: Literal[False]
     commandable: Literal[False]
+    prediction_engine: ModelSnapshotPredictionEngine
     scada_graph: ModelSnapshotScadaGraph
     routing_topology: ModelSnapshotRoutingTopology
     action_model: ModelSnapshotActionModel

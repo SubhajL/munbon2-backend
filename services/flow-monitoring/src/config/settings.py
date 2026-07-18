@@ -39,6 +39,15 @@ class Settings(BaseSettings):
     hydraulic_model_release_path: Optional[str] = Field(
         default=None, env="HYDRAULIC_MODEL_RELEASE_PATH"
     )
+    # PR 4.4b-1: the committed prediction-engine descriptor. When unset, main.py
+    # resolves the tracked data/prediction-engine/prediction-engine-v1.json.
+    prediction_engine_descriptor_path: Optional[str] = Field(
+        default=None, env="PREDICTION_ENGINE_DESCRIPTOR_PATH"
+    )
+    # Identity rollout mode: accept-v1-write-v2 (default) | require-v2.
+    prediction_identity_rollout_mode: str = Field(
+        default="accept-v1-write-v2", env="PREDICTION_IDENTITY_ROLLOUT_MODE"
+    )
     model_update_interval: int = Field(default=300, env="MODEL_UPDATE_INTERVAL")
     anomaly_threshold: float = Field(default=3.0, env="ANOMALY_THRESHOLD")
     forecast_horizon: int = Field(default=24, env="FORECAST_HORIZON")

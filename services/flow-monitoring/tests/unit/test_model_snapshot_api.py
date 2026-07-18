@@ -23,6 +23,7 @@ from core.model_release import (
 )
 from core.config_loader import load_routing_topology
 from core.network_flow_controller import NetworkFlowController
+from core.prediction_engine import build_prediction_engine_descriptor
 from core.reach_response import reach_responses_from_model_release
 from schemas.control import ModelSnapshotResponse
 from services.control_prediction_service import ControlPredictionService
@@ -36,6 +37,7 @@ GEOMETRY_COVERAGE = str(
 )
 ROUTING_TOPOLOGY = str(SERVICE_ROOT / "src" / "config" / "routing_topology.json")
 CONTROL_PY = SERVICE_ROOT / "src" / "api" / "control.py"
+ENGINE_DESCRIPTOR = build_prediction_engine_descriptor(SERVICE_ROOT)
 
 TOPOLOGY = load_routing_topology(
     ROUTING_TOPOLOGY, NETWORK, GEOMETRY_COVERAGE, GEOMETRY
@@ -120,6 +122,7 @@ def _app(
         responses,
         maximum_horizon_seconds,
         _withdrawal_capacity(),
+        prediction_engine_descriptor=ENGINE_DESCRIPTOR,
     )
     app.state.model_config_sha256 = _config_sha256(controller)
     app.include_router(control.router, prefix="/api/v1/control")
@@ -182,7 +185,8 @@ class TestModelSnapshotEndpoint:
         assert len(body["snapshot_id"]) == 64
         payload = {key: value for key, value in body.items() if key != "snapshot_id"}
         assert body["snapshot_id"] == content_hash(payload)
-        assert body["schema_version"] == 2
+        assert body["schema_version"] == 3
+        assert body["prediction_engine"] == ENGINE_DESCRIPTOR
         assert body["scada_graph"]["gate_count"] == 58
         assert len(body["scada_graph"]["edges"]) == 58
         assert body["routing_topology"]["element_count"] == 59

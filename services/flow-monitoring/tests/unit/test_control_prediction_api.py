@@ -43,6 +43,10 @@ from core.routing_topology import (
     RoutingRole,
     build_routing_topology,
 )
+from core.prediction_engine import (
+    build_prediction_engine_descriptor,
+    descriptor_from_build_digest,
+)
 from core.prediction_repository import (
     InMemoryPredictionRepository,
     PredictionRunRecord,
@@ -63,6 +67,7 @@ RELEASE_PATH = str(
     SERVICE_ROOT / "data" / "model-releases" / "engineering-prior-v3-v1.json"
 )
 CONTROL_PY = SERVICE_ROOT / "src" / "api" / "control.py"
+ENGINE_DESCRIPTOR = build_prediction_engine_descriptor(SERVICE_ROOT)
 
 TOPOLOGY = load_routing_topology(
     ROUTING_TOPOLOGY, NETWORK, GEOMETRY_COVERAGE, GEOMETRY
@@ -117,6 +122,8 @@ def _app(
     topology=TOPOLOGY,
     config_sha256: dict | None = None,
     withdrawal_capacity: tuple | None = None,
+    engine_descriptor: dict | None = ENGINE_DESCRIPTOR,
+    rollout_mode: str = "accept-v1-write-v2",
 ) -> FastAPI:
     responses = () if release is None else reach_responses_from_model_release(release)
     maximum_horizon_seconds = (
@@ -134,11 +141,13 @@ def _app(
         responses,
         maximum_horizon_seconds,
         withdrawal_capacity,
+        prediction_engine_descriptor=engine_descriptor,
     )
     app.state.model_config_sha256 = (
         _config_sha256(controller) if config_sha256 is None else config_sha256
     )
     app.state.prediction_repository = InMemoryPredictionRepository()
+    app.state.prediction_identity_rollout_mode = rollout_mode
     app.include_router(control.router, prefix="/api/v1/control")
     return app
 
@@ -932,3 +941,452 @@ def _mini_capacity_case():
         ],
     }
     return TestClient(app), app, request
+
+
+def _snapshot_id_for(app, release, controller) -> str:
+    return app.state.control_prediction_service.model_snapshot(
+        release, app.state.model_config_sha256, controller.actuation_approved
+    )["snapshot_id"]
+
+
+class TestPredictionIdentityV2:
+    def test_fresh_prediction_always_persists_identity_v2(self, real_setup):
+        request = _base_request(real_setup)
+        request["source_flow_events"][0]["flow_m3s"] = 0.41  # unique run id
+        response = real_setup["client"].post(
+            "/api/v1/control/predictions", json=request
+        )
+        assert response.status_code == 200, response.text
+        run_id = response.json()["prediction_run_id"]
+
+        stored = real_setup["repository"]._runs[run_id]
+        assert stored.identity_version == 2
+        assert stored.engine_id == ENGINE_DESCRIPTOR["engine_id"]
+        assert stored.build_digest == ENGINE_DESCRIPTOR["build_digest"]
+        assert stored.engine_descriptor_content_hash == (
+            ENGINE_DESCRIPTOR["content_hash"]
+        )
+        assert response.headers["X-Prediction-Identity-Version"] == "2"
+
+    def test_artifact_and_identity_headers_match_stored_bytes(self, real_setup):
+        request = _base_request(real_setup)
+        request["source_flow_events"][0]["flow_m3s"] = 0.42  # unique run id
+        posted = real_setup["client"].post(
+            "/api/v1/control/predictions", json=request
+        )
+        assert posted.status_code == 200, posted.text
+
+        import hashlib
+
+        expected_sha = hashlib.sha256(posted.content).hexdigest()
+        assert posted.headers["X-Prediction-Artifact-SHA256"] == expected_sha
+        assert posted.headers["X-Prediction-Artifact-Media-Type"] == (
+            "application/json"
+        )
+        assert posted.headers["X-Prediction-Artifact-Encoding"] == (
+            "canonical-json+zlib"
+        )
+        assert posted.headers["X-Prediction-Artifact-Encoding-Version"] == "1"
+        assert posted.headers["X-Prediction-Artifact-Uncompressed-Size"] == str(
+            len(posted.content)
+        )
+
+        run_id = posted.json()["prediction_run_id"]
+        fetched = real_setup["client"].get(
+            f"/api/v1/control/predictions/{run_id}"
+        )
+        assert fetched.status_code == 200, fetched.text
+        # GET carries the SAME artifact + identity metadata as POST.
+        for header in (
+            "X-Prediction-Artifact-SHA256",
+            "X-Prediction-Artifact-Uncompressed-Size",
+            "X-Prediction-Identity-Version",
+            "X-Prediction-Build-Digest",
+        ):
+            assert fetched.headers[header] == posted.headers[header], header
+
+    def test_flow_header_persists_exact_engine_descriptor(self, real_setup):
+        request = _base_request(real_setup)
+        request["source_flow_events"][0]["flow_m3s"] = 0.43  # unique run id
+        posted = real_setup["client"].post(
+            "/api/v1/control/predictions", json=request
+        )
+        assert posted.status_code == 200, posted.text
+
+        assert posted.headers["X-Prediction-Engine-Id"] == (
+            ENGINE_DESCRIPTOR["engine_id"]
+        )
+        assert posted.headers["X-Prediction-Semantic-Contract-Version"] == str(
+            ENGINE_DESCRIPTOR["semantic_contract_version"]
+        )
+        assert posted.headers["X-Prediction-Build-Digest"] == (
+            ENGINE_DESCRIPTOR["build_digest"]
+        )
+        assert posted.headers["X-Prediction-Engine-Content-Hash"] == (
+            ENGINE_DESCRIPTOR["content_hash"]
+        )
+        # The stored request payload embeds the exact descriptor.
+        run_id = posted.json()["prediction_run_id"]
+        stored = real_setup["repository"]._runs[run_id]
+        assert stored.request_payload["prediction_engine"] == {
+            key: ENGINE_DESCRIPTOR[key]
+            for key in (
+                "schema_version", "engine_id", "semantic_contract_version",
+                "build_digest", "content_hash",
+            )
+        }
+
+    def test_v2_run_id_changes_when_engine_digest_changes(self):
+        controller = _controller()
+        release = load_configured_hydraulic_model_release(
+            RELEASE_PATH, TOPOLOGY.transport_reach_ids()
+        )
+        other_engine = descriptor_from_build_digest("d" * 64)
+        assert other_engine["build_digest"] != ENGINE_DESCRIPTOR["build_digest"]
+
+        app_a = _app(_load_control(), controller, release)
+        app_b = _app(
+            _load_control(), controller, release, engine_descriptor=other_engine
+        )
+        setup_a = {
+            "release": release,
+            "snapshot_id": _snapshot_id_for(app_a, release, controller),
+            "config_sha256": app_a.state.model_config_sha256,
+        }
+        setup_b = {
+            "release": release,
+            "snapshot_id": _snapshot_id_for(app_b, release, controller),
+            "config_sha256": app_b.state.model_config_sha256,
+        }
+
+        first = TestClient(app_a).post(
+            "/api/v1/control/predictions", json=_base_request(setup_a)
+        )
+        second = TestClient(app_b).post(
+            "/api/v1/control/predictions", json=_base_request(setup_b)
+        )
+        assert first.status_code == 200, first.text
+        assert second.status_code == 200, second.text
+        # Same hydraulic inputs, different engine -> different v2 run id.
+        assert (
+            first.json()["prediction_run_id"]
+            != second.json()["prediction_run_id"]
+        )
+
+    def test_require_v2_rejects_missing_engine_descriptor(self):
+        controller = _controller()
+        release = load_configured_hydraulic_model_release(
+            RELEASE_PATH, TOPOLOGY.transport_reach_ids()
+        )
+        app = _app(
+            _load_control(),
+            controller,
+            release,
+            engine_descriptor=None,
+            rollout_mode="require-v2",
+        )
+        setup = {
+            "release": release,
+            "snapshot_id": "0" * 64,
+            "config_sha256": app.state.model_config_sha256,
+        }
+        response = TestClient(app).post(
+            "/api/v1/control/predictions", json=_base_request(setup)
+        )
+        assert response.status_code == 503, response.text
+
+    def test_require_v2_rejects_mismatched_engine(self):
+        controller = _controller()
+        release = load_configured_hydraulic_model_release(
+            RELEASE_PATH, TOPOLOGY.transport_reach_ids()
+        )
+        other_engine = descriptor_from_build_digest("d" * 64)
+        # The request pins a snapshot built with a DIFFERENT engine.
+        app_other = _app(
+            _load_control(), controller, release, engine_descriptor=other_engine
+        )
+        mismatched_snapshot_id = _snapshot_id_for(app_other, release, controller)
+
+        app = _app(
+            _load_control(), controller, release, rollout_mode="require-v2"
+        )
+        setup = {
+            "release": release,
+            "snapshot_id": mismatched_snapshot_id,
+            "config_sha256": app.state.model_config_sha256,
+        }
+        # The caller correctly pins the CURRENT engine (require-v2 gate passes),
+        # but the snapshot it references was built with a different engine.
+        response = TestClient(app).post(
+            "/api/v1/control/predictions",
+            json=_base_request(setup),
+            headers={
+                "X-Prediction-Engine-Content-Hash": ENGINE_DESCRIPTOR[
+                    "content_hash"
+                ]
+            },
+        )
+        # The pinned snapshot no longer matches the served (current-engine) one.
+        assert response.status_code == 409, response.text
+
+    def test_require_v2_without_engine_pin_header_fails_closed(self):
+        # No X-Prediction-Engine-Content-Hash header: the caller never
+        # acknowledged an engine, so require-v2 refuses (400) BEFORE compute —
+        # never a silent accept and never a v1 fallback.
+        controller = _controller()
+        release = load_configured_hydraulic_model_release(
+            RELEASE_PATH, TOPOLOGY.transport_reach_ids()
+        )
+        app = _app(
+            _load_control(), controller, release, rollout_mode="require-v2"
+        )
+        setup = {
+            "release": release,
+            "snapshot_id": _snapshot_id_for(app, release, controller),
+            "config_sha256": app.state.model_config_sha256,
+        }
+        response = TestClient(app).post(
+            "/api/v1/control/predictions", json=_base_request(setup)
+        )
+        assert response.status_code == 400, response.text
+        assert "X-Prediction-Engine-Content-Hash" in response.json()["detail"]
+
+    def test_require_v2_with_wrong_engine_pin_header_fails_closed(self):
+        # A pin that is not the current engine's content hash → 409 (the caller
+        # pinned a different engine than the server runs).
+        controller = _controller()
+        release = load_configured_hydraulic_model_release(
+            RELEASE_PATH, TOPOLOGY.transport_reach_ids()
+        )
+        app = _app(
+            _load_control(), controller, release, rollout_mode="require-v2"
+        )
+        setup = {
+            "release": release,
+            "snapshot_id": _snapshot_id_for(app, release, controller),
+            "config_sha256": app.state.model_config_sha256,
+        }
+        stale_pin = descriptor_from_build_digest("d" * 64)["content_hash"]
+        assert stale_pin != ENGINE_DESCRIPTOR["content_hash"]
+        response = TestClient(app).post(
+            "/api/v1/control/predictions",
+            json=_base_request(setup),
+            headers={"X-Prediction-Engine-Content-Hash": stale_pin},
+        )
+        assert response.status_code == 409, response.text
+
+    def test_require_v2_with_exact_engine_pin_header_succeeds(self):
+        # The exact current content hash → the gate passes and a fresh v2
+        # prediction is computed and persisted.
+        controller = _controller()
+        release = load_configured_hydraulic_model_release(
+            RELEASE_PATH, TOPOLOGY.transport_reach_ids()
+        )
+        app = _app(
+            _load_control(), controller, release, rollout_mode="require-v2"
+        )
+        setup = {
+            "release": release,
+            "snapshot_id": _snapshot_id_for(app, release, controller),
+            "config_sha256": app.state.model_config_sha256,
+        }
+        response = TestClient(app).post(
+            "/api/v1/control/predictions",
+            json=_base_request(setup),
+            headers={
+                "X-Prediction-Engine-Content-Hash": ENGINE_DESCRIPTOR[
+                    "content_hash"
+                ]
+            },
+        )
+        assert response.status_code == 200, response.text
+        assert response.headers["X-Prediction-Identity-Version"] == "2"
+        assert response.headers["X-Prediction-Engine-Content-Hash"] == (
+            ENGINE_DESCRIPTOR["content_hash"]
+        )
+
+    def test_accept_mode_does_not_require_engine_pin_header(self, real_setup):
+        # accept-v1-write-v2 (default) may inject the engine; the header is
+        # optional and a mismatched pin is ignored — the request still succeeds.
+        request = _base_request(real_setup)
+        request["source_flow_events"][0]["flow_m3s"] = 0.44  # unique run id
+        response = real_setup["client"].post(
+            "/api/v1/control/predictions",
+            json=request,
+            headers={"X-Prediction-Engine-Content-Hash": "d" * 64},
+        )
+        assert response.status_code == 200, response.text
+        assert response.headers["X-Prediction-Identity-Version"] == "2"
+
+    def test_legacy_v1_run_replays_in_accept_mode(self, real_setup):
+        from schemas.control import ControlPredictionRequest
+        from core.prediction_repository import canonical_json_bytes
+        from services.prediction_artifact_service import (
+            encode_prediction_artifact,
+            summarize_prediction_members,
+        )
+
+        # A request that has NEVER been written as v2, and a fresh app so its
+        # v2 id is absent; a legacy v1 row is seeded under its v1 run id.
+        request = _base_request(real_setup)
+        request["source_flow_events"][0]["flow_m3s"] = 0.37  # unique run id
+
+        # Compute a real, valid response, then re-stamp it with the v1 run id.
+        posted = real_setup["client"].post(
+            "/api/v1/control/predictions", json=request
+        )
+        assert posted.status_code == 200, posted.text
+        response_body = posted.json()
+        normalized = ControlPredictionRequest.model_validate(request).model_dump(
+            mode="json"
+        )
+        v1_run_id = prediction_run_id_for(normalized, 1)
+        v1_body = {**response_body, "prediction_run_id": v1_run_id}
+        v1_bytes = canonical_json_bytes(v1_body)
+        v1_record = PredictionRunRecord(
+            prediction_run_id=v1_run_id,
+            identity_version=1,
+            response_schema_version=2,
+            request_payload=normalized,
+            model_snapshot_id=normalized["model_snapshot_id"],
+            model_release_id=normalized["model_release_id"],
+            model_release_content_hash=normalized["model_release_content_hash"],
+            starts_at=STARTS_AT,
+            ends_at=ENDS_AT,
+            timestep_seconds=TIMESTEP_SECONDS,
+            member_summaries=summarize_prediction_members(v1_body),
+            artifact=encode_prediction_artifact(v1_bytes),
+        )
+
+        control = _load_control()
+        controller = _controller()
+        app = _app(control, controller, real_setup["release"])
+        app.state.prediction_repository._runs[v1_run_id] = v1_record
+        client = TestClient(app)
+
+        replayed = client.post("/api/v1/control/predictions", json=request)
+        assert replayed.status_code == 200, replayed.text
+        assert replayed.content == v1_bytes  # the exact stored v1 bytes
+        assert replayed.json()["prediction_run_id"] == v1_run_id
+        assert replayed.headers["X-Prediction-Identity-Version"] == "1"
+        # A v1 replay carries no engine headers.
+        assert "X-Prediction-Engine-Id" not in replayed.headers
+
+
+class TestEngineDescriptorDriftFailsClosed:
+    """PR 4.4b-1 FIX 2: a committed descriptor that no longer matches the live
+    source must FAIL CLOSED (become unavailable), never warn-and-serve-stale —
+    otherwise the server advertises engine A while running engine B."""
+
+    def test_load_descriptor_returns_none_on_source_drift(
+        self, tmp_path, monkeypatch
+    ):
+        import main
+        from core.prediction_engine import PredictionEngineError
+
+        path = tmp_path / "engine.json"
+        path.write_text(json.dumps(ENGINE_DESCRIPTOR))
+
+        # Live source drifts from the committed descriptor -> None.
+        drifted = descriptor_from_build_digest("d" * 64)
+        assert drifted["content_hash"] != ENGINE_DESCRIPTOR["content_hash"]
+        monkeypatch.setattr(
+            main, "build_prediction_engine_descriptor", lambda root: drifted
+        )
+        assert (
+            main._load_prediction_engine_descriptor(str(path), str(SERVICE_ROOT))
+            is None
+        )
+
+        # Source cannot be fingerprinted (cannot verify) -> None.
+        def _unbuildable(root):
+            raise PredictionEngineError("a manifest file is unreadable")
+
+        monkeypatch.setattr(
+            main, "build_prediction_engine_descriptor", _unbuildable
+        )
+        assert (
+            main._load_prediction_engine_descriptor(str(path), str(SERVICE_ROOT))
+            is None
+        )
+
+        # Source matches the committed descriptor -> served unchanged.
+        monkeypatch.setattr(
+            main,
+            "build_prediction_engine_descriptor",
+            lambda root: dict(ENGINE_DESCRIPTOR),
+        )
+        assert main._load_prediction_engine_descriptor(
+            str(path), str(SERVICE_ROOT)
+        ) == ENGINE_DESCRIPTOR
+
+    def test_missing_committed_descriptor_returns_none(self, tmp_path):
+        import main
+
+        assert (
+            main._load_prediction_engine_descriptor(
+                str(tmp_path / "absent.json"), str(SERVICE_ROOT)
+            )
+            is None
+        )
+
+    def test_drift_none_fails_snapshot_and_fresh_but_replays_v1(self, real_setup):
+        from schemas.control import ControlPredictionRequest
+        from core.prediction_repository import canonical_json_bytes
+        from services.prediction_artifact_service import (
+            encode_prediction_artifact,
+            summarize_prediction_members,
+        )
+
+        # A startup drift makes _load_prediction_engine_descriptor return None,
+        # so the runtime advertises NO engine.
+        control = _load_control()
+        controller = _controller()
+        app = _app(
+            control, controller, real_setup["release"], engine_descriptor=None
+        )
+        client = TestClient(app)
+
+        # model-snapshot fails closed (no engine to fingerprint the snapshot).
+        snapshot = client.post("/api/v1/control/model-snapshots")
+        assert snapshot.status_code == 503, snapshot.text
+
+        # A fresh prediction fails closed (no new-v1 write path; engine required).
+        fresh = _base_request(real_setup)
+        fresh["source_flow_events"][0]["flow_m3s"] = 0.461  # unique, unstored id
+        fresh_response = client.post("/api/v1/control/predictions", json=fresh)
+        assert fresh_response.status_code == 503, fresh_response.text
+
+        # But a stored legacy v1 run STILL replays — v1 replay never needs the
+        # current descriptor.
+        request = _base_request(real_setup)
+        request["source_flow_events"][0]["flow_m3s"] = 0.462  # unique run id
+        posted = real_setup["client"].post(
+            "/api/v1/control/predictions", json=request
+        )
+        assert posted.status_code == 200, posted.text
+        normalized = ControlPredictionRequest.model_validate(request).model_dump(
+            mode="json"
+        )
+        v1_run_id = prediction_run_id_for(normalized, 1)
+        v1_body = {**posted.json(), "prediction_run_id": v1_run_id}
+        v1_bytes = canonical_json_bytes(v1_body)
+        app.state.prediction_repository._runs[v1_run_id] = PredictionRunRecord(
+            prediction_run_id=v1_run_id,
+            identity_version=1,
+            response_schema_version=2,
+            request_payload=normalized,
+            model_snapshot_id=normalized["model_snapshot_id"],
+            model_release_id=normalized["model_release_id"],
+            model_release_content_hash=normalized["model_release_content_hash"],
+            starts_at=STARTS_AT,
+            ends_at=ENDS_AT,
+            timestep_seconds=TIMESTEP_SECONDS,
+            member_summaries=summarize_prediction_members(v1_body),
+            artifact=encode_prediction_artifact(v1_bytes),
+        )
+
+        replayed = client.post("/api/v1/control/predictions", json=request)
+        assert replayed.status_code == 200, replayed.text
+        assert replayed.content == v1_bytes
+        assert replayed.headers["X-Prediction-Identity-Version"] == "1"
