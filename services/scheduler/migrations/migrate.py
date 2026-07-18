@@ -1,8 +1,8 @@
 """
 Tracked schema migrations for the scheduler control domain (PR 4.2 foundation).
 
-    python migrations/migrate.py apply    0001_prediction_persistence
-    python migrations/migrate.py rollback 0001_prediction_persistence
+    python migrations/migrate.py apply    0001_control_plan_drafts
+    python migrations/migrate.py rollback 0001_control_plan_drafts
     python migrations/migrate.py status
 
 Each migration is a pair of tracked SQL files (<id>.up.sql / <id>.down.sql) applied

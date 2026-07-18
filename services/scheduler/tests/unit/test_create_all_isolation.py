@@ -3,6 +3,14 @@
 from core.database import Base
 from models.control_base import ControlBase
 import models  # noqa: F401  (registers every legacy model on Base)
+import models.control_plan  # noqa: F401  (registers control tables on ControlBase)
+
+CONTROL_TABLES = {
+    "scheduler.control_plan_runs",
+    "scheduler.control_plan_requirements",
+    "scheduler.gate_plan_events",
+    "scheduler.control_state_transitions",
+}
 
 LEGACY_TABLES = {
     "adjustment_rules",
@@ -30,3 +38,7 @@ def test_legacy_create_all_table_set_is_pinned():
     # A control table appearing here means it leaked onto the legacy Base
     # and would be created by main.py's create_all, bypassing the runner.
     assert set(Base.metadata.tables) == LEGACY_TABLES
+
+
+def test_control_base_contains_exactly_the_migration_owned_tables():
+    assert set(ControlBase.metadata.tables) == CONTROL_TABLES
