@@ -6,21 +6,25 @@ signatures match the production classes exactly.
 """
 
 import json
+from dataclasses import replace
 from datetime import date, datetime, timezone
 from uuid import UUID
 
 from core.control_plan import canonical_json_text
-from repositories.control_plan_repository import PlanContentConflictError
+from repositories.control_plan_repository import (
+    PlanContentConflictError,
+    TransitionConflictError,
+)
 
 RUN_ID = UUID("8e0b0e6a-6c1e-5f5e-9d5c-2f6a8b1c2d3e")
 REQ_ID = "7c8a4c62-4b0e-5efd-9c3a-111111111111"
 
 
-def requirement_item(volume=6000.0):
+def requirement_item(volume=6000.0, run_id=None, requirement_id=None, version=3):
     return {
-        "requirement_id": REQ_ID,
-        "run_id": str(RUN_ID),
-        "version": 3,
+        "requirement_id": requirement_id or REQ_ID,
+        "run_id": str(run_id or RUN_ID),
+        "version": version,
         "service_date": date(2026, 7, 20),
         "section_id": "SEC-1",
         "zone": 1,
@@ -366,3 +370,24 @@ class FakeRepository:
 
     async def load_draft_plan(self, session, plan_id, plan_version):
         return self.by_key.get((plan_id, plan_version))
+
+    async def append_state_transition(
+        self, session, plan_id, plan_version, transition
+    ):
+        record = self.by_key.get((plan_id, plan_version))
+        if record is None:
+            raise KeyError((plan_id, plan_version))
+        # The real repository's (plan, version, sequence) PK is the concurrency
+        # backstop: a second append at the same sequence conflicts.
+        if any(
+            t.transition_sequence == transition.transition_sequence
+            for t in record.transitions
+        ):
+            raise TransitionConflictError(
+                "a concurrent lifecycle action already advanced this plan"
+            )
+        updated = replace(
+            record, transitions=record.transitions + (transition,)
+        )
+        self.by_key[(plan_id, plan_version)] = updated
+        self.by_input_hash[record.input_content_hash] = updated

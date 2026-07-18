@@ -31,6 +31,7 @@ from tests.integration.test_scheduler_postgres import _test_url_loopback
 
 MIGRATION_ID = "0001_control_plan_drafts"
 LEDGER_MIGRATION_ID = "0002_predicted_delivery_ledger"
+LIFECYCLE_MIGRATION_ID = "0003_control_plan_review_lifecycle"
 LEDGER_TABLE = "scheduler.section_delivery_ledger"
 PLAN_TABLES = (
     "scheduler.control_plan_runs",
@@ -94,6 +95,24 @@ def _service(repository):
 
 def _request():
     return DraftControlPlanRequest.model_validate(draft_payload())
+
+
+def _service_vol(repository, volume):
+    return ControlPlanDraftService(
+        ros_client=FakeRosGisClient([requirement_item(volume=volume)]),
+        flow_client=FakeControlFlowClient(snapshot_mirror()),
+        repository=repository,
+        optimizer=partial(
+            optimize_limited_adjustment_plan,
+            model_step_seconds=3600,
+            max_intermediate_trims=1,
+            solver_timeout_seconds=60,
+        ),
+        run_blocking=_run_blocking,
+        model_step_seconds=3600,
+        max_intermediate_trims=1,
+        solver_timeout_seconds=60,
+    )
 
 
 @pytest.mark.asyncio
@@ -322,5 +341,132 @@ async def test_ledger_migration_apply_rollback_reapply_is_clean():
         try:
             await migrate.rollback_migration(conn, LEDGER_MIGRATION_ID)
             await migrate.rollback_migration(conn, MIGRATION_ID)
+        finally:
+            await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_review_lifecycle_and_edge_graph_on_real_postgres():
+    from services.control_plan_lifecycle_service import (
+        ControlPlanLifecycleService,
+        current_lifecycle_state,
+    )
+
+    conn = await _connect()
+    try:
+        await conn.execute("DROP SCHEMA IF EXISTS scheduler CASCADE")
+        assert await migrate.apply_migration(conn, MIGRATION_ID) == "applied"
+        assert (
+            await migrate.apply_migration(conn, LEDGER_MIGRATION_ID)
+            == "applied"
+        )
+        assert (
+            await migrate.apply_migration(conn, LIFECYCLE_MIGRATION_ID)
+            == "applied"
+        )
+
+        # 0003 round-trip on an EMPTY transitions table (down restores the
+        # narrow 0001 checks; only possible before any seq>1 row exists).
+        assert (
+            await migrate.rollback_migration(conn, LIFECYCLE_MIGRATION_ID)
+            == "rolled-back"
+        )
+        assert (
+            await migrate.apply_migration(conn, LIFECYCLE_MIGRATION_ID)
+            == "applied"
+        )
+
+        engine = create_async_engine(_sqlalchemy_url())
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
+        repository = PostgresControlPlanRepository()
+        lifecycle = ControlPlanLifecycleService(repository=repository)
+        try:
+            async with sessions() as session:
+                draft, _ = await _service(repository).create_draft(
+                    session, _request(), "operator-1"
+                )
+            async with sessions() as session:
+                await lifecycle.review_control_plan(
+                    session, draft.plan_id, 1, "reviewer"
+                )
+            async with sessions() as session:
+                approved = await lifecycle.approve_shadow_plan(
+                    session, draft.plan_id, 1, "approver"
+                )
+            assert current_lifecycle_state(approved) == "approved_for_shadow"
+            async with sessions() as session:
+                reloaded = await repository.load_draft_plan(
+                    session, draft.plan_id, 1
+                )
+            assert current_lifecycle_state(reloaded) == "approved_for_shadow"
+
+            # The DB edge-graph CHECK rejects an illegal transition directly.
+            with pytest.raises(asyncpg.exceptions.CheckViolationError):
+                await conn.execute(
+                    "INSERT INTO scheduler.control_state_transitions ("
+                    "plan_id, plan_version, transition_sequence, "
+                    "transition_type, from_state, to_state, actor_subject) "
+                    "VALUES ($1, 1, 99, 'shadow_approved', 'draft', "
+                    "'approved_for_shadow', 'x')",
+                    draft.plan_id,
+                )
+            # COALESCE guard: NULL from_state on a non-creation type is rejected
+            # (a naive tuple CHECK would pass on the resulting UNKNOWN).
+            with pytest.raises(asyncpg.exceptions.CheckViolationError):
+                await conn.execute(
+                    "INSERT INTO scheduler.control_state_transitions ("
+                    "plan_id, plan_version, transition_sequence, "
+                    "transition_type, from_state, to_state, actor_subject) "
+                    "VALUES ($1, 1, 98, 'review_requested', NULL, "
+                    "'under_review', 'x')",
+                    draft.plan_id,
+                )
+
+            # Real-Postgres concurrency backstop: two actions that both compute
+            # sequence 2 from the same fresh draft state — the (plan, version,
+            # sequence) PK commits exactly one and rejects the other as a
+            # TransitionConflictError (the real IntegrityError → typed mapping).
+            from datetime import datetime, timezone
+
+            from repositories.control_plan_repository import (
+                TransitionConflictError,
+                TransitionRecord,
+            )
+
+            async with sessions() as session:
+                racer, _ = await _service_vol(repository, 6100.0).create_draft(
+                    session, _request(), "operator-2"
+                )
+            now = datetime(2026, 7, 20, 2, tzinfo=timezone.utc)
+            review = TransitionRecord(
+                2, "review_requested", "draft", "under_review", "r", None,
+                None, occurred_at=now,
+            )
+            cancel = TransitionRecord(
+                2, "cancelled", "draft", "cancelled", "op", "abort", None,
+                occurred_at=now,
+            )
+            async with sessions() as session:
+                await repository.append_state_transition(
+                    session, racer.plan_id, 1, review
+                )
+            async with sessions() as session:
+                with pytest.raises(TransitionConflictError):
+                    await repository.append_state_transition(
+                        session, racer.plan_id, 1, cancel
+                    )
+            seq2_rows = await conn.fetchval(
+                "SELECT count(*) FROM scheduler.control_state_transitions "
+                "WHERE plan_id = $1 AND transition_sequence = 2",
+                racer.plan_id,
+            )
+            assert seq2_rows == 1
+        finally:
+            await engine.dispose()
+    finally:
+        # Hard reset for the shared disposable container (lifecycle rows make
+        # the 0003 down impossible, so drop the whole schema instead).
+        try:
+            await conn.execute("DROP SCHEMA IF EXISTS scheduler CASCADE")
         finally:
             await conn.close()

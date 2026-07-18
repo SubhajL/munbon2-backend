@@ -38,10 +38,13 @@ from schemas.control_plan import (
     GatePlanEventOut,
     HandoverVerdictOut,
     LedgerEntryOut,
+    LifecycleActionRequest,
     MemberBoundsOut,
     PlanRequirementOut,
     PlanTransitionOut,
     PredictionMemberStatusOut,
+    ReasonedActionRequest,
+    SupersedeRequest,
 )
 from services.clients.control_client_errors import (
     FlowLineageConflictError,
@@ -60,6 +63,19 @@ from services.control_plan_service import (
     PlanNotFoundError,
     parse_member_summaries,
 )
+from services.control_plan_lifecycle_service import (
+    ControlPlanLifecycleService,
+    PlanNotFoundError as LifecyclePlanNotFoundError,
+    SupersedeScopeError,
+    current_lifecycle_state,
+)
+from core.control_plan_lifecycle import (
+    ApprovalCoverageError,
+    ApprovalFreezeMismatchError,
+    IllegalTransitionError,
+    LifecycleHistoryCorruptError,
+)
+from repositories.control_plan_repository import TransitionConflictError
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -84,6 +100,36 @@ async def get_control_plan_service(request: Request):
         await flow_client.aclose()
 
 
+def get_lifecycle_service() -> ControlPlanLifecycleService:
+    return ControlPlanLifecycleService(
+        repository=PostgresControlPlanRepository()
+    )
+
+
+class StoredDocumentError(Exception):
+    """A stored canonical document could not be parsed (corruption → 503)."""
+
+
+def _parse_stored_json(text):
+    try:
+        return json.loads(text)
+    except ValueError as error:
+        raise StoredDocumentError(
+            f"a stored control-plan document is corrupt: {error}"
+        ) from error
+
+
+def _build_or_503(builder, record):
+    """Build a response, mapping a corrupt stored document to a 503 rather than
+    letting it escape the handler as an opaque 500."""
+    try:
+        return builder(record)
+    except StoredDocumentError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)
+        )
+
+
 def _actor_subject(current_user: Dict) -> str:
     subject = current_user.get("sub") or current_user.get("user_id")
     if not subject:
@@ -98,7 +144,9 @@ def _response_from_record(record: DraftPlanRecord) -> DraftControlPlanResponse:
     return DraftControlPlanResponse(
         plan_id=record.plan_id,
         plan_version=record.plan_version,
-        lifecycle_state=record.lifecycle_state,
+        # The current lifecycle state is DERIVED from the append-only transition
+        # history; the run header's lifecycle_state is frozen creation metadata.
+        lifecycle_state=current_lifecycle_state(record),
         input_content_hash=record.input_content_hash,
         draft_content_hash=record.draft_content_hash,
         requirement_run_id=record.requirement_run_id,
@@ -117,7 +165,7 @@ def _response_from_record(record: DraftPlanRecord) -> DraftControlPlanResponse:
         horizon_end=record.horizon_end,
         model_step_seconds=record.model_step_seconds,
         max_intermediate_trims=record.max_intermediate_trims,
-        optimizer_result=json.loads(record.optimizer_result_document_text),
+        optimizer_result=_parse_stored_json(record.optimizer_result_document_text),
         requirements=[
             PlanRequirementOut(
                 requirement_id=str(entry.requirement_id),
@@ -144,12 +192,12 @@ def _response_from_record(record: DraftPlanRecord) -> DraftControlPlanResponse:
                 path_reach_ids=(
                     None
                     if entry.path_reach_ids_document_text is None
-                    else json.loads(entry.path_reach_ids_document_text)
+                    else _parse_stored_json(entry.path_reach_ids_document_text)
                 ),
                 rotation_windows=(
                     None
                     if entry.rotation_windows_document_text is None
-                    else json.loads(entry.rotation_windows_document_text)
+                    else _parse_stored_json(entry.rotation_windows_document_text)
                 ),
             )
             for entry in record.requirements
@@ -175,6 +223,11 @@ def _response_from_record(record: DraftPlanRecord) -> DraftControlPlanResponse:
                 to_state=entry.to_state,
                 actor_subject=entry.actor_subject,
                 reason=entry.reason,
+                transition_document=(
+                    None
+                    if entry.transition_document_text is None
+                    else _parse_stored_json(entry.transition_document_text)
+                ),
                 occurred_at=entry.occurred_at,
             )
             for entry in record.transitions
@@ -246,7 +299,7 @@ async def post_draft_control_plan(
         status.HTTP_200_OK if replayed else status.HTTP_201_CREATED
     )
     response.headers["Idempotent-Replay"] = "true" if replayed else "false"
-    return _response_from_record(record)
+    return _build_or_503(_response_from_record, record)
 
 
 @router.get(
@@ -278,7 +331,7 @@ async def get_control_plan_version(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="draft store is unavailable",
         )
-    return _response_from_record(record)
+    return _build_or_503(_response_from_record, record)
 
 
 @router.get(
@@ -310,7 +363,7 @@ async def get_control_plan_ledger(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="draft store is unavailable",
         )
-    return _ledger_response_from_record(record)
+    return _build_or_503(_ledger_response_from_record, record)
 
 
 def _bounds(values: list) -> MemberBoundsOut:
@@ -428,3 +481,150 @@ def _handover_verdicts(record):
             [r.requirement_id for r in gate_requirements],
             verdict,
         )
+
+
+def _map_lifecycle_errors(error: Exception) -> HTTPException:
+    if isinstance(error, LifecyclePlanNotFoundError):
+        return HTTPException(status.HTTP_404_NOT_FOUND, detail=str(error))
+    if isinstance(
+        error,
+        (
+            IllegalTransitionError,
+            TransitionConflictError,
+            ApprovalCoverageError,
+            SupersedeScopeError,
+            ApprovalFreezeMismatchError,
+        ),
+    ):
+        return HTTPException(status.HTTP_409_CONFLICT, detail=str(error))
+    # Corruption of stored evidence (bad hash, malformed history/document) is a
+    # fail-closed 503, matching the draft GET path — never an opaque 500.
+    if isinstance(
+        error,
+        (LifecycleHistoryCorruptError, DraftStoreCorruptError, StoredDocumentError),
+    ):
+        return HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)
+        )
+    if isinstance(error, SQLAlchemyError):
+        logger.error("lifecycle store failed", error=str(error))
+        return HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="control-plan store is unavailable",
+        )
+    raise error
+
+
+async def _run_lifecycle(action):
+    try:
+        return _response_from_record(await action())
+    except HTTPException:
+        raise
+    except Exception as error:  # noqa: BLE001 — remapped to typed HTTP status
+        raise _map_lifecycle_errors(error)
+
+
+@router.post(
+    "/{plan_id}/versions/{plan_version}/review",
+    response_model=DraftControlPlanResponse,
+)
+async def review_control_plan(
+    plan_id: UUID,
+    plan_version: int,
+    body: LifecycleActionRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: Dict = Depends(get_current_user),
+    service: ControlPlanLifecycleService = Depends(get_lifecycle_service),
+):
+    actor = _actor_subject(current_user)
+    return await _run_lifecycle(
+        lambda: service.review_control_plan(
+            db, plan_id, plan_version, actor, body.reason
+        )
+    )
+
+
+@router.post(
+    "/{plan_id}/versions/{plan_version}/approve-for-shadow",
+    response_model=DraftControlPlanResponse,
+)
+async def approve_shadow_plan(
+    plan_id: UUID,
+    plan_version: int,
+    body: LifecycleActionRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: Dict = Depends(get_current_user),
+    service: ControlPlanLifecycleService = Depends(get_lifecycle_service),
+):
+    actor = _actor_subject(current_user)
+    return await _run_lifecycle(
+        lambda: service.approve_shadow_plan(
+            db, plan_id, plan_version, actor, body.reason
+        )
+    )
+
+
+@router.post(
+    "/{plan_id}/versions/{plan_version}/cancel",
+    response_model=DraftControlPlanResponse,
+)
+async def cancel_control_plan(
+    plan_id: UUID,
+    plan_version: int,
+    body: ReasonedActionRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: Dict = Depends(get_current_user),
+    service: ControlPlanLifecycleService = Depends(get_lifecycle_service),
+):
+    actor = _actor_subject(current_user)
+    return await _run_lifecycle(
+        lambda: service.cancel_control_plan(
+            db, plan_id, plan_version, actor, body.reason
+        )
+    )
+
+
+@router.post(
+    "/{plan_id}/versions/{plan_version}/invalidate",
+    response_model=DraftControlPlanResponse,
+)
+async def invalidate_control_plan(
+    plan_id: UUID,
+    plan_version: int,
+    body: ReasonedActionRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: Dict = Depends(get_current_user),
+    service: ControlPlanLifecycleService = Depends(get_lifecycle_service),
+):
+    actor = _actor_subject(current_user)
+    return await _run_lifecycle(
+        lambda: service.invalidate_control_plan(
+            db, plan_id, plan_version, actor, body.reason
+        )
+    )
+
+
+@router.post(
+    "/{plan_id}/versions/{plan_version}/supersede",
+    response_model=DraftControlPlanResponse,
+)
+async def supersede_control_plan(
+    plan_id: UUID,
+    plan_version: int,
+    body: SupersedeRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: Dict = Depends(get_current_user),
+    service: ControlPlanLifecycleService = Depends(get_lifecycle_service),
+):
+    actor = _actor_subject(current_user)
+    return await _run_lifecycle(
+        lambda: service.supersede_control_plan(
+            db,
+            plan_id,
+            plan_version,
+            body.successor_plan_id,
+            body.successor_plan_version,
+            actor,
+            body.reason,
+        )
+    )

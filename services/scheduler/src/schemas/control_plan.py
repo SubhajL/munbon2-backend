@@ -213,6 +213,7 @@ class PlanTransitionOut(_StrictModel):
     to_state: str
     actor_subject: str
     reason: Optional[str]
+    transition_document: Optional[dict[str, Any]] = None
     occurred_at: datetime
 
 
@@ -258,10 +259,34 @@ class ControlPlanLedgerResponse(_StrictModel):
     handover: list[HandoverVerdictOut]
 
 
+class LifecycleActionRequest(_StrictModel):
+    reason: Optional[NonBlank] = None
+
+
+class ReasonedActionRequest(_StrictModel):
+    reason: NonBlank
+
+
+class SupersedeRequest(_StrictModel):
+    successor_plan_id: UUID
+    successor_plan_version: StrictInt = Field(gt=0)
+    reason: NonBlank
+
+
+_LIFECYCLE_STATE = Literal[
+    "draft",
+    "under_review",
+    "approved_for_shadow",
+    "cancelled",
+    "superseded",
+    "invalidated",
+]
+
+
 class DraftControlPlanResponse(_StrictModel):
     plan_id: UUID
     plan_version: int
-    lifecycle_state: Literal["draft"]
+    lifecycle_state: _LIFECYCLE_STATE
     input_content_hash: str
     draft_content_hash: str
     requirement_run_id: UUID
