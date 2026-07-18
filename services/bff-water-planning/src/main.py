@@ -100,10 +100,11 @@ register_graphql_context_cleanup(app)
 app.include_router(admin.router, prefix="/api/v1")
 
 # Include REST API routes
-from api.routes import crop_season, water_demand, water_demand_v2
+from api.routes import control_plans, crop_season, water_demand, water_demand_v2
 app.include_router(crop_season.router)
 app.include_router(water_demand.router)
 app.include_router(water_demand_v2.router)
+app.include_router(control_plans.router)
 
 # Add Prometheus metrics endpoint
 metrics_app = make_asgi_app()

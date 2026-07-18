@@ -41,6 +41,27 @@ upstream failures never fall back to zero or mutable rows. The former mutable
 section query remains temporarily at the deprecated
 `/api/v1/water-demand/legacy/sections/{section_id}/daily` path.
 
+**Control-plan projections (PR 4.4)** — four READ-ONLY GETs under
+`/api/v1/control-plans/{plan_id}/versions/{plan_version}` (`` = detail,
+`/prediction-coverage`, `/ledger`, `/lifecycle-history`) let operators inspect the
+scheduler's non-commanding shadow plans without DB access. They are **strict
+validated pass-through** (`schemas/control_plan.py`, `extra="forbid"`,
+snake_case mirror of the scheduler OUT schemas) — no new status vocabulary, no
+success booleans, no fabricated delivery numbers. The BFF forwards the operator's
+**bearer token** to the scheduler (`HTTPBearer`, no service token; scheduler stays
+the JWT authority) and preserves every upstream state exactly:
+`unavailable|infeasible|invalidated|stale` are never collapsed to zero/empty/
+success. `source_data_status="stale"` is the immutable snapshot-time source
+status, NOT a live freshness recompute. Error taxonomy (never swallows, unlike the
+legacy schedule methods): 404→404, scheduler 401/403→same, 503/transport→503,
+malformed body or schema **drift**→502 (fail-closed), other→502. There is **no
+list route** (the scheduler has none — do not fabricate one) and these projections
+must **not** be cached. New client methods
+`SchedulerClient.get_control_plan_projection/.get_control_plan_ledger` and typed
+errors `SchedulerControlPlanError` + subclasses live in `clients/scheduler_client.py`.
+The service now ships a `pytest.ini` (`testpaths=tests`, `asyncio_mode=strict`) so
+bare `pytest` is the gate and never collects the root integration scripts.
+
 ## Gotchas / Watch-outs
 - 🚨🚨 **CONFIRMED hardcoded PRODUCTION DB credentials** in `scripts/populate_weekly_demands_with_events.py` (`GIS_DB_CONFIG`/`BFF_DB_CONFIG`: host `43.208.201.191`, plaintext password). The **same password appears in ~34 `scripts/` files** and the prod IP in ~40 files — this is the **SEC / F-07** remediation item. Rotate the password, move to env/secrets, add secret-scanning. Do **not** copy this pattern.
 - `/health` external-service checks are **stubbed** (hardcoded `True`, no real probing); `/health` reports version `1.0.0` while the app is `2.0.0`.
