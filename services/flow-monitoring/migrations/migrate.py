@@ -1,8 +1,9 @@
 """
 Tracked schema migrations for flow_monitoring (PR 4.1: prediction persistence).
 
-    python migrations/migrate.py apply    0001_prediction_persistence
-    python migrations/migrate.py rollback 0001_prediction_persistence
+    python migrations/migrate.py apply     0001_prediction_persistence
+    python migrations/migrate.py rollback  0001_prediction_persistence
+    python migrations/migrate.py apply-all   # every pending pair, in order
     python migrations/migrate.py status
 
 Each migration is a pair of tracked SQL files (<id>.up.sql / <id>.down.sql) applied
@@ -36,6 +37,9 @@ MIGRATIONS_REGISTRY_DDL = (
 )
 
 
+CLI_VERBS = ("apply", "rollback", "status", "apply-all")
+
+
 class MigrationError(RuntimeError):
     """The migration cannot proceed safely (unknown id, drift, wrong state)."""
 
@@ -57,6 +61,25 @@ def migration_checksum(migration_id: str) -> str:
     up_sql = _read_sql(migration_id, "up")
     down_sql = _read_sql(migration_id, "down")
     return checksum_of(f"up\0{up_sql}\0down\0{down_sql}")
+
+
+def discover_migration_ids() -> list[str]:
+    """Every migration id in MIGRATIONS_DIR that has BOTH an up and a down file,
+    in lexical (id) order — the order they must apply in.
+
+    A half-pair (an up without its down, or vice versa) is a packaging error that
+    could silently skip a rollback path, so it fails closed rather than guessing.
+    """
+    ups = {p.name[: -len(".up.sql")] for p in MIGRATIONS_DIR.glob("*.up.sql")}
+    downs = {p.name[: -len(".down.sql")] for p in MIGRATIONS_DIR.glob("*.down.sql")}
+    only_up = ups - downs
+    only_down = downs - ups
+    if only_up or only_down:
+        raise MigrationError(
+            "incomplete migration pairs: "
+            f"up-only={sorted(only_up)} down-only={sorted(only_down)}"
+        )
+    return sorted(ups)
 
 
 def postgres_connection_kwargs(url: str) -> dict:
@@ -117,6 +140,20 @@ async def apply_migration(conn, migration_id: str) -> str:
         return "applied"
 
 
+async def apply_all_migrations(conn) -> list[tuple[str, str]]:
+    """Apply every not-yet-applied migration pair, in lexical order, under the
+    SAME per-migration advisory-lock + checksum rules as `apply_migration`.
+
+    Idempotent: an already-applied pair returns "already-applied" and runs no
+    DDL. A checksum drift raises (never edit an applied pair) BEFORE any later
+    pair is touched, so start.sh aborts rather than boot a half-migrated schema.
+    """
+    results: list[tuple[str, str]] = []
+    for migration_id in discover_migration_ids():
+        results.append((migration_id, await apply_migration(conn, migration_id)))
+    return results
+
+
 async def rollback_migration(conn, migration_id: str) -> str:
     down_sql = _read_sql(migration_id, "down")
     digest = migration_checksum(migration_id)
@@ -165,7 +202,7 @@ async def _main(argv: list[str]) -> int:
     import asyncpg
     from dotenv import load_dotenv
 
-    if len(argv) < 1 or argv[0] not in ("apply", "rollback", "status"):
+    if len(argv) < 1 or argv[0] not in CLI_VERBS:
         print(__doc__)
         return 2
     load_dotenv(MIGRATIONS_DIR.parent / ".env")
@@ -184,6 +221,10 @@ async def _main(argv: list[str]) -> int:
                     f"{entry['migration_id']}  {entry['applied_at']}  "
                     f"{entry['checksum'][:12]}"
                 )
+            return 0
+        if argv[0] == "apply-all":
+            for migration_id, outcome in await apply_all_migrations(conn):
+                print(f"{migration_id}  {outcome}")
             return 0
         if len(argv) != 2:
             print(f"{argv[0]} needs exactly one migration id", file=sys.stderr)

@@ -154,6 +154,82 @@ class TestStatus:
         assert conn.executed == []
 
 
+class TestDiscoverMigrationIds:
+    def test_lists_complete_pairs_in_lexical_order(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(migrate, "MIGRATIONS_DIR", tmp_path)
+        _write_pair(tmp_path, "0002_b", "CREATE TABLE b (id INT);", "DROP TABLE b;")
+        _write_pair(tmp_path, "0001_a", "CREATE TABLE a (id INT);", "DROP TABLE a;")
+        _write_pair(tmp_path, "0010_c", "CREATE TABLE c (id INT);", "DROP TABLE c;")
+        assert migrate.discover_migration_ids() == ["0001_a", "0002_b", "0010_c"]
+
+    def test_rejects_pair_missing_its_down(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(migrate, "MIGRATIONS_DIR", tmp_path)
+        (tmp_path / "0001_a.up.sql").write_text("CREATE TABLE a (id INT);", "utf-8")
+        with pytest.raises(MigrationError, match="incomplete"):
+            migrate.discover_migration_ids()
+
+    def test_rejects_pair_missing_its_up(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(migrate, "MIGRATIONS_DIR", tmp_path)
+        (tmp_path / "0001_a.down.sql").write_text("DROP TABLE a;", "utf-8")
+        with pytest.raises(MigrationError, match="incomplete"):
+            migrate.discover_migration_ids()
+
+    def test_real_scheduler_pairs_are_complete_and_sorted(self):
+        # No monkeypatch: the shipped scheduler migrations must be complete pairs.
+        ids = migrate.discover_migration_ids()
+        assert ids == sorted(ids)
+        assert "0001_control_plan_drafts" in ids
+        assert "apply-all" in migrate.CLI_VERBS
+
+
+class TestApplyAll:
+    @pytest.mark.asyncio
+    async def test_applies_every_pending_pair_in_sorted_order(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(migrate, "MIGRATIONS_DIR", tmp_path)
+        _write_pair(tmp_path, "0002_b", "CREATE TABLE b (id INT);", "DROP TABLE b;")
+        _write_pair(tmp_path, "0001_a", "CREATE TABLE a (id INT);", "DROP TABLE a;")
+        conn = _FakeConn(applied_checksum=None)
+
+        results = await migrate.apply_all_migrations(conn)
+
+        assert [mid for mid, _ in results] == ["0001_a", "0002_b"]
+        assert all(outcome == "applied" for _, outcome in results)
+        a_idx = next(i for i, s in enumerate(conn.executed) if "CREATE TABLE a" in s)
+        b_idx = next(i for i, s in enumerate(conn.executed) if "CREATE TABLE b" in s)
+        assert a_idx < b_idx
+
+    @pytest.mark.asyncio
+    async def test_is_idempotent_when_pair_already_applied(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(migrate, "MIGRATIONS_DIR", tmp_path)
+        _write_pair(tmp_path, "0001_a", "CREATE TABLE a (id INT);", "DROP TABLE a;")
+        conn = _FakeConn(applied_checksum=migration_checksum("0001_a"))
+
+        results = await migrate.apply_all_migrations(conn)
+
+        assert results == [("0001_a", "already-applied")]
+        assert not any("CREATE TABLE a" in s for s in conn.executed)
+
+    @pytest.mark.asyncio
+    async def test_aborts_on_checksum_drift_without_applying_later_pairs(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(migrate, "MIGRATIONS_DIR", tmp_path)
+        _write_pair(tmp_path, "0001_a", "CREATE TABLE a (id INT);", "DROP TABLE a;")
+        _write_pair(tmp_path, "0002_b", "CREATE TABLE b (id INT);", "DROP TABLE b;")
+        # A drifted registry (checksum never matches) makes the first pair refuse;
+        # apply-all must surface it and never reach the second pair.
+        conn = _FakeConn(applied_checksum="d" * 64)
+
+        with pytest.raises(MigrationError, match="drift"):
+            await migrate.apply_all_migrations(conn)
+
+        assert not any("CREATE TABLE b" in s for s in conn.executed)
+
+
 class TestUrlParser:
     def test_parser_preserves_reserved_password_characters(self):
         kwargs = postgres_connection_kwargs(

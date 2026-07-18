@@ -91,15 +91,21 @@ export function getIrrigationProcesses(): PM2ProcessConfig[] {
         INFLUXDB_TOKEN: 'your-influxdb-token-here',
         INFLUXDB_ORG: 'munbon',
         INFLUXDB_BUCKET: 'flow_monitoring',
+        // PR 4.4a-2: load the committed commandable=false engineering-prior
+        // release (service-root-relative; the loader/validator are proven by the
+        // flow suite). Never a commandable release — this plane is non-commanding.
+        HYDRAULIC_MODEL_RELEASE_PATH: 'data/model-releases/engineering-prior-v3-v1.json',
       },
     },
     {
       name: 'scheduler',
       type: 'python',
-      port: 3012,
+      port: 3021,
       script: './start.sh',
       env: {
-        PORT: '3012',
+        // Canonical scheduler port (PR 4.4a-2): start.sh honors $PORT (default
+        // 3021); the retired legacy port is gone here and in every consumer URL.
+        PORT: '3021',
         LOG_LEVEL: 'INFO',
         POSTGRES_URL: requiredEnv('POSTGRES_URL'),
         REDIS_URL: 'redis://localhost:6379/4',

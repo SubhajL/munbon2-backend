@@ -10,7 +10,7 @@ scheduler exposes no list; the BFF does not fabricate one).
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import ValidationError
 
@@ -38,8 +38,12 @@ router = APIRouter(prefix="/api/v1/control-plans", tags=["control-plans"])
 security = HTTPBearer(auto_error=True)
 
 
-def get_scheduler_client() -> SchedulerClient:
-    return SchedulerClient()
+def get_scheduler_client(request: Request) -> SchedulerClient:
+    # Reuse the lifespan-owned pooled AsyncClient (PR 4.4a-2) so control-plan
+    # reads share one connection pool with the readiness probes instead of
+    # opening a fresh client per request.
+    http_client = getattr(request.app.state, "http_client", None)
+    return SchedulerClient(http_client=http_client)
 
 
 def get_operator_bearer_token(

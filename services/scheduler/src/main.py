@@ -102,30 +102,23 @@ async def health_check():
 # Readiness check endpoint
 @app.get("/ready", response_model=Dict[str, Any])
 async def readiness_check():
-    """Readiness check endpoint"""
-    # Check database connection
-    try:
-        from sqlalchemy import text
+    """Dependency-truth readiness: 503 unless every tracked migration matches,
+    all control tables exist, and the Redis revocation store is reachable. The
+    body carries only safe status strings (no hostname/cred/exception leaks)."""
+    from core.readiness import check_scheduler_readiness
 
-        async with engine.connect() as conn:
-            await conn.execute(text("SELECT 1"))
-        db_status = "connected"
-    except Exception as e:
-        logger.error(f"Database connection failed: {str(e)}")
-        db_status = "disconnected"
+    redis_client = await get_redis()
+    result = await check_scheduler_readiness(engine, redis_client)
+    body = {
+        "status": "ready" if result.ready else "not ready",
+        "checks": result.checks,
+    }
+    if not result.ready:
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            content={
-                "status": "not ready",
-                "database": db_status,
-                "error": str(e),
-            },
+            content=body,
         )
-
-    return {
-        "status": "ready",
-        "database": db_status,
-    }
+    return body
 
 
 # Include API routes

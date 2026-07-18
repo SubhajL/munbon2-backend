@@ -5,6 +5,7 @@ import structlog
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from prometheus_client import make_asgi_app
 
 from config import settings
@@ -261,14 +262,31 @@ app.mount("/metrics", metrics_app)
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
-    health_status = await db_manager.check_health()
+    """Process liveness ONLY — never claims dependency health. Dependency truth
+    (DB, loaded release, prediction persistence) lives at `/ready`."""
     return {
-        "status": "healthy" if all(health_status.values()) else "unhealthy",
+        "status": "healthy",
         "service": settings.service_name,
         "version": "1.0.0",
-        "databases": health_status,
     }
+
+
+@app.get("/ready")
+async def readiness_check():
+    """Dependency-truth readiness: 503 unless Postgres is healthy, a valid
+    commandable=false release is loaded, the prediction service is initialized,
+    and the prediction tables + migration checksum are present. Fail-closed; the
+    body carries only safe status strings (no host/cred/exception leaks)."""
+    from core.readiness import check_flow_readiness
+
+    result = await check_flow_readiness(app, db_manager)
+    body = {
+        "status": "ready" if result.ready else "not ready",
+        "checks": result.checks,
+    }
+    if not result.ready:
+        return JSONResponse(status_code=503, content=body)
+    return body
 
 
 @app.get("/")

@@ -1,4 +1,8 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import { buildProcessConfig, getIrrigationProcesses } from '../build-irrigation-config';
+
+const REPO_ROOT = path.resolve(__dirname, '../../..');
 
 // Credentials are no longer hardcoded in the config (SEC remediation): the builder
 // requires these from the host environment and fails closed otherwise.
@@ -214,6 +218,68 @@ describe('build-irrigation-config', () => {
         DAILY_REQUIREMENT_STARTUP_CATCHUP_ENABLED: 'false',
         DAILY_REQUIREMENT_SCHEDULE_ENABLED: 'false',
       });
+    });
+
+    // PR 4.4a-2: canonical scheduler runtime port is 3021 everywhere. start.sh
+    // honors $PORT (default 3021); PM2 must set PORT=3021 and the spec port to
+    // 3021, and every consumer URL (BFF, ros-gis) must point at 3021.
+    it('uses port 3021 for the scheduler and every consumer that calls it', () => {
+      const processes = getIrrigationProcesses();
+
+      const scheduler = processes.find(p => p.name === 'scheduler');
+      expect(scheduler?.env?.PORT).toBe('3021');
+      // The retired 3012 must not linger anywhere in the scheduler env.
+      expect(scheduler?.env?.PORT).not.toBe('3012');
+
+      const bff = processes.find(p => p.name === 'bff-water-planning');
+      expect(bff?.env?.SCHEDULER_URL).toBe('http://localhost:3021');
+
+      const rosGis = processes.find(p => p.name === 'ros-gis-integration');
+      expect(rosGis?.env?.SCHEDULER_URL).toBe('http://localhost:3021');
+    });
+
+    it('retires the hardcoded 3012 scheduler spec port from the config source', () => {
+      // The ServiceSpec.port is not surfaced on PM2ProcessConfig, so lock the
+      // source: the scheduler spec must declare port 3021 and 3012 is gone.
+      const source = fs.readFileSync(
+        path.join(REPO_ROOT, 'infra', 'pm2', 'build-irrigation-config.ts'),
+        'utf-8',
+      );
+      expect(source).toContain('port: 3021');
+      expect(source).not.toContain('3012');
+    });
+
+    // PR 4.4a-2: flow-monitoring must load the committed commandable=false
+    // engineering-prior release; PM2 wires its exact repo path and the file must
+    // exist (the loader is proven by the flow suite — never invent a filename).
+    it('wires the committed non-commandable flow release path', () => {
+      const flow = getIrrigationProcesses().find(p => p.name === 'flow-monitoring');
+      const releasePath = flow?.env?.HYDRAULIC_MODEL_RELEASE_PATH;
+      expect(releasePath).toBe(
+        'data/model-releases/engineering-prior-v3-v1.json',
+      );
+
+      const absolute = path.join(
+        REPO_ROOT,
+        'services',
+        'flow-monitoring',
+        releasePath as string,
+      );
+      const release = JSON.parse(fs.readFileSync(absolute, 'utf-8'));
+      expect(release.commandable).toBe(false);
+      expect(release.evidence_class).toBe('engineering_prior');
+    });
+  });
+
+  describe('deploy topology', () => {
+    it('has retired the EC2 docker deploy workflow (PM2 is the topology)', () => {
+      const workflow = path.join(
+        REPO_ROOT,
+        '.github',
+        'workflows',
+        'deploy-flow-monitoring.yml',
+      );
+      expect(fs.existsSync(workflow)).toBe(false);
     });
   });
 

@@ -4,6 +4,10 @@ quarantined — /api/v1/gates/* is OFF unless GATES_API_ENABLED=true, and when o
 runs on the CANONICAL configs, never the fragmented munbon_network_final.json
 (2/57 nodes reachable) that main.py and the EC2 deploy workflow used to ship.
 
+PR 4.4a-2 RETIRED that EC2 deploy workflow (deploy-flow-monitoring.yml): there is
+no tracked Dockerfile and PM2 is the documented topology. The class that used to
+lock the workflow's shipped configs now locks its removal + the PM2 replacement.
+
 Run isolated from the service root:
     PYTHONPATH=src pytest --noconftest -o addopts="" tests/unit/test_legacy_gates_quarantine.py
 """
@@ -19,9 +23,9 @@ SERVICE_ROOT = Path(__file__).resolve().parents[2]
 NETWORK = str(SERVICE_ROOT / "src" / "config" / "network.json")
 GEOMETRY = str(SERVICE_ROOT / "src" / "config" / "canal_geometry.json")
 GATES_PY = SERVICE_ROOT / "src" / "api" / "gates.py"
-DEPLOY_YML = (
-    SERVICE_ROOT.parents[1] / ".github" / "workflows" / "deploy-flow-monitoring.yml"
-)
+REPO_ROOT = SERVICE_ROOT.parents[1]
+DEPLOY_YML = REPO_ROOT / ".github" / "workflows" / "deploy-flow-monitoring.yml"
+PM2_CONFIG_TS = REPO_ROOT / "infra" / "pm2" / "build-irrigation-config.ts"
 
 REQUIRED_ENV = {
     "INFLUXDB_URL": "http://x:8086",
@@ -248,22 +252,20 @@ class TestGateConfigRouterQuarantined:
             gates_module.disabled_reason = None
 
 
-class TestDeployWorkflowShipsCanonicalConfigs:
-    """Review defect #7's second half: the EC2 deploy shipped the fragmented
-    topology. Locked here the same way the CI suite manifest is locked."""
+class TestDeployWorkflowRetired:
+    """PR 4.4a-2: the EC2 Docker deploy workflow is retired (no tracked
+    Dockerfile; PM2 is the documented topology). The old "ships canonical
+    configs" lock is replaced by a lock on the workflow's REMOVAL and on the PM2
+    config being the flow-monitoring deployment surface."""
 
-    def test_ships_canonical_configs(self):
-        text = DEPLOY_YML.read_text(encoding="utf-8")
-        assert "src/config/network.json" in text
-        assert "src/config/canal_geometry.json" in text
+    def test_deploy_workflow_is_removed(self):
+        assert not DEPLOY_YML.exists(), (
+            "deploy-flow-monitoring.yml was resurrected; PR 4.4a-2 retired the "
+            "EC2 Docker deploy in favor of the PM2 topology"
+        )
 
-    def test_does_not_ship_the_fragmented_topology(self):
-        text = DEPLOY_YML.read_text(encoding="utf-8")
-        assert "munbon_network_final.json" not in text
-        assert "canal_geometry_template.json" not in text
-
-    def test_keeps_a_deployment_smoke(self):
-        text = DEPLOY_YML.read_text(encoding="utf-8")
-        assert "curl -f http://localhost:3011/health" in text
-        # end-to-end evidence the canonical control plane booted, not just the app
-        assert "/api/v1/control/plan" in text
+    def test_pm2_config_is_the_flow_monitoring_topology(self):
+        text = PM2_CONFIG_TS.read_text(encoding="utf-8")
+        assert "'flow-monitoring'" in text
+        # PM2 wires the committed commandable=false engineering-prior release.
+        assert "HYDRAULIC_MODEL_RELEASE_PATH" in text
