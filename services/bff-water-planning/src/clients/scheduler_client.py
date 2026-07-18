@@ -295,6 +295,31 @@ class SchedulerClient:
             bearer_token,
         )
 
+    async def get_prediction_coverage(
+        self, plan_id: UUID, plan_version: int, bearer_token: str
+    ) -> Dict[str, Any]:
+        """Fetch the scheduler's DEDICATED bounded prediction-coverage read (PR
+        4.4b-3) — not the full detail. Same fail-closed taxonomy as the other reads
+        (incl. 400/422 → BadRequest), so a scheduler that has not yet deployed the
+        endpoint 404s and the route fails closed rather than fabricating coverage."""
+        return await self._get_control_plan_document(
+            "/api/v1/control-plans/"
+            f"{plan_id}/versions/{plan_version}/prediction-coverage",
+            bearer_token,
+        )
+
+    async def get_lifecycle_history(
+        self, plan_id: UUID, plan_version: int, bearer_token: str
+    ) -> Dict[str, Any]:
+        """Fetch the scheduler's DEDICATED bounded lifecycle-history read (PR
+        4.4b-3) — not the full detail. Same fail-closed taxonomy as the other
+        reads; a 404 (endpoint not yet deployed) fails closed, never fabricated."""
+        return await self._get_control_plan_document(
+            "/api/v1/control-plans/"
+            f"{plan_id}/versions/{plan_version}/lifecycle-history",
+            bearer_token,
+        )
+
     async def list_control_plans(
         self,
         *,

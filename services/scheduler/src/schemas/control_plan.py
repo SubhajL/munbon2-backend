@@ -329,6 +329,43 @@ class DraftControlPlanResponse(_StrictModel):
     created_at: datetime
 
 
+# --- Bounded read projections (PR 4.4b-3) -----------------------------------
+# Dedicated, BOUNDED per-plan reads served by their own scheduler endpoints. Each
+# carries EXACTLY the coverage / history data the BFF previously projected out of
+# the full detail — reusing the OUT sub-models above, inventing no new vocabulary
+# — so a bounded read returns the same data without loading the full aggregate.
+class ControlPlanPredictionCoverageResponse(_StrictModel):
+    """Prediction lineage + exact per-member statuses (NO optimizer_result, NO
+    requirements/events/transitions/ledger, NO trajectory). Mirrors the subset the
+    detail response already exposes; `infeasible`/`not_requested` are verbatim."""
+
+    plan_id: UUID
+    plan_version: int
+    requirement_run_id: UUID
+    requirement_version: int
+    model_snapshot_id: str
+    model_release_id: str
+    model_release_content_hash: str
+    input_content_hash: str
+    draft_content_hash: str
+    optimizer_status: Literal["feasible", "infeasible"]
+    prediction_status: Literal["not_requested", "completed", "infeasible"]
+    prediction_run_id: Optional[str]
+    prediction_member_statuses: list[PredictionMemberStatusOut]
+
+
+class ControlPlanLifecycleHistoryResponse(_StrictModel):
+    """Plan identity + derived lifecycle state + the COMPLETE ordered transition
+    history, each `transition_document` preserved verbatim (history needs them)."""
+
+    plan_id: UUID
+    plan_version: int
+    lifecycle_state: _LIFECYCLE_STATE
+    created_by_subject: str
+    created_at: datetime
+    transitions: list[PlanTransitionOut]
+
+
 # --- Bounded list projection (PR 4.4a-3) ------------------------------------
 # The list page is a HEADER-ONLY projection: it MUST NOT carry any large
 # document (optimizer_result, prediction response, requirements/events/

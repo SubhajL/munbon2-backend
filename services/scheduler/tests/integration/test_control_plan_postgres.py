@@ -1139,3 +1139,179 @@ async def test_v1_feasible_row_loads_verifies_and_approves_on_real_postgres():
             await conn.execute("DROP SCHEMA IF EXISTS scheduler CASCADE")
         finally:
             await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_bounded_multi_statement_reads_are_single_snapshot_real_postgres():
+    """FIX 3: the multi-statement history/ledger reads take a REPEATABLE READ
+    snapshot before their first statement, so a child row COMMITTED between two of
+    their statements can never mix generations. Proven two ways: (1) the production
+    read leaves its transaction at REPEATABLE READ (a READ COMMITTED default would
+    fail this); (2) a hand-rolled interleave over the same statement sequence hides
+    a committed append under REPEATABLE READ while a READ COMMITTED reader mixes it
+    in."""
+    from sqlalchemy import text as sa_text
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    from models.control_plan import ControlStateTransition
+    from repositories.control_plan_projection_repository import (
+        PostgresControlPlanProjectionRepository,
+        history_header_query,
+        history_transitions_query,
+    )
+
+    conn = await _connect()
+    try:
+        await conn.execute("DROP SCHEMA IF EXISTS scheduler CASCADE")
+        await migrate.apply_all_migrations(conn)
+
+        engine = create_async_engine(_sqlalchemy_url())
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
+        repository = PostgresControlPlanRepository()
+        projection = PostgresControlPlanProjectionRepository()
+        try:
+            async with sessions() as session:
+                draft, _ = await _service(repository).create_draft(
+                    session, _request(), "operator-1"
+                )
+            plan_id = draft.plan_id
+
+            # (1) The production read runs under REPEATABLE READ (ties the fix to
+            # production; a READ COMMITTED default would fail this assertion).
+            async with sessions() as sa:
+                history = await projection.load_lifecycle_history(sa, plan_id, 1)
+                assert history is not None
+                level = (
+                    await sa.execute(sa_text("SHOW transaction_isolation"))
+                ).scalar()
+                assert level == "repeatable read"
+
+            # (2) Interleave a COMMITTED append between the two history statements.
+            # Under REPEATABLE READ the snapshot is fixed at reader A's first
+            # statement, so B's committed seq-2 append is invisible to A's second.
+            def _append_seq2(sb):
+                return sb.execute(
+                    pg_insert(ControlStateTransition).values(
+                        plan_id=plan_id,
+                        plan_version=1,
+                        transition_sequence=2,
+                        transition_type="review_requested",
+                        from_state="draft",
+                        to_state="under_review",
+                        actor_subject="reviewer",
+                    )
+                )
+
+            async with sessions() as sa, sessions() as sc:
+                await sa.connection(
+                    execution_options={"isolation_level": "REPEATABLE READ"}
+                )
+                # Both readers take their FIRST statement before B commits.
+                (await sa.execute(history_header_query(plan_id, 1))).one()
+                (await sc.execute(history_header_query(plan_id, 1))).one()
+                async with sessions() as sb:
+                    await _append_seq2(sb)
+                    await sb.commit()
+                # Both readers take their SECOND statement after B commits.
+                snap_a = (
+                    await sa.execute(history_transitions_query(plan_id, 1))
+                ).all()
+                snap_c = (
+                    await sc.execute(history_transitions_query(plan_id, 1))
+                ).all()
+
+            # A (REPEATABLE READ) is one generation: only draft_created.
+            assert [t.transition_type for t in snap_a] == ["draft_created"]
+            # C (READ COMMITTED) mixes generations: header from before, transitions
+            # from after — exactly the drift FIX 3 removes from the production read.
+            assert [t.transition_type for t in snap_c] == [
+                "draft_created",
+                "review_requested",
+            ]
+        finally:
+            await engine.dispose()
+    finally:
+        try:
+            await conn.execute("DROP SCHEMA IF EXISTS scheduler CASCADE")
+        finally:
+            await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_projections_over_real_postgres_match_detail():
+    """PR 4.4b-3: the three BOUNDED per-plan reads, run against a real stored v2
+    draft, return EXACTLY the projections built from the full ``_assemble`` detail —
+    proving the bounded queries load the same values without loading the aggregate."""
+    from api.v1.endpoints.control_plans import _response_from_record
+    from repositories.control_plan_projection_repository import (
+        PostgresControlPlanProjectionRepository,
+        build_ledger_projection,
+        build_lifecycle_history,
+        build_prediction_coverage,
+    )
+
+    conn = await _connect()
+    try:
+        await conn.execute("DROP SCHEMA IF EXISTS scheduler CASCADE")
+        await migrate.apply_all_migrations(conn)
+
+        engine = create_async_engine(_sqlalchemy_url())
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
+        repository = PostgresControlPlanRepository()
+        projection = PostgresControlPlanProjectionRepository()
+        try:
+            async with sessions() as session:
+                record, _ = await _service(repository).create_draft(
+                    session, _request(), "operator-1"
+                )
+
+            async with sessions() as session:
+                full = await repository.load_draft_plan(
+                    session, record.plan_id, 1
+                )
+            assert full is not None
+            assert full.provenance_version == 2
+            assert full.ledger_entries  # a real feasible draft has ledger rows
+
+            async with sessions() as session:
+                coverage = await projection.load_prediction_coverage(
+                    session, record.plan_id, 1
+                )
+                history = await projection.load_lifecycle_history(
+                    session, record.plan_id, 1
+                )
+                ledger = await projection.load_ledger_projection(
+                    session, record.plan_id, 1
+                )
+
+            # EQUIVALENCE: each bounded read == projecting from the full aggregate.
+            assert coverage == build_prediction_coverage(full)
+            assert history == build_lifecycle_history(full, full.transitions)
+            assert ledger == build_ledger_projection(
+                full, full.ledger_entries, full.events, full.requirements
+            )
+            # ... and the coverage/history subsets equal the full DETAIL response.
+            detail = _response_from_record(full)
+            assert (
+                coverage.prediction_member_statuses
+                == detail.prediction_member_statuses
+            )
+            assert history.transitions == detail.transitions
+            assert history.lifecycle_state == detail.lifecycle_state
+            assert ledger.ledger_sha256 and ledger.handover
+
+            # An absent plan is None (the route maps that to a 404).
+            async with sessions() as session:
+                missing = await projection.load_ledger_projection(
+                    session,
+                    UUID("00000000-0000-4000-8000-0000000000ff"),
+                    1,
+                )
+            assert missing is None
+        finally:
+            await engine.dispose()
+    finally:
+        try:
+            await conn.execute("DROP SCHEMA IF EXISTS scheduler CASCADE")
+        finally:
+            await conn.close()
