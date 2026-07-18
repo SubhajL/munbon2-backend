@@ -1,0 +1,158 @@
+# control-plane hardening CI gate (PR 4.4a-3).
+#
+# DORMANT: GitHub Actions billing is locked (remediation item E6), so this
+# workflow is tracked-but-not-running — admin-merge + local bare pytest is the
+# real gate today. It is written to be CORRECT so that restoring Actions billing
+# (and making this a required check) needs no rework.
+#
+# Three jobs:
+#   - scheduler-tests: the scheduler bare-pytest gate (integration suites skip
+#     without SCHEDULER_TEST_POSTGRES_URL).
+#   - bff-tests: the bff-water-planning bare-pytest gate.
+#   - scheduler-postgres-integration: an ephemeral loopback Postgres against
+#     which every migration is applied / rolled back / re-applied and the
+#     env-gated control-plan integration suites run for real (keyset over real
+#     rows, 0004 index round-trip).
+name: control-plane-hardening-tests
+
+on:
+  pull_request:
+    paths:
+      - "services/scheduler/**"
+      - "services/bff-water-planning/**"
+      - "contracts/control-plans/**"
+      - ".github/workflows/control-plane-hardening-tests.yml"
+  push:
+    branches: [main]
+    paths:
+      - "services/scheduler/**"
+      - "services/bff-water-planning/**"
+      - "contracts/control-plans/**"
+      - ".github/workflows/control-plane-hardening-tests.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: control-plane-hardening-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Each job below inlines its own clearly-dummy env for the import-time Settings()
+# (required fields with no defaults). The suites never open these connections —
+# they inject fakes / httpx.MockTransport — so the values only have to be
+# well-formed.
+jobs:
+  scheduler-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/scheduler
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: services/scheduler/requirements.txt
+      - name: Install pinned dependencies
+        run: pip install -r requirements.txt
+      - name: Bare pytest (the gate); integration suites skip without a DB
+        env:
+          PYTHONPATH: src
+          REDIS_URL: redis://ci-dummy:6379/0
+          ROS_SERVICE_URL: http://ci-dummy:3000
+          GIS_SERVICE_URL: http://ci-dummy:3000
+          FLOW_MONITORING_URL: http://ci-dummy:3000
+          ROS_GIS_URL: http://ci-dummy:3000
+          WEATHER_SERVICE_URL: http://ci-dummy:3000
+          AUTH_SERVICE_URL: http://ci-dummy:3000
+          JWT_SECRET_KEY: ci-control-plane-jwt-secret-key-0123456789abcdef
+          JWT_ISSUER: munbon-auth-ci
+          JWT_AUDIENCE: munbon-scheduler-ci
+          JWT_ACCESS_TOKEN_TYPE: access
+          JWT_CLAIM_POLICY_MODE: compat
+        run: python -m pytest -q
+
+  bff-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/bff-water-planning
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: services/bff-water-planning/requirements.txt
+      - name: Install pinned dependencies
+        run: pip install -r requirements.txt
+      - name: Bare pytest (the gate)
+        env:
+          # conftest seeds CORS_ORIGINS; provide it explicitly too so the gate
+          # never depends on a developer .env.
+          CORS_ORIGINS: http://localhost:3000
+        run: python -m pytest -q
+
+  scheduler-postgres-integration:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/scheduler
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: scheduler_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: services/scheduler/requirements.txt
+      - name: Install pinned dependencies
+        run: pip install -r requirements.txt
+      - name: Migration round-trip (apply-all -> rollback each -> apply-all)
+        env:
+          # migrate.py reads POSTGRES_URL directly (loopback disposable DB).
+          POSTGRES_URL: postgresql://postgres:postgres@127.0.0.1:5432/scheduler_test
+        run: |
+          python migrations/migrate.py apply-all
+          python migrations/migrate.py rollback 0004_control_plan_list_indexes
+          python migrations/migrate.py rollback 0003_control_plan_review_lifecycle
+          python migrations/migrate.py rollback 0002_predicted_delivery_ledger
+          python migrations/migrate.py rollback 0001_control_plan_drafts
+          python migrations/migrate.py apply-all
+          python migrations/migrate.py status
+      - name: Reset schema before the env-gated integration suites
+        env:
+          PGPASSWORD: postgres
+        run: psql -h 127.0.0.1 -U postgres -d scheduler_test -c "DROP SCHEMA IF EXISTS scheduler CASCADE"
+      - name: Env-gated control-plan integration suites (real Postgres)
+        env:
+          PYTHONPATH: src
+          # A DISPOSABLE loopback DB — the integration guard rejects non-loopback.
+          SCHEDULER_TEST_POSTGRES_URL: postgresql://postgres:postgres@127.0.0.1:5432/scheduler_test
+          REDIS_URL: redis://ci-dummy:6379/0
+          ROS_SERVICE_URL: http://ci-dummy:3000
+          GIS_SERVICE_URL: http://ci-dummy:3000
+          FLOW_MONITORING_URL: http://ci-dummy:3000
+          ROS_GIS_URL: http://ci-dummy:3000
+          WEATHER_SERVICE_URL: http://ci-dummy:3000
+          AUTH_SERVICE_URL: http://ci-dummy:3000
+          JWT_SECRET_KEY: ci-control-plane-jwt-secret-key-0123456789abcdef
+          JWT_ISSUER: munbon-auth-ci
+          JWT_AUDIENCE: munbon-scheduler-ci
+          JWT_ACCESS_TOKEN_TYPE: access
+          JWT_CLAIM_POLICY_MODE: compat
+        run: python -m pytest -q tests/integration

@@ -480,6 +480,35 @@ class TestApproveForShadowStrictPolicy:
         )
         assert blank_ref.status_code == 422
 
+    def test_approve_for_shadow_caps_reason_and_evidence_ref_length(
+        self, monkeypatch
+    ):
+        # The bounded list projection later loads this shadow-approval document per
+        # row, so its inputs are length-capped AT THE SOURCE: an over-long reason
+        # (>2000) or evidence ref (>200) is a 422, never a giant persisted document.
+        monkeypatch.setattr(deps.settings, "jwt_claim_policy_mode", "strict")
+        app, _ = _build_app(user=_SUPERVISOR)
+        client = TestClient(app)
+        base = self._reviewed_plan(client)
+
+        oversized_ref = client.post(
+            f"{base}/approve-for-shadow",
+            json={"reason": "ok", "evidence_refs": ["x" * 201]},
+        )
+        assert oversized_ref.status_code == 422
+        oversized_reason = client.post(
+            f"{base}/approve-for-shadow",
+            json={"reason": "y" * 2001, "evidence_refs": ["t-1"]},
+        )
+        assert oversized_reason.status_code == 422
+        # A ref at exactly the 200-char cap is accepted (boundary) — none of the
+        # rejected attempts advanced the plan, so this approval still succeeds.
+        at_cap = client.post(
+            f"{base}/approve-for-shadow",
+            json={"reason": "ok", "evidence_refs": ["z" * 200]},
+        )
+        assert at_cap.status_code == 200, at_cap.text
+
     def test_approval_persists_authorization_evidence(self, monkeypatch):
         monkeypatch.setattr(deps.settings, "jwt_claim_policy_mode", "strict")
         app, repository = _build_app(user=_SUPERVISOR)

@@ -54,11 +54,21 @@ the JWT authority) and preserves every upstream state exactly:
 success. `source_data_status="stale"` is the immutable snapshot-time source
 status, NOT a live freshness recompute. Error taxonomy (never swallows, unlike the
 legacy schedule methods): 404→404, scheduler 401/403→same, 503/transport→503,
-malformed body or schema **drift**→502 (fail-closed), other→502. There is **no
-list route** (the scheduler has none — do not fabricate one) and these projections
+malformed body or schema **drift**→502 (fail-closed), other→502. These projections
 must **not** be cached. New client methods
 `SchedulerClient.get_control_plan_projection/.get_control_plan_ledger` and typed
 errors `SchedulerControlPlanError` + subclasses live in `clients/scheduler_client.py`.
+
+**Control-plan LIST (PR 4.4a-3)** — a fifth read, `GET /api/v1/control-plans`,
+is a bearer-forwarded, strict-validated pass-through of the scheduler's
+cursor-paginated list (`SchedulerClient.list_control_plans`;
+`ControlPlanListPageProjection`/`ControlPlanSummaryProjection` mirrors). The page
+is **bounded** — header columns + a derived `lifecycle_state`/`approval_trust`
+flag only, never optimizer_result / requirements / events / transitions / ledger /
+trajectory — the cursor is opaque, and on any upstream failure the route fails
+closed (same taxonomy) rather than **fabricating an empty page**. Both sides
+validate the shared `contracts/control-plans/v1/` list-page fixture, so a mirror
+drift fails a test.
 The service now ships a `pytest.ini` (`testpaths=tests`, `asyncio_mode=strict`) so
 bare `pytest` is the gate and never collects the root integration scripts.
 

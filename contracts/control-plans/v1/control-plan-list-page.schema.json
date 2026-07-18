@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://munbon.internal/contracts/control-plans/v1/control-plan-list-page.schema.json",
+  "title": "ControlPlanListPage",
+  "description": "Bounded, cursor-paginated list projection of control plans (PR 4.4a-3). Header columns plus a derived lifecycle state and approval-trust flag ONLY. It MUST NOT carry any large document: no optimizer_result, no prediction response, no requirements/events/transitions/ledger, no trajectory. Both the scheduler (ControlPlanListPage) and the BFF (ControlPlanListPageProjection) validate the same v1 fixture against this contract, so any drift on either side fails a test.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["items", "next_cursor", "projection_schema_version"],
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/control_plan_summary" }
+    },
+    "next_cursor": {
+      "type": ["string", "null"],
+      "description": "Opaque keyset cursor for the next page, or null on the final page. Bound to the exact filter set that produced the page."
+    },
+    "projection_schema_version": {
+      "type": "integer",
+      "const": 1
+    }
+  },
+  "$defs": {
+    "control_plan_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "plan_id",
+        "plan_version",
+        "lifecycle_state",
+        "approval_trust",
+        "horizon_start",
+        "horizon_end",
+        "requirement_run_id",
+        "requirement_version",
+        "input_content_hash",
+        "model_snapshot_id",
+        "model_release_content_hash",
+        "optimizer_status",
+        "prediction_status",
+        "prediction_run_id",
+        "prediction_response_sha256",
+        "created_by_subject",
+        "created_at"
+      ],
+      "properties": {
+        "plan_id": { "type": "string", "format": "uuid" },
+        "plan_version": { "type": "integer", "minimum": 1 },
+        "lifecycle_state": {
+          "type": "string",
+          "enum": [
+            "draft",
+            "under_review",
+            "approved_for_shadow",
+            "cancelled",
+            "superseded",
+            "invalidated"
+          ]
+        },
+        "approval_trust": {
+          "type": "boolean",
+          "description": "True iff the plan carries a trusted strict-policy (v2) shadow approval."
+        },
+        "horizon_start": { "type": "string", "format": "date-time" },
+        "horizon_end": { "type": "string", "format": "date-time" },
+        "requirement_run_id": { "type": "string", "format": "uuid" },
+        "requirement_version": { "type": "integer", "minimum": 1 },
+        "input_content_hash": { "type": "string" },
+        "model_snapshot_id": { "type": "string" },
+        "model_release_content_hash": { "type": "string" },
+        "optimizer_status": {
+          "type": "string",
+          "enum": ["feasible", "infeasible"]
+        },
+        "prediction_status": {
+          "type": "string",
+          "enum": ["not_requested", "completed", "infeasible"]
+        },
+        "prediction_run_id": { "type": ["string", "null"] },
+        "prediction_response_sha256": { "type": ["string", "null"] },
+        "created_by_subject": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

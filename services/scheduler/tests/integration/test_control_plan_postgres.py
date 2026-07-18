@@ -32,6 +32,14 @@ from tests.integration.test_scheduler_postgres import _test_url_loopback
 MIGRATION_ID = "0001_control_plan_drafts"
 LEDGER_MIGRATION_ID = "0002_predicted_delivery_ledger"
 LIFECYCLE_MIGRATION_ID = "0003_control_plan_review_lifecycle"
+LIST_INDEX_MIGRATION_ID = "0004_control_plan_list_indexes"
+LIST_INDEXES = (
+    "scheduler.control_plan_runs_created_at_plan_id_idx",
+    "scheduler.control_plan_runs_model_snapshot_id_idx",
+    "scheduler.control_plan_runs_prediction_run_id_idx",
+    "scheduler.control_plan_runs_requirement_run_id_idx",
+    "scheduler.control_plan_runs_horizon_idx",
+)
 LEDGER_TABLE = "scheduler.section_delivery_ledger"
 PLAN_TABLES = (
     "scheduler.control_plan_runs",
@@ -341,6 +349,270 @@ async def test_ledger_migration_apply_rollback_reapply_is_clean():
         try:
             await migrate.rollback_migration(conn, LEDGER_MIGRATION_ID)
             await migrate.rollback_migration(conn, MIGRATION_ID)
+        finally:
+            await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_0004_list_indexes_apply_rollback_reapply_and_apply_all():
+    conn = await _connect()
+    try:
+        await conn.execute("DROP SCHEMA IF EXISTS scheduler CASCADE")
+        # apply-all discovers 0001..0004 in lexical order and applies each once.
+        outcomes = dict(await migrate.apply_all_migrations(conn))
+        assert outcomes[LIST_INDEX_MIGRATION_ID] == "applied"
+        for index in LIST_INDEXES:
+            assert await _regclass(conn, index) is not None
+
+        # Rollback 0004 drops ONLY the indexes; the runs table (and its rows'
+        # home) stays intact.
+        assert (
+            await migrate.rollback_migration(conn, LIST_INDEX_MIGRATION_ID)
+            == "rolled-back"
+        )
+        for index in LIST_INDEXES:
+            assert await _regclass(conn, index) is None
+        assert await _regclass(conn, "scheduler.control_plan_runs") is not None
+
+        # Reapply cleanly; a second apply is a no-op.
+        assert (
+            await migrate.apply_migration(conn, LIST_INDEX_MIGRATION_ID)
+            == "applied"
+        )
+        assert (
+            await migrate.apply_migration(conn, LIST_INDEX_MIGRATION_ID)
+            == "already-applied"
+        )
+        for index in LIST_INDEXES:
+            assert await _regclass(conn, index) is not None
+    finally:
+        try:
+            await conn.execute("DROP SCHEMA IF EXISTS scheduler CASCADE")
+        finally:
+            await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_list_projection_keyset_over_real_rows_no_dup_or_gap():
+    from repositories.control_plan_projection_repository import (
+        PostgresControlPlanProjectionRepository,
+    )
+    from schemas.control_plan import ControlPlanListFilters
+
+    conn = await _connect()
+    try:
+        await conn.execute("DROP SCHEMA IF EXISTS scheduler CASCADE")
+        await migrate.apply_all_migrations(conn)
+
+        engine = create_async_engine(_sqlalchemy_url())
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
+        repository = PostgresControlPlanRepository()
+        projection = PostgresControlPlanProjectionRepository()
+        try:
+            # Five distinct drafts (distinct volumes → distinct input hashes →
+            # distinct plan_ids), each committed in its own transaction so the
+            # created_at timestamps advance.
+            created = []
+            for volume in (6000.0, 6100.0, 6200.0, 6300.0, 6400.0):
+                async with sessions() as session:
+                    record, _ = await _service_vol(
+                        repository, volume
+                    ).create_draft(session, _request(), "operator-1")
+                created.append(record.plan_id)
+            assert len(set(created)) == 5
+
+            # Walk the whole list with limit=2 following next_cursor.
+            walked = []
+            cursor = None
+            filters = ControlPlanListFilters()
+            for _ in range(10):
+                async with sessions() as session:
+                    page = await projection.list_plan_summaries(
+                        session, filters=filters, cursor=cursor, limit=2
+                    )
+                walked.extend(
+                    (item.created_at, item.plan_id) for item in page.items
+                )
+                if page.next_cursor is None:
+                    break
+                cursor = page.next_cursor
+
+            # Every plan, exactly once, in created_at DESC, plan_id DESC order.
+            assert {plan_id for _, plan_id in walked} == set(created)
+            assert len(walked) == len(set(walked)) == 5
+            assert walked == sorted(walked, reverse=True)
+
+            # A lineage filter narrows the page to matching rows only.
+            async with sessions() as session:
+                one = await projection.list_plan_summaries(
+                    session,
+                    filters=ControlPlanListFilters(requirement_version=3),
+                    cursor=None,
+                    limit=50,
+                )
+            assert len(one.items) == 5  # all five share requirement_version 3
+            assert all(item.optimizer_status == "feasible" for item in one.items)
+        finally:
+            await engine.dispose()
+    finally:
+        try:
+            await conn.execute("DROP SCHEMA IF EXISTS scheduler CASCADE")
+        finally:
+            await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_list_keyset_breaks_ties_on_plan_version_real_postgres():
+    from repositories.control_plan_projection_repository import (
+        PostgresControlPlanProjectionRepository,
+    )
+    from schemas.control_plan import ControlPlanListFilters
+
+    conn = await _connect()
+    try:
+        await conn.execute("DROP SCHEMA IF EXISTS scheduler CASCADE")
+        await migrate.apply_all_migrations(conn)
+
+        engine = create_async_engine(_sqlalchemy_url())
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
+        repository = PostgresControlPlanRepository()
+        projection = PostgresControlPlanProjectionRepository()
+        try:
+            async with sessions() as session:
+                record, _ = await _service(repository).create_draft(
+                    session, _request(), "operator-1"
+                )
+            plan_id = record.plan_id
+
+            # Hand-insert a SECOND version of the same plan sharing the SAME
+            # created_at (only plan_version + the two unique hashes differ), plus
+            # its draft_created transition — the exact pair a (created_at, plan_id)
+            # keyset would collapse into a single indistinguishable key.
+            run = dict(
+                await conn.fetchrow(
+                    "SELECT * FROM scheduler.control_plan_runs "
+                    "WHERE plan_id = $1 AND plan_version = 1",
+                    plan_id,
+                )
+            )
+            run["plan_version"] = 2
+            run["input_content_hash"] = "f" * 64
+            run["draft_content_hash"] = "e" * 64
+            columns = list(run)
+            placeholders = ", ".join(f"${i + 1}" for i in range(len(columns)))
+            await conn.execute(
+                "INSERT INTO scheduler.control_plan_runs "
+                f"({', '.join(columns)}) VALUES ({placeholders})",
+                *[run[c] for c in columns],
+            )
+            await conn.execute(
+                "INSERT INTO scheduler.control_state_transitions ("
+                "plan_id, plan_version, transition_sequence, transition_type, "
+                "from_state, to_state, actor_subject) VALUES ("
+                "$1, 2, 1, 'draft_created', NULL, 'draft', 'operator-1')",
+                plan_id,
+            )
+
+            # Walk with limit=1 so every hop relies solely on the cursor tie-break.
+            walked = []
+            cursor = None
+            filters = ControlPlanListFilters()
+            for _ in range(10):
+                async with sessions() as session:
+                    page = await projection.list_plan_summaries(
+                        session, filters=filters, cursor=cursor, limit=1
+                    )
+                walked.extend(
+                    (item.plan_id, item.plan_version) for item in page.items
+                )
+                if page.next_cursor is None:
+                    break
+                cursor = page.next_cursor
+
+            # BOTH versions of the shared (created_at, plan_id) are served, once
+            # each, in plan_version DESC order — no gap, no duplicate.
+            assert walked == [(plan_id, 2), (plan_id, 1)]
+            assert len(walked) == len(set(walked)) == 2
+        finally:
+            await engine.dispose()
+    finally:
+        try:
+            await conn.execute("DROP SCHEMA IF EXISTS scheduler CASCADE")
+        finally:
+            await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_list_filter_and_returned_state_are_one_snapshot_real_postgres():
+    from repositories.control_plan_projection_repository import (
+        PostgresControlPlanProjectionRepository,
+    )
+    from schemas.control_plan import ControlPlanListFilters
+    from services.control_plan_lifecycle_service import (
+        ControlPlanLifecycleService,
+    )
+
+    conn = await _connect()
+    try:
+        await conn.execute("DROP SCHEMA IF EXISTS scheduler CASCADE")
+        await migrate.apply_all_migrations(conn)
+
+        engine = create_async_engine(_sqlalchemy_url())
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
+        repository = PostgresControlPlanRepository()
+        lifecycle = ControlPlanLifecycleService(repository=repository)
+        projection = PostgresControlPlanProjectionRepository()
+        try:
+            async with sessions() as session:
+                draft, _ = await _service(repository).create_draft(
+                    session, _request(), "operator-1"
+                )
+            plan_id = draft.plan_id
+
+            # Filtering on the CURRENT state returns the row labelled with it.
+            async with sessions() as session:
+                page = await projection.list_plan_summaries(
+                    session,
+                    filters=ControlPlanListFilters(lifecycle_state="draft"),
+                    cursor=None,
+                    limit=25,
+                )
+            assert [i.plan_id for i in page.items] == [plan_id]
+            assert page.items[0].lifecycle_state == "draft"
+
+            # Commit a transition (draft -> under_review): the derived state moves.
+            async with sessions() as session:
+                await lifecycle.review_control_plan(
+                    session, plan_id, 1, "reviewer"
+                )
+
+            # The filter and the returned lifecycle_state now come from ONE
+            # statement/snapshot, so they can never disagree: filter=draft no
+            # longer matches, and filter=under_review returns it as under_review.
+            async with sessions() as session:
+                stale = await projection.list_plan_summaries(
+                    session,
+                    filters=ControlPlanListFilters(lifecycle_state="draft"),
+                    cursor=None,
+                    limit=25,
+                )
+            assert stale.items == []
+            async with sessions() as session:
+                fresh = await projection.list_plan_summaries(
+                    session,
+                    filters=ControlPlanListFilters(
+                        lifecycle_state="under_review"
+                    ),
+                    cursor=None,
+                    limit=25,
+                )
+            assert [i.plan_id for i in fresh.items] == [plan_id]
+            assert fresh.items[0].lifecycle_state == "under_review"
+        finally:
+            await engine.dispose()
+    finally:
+        try:
+            await conn.execute("DROP SCHEMA IF EXISTS scheduler CASCADE")
         finally:
             await conn.close()
 

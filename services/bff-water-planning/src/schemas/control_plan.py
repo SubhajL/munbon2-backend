@@ -224,3 +224,41 @@ class ControlPlanLifecycleHistory(StrictControlPlanModel):
     created_by_subject: str
     created_at: datetime
     transitions: list[PlanTransitionProjection]
+
+
+# --- bounded list projection (mirror scheduler ControlPlanListPage) ----------
+class ControlPlanSummaryProjection(StrictControlPlanModel):
+    """Strict mirror of the scheduler ControlPlanSummaryOut — a HEADER-ONLY row.
+
+    It carries NO large document (no optimizer_result, no requirements/events/
+    transitions/ledger, no trajectory); `extra="forbid"` plus the strict scalar
+    aliases fail closed (502) on any added, renamed, or retyped field."""
+
+    plan_id: UUID
+    plan_version: StrictInt
+    lifecycle_state: LifecycleState
+    approval_trust: StrictBool
+    horizon_start: datetime
+    horizon_end: datetime
+    requirement_run_id: UUID
+    requirement_version: StrictInt
+    input_content_hash: str
+    model_snapshot_id: str
+    model_release_content_hash: str
+    optimizer_status: Literal["feasible", "infeasible"]
+    prediction_status: Literal["not_requested", "completed", "infeasible"]
+    prediction_run_id: Optional[str]
+    prediction_response_sha256: Optional[str]
+    created_by_subject: str
+    created_at: datetime
+
+
+class ControlPlanListPageProjection(StrictControlPlanModel):
+    """Strict mirror of the scheduler ControlPlanListPage (GET /control-plans)."""
+
+    items: list[ControlPlanSummaryProjection]
+    next_cursor: Optional[str]
+    # Pinned to the current projection version: an upstream page announcing v2
+    # (or any other value / retyped scalar) fails strict validation, so the route
+    # 502s on projection drift instead of laundering an unknown shape.
+    projection_schema_version: Annotated[Literal[1], BeforeValidator(_strict_int)]

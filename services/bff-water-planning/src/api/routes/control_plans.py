@@ -1,22 +1,27 @@
-"""Read-only operator projections over the scheduler control-plan lifecycle (PR 4.4).
+"""Read-only operator projections over the scheduler control-plan lifecycle (PR 4.4 / 4.4a-3).
 
-Four authenticated GETs — plan detail, prediction coverage, ledger, and
-lifecycle history — let operator clients inspect exact shadow-plan state without
-direct scheduler DB access. Everything is validated pass-through: upstream
-`unavailable | infeasible | invalidated | stale` states are preserved, never
-collapsed to zero/empty/success. There are NO writes and NO list route (the
-scheduler exposes no list; the BFF does not fabricate one).
+Authenticated GETs — a cursor-paginated LIST plus per-plan detail, prediction
+coverage, ledger, and lifecycle history — let operator clients inspect exact
+shadow-plan state without direct scheduler DB access. Everything is validated
+pass-through: upstream `unavailable | infeasible | invalidated | stale` states
+are preserved, never collapsed to zero/empty/success. There are NO writes. The
+list page is BOUNDED (header columns + a derived lifecycle/approval-trust flag —
+never optimizer_result / requirements / events / transitions / ledger /
+trajectory) and, on any upstream failure, fails closed rather than fabricating an
+empty page.
 """
 
+from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import ValidationError
 
 from core import get_logger
 from clients.scheduler_client import (
     SchedulerAuthError,
+    SchedulerBadRequestError,
     SchedulerClient,
     SchedulerContractError,
     SchedulerControlPlanError,
@@ -26,6 +31,7 @@ from clients.scheduler_client import (
 from schemas.control_plan import (
     ControlPlanLedgerProjection,
     ControlPlanLifecycleHistory,
+    ControlPlanListPageProjection,
     ControlPlanPredictionCoverage,
     ControlPlanProjection,
 )
@@ -54,11 +60,16 @@ def get_operator_bearer_token(
 
 def _raise_for_client_error(exc: SchedulerControlPlanError) -> "HTTPException":
     """Map a fail-closed scheduler client error to the BFF status that preserves
-    the upstream state (404 stays 404, auth stays 401/403, unavailable → 503,
-    malformed/other → 502). Never leaks transport/host internals."""
+    the upstream state (404 stays 404, auth stays 401/403, client 400/422 stay
+    400/422, unavailable → 503, malformed/other → 502). Never leaks transport/host
+    internals."""
     if isinstance(exc, SchedulerControlPlanNotFoundError):
         return HTTPException(status_code=404, detail=exc.detail)
     if isinstance(exc, SchedulerAuthError):
+        return HTTPException(status_code=exc.status_code, detail=exc.detail)
+    if isinstance(exc, SchedulerBadRequestError):
+        # A CLIENT error (stale/cross-filter cursor, invalid filter) — forward the
+        # exact status so it is NOT misreported as an upstream outage (502/503).
         return HTTPException(status_code=exc.status_code, detail=exc.detail)
     if isinstance(exc, SchedulerUnavailableError):
         return HTTPException(status_code=503, detail=str(exc))
@@ -144,6 +155,56 @@ async def _load_control_plan_ledger(
         ) from exc
     _verify_identity(ledger.plan_id, ledger.plan_version, plan_id, plan_version)
     return ledger
+
+
+@router.get("", response_model=ControlPlanListPageProjection)
+async def list_control_plans(
+    limit: int = Query(25, ge=1, le=50),
+    cursor: Optional[str] = Query(default=None),
+    lifecycle_state: Optional[str] = Query(default=None),
+    horizon_start_gte: Optional[str] = Query(default=None),
+    horizon_end_lte: Optional[str] = Query(default=None),
+    requirement_run_id: Optional[str] = Query(default=None),
+    requirement_version: Optional[int] = Query(default=None),
+    input_content_hash: Optional[str] = Query(default=None),
+    model_snapshot_id: Optional[str] = Query(default=None),
+    model_release_content_hash: Optional[str] = Query(default=None),
+    prediction_run_id: Optional[str] = Query(default=None),
+    prediction_content_sha256: Optional[str] = Query(default=None),
+    token: str = Depends(get_operator_bearer_token),
+    client: SchedulerClient = Depends(get_scheduler_client),
+) -> ControlPlanListPageProjection:
+    """Bearer-forwarded, strict-validated pass-through of one bounded list page.
+
+    Fails closed: any upstream failure raises through the scheduler taxonomy (it
+    is NEVER turned into an empty page), and a page that fails strict validation
+    (added/renamed/retyped field) is a 502, not a partial projection."""
+    filters = {
+        "lifecycle_state": lifecycle_state,
+        "horizon_start_gte": horizon_start_gte,
+        "horizon_end_lte": horizon_end_lte,
+        "requirement_run_id": requirement_run_id,
+        "requirement_version": requirement_version,
+        "input_content_hash": input_content_hash,
+        "model_snapshot_id": model_snapshot_id,
+        "model_release_content_hash": model_release_content_hash,
+        "prediction_run_id": prediction_run_id,
+        "prediction_content_sha256": prediction_content_sha256,
+    }
+    try:
+        payload = await client.list_control_plans(
+            filters=filters, cursor=cursor, limit=limit, bearer_token=token
+        )
+    except SchedulerControlPlanError as exc:
+        raise _raise_for_client_error(exc) from exc
+    try:
+        return ControlPlanListPageProjection.model_validate(payload)
+    except ValidationError as exc:
+        logger.warning("scheduler control-plan list failed strict validation")
+        raise HTTPException(
+            status_code=502,
+            detail="scheduler control-plan list failed validation",
+        ) from exc
 
 
 @router.get(
