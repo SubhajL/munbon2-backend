@@ -13,9 +13,9 @@ import json
 from dataclasses import dataclass, replace
 from datetime import date, datetime
 from typing import Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,6 +32,7 @@ from core.predicted_delivery_ledger import (
     verify_ledger_entry_columns,
 )
 from models.control_plan import (
+    ControlPlanCampaignVersion,
     ControlPlanRequirement,
     ControlPlanRun,
     ControlStateTransition,
@@ -57,6 +58,11 @@ class DraftStoreCorruptError(ControlPlanRepositoryError):
 
 class TransitionConflictError(ControlPlanRepositoryError):
     """A concurrent writer already claimed this transition sequence."""
+
+
+class UnknownCampaignError(ControlPlanRepositoryError):
+    """A present campaign_id references no existing campaign — fail closed rather
+    than auto-create a campaign under a caller-chosen id (maps to 404/422)."""
 
 
 @dataclass(frozen=True)
@@ -160,10 +166,25 @@ class DraftPlanRecord:
     predicted_delivery_ledger_sha256: Optional[str] = None
     ledger_entries: tuple[LedgerEntry, ...] = ()
     created_at: Optional[datetime] = None
+    # The stable campaign this version belongs to (PR 4.4b-4). Set by
+    # ``allocate_campaign_version`` on a fresh draft and by ``_assemble`` (from the
+    # immutable mapping) on every load; a load with no mapping fails closed.
+    campaign_id: Optional[UUID] = None
 
 
 def text_sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _campaign_advisory_lock_key(campaign_id: UUID) -> int:
+    """A stable SIGNED 64-bit advisory-lock key for a campaign uuid.
+
+    A hash COLLISION only serializes two DISTINCT campaigns on one lock (harmless:
+    after acquiring it the ``max(plan_version)`` read still filters by the exact
+    campaign_id, so no campaign is ever mis-allocated); it never mis-orders a
+    single campaign's own version allocations."""
+    digest = hashlib.sha256(str(campaign_id).encode("utf-8")).digest()[:8]
+    return int.from_bytes(digest, "big", signed=True)
 
 
 PROVENANCE_VERSION_V2 = 2
@@ -485,6 +506,49 @@ def build_draft_hash_document(
 class PostgresControlPlanRepository:
     """SQLAlchemy/asyncpg twin of the in-memory test fake (interface-pinned)."""
 
+    async def allocate_campaign_version(
+        self, session: AsyncSession, campaign_id: Optional[UUID]
+    ) -> tuple[UUID, int, UUID]:
+        """Allocate the (campaign_id, plan_version, plan_id) for a NEW draft.
+
+        ``campaign_id is None`` -> a brand-new campaign (a fresh uuid, distinct from
+        the plan_id) at version 1. A present ``campaign_id`` -> the campaign-scoped
+        advisory lock, then ``max(plan_version) + 1``; a present-but-UNKNOWN
+        campaign fails closed (never auto-creates a campaign under a caller id).
+        ``plan_id`` is a fresh per-version uuid. Must run inside the SAME
+        transaction that later inserts the run + mapping row, so the
+        ``pg_advisory_xact_lock`` is held across the read->insert window and
+        released only at commit (a failed compute/txn consumes NO version).
+
+        ISOLATION: this allocate path MUST run under READ COMMITTED (the engine
+        default here; PR 4.4b-3 introduced REPEATABLE READ only for the separate
+        bounded PROJECTION reads, never for this write transaction). Under READ
+        COMMITTED, a racer B that blocked on the advisory lock reads the LATEST
+        committed ``max(plan_version)`` once A commits and so takes the next
+        version; under REPEATABLE READ B's snapshot would predate A's commit and it
+        would re-read the stale max and mint a DUPLICATE version. The
+        PRIMARY KEY (campaign_id, plan_version) is the hard backstop that still
+        refuses a duplicate even if the isolation assumption is ever violated."""
+        if campaign_id is None:
+            return uuid4(), 1, uuid4()
+        # Serialize concurrent version allocations for THIS campaign so two racers
+        # can never read the same max(plan_version) and mint a duplicate version.
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(:key)"),
+            {"key": _campaign_advisory_lock_key(campaign_id)},
+        )
+        max_version = await session.scalar(
+            select(func.max(ControlPlanCampaignVersion.plan_version)).where(
+                ControlPlanCampaignVersion.campaign_id == campaign_id
+            )
+        )
+        if max_version is None:
+            raise UnknownCampaignError(
+                f"campaign {campaign_id} does not exist; a present campaign_id "
+                "must reference an existing campaign"
+            )
+        return campaign_id, int(max_version) + 1, uuid4()
+
     async def find_by_input_hash(
         self, session: AsyncSession, input_content_hash: str
     ) -> Optional[DraftPlanRecord]:
@@ -613,6 +677,16 @@ class PostgresControlPlanRepository:
                             **_ledger_row_values(record, entry)
                         )
                     )
+                # The immutable campaign->version mapping row lands in the SAME
+                # transaction as the run (its deferred FK is checked at commit), so
+                # a version number is consumed ONLY when the run itself commits.
+                await session.execute(
+                    pg_insert(ControlPlanCampaignVersion).values(
+                        campaign_id=record.campaign_id,
+                        plan_version=record.plan_version,
+                        plan_id=record.plan_id,
+                    )
+                )
             await session.commit()
         except BaseException:
             await session.rollback()
@@ -679,6 +753,20 @@ class PostgresControlPlanRepository:
     async def _assemble(
         self, session: AsyncSession, run: ControlPlanRun
     ) -> DraftPlanRecord:
+        # Every persisted run has exactly one immutable campaign mapping row
+        # (backfilled for legacy rows, inserted atomically for fresh drafts). A
+        # missing mapping is corruption, not a legitimate state -> fail closed.
+        campaign_id = await session.scalar(
+            select(ControlPlanCampaignVersion.campaign_id).where(
+                ControlPlanCampaignVersion.plan_id == run.plan_id,
+                ControlPlanCampaignVersion.plan_version == run.plan_version,
+            )
+        )
+        if campaign_id is None:
+            raise DraftStoreCorruptError(
+                f"control plan {run.plan_id} v{run.plan_version} has no campaign "
+                "mapping row"
+            )
         requirement_rows = (
             await session.scalars(
                 select(ControlPlanRequirement)
@@ -725,6 +813,7 @@ class PostgresControlPlanRepository:
         record = DraftPlanRecord(
             plan_id=run.plan_id,
             plan_version=run.plan_version,
+            campaign_id=campaign_id,
             identity_version=run.identity_version,
             input_content_hash=run.input_content_hash,
             draft_content_hash=run.draft_content_hash,

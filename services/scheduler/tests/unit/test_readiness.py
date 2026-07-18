@@ -1,7 +1,7 @@
 """Scheduler dependency-truth readiness (PR 4.4a-2).
 
 `/ready` is fail-closed: it is ready ONLY when every tracked migration id+checksum
-matches `scheduler.schema_migrations`, all five control tables exist, and the Redis
+matches `scheduler.schema_migrations`, all six control tables exist, and the Redis
 revocation store answers a ping. Any drift/missing/unreachable → not ready (503),
 and the body never leaks a hostname, credential, or raw exception text.
 
@@ -129,13 +129,16 @@ class TestEvaluateControlTables:
         present[EXPECTED_CONTROL_TABLES[0]] = False
         assert evaluate_control_tables(present) == "missing"
 
-    def test_expected_tables_are_the_five_control_tables(self):
+    def test_expected_tables_are_the_six_control_tables(self):
+        # PR 4.4b-4 adds the campaign-identity mapping as a source-of-truth table:
+        # readiness must prove it exists, or every draft read fails closed.
         assert set(EXPECTED_CONTROL_TABLES) == {
             "control_plan_runs",
             "control_plan_requirements",
             "gate_plan_events",
             "control_state_transitions",
             "section_delivery_ledger",
+            "control_plan_campaign_versions",
         }
 
 
@@ -175,6 +178,20 @@ class TestCheckSchedulerReadiness:
         tracked = _real_tracked()
         present = {t: True for t in EXPECTED_CONTROL_TABLES}
         present["section_delivery_ledger"] = False
+        engine = _FakeEngine(
+            _FakeConn(registry=True, present=present, applied_rows=list(tracked.items()))
+        )
+        result = await check_scheduler_readiness(engine, _FakeRedis(_FakeRedisClient()))
+        assert result.ready is False
+        assert result.checks["control_tables"] == "missing"
+
+    @pytest.mark.asyncio
+    async def test_ready_rejects_missing_campaign_versions_table(self):
+        # PR 4.4b-4: the campaign-identity mapping is a source-of-truth table.
+        # If 0006's table is absent, readiness must report control_tables missing.
+        tracked = _real_tracked()
+        present = {t: True for t in EXPECTED_CONTROL_TABLES}
+        present["control_plan_campaign_versions"] = False
         engine = _FakeEngine(
             _FakeConn(registry=True, present=present, applied_rows=list(tracked.items()))
         )
@@ -263,6 +280,27 @@ class TestCheckSchedulerReadiness:
             migrate,
             "discover_migration_ids",
             lambda: ["0001_control_plan_drafts", "0002_predicted_delivery_ledger"],
+        )
+        result = await check_scheduler_readiness(engine, _FakeRedis(_FakeRedisClient()))
+        assert result.ready is False
+        assert result.checks["migrations"] == "incomplete"
+
+    @pytest.mark.asyncio
+    async def test_baseline_missing_0006_is_not_ready(self, monkeypatch):
+        # PR 4.4b-4: a manifest that carries 0001-0005 but DROPPED the 0006
+        # campaign-identity migration is "incomplete" — 0006 is a required baseline
+        # id, so an otherwise-complete package missing only 0006 still fails closed.
+        engine = _healthy_engine()
+        monkeypatch.setattr(
+            migrate,
+            "discover_migration_ids",
+            lambda: [
+                "0001_control_plan_drafts",
+                "0002_predicted_delivery_ledger",
+                "0003_control_plan_review_lifecycle",
+                "0004_control_plan_list_indexes",
+                "0005_control_plan_provenance_v2",
+            ],
         )
         result = await check_scheduler_readiness(engine, _FakeRedis(_FakeRedisClient()))
         assert result.ready is False

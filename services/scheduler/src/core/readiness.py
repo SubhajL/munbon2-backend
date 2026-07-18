@@ -3,7 +3,7 @@
 `/health` is process liveness only; `/ready` calls `check_scheduler_readiness`,
 which is ready ONLY when:
   * every tracked migration id + checksum matches `scheduler.schema_migrations`,
-  * all five control tables exist (`to_regclass`), and
+  * all six control tables exist (`to_regclass`), and
   * the Redis revocation store answers a ping.
 
 Everything fails closed: a missing/extra/drifted migration, an empty/partial
@@ -22,13 +22,17 @@ from typing import Mapping
 from sqlalchemy import text
 
 # The control-plane tables are migration-owned (ControlBase, never create_all).
-# Readiness proves all five exist before claiming the plane is serviceable.
+# Readiness proves all six exist before claiming the plane is serviceable.
+# ``control_plan_campaign_versions`` (0006) is the source of truth for campaign
+# identity: without it every draft read fails closed on a missing mapping, so a
+# deployment that lost the mapping table must not report ready.
 EXPECTED_CONTROL_TABLES: tuple[str, ...] = (
     "control_plan_runs",
     "control_plan_requirements",
     "gate_plan_events",
     "control_state_transitions",
     "section_delivery_ledger",
+    "control_plan_campaign_versions",
 )
 
 CONTROL_SCHEMA = "scheduler"
@@ -42,6 +46,7 @@ REQUIRED_BASELINE_MIGRATION_IDS: frozenset[str] = frozenset(
         "0001_control_plan_drafts",
         "0002_predicted_delivery_ledger",
         "0003_control_plan_review_lifecycle",
+        "0006_control_plan_campaign_identity",
     }
 )
 
@@ -112,7 +117,7 @@ def _evaluate_tracked_migrations_status(
 
 
 async def _read_scheduler_db_state(engine):
-    """One connection, two reads: the regclass of the registry + five control
+    """One connection, two reads: the regclass of the registry + six control
     tables, then the applied migration id/checksum rows (only if the registry
     exists). Returns (registry_present, present_by_table, applied_by_id)."""
     regclass_columns = ", ".join(

@@ -31,6 +31,7 @@ from clients.scheduler_client import (
 
 PLAN_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 REQ_RUN_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+CAMPAIGN_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
 PLAN_VERSION = 3
 TOKEN = "operator-jwt-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -138,6 +139,7 @@ def _detail_payload(
     return {
         "plan_id": PLAN_ID,
         "plan_version": PLAN_VERSION,
+        "campaign_id": CAMPAIGN_ID,
         "lifecycle_state": lifecycle,
         "input_content_hash": "sha256:input-hash",
         "draft_content_hash": "sha256:draft-hash",
@@ -236,6 +238,7 @@ def _coverage_payload(
     return {
         "plan_id": PLAN_ID,
         "plan_version": PLAN_VERSION,
+        "campaign_id": CAMPAIGN_ID,
         "requirement_run_id": REQ_RUN_ID,
         "requirement_version": 2,
         "model_snapshot_id": "model-snap-1",

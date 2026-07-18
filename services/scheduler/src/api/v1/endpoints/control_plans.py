@@ -48,6 +48,7 @@ from repositories.control_plan_repository import (
     DraftStoreCorruptError,
     PlanContentConflictError,
     PostgresControlPlanRepository,
+    UnknownCampaignError,
 )
 from repositories.control_plan_projection_repository import (
     PostgresControlPlanProjectionRepository,
@@ -174,6 +175,7 @@ def _response_from_record(record: DraftPlanRecord) -> DraftControlPlanResponse:
     return DraftControlPlanResponse(
         plan_id=record.plan_id,
         plan_version=record.plan_version,
+        campaign_id=record.campaign_id,
         # The current lifecycle state is DERIVED from the append-only transition
         # history; the run header's lifecycle_state is frozen creation metadata.
         lifecycle_state=current_lifecycle_state(record),
@@ -282,6 +284,12 @@ async def post_draft_control_plan(
     actor = _actor_subject(current_user)
     try:
         record, replayed = await service.create_draft(db, request_body, actor)
+    except UnknownCampaignError as error:
+        # A present campaign_id that references no existing campaign: fail closed
+        # (never auto-create a campaign under a caller-chosen id).
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(error)
+        )
     except DraftInputError as error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
