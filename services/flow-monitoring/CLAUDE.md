@@ -38,6 +38,20 @@ copies). Runtime NEVER creates this schema: lifespan probes `to_regclass` and th
 prediction routes answer 503 until the migration is applied. Integration tests skip unless
 `FLOW_PREDICTION_TEST_POSTGRES_URL` names a disposable LOOPBACK database.
 
+## Deploy / runtime (PR 4.4a-2)
+PM2 is the documented topology (`infra/pm2/build-irrigation-config.ts`) — the EC2
+Docker workflow `.github/workflows/deploy-flow-monitoring.yml` was **retired**
+(no tracked Dockerfile; locked removed by `test_legacy_gates_quarantine.py`).
+`start.sh` is **migrate-before-start**: it runs `migrations/migrate.py apply-all`
+and `exec`s uvicorn ONLY on success (a checksum drift / unreachable DB aborts
+startup so PM2 never boots a falsely-ready process). PM2 wires
+`HYDRAULIC_MODEL_RELEASE_PATH=data/model-releases/engineering-prior-v3-v1.json`
+(committed `commandable=false`). `/health` is process liveness ONLY; `/ready`
+(`core/readiness.check_flow_readiness`) is dependency truth — 503 unless Postgres
+is healthy, a valid commandable=false release is loaded, the prediction service is
+initialized, and both prediction tables + the migration checksum are present. No
+host/cred/exception leaks in either body.
+
 ## Integration
 - Consumes demand from **ros-gis-integration** (`ros_gis` schema / HTTP). Intended to drive **scada-gate-control** (continuous opening → discrete level 1-4) — this bridge is **not yet connected** (remediation F-02).
 

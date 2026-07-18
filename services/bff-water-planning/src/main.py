@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 import asyncio
+import httpx
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -35,43 +36,62 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Water Planning BFF Service", port=settings.port)
     await db_manager.initialize()
     logger.info("Database connections initialized")
-    
-    # Start ROS sync service if not using mock
-    if not settings.use_mock_server:
-        asyncio.create_task(ros_sync_service.start_periodic_sync())
-        logger.info("ROS sync service started")
-    
-    # Start daily demand scheduler
-    await daily_demand_scheduler.start_scheduler()
-    logger.info("Daily demand scheduler started")
 
-    # No weekly demand producer runs here: production is owned by
-    # ros-gis-integration (ADR D5, Wave 2.6); the BFF serves read paths only.
+    # Lifespan-owned pooled HTTP client (PR 4.4a-2): shared by the scheduler
+    # control-plan reads AND the readiness probes so upstream calls reuse one
+    # connection pool instead of opening a fresh client per request.
+    from services.readiness_service import build_probe_timeout
 
-    # Initialize Redis for event publishing
+    app.state.http_client = httpx.AsyncClient(timeout=build_probe_timeout(settings))
+    logger.info("Pooled upstream HTTP client initialized")
+
+    # Everything from here on is inside try/finally so a fallible startup step
+    # (e.g. the daily-demand scheduler) can never LEAK the pooled client: cleanup
+    # runs in `finally` whether startup completed or raised.
     try:
-        await redis_config.create_redis_client()
-        if redis_config.is_connected:
-            logger.info("Redis client initialized for event publishing")
-        else:
-            logger.warning("Redis not available - event publishing disabled")
-    except Exception as e:
-        logger.error(f"Failed to initialize Redis: {e}")
-        logger.warning("Running without event publishing capability")
-    
-    yield
-    
-    # Shutdown
-    logger.info("Shutting down Water Planning BFF Service")
-    ros_sync_service.stop_periodic_sync()
-    daily_demand_scheduler.stop_scheduler()
-    
-    # Close Redis connection
-    await redis_config.disconnect()
-    logger.info("Redis connection closed")
-    
-    await db_manager.close()
-    logger.info("Database connections closed")
+        # Start ROS sync service if not using mock
+        if not settings.use_mock_server:
+            asyncio.create_task(ros_sync_service.start_periodic_sync())
+            logger.info("ROS sync service started")
+
+        # Start daily demand scheduler
+        await daily_demand_scheduler.start_scheduler()
+        logger.info("Daily demand scheduler started")
+
+        # No weekly demand producer runs here: production is owned by
+        # ros-gis-integration (ADR D5, Wave 2.6); the BFF serves read paths only.
+
+        # Initialize Redis for event publishing
+        try:
+            await redis_config.create_redis_client()
+            if redis_config.is_connected:
+                logger.info("Redis client initialized for event publishing")
+            else:
+                logger.warning("Redis not available - event publishing disabled")
+        except Exception as e:
+            logger.error(f"Failed to initialize Redis: {e}")
+            logger.warning("Running without event publishing capability")
+
+        yield
+    finally:
+        # Shutdown — always runs, even if a startup step above raised.
+        logger.info("Shutting down Water Planning BFF Service")
+        ros_sync_service.stop_periodic_sync()
+        daily_demand_scheduler.stop_scheduler()
+
+        # Close the pooled upstream HTTP client (guarded: it may not exist if an
+        # even earlier step failed, though it is created just above the try).
+        http_client = getattr(app.state, "http_client", None)
+        if http_client is not None:
+            await http_client.aclose()
+            logger.info("Pooled upstream HTTP client closed")
+
+        # Close Redis connection
+        await redis_config.disconnect()
+        logger.info("Redis connection closed")
+
+        await db_manager.close()
+        logger.info("Database connections closed")
 
 
 # Create FastAPI app
@@ -113,27 +133,42 @@ app.mount("/metrics", metrics_app)
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
-    health_status = await db_manager.check_health()
-    
-    # Check external service connectivity
-    external_health = {
-        "flow_monitoring": True,  # Would check actual service
-        "scheduler": True,
-        "ros": True,
-        "gis": True,
-        "awd_control": True  # AWD Control Service
-    }
-    
-    all_healthy = all(health_status.values()) and all(external_health.values())
-    
+    """Process liveness ONLY — never claims dependency health. It makes NO DB or
+    upstream claim (the old block hardcoded every upstream `True`); dependency
+    truth lives at `/ready`. Reports the real app version."""
     return {
-        "status": "healthy" if all_healthy else "unhealthy",
+        "status": "healthy",
         "service": settings.service_name,
-        "version": "1.0.0",
-        "databases": health_status,
-        "external_services": external_health
+        "version": app.version,
     }
+
+
+@app.get("/ready")
+async def readiness_check(request: Request):
+    """Dependency-truth readiness: concurrently probe the required upstreams
+    (scheduler /ready, flow /ready, ros /health) over the pooled client, each
+    bounded. 503 unless every upstream is ready; body carries only safe status
+    strings (no host/URL/exception leaks)."""
+    from services.readiness_service import (
+        build_probe_timeout,
+        build_probe_wall_clock_seconds,
+        build_required_targets,
+        probe_required_upstreams,
+    )
+
+    result = await probe_required_upstreams(
+        getattr(request.app.state, "http_client", None),
+        build_required_targets(settings),
+        build_probe_timeout(settings),
+        build_probe_wall_clock_seconds(settings),
+    )
+    body = {
+        "status": "ready" if result.ready else "not ready",
+        "checks": result.checks,
+    }
+    if not result.ready:
+        return JSONResponse(status_code=503, content=body)
+    return body
 
 
 @app.get("/")

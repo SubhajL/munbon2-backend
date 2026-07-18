@@ -1,9 +1,9 @@
 from core.config import Settings
 
 
-def test_database_url_normalized_to_asyncpg(monkeypatch):
-    monkeypatch.setenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/postgres")
-    # Provide required settings for instantiation
+def _seed_required_env(monkeypatch):
+    """Seed every non-database required Settings field so a test can isolate the
+    database_url resolution without a developer .env leaking in."""
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/4")
     monkeypatch.setenv("ROS_SERVICE_URL", "http://localhost:3047")
     monkeypatch.setenv("GIS_SERVICE_URL", "http://localhost:3007")
@@ -18,8 +18,32 @@ def test_database_url_normalized_to_asyncpg(monkeypatch):
     monkeypatch.setenv("JWT_AUDIENCE", "munbon-scheduler-test")
     monkeypatch.setenv("JWT_CLAIM_POLICY_MODE", "compat")
 
-    s = Settings()
+
+def test_database_url_normalized_to_asyncpg(monkeypatch):
+    _seed_required_env(monkeypatch)
+    # POSTGRES_URL absent → database_url falls back to DATABASE_URL (still upgraded
+    # to the asyncpg driver). `_env_file=None` isolates the resolution to the OS
+    # environment so the developer .env (which carries a POSTGRES_URL) can't leak
+    # in and mask the fallback path being asserted.
+    monkeypatch.delenv("POSTGRES_URL", raising=False)
+    monkeypatch.setenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/postgres")
+
+    s = Settings(_env_file=None)
     assert s.database_url.startswith("postgresql+asyncpg://")
+    assert s.database_url.endswith("@localhost:5432/postgres")
     # PR 4.3a: the ros-gis-integration URL lives in the ACTIVE settings
     # (core/config.py), not the orphan src/config/settings.py.
     assert s.ros_gis_url == "http://localhost:3047"
+
+
+def test_database_url_prefers_canonical_postgres_url_over_database_url(monkeypatch):
+    # PR 4.4a-2: when a deployment sets BOTH, the runtime MUST bind to POSTGRES_URL
+    # (the DB migrate.py + PM2 target) — never DATABASE_URL — so the service can
+    # never serve a different database than migrations were applied to.
+    _seed_required_env(monkeypatch)
+    monkeypatch.setenv("POSTGRES_URL", "postgresql://canon:canon@canonical-host:5432/canon_db")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://other:other@stale-host:5432/stale_db")
+
+    s = Settings(_env_file=None)
+    assert s.database_url == "postgresql+asyncpg://canon:canon@canonical-host:5432/canon_db"
+    assert "stale-host" not in s.database_url

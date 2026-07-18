@@ -53,6 +53,7 @@ class SchedulerClient:
         base_url: Optional[str] = None,
         *,
         transport: Optional[httpx.AsyncBaseTransport] = None,
+        http_client: Optional[httpx.AsyncClient] = None,
     ):
         # Use mock server URL if enabled, otherwise use actual scheduler service URL
         if base_url is not None:
@@ -65,6 +66,11 @@ class SchedulerClient:
         # An injectable transport lets tests drive httpx.MockTransport with no
         # network or monkeypatching.
         self._transport = transport
+        # A lifespan-owned pooled AsyncClient (PR 4.4a-2): when provided it is
+        # REUSED for every read (connection pooling) and never closed here — the
+        # app lifespan owns its lifecycle. Without it, each read opens its own
+        # short-lived client (the legacy path the tests still exercise).
+        self._http_client = http_client
         self.logger = logger.bind(client="scheduler")
         self.timeout = httpx.Timeout(30.0, connect=5.0)
     
@@ -197,13 +203,17 @@ class SchedulerClient:
         error carrying the upstream status, and returns only a JSON object on a
         200. The operator bearer token is forwarded but never logged."""
         url = f"{self.base_url}{path}"
+        headers = {"Authorization": f"Bearer {bearer_token}"}
         try:
-            async with httpx.AsyncClient(
-                timeout=self.timeout, transport=self._transport
-            ) as client:
-                response = await client.get(
-                    url, headers={"Authorization": f"Bearer {bearer_token}"}
+            if self._http_client is not None:
+                response = await self._http_client.get(
+                    url, headers=headers, timeout=self.timeout
                 )
+            else:
+                async with httpx.AsyncClient(
+                    timeout=self.timeout, transport=self._transport
+                ) as client:
+                    response = await client.get(url, headers=headers)
         except httpx.HTTPError as exc:
             self.logger.error(
                 "scheduler control-plan request failed to connect",

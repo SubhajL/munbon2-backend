@@ -105,12 +105,18 @@ class Settings(BaseSettings):
         description="Strategy for combining ROS and AquaCrop demands"
     )
     
-    # Scheduler Service Configuration
-    scheduler_service_url: str = Field(
-        default="http://localhost:3021",
-        env="SCHEDULER_SERVICE_URL"
+    # Readiness upstream-probe timeouts (PR 4.4a-2): each probe is independently
+    # bounded so one slow/hung upstream can never stall the BFF /ready check.
+    upstream_probe_connect_timeout_seconds: float = Field(
+        default=2.0, env="UPSTREAM_PROBE_CONNECT_TIMEOUT_SECONDS"
     )
-    
+    upstream_probe_read_timeout_seconds: float = Field(
+        default=3.0, env="UPSTREAM_PROBE_READ_TIMEOUT_SECONDS"
+    )
+    upstream_probe_total_timeout_seconds: float = Field(
+        default=5.0, env="UPSTREAM_PROBE_TOTAL_TIMEOUT_SECONDS"
+    )
+
     @property
     def cors_origins_list(self) -> List[str]:
         origins = [origin.strip() for origin in self.cors_origins.split(",")]

@@ -8,8 +8,11 @@ from pathlib import Path
 
 import pytest
 
+import migrations.migrate as migrate
 from migrations.migrate import (
     MigrationError,
+    apply_all_migrations,
+    discover_migration_ids,
     migration_checksum,
     postgres_connection_kwargs,
     rollback_migration,
@@ -366,6 +369,64 @@ class TestMigrationApplyTransaction:
             "INSERT INTO" in sql and "schema_migrations" in sql
             for sql in executed
         ), "a failed apply must never reach the registry INSERT"
+
+
+class TestDiscoverAndApplyAll:
+    """`apply-all` discovers complete pairs in lexical order and applies every
+    pending one under the same checksum/lock rules (start.sh migrate-before-start)."""
+
+    def test_discovers_complete_pairs_in_lexical_order(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("migrations.migrate.MIGRATIONS_DIR", tmp_path)
+        _write_temp_migration(tmp_path, "0002_b", "CREATE TABLE b (i INT);", "DROP TABLE b;")
+        _write_temp_migration(tmp_path, "0001_a", "CREATE TABLE a (i INT);", "DROP TABLE a;")
+        assert discover_migration_ids() == ["0001_a", "0002_b"]
+
+    def test_rejects_incomplete_pair(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("migrations.migrate.MIGRATIONS_DIR", tmp_path)
+        (tmp_path / "0001_a.up.sql").write_text("CREATE TABLE a (i INT);")
+        with pytest.raises(MigrationError, match="incomplete"):
+            discover_migration_ids()
+
+    def test_real_flow_pairs_are_complete_and_sorted(self):
+        ids = discover_migration_ids()
+        assert ids == sorted(ids)
+        assert "0001_prediction_persistence" in ids
+        assert "apply-all" in migrate.CLI_VERBS
+
+    @pytest.mark.asyncio
+    async def test_apply_all_applies_pending_pairs_in_sorted_order(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr("migrations.migrate.MIGRATIONS_DIR", tmp_path)
+        _write_temp_migration(tmp_path, "0002_b", "CREATE TABLE b (i INT);", "DROP TABLE b;")
+        _write_temp_migration(tmp_path, "0001_a", "CREATE TABLE a (i INT);", "DROP TABLE a;")
+        executed: list[str] = []
+
+        class FakeConn:
+            async def execute(self, sql, *args):
+                executed.append(sql)
+                return None
+
+            async def fetchrow(self, sql, *args):
+                return None  # nothing applied yet
+
+            async def fetchval(self, sql):
+                return "flow_monitoring.schema_migrations"
+
+            def transaction(self):
+                from contextlib import asynccontextmanager
+
+                @asynccontextmanager
+                async def tx():
+                    yield
+
+                return tx()
+
+        results = await apply_all_migrations(FakeConn())
+        assert [mid for mid, _ in results] == ["0001_a", "0002_b"]
+        a_idx = next(i for i, s in enumerate(executed) if "CREATE TABLE a" in s)
+        b_idx = next(i for i, s in enumerate(executed) if "CREATE TABLE b" in s)
+        assert a_idx < b_idx
 
 
 class TestPostgresUrlParser:

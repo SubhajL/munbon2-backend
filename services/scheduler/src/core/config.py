@@ -1,6 +1,6 @@
 from typing import List, Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, field_validator
 
 # Well-known weak/default signing secrets that must never sign a live token.
 _WEAK_JWT_SECRET_DENYLIST = frozenset(
@@ -32,7 +32,14 @@ class Settings(BaseSettings):
     allowed_origins: List[str] = ["*"]
 
     # Database
-    database_url: str
+    # The runtime MUST serve the SAME database the migration runner + PM2 target.
+    # migrate.py and PM2 both use POSTGRES_URL, so the runtime consumes it as the
+    # canonical source, falling back to DATABASE_URL only when POSTGRES_URL is
+    # absent. A deployment that sets both can therefore never run the service
+    # against a different DB than migrations were applied to.
+    database_url: str = Field(
+        validation_alias=AliasChoices("POSTGRES_URL", "DATABASE_URL")
+    )
     database_pool_size: int = 20
     database_max_overflow: int = 10
 
@@ -99,6 +106,9 @@ class Settings(BaseSettings):
         env_file=".env",
         case_sensitive=False,
         extra="ignore",
+        # Allow population by field name too, so `Settings(database_url=...)`
+        # keeps working alongside the POSTGRES_URL/DATABASE_URL validation alias.
+        populate_by_name=True,
     )
 
     @field_validator("jwt_secret_key")
