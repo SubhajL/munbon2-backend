@@ -175,6 +175,88 @@ class FakeRosGisClient:
         return [dict(item) for item in self.items]
 
 
+def _build_member_timeline(request_document, member_name):
+    """A realistic, aligned, reconciling three-member timeline for the SEC-1
+    delivery at N4 over reaches R1, R2. All members deliver exactly the required
+    volume (degenerate bounds) so the projector's reconciliation holds."""
+    from datetime import datetime, timedelta
+
+    starts_at = datetime.fromisoformat(request_document["starts_at"])
+    ends_at = datetime.fromisoformat(request_document["ends_at"])
+    step = int(request_document["timestep_seconds"])
+    count = int((ends_at - starts_at).total_seconds() // step)
+    # Match flow: sampled_at are step-END times, so the last sample == ends_at.
+    sampled = [
+        (starts_at + timedelta(seconds=(i + 1) * step)).isoformat()
+        for i in range(count)
+    ]
+    reach_ids = ["R1", "R2"]
+    reaches = [
+        {
+            "reach_id": rid,
+            "inflow_m3s": [0.0] * count,
+            "outflow_m3s": [0.0] * count,
+            "in_transit_volume_m3": [
+                (2.0 if 0 < i < count - 1 else 0.0) for i in range(count)
+            ],
+            "cumulative_declared_loss_m3": [0.0] * count,
+        }
+        for rid in reach_ids
+    ]
+    requirements = []
+    final = []
+    total = 0.0
+    for section in request_document["section_requirements"]:
+        required = float(section["required_volume_m3"])
+        total += required
+        delivered = [
+            required * min(1.0, (i + 1) / max(1, count - 1))
+            for i in range(count)
+        ]
+        delivered[-1] = required
+        status = [
+            "pending" if i == 0
+            else ("predicted_fulfilled" if i == count - 1
+                  else "delivery_predicted_active")
+            for i in range(count)
+        ]
+        requirements.append(
+            {
+                "requirement_id": section["requirement_id"],
+                "predicted_delivered_m3": delivered,
+                "status": status,
+            }
+        )
+        final.append(
+            {
+                "requirement_id": section["requirement_id"],
+                "section_id": section["section_id"],
+                "required_volume_m3": required,
+                "approved_excess_m3": float(section["approved_excess_m3"]),
+                "predicted_delivered_m3": required,
+                "status": "predicted_fulfilled",
+            }
+        )
+    return total, {
+        "sampled_at": sampled,
+        "reaches": reaches,
+        "withdrawals": [],
+        "requirements": requirements,
+        "terminal_outflow_m3": [0.0] * count,
+        "mass_balance": {
+            "initial_in_transit_m3": 0.0,
+            "boundary_inflow_m3": total,
+            "delivered_m3": total,
+            "withdrawn_m3": 0.0,
+            "declared_loss_m3": 0.0,
+            "terminal_outflow_m3": 0.0,
+            "final_in_transit_m3": 0.0,
+            "balance_error_m3": 0.0,
+        },
+        "final_fulfillment": final,
+    }
+
+
 class FakeControlFlowClient:
     def __init__(
         self,
@@ -182,15 +264,19 @@ class FakeControlFlowClient:
         prediction_members=None,
         prediction_error=None,
         snapshot_error=None,
+        with_timeline=True,
+        infeasible_members=None,
     ):
         self.snapshot = snapshot
-        self.prediction_members = prediction_members or [
-            {"member": "lower", "status": "completed"},
-            {"member": "nominal", "status": "completed"},
-            {"member": "upper", "status": "completed"},
-        ]
+        # When prediction_members is given, the caller controls the members
+        # verbatim (used to exercise malformed responses). Otherwise a realistic
+        # reconciling three-member timeline is built per request; members named
+        # in infeasible_members are emitted as timeline-less infeasible members.
+        self.prediction_members = prediction_members
         self.prediction_error = prediction_error
         self.snapshot_error = snapshot_error
+        self.with_timeline = with_timeline
+        self.infeasible_members = set(infeasible_members or ())
         self.prediction_requests = []
 
     async def create_model_snapshot(self):
@@ -205,6 +291,36 @@ class FakeControlFlowClient:
         if self.prediction_error is not None:
             raise self.prediction_error
         self.prediction_requests.append(request_document)
+        if self.prediction_members is not None:
+            members = self.prediction_members
+        elif self.with_timeline:
+            members = []
+            for name in ("lower", "nominal", "upper"):
+                if name in self.infeasible_members:
+                    members.append(
+                        {
+                            "member": name,
+                            "status": "infeasible",
+                            "predicted_delivered_total_m3": None,
+                            "timeline": None,
+                        }
+                    )
+                    continue
+                total, timeline = _build_member_timeline(request_document, name)
+                members.append(
+                    {
+                        "member": name,
+                        "status": "completed",
+                        "predicted_delivered_total_m3": total,
+                        "timeline": timeline,
+                    }
+                )
+        else:
+            members = [
+                {"member": "lower", "status": "completed"},
+                {"member": "nominal", "status": "completed"},
+                {"member": "upper", "status": "completed"},
+            ]
         body = {
             "prediction_run_id": "c" * 64,
             "model_snapshot_id": request_document["model_snapshot_id"],
@@ -212,7 +328,9 @@ class FakeControlFlowClient:
             "model_release_content_hash": request_document[
                 "model_release_content_hash"
             ],
-            "members": self.prediction_members,
+            "starts_at": request_document["starts_at"],
+            "ends_at": request_document["ends_at"],
+            "members": members,
         }
         return canonical_json_text(body), body
 

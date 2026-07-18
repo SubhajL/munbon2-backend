@@ -23,11 +23,17 @@ from core.control_plan import (
     control_plan_draft_hash,
     control_plan_input_hash,
 )
+from core.predicted_delivery_ledger import (
+    LedgerEntry,
+    LedgerProjectionError,
+    verify_ledger_entry_columns,
+)
 from models.control_plan import (
     ControlPlanRequirement,
     ControlPlanRun,
     ControlStateTransition,
     GatePlanEventRow,
+    SectionDeliveryLedgerEntry,
 )
 
 
@@ -127,6 +133,7 @@ class DraftPlanRecord:
     requirements: tuple[RequirementRecord, ...]
     events: tuple[GateEventRecord, ...]
     transitions: tuple[TransitionRecord, ...]
+    ledger_entries: tuple[LedgerEntry, ...] = ()
     created_at: Optional[datetime] = None
 
 
@@ -190,6 +197,11 @@ def verify_stored_draft(record: DraftPlanRecord) -> None:
         raise DraftStoreCorruptError(
             "stored draft content does not match its draft hash"
         )
+    for entry in record.ledger_entries:
+        try:
+            verify_ledger_entry_columns(entry)
+        except LedgerProjectionError as error:
+            raise DraftStoreCorruptError(str(error)) from error
 
 
 def build_draft_hash_document(
@@ -311,6 +323,12 @@ class PostgresControlPlanRepository:
                             **transition.__dict__,
                         )
                     )
+                for entry in record.ledger_entries:
+                    await session.execute(
+                        pg_insert(SectionDeliveryLedgerEntry).values(
+                            **_ledger_row_values(record, entry)
+                        )
+                    )
             await session.commit()
         except BaseException:
             await session.rollback()
@@ -371,6 +389,19 @@ class PostgresControlPlanRepository:
                     ControlStateTransition.plan_version == run.plan_version,
                 )
                 .order_by(ControlStateTransition.transition_sequence)
+            )
+        ).all()
+        ledger_rows = (
+            await session.scalars(
+                select(SectionDeliveryLedgerEntry)
+                .where(
+                    SectionDeliveryLedgerEntry.plan_id == run.plan_id,
+                    SectionDeliveryLedgerEntry.plan_version == run.plan_version,
+                )
+                .order_by(
+                    SectionDeliveryLedgerEntry.requirement_id,
+                    SectionDeliveryLedgerEntry.checkpoint_index,
+                )
             )
         ).all()
         record = DraftPlanRecord(
@@ -466,10 +497,63 @@ class PostgresControlPlanRepository:
                 )
                 for row in transition_rows
             ),
+            ledger_entries=tuple(
+                LedgerEntry(
+                    requirement_id=str(row.requirement_id),
+                    section_id=row.section_id,
+                    checkpoint_index=row.checkpoint_index,
+                    checkpoint_at=row.checkpoint_at,
+                    status=row.status,
+                    required_volume_m3=row.required_volume_m3,
+                    approved_excess_m3=row.approved_excess_m3,
+                    lower_delivered_m3=row.lower_delivered_m3,
+                    nominal_delivered_m3=row.nominal_delivered_m3,
+                    upper_delivered_m3=row.upper_delivered_m3,
+                    lower_path_in_transit_m3=row.lower_path_in_transit_m3,
+                    nominal_path_in_transit_m3=row.nominal_path_in_transit_m3,
+                    upper_path_in_transit_m3=row.upper_path_in_transit_m3,
+                    checkpoint_reasons=tuple(
+                        json.loads(row.checkpoint_reasons_document_text)
+                    ),
+                    projection_sha256=row.projection_sha256,
+                    projection_document_text=row.projection_document_text,
+                )
+                for row in ledger_rows
+            ),
             created_at=run.created_at,
         )
         verify_stored_draft(record)
         return record
+
+
+def _ledger_row_values(
+    record: DraftPlanRecord, entry: LedgerEntry
+) -> dict:
+    return {
+        "plan_id": record.plan_id,
+        "plan_version": record.plan_version,
+        "requirement_id": UUID(entry.requirement_id),
+        "checkpoint_index": entry.checkpoint_index,
+        "section_id": entry.section_id,
+        "checkpoint_at": entry.checkpoint_at,
+        "status": entry.status,
+        "required_volume_m3": entry.required_volume_m3,
+        "approved_excess_m3": entry.approved_excess_m3,
+        "lower_delivered_m3": entry.lower_delivered_m3,
+        "nominal_delivered_m3": entry.nominal_delivered_m3,
+        "upper_delivered_m3": entry.upper_delivered_m3,
+        "lower_path_in_transit_m3": entry.lower_path_in_transit_m3,
+        "nominal_path_in_transit_m3": entry.nominal_path_in_transit_m3,
+        "upper_path_in_transit_m3": entry.upper_path_in_transit_m3,
+        "checkpoint_reasons_document_text": json.dumps(
+            list(entry.checkpoint_reasons), separators=(",", ":")
+        ),
+        "projection_document_text": entry.projection_document_text,
+        "projection_sha256": entry.projection_sha256,
+        "prediction_run_id": record.prediction_run_id,
+        "prediction_response_sha256": record.prediction_response_sha256,
+        "projected_at": record.created_at,
+    }
 
 
 def with_created_at(

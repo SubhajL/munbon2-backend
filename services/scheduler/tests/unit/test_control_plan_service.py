@@ -91,6 +91,20 @@ class TestCreateDraft:
         ]
         assert requirement.travel_delay_seconds == 3600
         assert repository.store_calls == 1
+        # A feasible draft projects prediction-only ledger entries.
+        assert record.ledger_entries
+        assert all(
+            e.status
+            in {
+                "not_started",
+                "predicted_in_progress",
+                "predicted_fulfilled",
+                "predicted_excess_risk",
+            }
+            for e in record.ledger_entries
+        )
+        terminal = max(record.ledger_entries, key=lambda e: e.checkpoint_index)
+        assert terminal.nominal_delivered_m3 == pytest.approx(6000.0)
 
     @pytest.mark.asyncio
     async def test_prediction_request_covers_horizon_start(self):
@@ -181,18 +195,18 @@ class TestCreateDraft:
     @pytest.mark.asyncio
     async def test_prediction_member_infeasibility_persists_valid_draft(self):
         flow = FakeControlFlowClient(
-            snapshot_mirror(),
-            prediction_members=[
-                {"member": "lower", "status": "infeasible"},
-                {"member": "nominal", "status": "completed"},
-                {"member": "upper", "status": "completed"},
-            ],
+            snapshot_mirror(), infeasible_members={"lower"}
         )
         service, _, _, repository = _service(flow=flow)
         record, _ = await service.create_draft(None, _request(), "operator-1")
         assert record.optimizer_status == "feasible"
         assert record.prediction_status == "infeasible"
         assert record.prediction_run_id == "c" * 64
+        # A member-infeasible prediction yields manual_review ledger rows.
+        assert record.ledger_entries
+        assert all(
+            e.status == "manual_review" for e in record.ledger_entries
+        )
         assert repository.store_calls == 1
 
     @pytest.mark.asyncio

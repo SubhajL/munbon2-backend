@@ -10,6 +10,7 @@ CONTROL_TABLES = {
     "scheduler.control_plan_requirements",
     "scheduler.gate_plan_events",
     "scheduler.control_state_transitions",
+    "scheduler.section_delivery_ledger",
 }
 
 LEGACY_TABLES = {

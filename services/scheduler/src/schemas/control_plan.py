@@ -221,6 +221,43 @@ class PredictionMemberStatusOut(_StrictModel):
     status: Literal["completed", "infeasible"]
 
 
+class MemberBoundsOut(_StrictModel):
+    lower_bound: Optional[float]
+    nominal: Optional[float]
+    upper_bound: Optional[float]
+
+
+class LedgerEntryOut(_StrictModel):
+    requirement_id: str
+    section_id: str
+    checkpoint_index: int
+    checkpoint_at: datetime
+    status: str
+    required_volume_m3: float
+    approved_excess_m3: float
+    delivered_m3: MemberBoundsOut
+    path_in_transit_m3: MemberBoundsOut
+    remaining_m3: MemberBoundsOut
+    checkpoint_reasons: list[str]
+
+
+class HandoverVerdictOut(_StrictModel):
+    gate_id: str
+    requirement_ids: list[str]
+    is_safe: bool
+    reasons: list[str]
+
+
+class ControlPlanLedgerResponse(_StrictModel):
+    plan_id: UUID
+    plan_version: int
+    prediction_run_id: Optional[str]
+    prediction_status: str
+    ledger_sha256: str
+    entries: list[LedgerEntryOut]
+    handover: list[HandoverVerdictOut]
+
+
 class DraftControlPlanResponse(_StrictModel):
     plan_id: UUID
     plan_version: int

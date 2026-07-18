@@ -188,3 +188,53 @@ class TestDraftRoundtrip:
             "/api/v1/control-plans/drafts", json=payload
         )
         assert response.status_code == 422
+
+
+class TestLedgerEndpoint:
+    def test_ledger_returns_entries_bounds_and_lineage(self):
+        app, _ = _build_app()
+        client = TestClient(app)
+        created = client.post(
+            "/api/v1/control-plans/drafts", json=draft_payload()
+        )
+        assert created.status_code == 201, created.text
+        plan_id = created.json()["plan_id"]
+
+        ledger = client.get(
+            f"/api/v1/control-plans/{plan_id}/versions/1/ledger"
+        )
+        assert ledger.status_code == 200, ledger.text
+        body = ledger.json()
+        assert body["plan_id"] == plan_id
+        assert body["prediction_status"] == "completed"
+        assert len(body["ledger_sha256"]) == 64
+        assert body["entries"], "feasible draft must expose ledger entries"
+        first = body["entries"][0]
+        allowed = {
+            "not_started",
+            "predicted_in_progress",
+            "predicted_fulfilled",
+            "predicted_excess_risk",
+            "invalidated",
+            "manual_review",
+        }
+        assert all(e["status"] in allowed for e in body["entries"])
+        assert "lower_bound" in first["delivered_m3"]
+        assert body["handover"], "scheduled requirement must get a verdict"
+
+    def test_ledger_requires_auth(self):
+        app, _ = _build_app()
+        del app.dependency_overrides[get_current_user]
+        client = TestClient(app)
+        response = client.get(
+            f"/api/v1/control-plans/{uuid4()}/versions/1/ledger"
+        )
+        assert response.status_code == 403
+
+    def test_ledger_unknown_plan_is_404(self):
+        app, _ = _build_app()
+        client = TestClient(app)
+        response = client.get(
+            f"/api/v1/control-plans/{uuid4()}/versions/1/ledger"
+        )
+        assert response.status_code == 404

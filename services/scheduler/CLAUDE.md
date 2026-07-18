@@ -27,9 +27,28 @@ core/database.py) must never see them (locked by tests/unit/test_create_all_isol
 legacy 11-table set pinned). PR 4.3a shipped the first pair (`0001_control_plan_drafts`:
 control_plan_runs / control_plan_requirements / gate_plan_events /
 control_state_transitions, all in the `scheduler` schema, immutability triggers, TEXT
-canonical documents — never JSONB). ORM ↔ DDL drift is locked by
+canonical documents — never JSONB). PR 5.1 added `0002_predicted_delivery_ledger`
+(`section_delivery_ledger`, append-only, reuses the 0001 immutability trigger function).
+ORM ↔ DDL drift is locked across BOTH pairs by
 tests/unit/test_control_models_match_migration_ddl.py; 4.3b relaxes the narrow
 transition checks via a NEW migration, never by editing an applied pair.
+
+## Predicted-fulfillment ledger (PR 5.1)
+`project_predicted_delivery_ledger` (core/predicted_delivery_ledger.py) is a PURE
+projection of a feasible draft's persisted prediction response into per-requirement,
+per-checkpoint delivery rows, committed atomically inside `create_draft`. Key semantics:
+- Flow attributes NO in-transit to requirements (delivery accounting is delivered-only);
+  per-requirement transit is the sum of the requirement's OWN `path_reach_ids` reach
+  `in_transit_volume_m3` — path-occupancy CONTEXT, NEVER additive across requirements,
+  excluded from safe-close arithmetic.
+- Member labels (lower/nominal/upper) are parameter-distribution positions, NOT a delivery
+  ordering; raw member values are stored and API bounds are min/max across members.
+- Prediction-only status vocabulary (6 values); reconciles to the persisted artifact at
+  horizon end (fail-closed on mismatch/misalignment/missing path reach).
+- Read-only ledger route: `GET /api/v1/control-plans/{plan_id}/versions/{version}/ledger`
+  (min/max bounds + pure `evaluate_safe_handover` verdicts). The draft POST/GET is unchanged;
+  BFF (4.4) consumes this route. `evaluate_safe_handover` is a pure predicate — no lifecycle
+  transition (4.3b owns supersede).
 
 ## Tests
 - Bare pytest = the gate; discovery confined to tests/ (root EC2 probes moved to
