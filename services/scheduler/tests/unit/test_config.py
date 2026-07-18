@@ -11,7 +11,12 @@ def test_database_url_normalized_to_asyncpg(monkeypatch):
     monkeypatch.setenv("ROS_GIS_URL", "http://localhost:3047")
     monkeypatch.setenv("WEATHER_SERVICE_URL", "http://localhost:3006")
     monkeypatch.setenv("AUTH_SERVICE_URL", "http://localhost:3001")
-    monkeypatch.setenv("JWT_SECRET_KEY", "dev")
+    # PR 4.4a-1: the JWT secret must be strong and the claim policy explicit, or
+    # Settings construction fails closed.
+    monkeypatch.setenv("JWT_SECRET_KEY", "strong-enough-jwt-secret-for-tests-0123456789")
+    monkeypatch.setenv("JWT_ISSUER", "munbon-auth-test")
+    monkeypatch.setenv("JWT_AUDIENCE", "munbon-scheduler-test")
+    monkeypatch.setenv("JWT_CLAIM_POLICY_MODE", "compat")
 
     s = Settings()
     assert s.database_url.startswith("postgresql+asyncpg://")

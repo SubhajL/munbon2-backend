@@ -326,6 +326,31 @@ def shadow_approval_freeze_text(freeze: Mapping[str, Any]) -> str:
     return _canonical(freeze)
 
 
+APPROVAL_DOCUMENT_SCHEMA_VERSION = 2
+
+
+def build_shadow_approval_document(
+    lineage_freeze: Mapping[str, Any],
+    authorization_evidence: Mapping[str, Any],
+) -> dict:
+    """Wrap the recomputable lineage and the non-recomputable authorization
+    evidence in a v2 document.
+
+    CRITICAL: evidence lives in its OWN key, never inside ``lineage_freeze`` —
+    ``verify_shadow_approval_freeze`` recomputes the lineage from immutable rows,
+    and evidence is not derivable from those rows.
+    """
+    return {
+        "schema_version": APPROVAL_DOCUMENT_SCHEMA_VERSION,
+        "lineage_freeze": dict(lineage_freeze),
+        "authorization_evidence": dict(authorization_evidence),
+    }
+
+
+def shadow_approval_document_text(document: Mapping[str, Any]) -> str:
+    return _canonical(document)
+
+
 def verify_shadow_approval_freeze(
     document_text: str,
     record: Any,
@@ -333,19 +358,30 @@ def verify_shadow_approval_freeze(
     ledger_sha256: str,
     requirement_set_sha256: str,
 ) -> None:
-    """Recompute the freeze from immutable rows and require exact equality."""
+    """Recompute the lineage from immutable rows and require exact equality.
+
+    Handles both shapes transparently: a v2 document ``{schema_version,
+    lineage_freeze, authorization_evidence}`` compares only its ``lineage_freeze``
+    (evidence is intentionally not recomputed); a legacy v1 document that IS the
+    bare freeze compares whole.
+    """
     try:
         stored = json.loads(document_text)
     except ValueError as error:
         raise ApprovalFreezeMismatchError(
             f"approval document is not valid JSON: {error}"
         ) from error
+    stored_lineage = (
+        stored["lineage_freeze"]
+        if isinstance(stored, Mapping) and "lineage_freeze" in stored
+        else stored
+    )
     expected = build_shadow_approval_freeze(
         record,
         ledger_sha256=ledger_sha256,
         requirement_set_sha256=requirement_set_sha256,
     )
-    if _canonical(stored) != _canonical(expected):
+    if _canonical(stored_lineage) != _canonical(expected):
         raise ApprovalFreezeMismatchError(
             "frozen approval lineage no longer matches the immutable plan"
         )

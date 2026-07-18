@@ -72,6 +72,27 @@ def _lifecycle(repository):
     return ControlPlanLifecycleService(repository=repository)
 
 
+def _strict_evidence(subject="approver"):
+    """Strict-policy authorization evidence, as the endpoint would build it, so
+    the resulting v2 approval document is a TRUSTED approval."""
+    return {
+        "authorization_policy_version": "control-plan-rbac-v1",
+        "claim_policy_mode": "strict",
+        "subject": subject,
+        "roles": ["supervisor"],
+        "token_identity_sha256": "9" * 64,
+        "request_id": "req-1",
+        "evidence_refs": ["ticket-1"],
+    }
+
+
+def _lineage_freeze(approval_document_text):
+    """Extract the lineage freeze from a v2 approval document."""
+    import json
+
+    return json.loads(approval_document_text)["lineage_freeze"]
+
+
 class TestHappyPath:
     @pytest.mark.asyncio
     async def test_review_then_approve_reaches_approved_and_freezes(self):
@@ -83,7 +104,11 @@ class TestHappyPath:
         )
         assert current_lifecycle_state(reviewed) == "under_review"
         approved = await svc.approve_shadow_plan(
-            None, draft.plan_id, draft.plan_version, "approver"
+            None,
+            draft.plan_id,
+            draft.plan_version,
+            "approver",
+            authorization_evidence=_strict_evidence(),
         )
         assert current_lifecycle_state(approved) == "approved_for_shadow"
         approval = next(
@@ -93,7 +118,12 @@ class TestHappyPath:
         )
         import json
 
-        freeze = json.loads(approval.transition_document_text)
+        document = json.loads(approval.transition_document_text)
+        assert document["schema_version"] == 2
+        # Authorization evidence lives OUTSIDE the recomputed lineage.
+        assert document["authorization_evidence"]["claim_policy_mode"] == "strict"
+        freeze = document["lineage_freeze"]
+        assert "authorization_evidence" not in freeze
         assert freeze["machine_authority_granted"] is False
         assert freeze["plan"]["draft_content_hash"] == draft.draft_content_hash
         assert freeze["prediction"]["prediction_run_id"] == (
@@ -197,9 +227,7 @@ class TestNewRequirementRun:
             for t in approved_a.transitions
             if t.transition_type == "shadow_approved"
         )
-        import json
-
-        freeze = json.loads(approval.transition_document_text)
+        freeze = _lineage_freeze(approval.transition_document_text)
         assert freeze["requirements"]["requirement_run_id"] == str(
             a.requirement_run_id
         )
@@ -215,7 +243,13 @@ class TestSupersede:
         svc = _lifecycle(repo)
         for plan in (a, b):
             await svc.review_control_plan(None, plan.plan_id, 1, "r")
-            await svc.approve_shadow_plan(None, plan.plan_id, 1, "a")
+            await svc.approve_shadow_plan(
+                None,
+                plan.plan_id,
+                1,
+                "a",
+                authorization_evidence=_strict_evidence(),
+            )
         return a, b, svc
 
     @pytest.mark.asyncio
@@ -252,6 +286,26 @@ class TestSupersede:
         with pytest.raises(SupersedeScopeError):
             await svc.supersede_control_plan(
                 None, a.plan_id, 1, a.plan_id, 1, "op", "roll"
+            )
+
+    @pytest.mark.asyncio
+    async def test_supersede_rejects_untrusted_compat_successor(self):
+        # A successor approved WITHOUT strict-policy evidence (compat/internal)
+        # is not trusted evidence and must not be able to back a supersede.
+        repo = FakeRepository()
+        a = await _make_draft(repo, volume=6000.0)
+        b = await _make_draft(repo, volume=6100.0)
+        svc = _lifecycle(repo)
+        await svc.review_control_plan(None, a.plan_id, 1, "r")
+        await svc.approve_shadow_plan(
+            None, a.plan_id, 1, "a", authorization_evidence=_strict_evidence()
+        )
+        await svc.review_control_plan(None, b.plan_id, 1, "r")
+        # b is approved but with NO strict evidence -> untrusted v2 document.
+        await svc.approve_shadow_plan(None, b.plan_id, 1, "a")
+        with pytest.raises(SupersedeScopeError, match="trusted"):
+            await svc.supersede_control_plan(
+                None, a.plan_id, 1, b.plan_id, 1, "op", "roll"
             )
 
 

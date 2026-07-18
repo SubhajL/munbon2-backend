@@ -23,7 +23,18 @@ from core.predicted_delivery_ledger import (
     evaluate_safe_handover,
     predicted_delivery_ledger_sha256,
 )
-from core.deps import get_current_user, get_db
+from core.auth import (
+    build_authorization_evidence,
+    policy_from_settings,
+    principal_from_user,
+)
+from core.deps import (
+    get_current_user,
+    get_db,
+    require_operator,
+    require_strict_approval_policy,
+    require_supervisor,
+)
 from core.logger import get_logger
 from repositories.control_plan_repository import (
     DraftPlanRecord,
@@ -44,6 +55,7 @@ from schemas.control_plan import (
     PlanTransitionOut,
     PredictionMemberStatusOut,
     ReasonedActionRequest,
+    ShadowApprovalRequest,
     SupersedeRequest,
 )
 from services.clients.control_client_errors import (
@@ -237,7 +249,11 @@ def _response_from_record(record: DraftPlanRecord) -> DraftControlPlanResponse:
     )
 
 
-@router.post("/drafts", response_model=DraftControlPlanResponse)
+@router.post(
+    "/drafts",
+    response_model=DraftControlPlanResponse,
+    dependencies=[Depends(require_operator)],
+)
 async def post_draft_control_plan(
     request_body: DraftControlPlanRequest,
     response: Response,
@@ -305,6 +321,7 @@ async def post_draft_control_plan(
 @router.get(
     "/{plan_id}/versions/{plan_version}",
     response_model=DraftControlPlanResponse,
+    dependencies=[Depends(require_operator)],
 )
 async def get_control_plan_version(
     plan_id: UUID,
@@ -337,6 +354,7 @@ async def get_control_plan_version(
 @router.get(
     "/{plan_id}/versions/{plan_version}/ledger",
     response_model=ControlPlanLedgerResponse,
+    dependencies=[Depends(require_operator)],
 )
 async def get_control_plan_ledger(
     plan_id: UUID,
@@ -527,6 +545,7 @@ async def _run_lifecycle(action):
 @router.post(
     "/{plan_id}/versions/{plan_version}/review",
     response_model=DraftControlPlanResponse,
+    dependencies=[Depends(require_supervisor)],
 )
 async def review_control_plan(
     plan_id: UUID,
@@ -547,19 +566,37 @@ async def review_control_plan(
 @router.post(
     "/{plan_id}/versions/{plan_version}/approve-for-shadow",
     response_model=DraftControlPlanResponse,
+    dependencies=[
+        Depends(require_supervisor),
+        Depends(require_strict_approval_policy),
+    ],
 )
 async def approve_shadow_plan(
     plan_id: UUID,
     plan_version: int,
-    body: LifecycleActionRequest,
+    body: ShadowApprovalRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: Dict = Depends(get_current_user),
     service: ControlPlanLifecycleService = Depends(get_lifecycle_service),
 ):
     actor = _actor_subject(current_user)
+    policy = policy_from_settings(settings)
+    authorization_evidence = build_authorization_evidence(
+        principal=principal_from_user(current_user),
+        request_id=getattr(request.state, "request_id", None),
+        policy=policy,
+        evidence_refs=body.evidence_refs,
+    )
     return await _run_lifecycle(
         lambda: service.approve_shadow_plan(
-            db, plan_id, plan_version, actor, body.reason
+            db,
+            plan_id,
+            plan_version,
+            actor,
+            body.reason,
+            authorization_evidence=authorization_evidence,
+            evidence_refs=body.evidence_refs,
         )
     )
 
@@ -567,6 +604,7 @@ async def approve_shadow_plan(
 @router.post(
     "/{plan_id}/versions/{plan_version}/cancel",
     response_model=DraftControlPlanResponse,
+    dependencies=[Depends(require_operator)],
 )
 async def cancel_control_plan(
     plan_id: UUID,
@@ -587,6 +625,7 @@ async def cancel_control_plan(
 @router.post(
     "/{plan_id}/versions/{plan_version}/invalidate",
     response_model=DraftControlPlanResponse,
+    dependencies=[Depends(require_supervisor)],
 )
 async def invalidate_control_plan(
     plan_id: UUID,
@@ -607,6 +646,7 @@ async def invalidate_control_plan(
 @router.post(
     "/{plan_id}/versions/{plan_version}/supersede",
     response_model=DraftControlPlanResponse,
+    dependencies=[Depends(require_supervisor)],
 )
 async def supersede_control_plan(
     plan_id: UUID,

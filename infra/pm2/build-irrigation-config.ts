@@ -113,7 +113,16 @@ export function getIrrigationProcesses(): PM2ProcessConfig[] {
         GIS_SERVICE_URL: 'http://localhost:3007',
         WEATHER_SERVICE_URL: 'http://localhost:3006',
         AUTH_SERVICE_URL: 'http://localhost:3005',
-        JWT_SECRET_KEY: 'change-me',
+        // Control-plane trust hardening (PR 4.4a-1): the JWT signing secret,
+        // issuer, audience and claim-policy mode are host-required and NEVER
+        // defaulted. The scheduler's Settings rejects a weak secret and refuses
+        // to boot without an explicit claim policy, so a missing value fails the
+        // build loudly rather than shipping 'change-me'.
+        JWT_SECRET_KEY: requiredEnv('JWT_SECRET_KEY'),
+        JWT_ISSUER: requiredEnv('JWT_ISSUER'),
+        JWT_AUDIENCE: requiredEnv('JWT_AUDIENCE'),
+        JWT_ACCESS_TOKEN_TYPE: 'access',
+        JWT_CLAIM_POLICY_MODE: requiredEnv('JWT_CLAIM_POLICY_MODE'),
         CORS_ORIGINS: 'http://localhost:3000,http://localhost:3001',
       },
     },
