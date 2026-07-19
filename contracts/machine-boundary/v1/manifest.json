@@ -1,0 +1,239 @@
+{
+  "manifest_version": 1,
+  "contract_family": "machine-boundary",
+  "contract_version": 1,
+  "json_schema_dialect": "https://json-schema.org/draft/2020-12/schema",
+  "contract_set_sha256": "155606e21b0e15dc674a4fb3e5a9e2f40b94d6e1078ae09c973944731f3db0e4",
+  "schemas": [
+    {
+      "relative_path": "command-intent.schema.json",
+      "sha256": "27ec86c59c9662e3e80f0f31c9dd2ed9e04aa1e2d696f510cdf36319e420c2c8"
+    },
+    {
+      "relative_path": "device-capability-snapshot.schema.json",
+      "sha256": "58ad1c2c8c271542c05a7cd3d2b1b4bcb7dccaf71636abfb6cd0dbf64ff426b6"
+    },
+    {
+      "relative_path": "validation-receipt.schema.json",
+      "sha256": "9a2b7d6ddad7be5b6a3981a13f134b8a07f9412d3be7dc27cbeadee9fc0ea9f9"
+    }
+  ],
+  "fixtures": [
+    {
+      "relative_path": "fixtures/valid/command-intent.shadow.valid.json",
+      "schema": "command-intent.schema.json",
+      "expected_valid": true,
+      "sha256": "5721fe925a47d389062a98807e6cbded3475f56dd8f7aada200304a40bdf723e"
+    },
+    {
+      "relative_path": "fixtures/valid/command-intent.operator-approved.valid.json",
+      "schema": "command-intent.schema.json",
+      "expected_valid": true,
+      "sha256": "37c24f1cafa16651aca06f771e487b1f4f940c3075129fd2c8509baff0d5c897"
+    },
+    {
+      "relative_path": "fixtures/valid/command-intent.close.valid.json",
+      "schema": "command-intent.schema.json",
+      "expected_valid": true,
+      "sha256": "8ffaa3b0a53d916cc4a94afe5a82fc94ceafca495e0164cebea4ff5639fc1378"
+    },
+    {
+      "relative_path": "fixtures/valid/device-capability-snapshot.populated.valid.json",
+      "schema": "device-capability-snapshot.schema.json",
+      "expected_valid": true,
+      "sha256": "76fd265dc598faa24a16e6835a9b2a4cedda7d375986c7f39ff76d8aa14c068f"
+    },
+    {
+      "relative_path": "fixtures/valid/device-capability-snapshot.empty.valid.json",
+      "schema": "device-capability-snapshot.schema.json",
+      "expected_valid": true,
+      "sha256": "4e0b91089b6c043109a9e01c3ca5282e68ccb631f62853652193b4976e7fa034"
+    },
+    {
+      "relative_path": "fixtures/valid/validation-receipt.accepted.valid.json",
+      "schema": "validation-receipt.schema.json",
+      "expected_valid": true,
+      "sha256": "4e9ff4af93c6b2c0edda3d2de770013ebb845fe39e17b6cd952d315f7ca94a2d"
+    },
+    {
+      "relative_path": "fixtures/valid/validation-receipt.rejected.valid.json",
+      "schema": "validation-receipt.schema.json",
+      "expected_valid": true,
+      "sha256": "b033a22f48197fe2aa6b5584b82a56e3142dff55596690825de2747377a3a591"
+    },
+    {
+      "relative_path": "fixtures/invalid/command-intent.missing-capability-hash.invalid.json",
+      "schema": "command-intent.schema.json",
+      "expected_valid": false,
+      "sha256": "a59b11c071b96a73568510c048353cbcbb8dc6c4ecf1dcd81fefbbf1d0cd1b24"
+    },
+    {
+      "relative_path": "fixtures/invalid/command-intent.unknown-mode.invalid.json",
+      "schema": "command-intent.schema.json",
+      "expected_valid": false,
+      "sha256": "5ad234e89205600bfc7da4c069a2b2cc78952f37e74305646a142187620b271b"
+    },
+    {
+      "relative_path": "fixtures/invalid/command-intent.naive-not-before.invalid.json",
+      "schema": "command-intent.schema.json",
+      "expected_valid": false,
+      "sha256": "e0166783b62e4663d15bd698d0c0e84b5e6ee169a2cedc1eab723ca90c470d74"
+    },
+    {
+      "relative_path": "fixtures/invalid/command-intent.offset-not-before.invalid.json",
+      "schema": "command-intent.schema.json",
+      "expected_valid": false,
+      "sha256": "13fcdd7883f5a2decdcbdc1c92ccb0fa0d2b2ec48be2fe8a75cee39840c5899b"
+    },
+    {
+      "relative_path": "fixtures/invalid/command-intent.impossible-date-not-before.invalid.json",
+      "schema": "command-intent.schema.json",
+      "expected_valid": false,
+      "sha256": "57ab8ebbabcc5967810c168f9a1d806b0b592a03cf7831b3060b571a202d7b3f"
+    },
+    {
+      "relative_path": "fixtures/invalid/command-intent.noninteger-target-level.invalid.json",
+      "schema": "command-intent.schema.json",
+      "expected_valid": false,
+      "sha256": "af832b4d2e74bacfdd1f9e771eb74afb6afb1f63a16a7453931995b918e78768"
+    },
+    {
+      "relative_path": "fixtures/invalid/command-intent.overflow-target-position.invalid.json",
+      "schema": "command-intent.schema.json",
+      "expected_valid": false,
+      "sha256": "38a0a83e3fb342aa43178a39b0228e01599c0327240b94677211c7691a20a147"
+    },
+    {
+      "relative_path": "fixtures/invalid/command-intent.uppercase-hash.invalid.json",
+      "schema": "command-intent.schema.json",
+      "expected_valid": false,
+      "sha256": "36cc0d8c607aed7ec5e6818f7b768b7d09cd8303eec8cac879b342901b1da213"
+    },
+    {
+      "relative_path": "fixtures/invalid/command-intent.urn-uuid-intent-id.invalid.json",
+      "schema": "command-intent.schema.json",
+      "expected_valid": false,
+      "sha256": "b82e38cbe66519dd2f8e086c088d4917fcf6efef253790cf3903de66ec5ae9f8"
+    },
+    {
+      "relative_path": "fixtures/invalid/command-intent.unicode-whitespace-idempotency.invalid.json",
+      "schema": "command-intent.schema.json",
+      "expected_valid": false,
+      "sha256": "c72aae38b959f8e487793e340db4fbd39e19c07652e56c8b8509ccf0a1f99cc8"
+    },
+    {
+      "relative_path": "fixtures/invalid/command-intent.close-with-positive-target.invalid.json",
+      "schema": "command-intent.schema.json",
+      "expected_valid": false,
+      "sha256": "10e8ea852e86494d1731c0a0e48ff83900d0ed43d2ced73e6f85e269419f7bb7"
+    },
+    {
+      "relative_path": "fixtures/invalid/command-intent.open-with-zero-target.invalid.json",
+      "schema": "command-intent.schema.json",
+      "expected_valid": false,
+      "sha256": "7e9141fdfbdc48ac7dba70ec45cabd4282991e85d0158ff0ef873b4e48ef684c"
+    },
+    {
+      "relative_path": "fixtures/invalid/command-intent.missing-engine-hash.invalid.json",
+      "schema": "command-intent.schema.json",
+      "expected_valid": false,
+      "sha256": "cd21dc923ad58714b0a688e8ffaa12f5d287ddb03c26b0a84e1b2ea227df929a"
+    },
+    {
+      "relative_path": "fixtures/invalid/command-intent.additional-property.invalid.json",
+      "schema": "command-intent.schema.json",
+      "expected_valid": false,
+      "sha256": "e7685e3af95d6d9477dbc49bff8ff9af695081f5d2504f5d7cd2f4d4af5801c7"
+    },
+    {
+      "relative_path": "fixtures/invalid/command-intent.lineage-additional-property.invalid.json",
+      "schema": "command-intent.schema.json",
+      "expected_valid": false,
+      "sha256": "897ee5e86884a5306198110c0b4be5c8b850010c8bfe64d7793b5003fe1c3192"
+    },
+    {
+      "relative_path": "fixtures/invalid/device-capability-snapshot.bad-hash.invalid.json",
+      "schema": "device-capability-snapshot.schema.json",
+      "expected_valid": false,
+      "sha256": "1106b6105ae3e476b00ccbc1d3a3cbb8f73bcdab9bee8cd163df8b0bb4e9ccdc"
+    },
+    {
+      "relative_path": "fixtures/invalid/device-capability-snapshot.empty-targets.invalid.json",
+      "schema": "device-capability-snapshot.schema.json",
+      "expected_valid": false,
+      "sha256": "abaa1caa97673979c6e2c0673bae178dac7b67c915feba2a6442c0dd2a1aad71"
+    },
+    {
+      "relative_path": "fixtures/invalid/device-capability-snapshot.capability-endpoint-leak.invalid.json",
+      "schema": "device-capability-snapshot.schema.json",
+      "expected_valid": false,
+      "sha256": "7bd345d3a4ac36c94b32846d720565e09bff054ce12ce03be57db37a12a01169"
+    },
+    {
+      "relative_path": "fixtures/invalid/device-capability-snapshot.root-endpoint-leak.invalid.json",
+      "schema": "device-capability-snapshot.schema.json",
+      "expected_valid": false,
+      "sha256": "99c5b11082aae1ef08a02faea0af11f88876d5173c099476aa9c959d5f4cba7c"
+    },
+    {
+      "relative_path": "fixtures/invalid/device-capability-snapshot.target-additional-property.invalid.json",
+      "schema": "device-capability-snapshot.schema.json",
+      "expected_valid": false,
+      "sha256": "e994d00e5694457a37cdf71a51fdea1b5fcd6e041016b0afa851b85a71908d3b"
+    },
+    {
+      "relative_path": "fixtures/invalid/device-capability-snapshot.target-level-overflow.invalid.json",
+      "schema": "device-capability-snapshot.schema.json",
+      "expected_valid": false,
+      "sha256": "bf3a5ddbfb7cd5f9c171e30deb122c2bf1524f9c3d4c62769c65c31535743c9b"
+    },
+    {
+      "relative_path": "fixtures/invalid/device-capability-snapshot.negative-position.invalid.json",
+      "schema": "device-capability-snapshot.schema.json",
+      "expected_valid": false,
+      "sha256": "14510b1807de1e30b1b90fef1891858bc657b1f48edb3f71f31bc3779682b210"
+    },
+    {
+      "relative_path": "fixtures/invalid/device-capability-snapshot.bad-gate-key.invalid.json",
+      "schema": "device-capability-snapshot.schema.json",
+      "expected_valid": false,
+      "sha256": "024859313205ade9a2d2969acffa51ac0b931346728a77a5df36dec7f5daa318"
+    },
+    {
+      "relative_path": "fixtures/invalid/device-capability-snapshot.duplicate-targets.invalid.json",
+      "schema": "device-capability-snapshot.schema.json",
+      "expected_valid": false,
+      "sha256": "984d306f0adc2a5fb79f2d614bf0f45ed9c60571daa68d32cd127a1560e1ec9f"
+    },
+    {
+      "relative_path": "fixtures/invalid/validation-receipt.accepted-with-reason.invalid.json",
+      "schema": "validation-receipt.schema.json",
+      "expected_valid": false,
+      "sha256": "d8c404abf1079d1ae923230f069f22a843f9c0898d112613d3883488f9757fab"
+    },
+    {
+      "relative_path": "fixtures/invalid/validation-receipt.rejected-without-reason.invalid.json",
+      "schema": "validation-receipt.schema.json",
+      "expected_valid": false,
+      "sha256": "30dc493374304c8dd20b6fc9c919bdeb3761132c0433a1bba4a9ce2aa22e1c9d"
+    },
+    {
+      "relative_path": "fixtures/invalid/validation-receipt.naive-validated-at.invalid.json",
+      "schema": "validation-receipt.schema.json",
+      "expected_valid": false,
+      "sha256": "b3cab85052f9f834c5e0c27f0a2a1729265c60add6c6f972d065fa4a1eabf347"
+    },
+    {
+      "relative_path": "fixtures/invalid/validation-receipt.unknown-reason.invalid.json",
+      "schema": "validation-receipt.schema.json",
+      "expected_valid": false,
+      "sha256": "1bca328e73d45ed962e4cf664ab7c5289cdbd446c31e9a90ea3b2325ca4ca37e"
+    },
+    {
+      "relative_path": "fixtures/invalid/validation-receipt.additional-property.invalid.json",
+      "schema": "validation-receipt.schema.json",
+      "expected_valid": false,
+      "sha256": "f25e85900baa1bd3b739719b3f52edf79a19e4ef42fba402893bc20ef14b5cf6"
+    }
+  ]
+}

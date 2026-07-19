@@ -5,10 +5,15 @@
 # real gate today. It is written to be CORRECT so that restoring Actions billing
 # (and making this a required check) needs no rework.
 #
-# Three jobs:
+# Four jobs:
 #   - scheduler-tests: the scheduler bare-pytest gate (integration suites skip
-#     without SCHEDULER_TEST_POSTGRES_URL).
+#     without SCHEDULER_TEST_POSTGRES_URL). Also covers the PR 6.0 Python half of
+#     the machine-boundary v1 contract (jsonschema + pydantic).
 #   - bff-tests: the bff-water-planning bare-pytest gate.
+#   - scada-gate-control-tests: the TypeScript SCADA gate (typecheck + lint +
+#     vitest). It asserts the SAME machine-boundary v1 manifest fixture vector +
+#     contract-set hash as the scheduler suite, so both passing proves the
+#     Python and TypeScript validators agree (PR 6.0 cross-language boundary).
 #   - scheduler-postgres-integration: an ephemeral loopback Postgres against
 #     which every migration is applied / rolled back / re-applied and the
 #     env-gated control-plan integration suites run for real (keyset over real
@@ -20,14 +25,20 @@ on:
     paths:
       - "services/scheduler/**"
       - "services/bff-water-planning/**"
+      - "services/scada-gate-control/**"
       - "contracts/control-plans/**"
+      - "contracts/machine-boundary/**"
+      - "scripts/check-machine-boundary-contracts.sh"
       - ".github/workflows/control-plane-hardening-tests.yml"
   push:
     branches: [main]
     paths:
       - "services/scheduler/**"
       - "services/bff-water-planning/**"
+      - "services/scada-gate-control/**"
       - "contracts/control-plans/**"
+      - "contracts/machine-boundary/**"
+      - "scripts/check-machine-boundary-contracts.sh"
       - ".github/workflows/control-plane-hardening-tests.yml"
 
 permissions:
@@ -128,6 +139,8 @@ jobs:
           POSTGRES_URL: postgresql://postgres:postgres@127.0.0.1:5432/scheduler_test
         run: |
           python migrations/migrate.py apply-all
+          python migrations/migrate.py rollback 0006_control_plan_campaign_identity
+          python migrations/migrate.py rollback 0005_control_plan_provenance_v2
           python migrations/migrate.py rollback 0004_control_plan_list_indexes
           python migrations/migrate.py rollback 0003_control_plan_review_lifecycle
           python migrations/migrate.py rollback 0002_predicted_delivery_ledger
@@ -156,3 +169,23 @@ jobs:
           JWT_ACCESS_TOKEN_TYPE: access
           JWT_CLAIM_POLICY_MODE: compat
         run: python -m pytest -q tests/integration
+
+  scada-gate-control-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/scada-gate-control
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: services/scada-gate-control/package-lock.json
+      - name: Install pinned dependencies
+        run: npm ci
+      - name: Typecheck, lint, and vitest (incl. machine-boundary v1 cross-language contract)
+        run: |
+          npm run typecheck
+          npm run lint
+          npm test

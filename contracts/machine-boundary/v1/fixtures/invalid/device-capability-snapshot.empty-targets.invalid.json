@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "capability_release_id": "cap-2026-07-19-a",
+  "capability_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "capabilities": {
+    "M(0,0;1,0)": {
+      "device_id": "scada-rtu-07",
+      "adapter_gate_id": "ch3",
+      "targets": []
+    }
+  }
+}
