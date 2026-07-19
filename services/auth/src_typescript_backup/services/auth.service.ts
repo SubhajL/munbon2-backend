@@ -20,6 +20,7 @@ import {
   ForbiddenException 
 } from '../utils/exceptions';
 import { generateRandomString } from '../utils/crypto';
+import { signAuthTokenPair } from './token-signer';
 
 interface TokenPayload {
   sub: string;
@@ -30,6 +31,7 @@ interface TokenPayload {
   exp?: number;
   iss?: string;
   aud?: string;
+  jti?: string;
 }
 
 interface LoginResult {
@@ -452,47 +454,10 @@ class AuthService {
   }> {
     const roles = user.roles.map(role => role.name);
     
-    // Access token payload
-    const accessTokenPayload: TokenPayload = {
-      sub: user.id,
-      email: user.email,
-      roles,
-      type: 'access',
-    };
-
-    // Refresh token payload
-    const refreshTokenPayload: TokenPayload = {
-      sub: user.id,
-      email: user.email,
-      roles,
-      type: 'refresh',
-    };
-
-    // Generate tokens
-    const accessToken = jwt.sign(
-      accessTokenPayload,
-      config.jwt.secret,
-      {
-        expiresIn: config.jwt.accessTokenExpiresIn,
-        issuer: config.jwt.issuer,
-        audience: config.jwt.audience,
-      }
+    return signAuthTokenPair(
+      { sub: user.id, email: user.email, roles },
+      config.jwt
     );
-
-    const refreshToken = jwt.sign(
-      refreshTokenPayload,
-      config.jwt.secret,
-      {
-        expiresIn: config.jwt.refreshTokenExpiresIn,
-        issuer: config.jwt.issuer,
-        audience: config.jwt.audience,
-      }
-    );
-
-    // Calculate expiration time in seconds
-    const expiresIn = 15 * 60; // 15 minutes
-
-    return { accessToken, refreshToken, expiresIn };
   }
 }
 

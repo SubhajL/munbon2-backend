@@ -278,6 +278,9 @@ test-env/
 
 # Tests (if you don't want to share test files)
 tests/
+# Track the auth JWT-issuer security regression test past the blanket tests/ ignore.
+!services/auth/tests/
+!services/auth/tests/token-signer.test.js
 
 # Python virtual environments
 venv/

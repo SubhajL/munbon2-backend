@@ -14,6 +14,7 @@ const login_attempt_entity_1 = require("../models/login-attempt.entity");
 const password_reset_entity_1 = require("../models/password-reset.entity");
 const audit_log_entity_1 = require("../models/audit-log.entity");
 const user_service_1 = require("./user.service");
+const token_signer_1 = require("./token-signer");
 const email_service_1 = require("./email.service");
 const audit_service_1 = require("./audit.service");
 const logger_1 = require("../utils/logger");
@@ -306,30 +307,7 @@ class AuthService {
     }
     async generateTokens(user) {
         const roles = user.roles.map(role => role.name);
-        const accessTokenPayload = {
-            sub: user.id,
-            email: user.email,
-            roles,
-            type: 'access',
-        };
-        const refreshTokenPayload = {
-            sub: user.id,
-            email: user.email,
-            roles,
-            type: 'refresh',
-        };
-        const accessToken = jsonwebtoken_1.default.sign(accessTokenPayload, config_1.config.jwt.secret, {
-            expiresIn: config_1.config.jwt.accessTokenExpiresIn,
-            issuer: config_1.config.jwt.issuer,
-            audience: config_1.config.jwt.audience,
-        });
-        const refreshToken = jsonwebtoken_1.default.sign(refreshTokenPayload, config_1.config.jwt.secret, {
-            expiresIn: config_1.config.jwt.refreshTokenExpiresIn,
-            issuer: config_1.config.jwt.issuer,
-            audience: config_1.config.jwt.audience,
-        });
-        const expiresIn = 15 * 60;
-        return { accessToken, refreshToken, expiresIn };
+        return (0, token_signer_1.signAuthTokenPair)({ sub: user.id, email: user.email, roles }, config_1.config.jwt);
     }
 }
 exports.authService = new AuthService();
