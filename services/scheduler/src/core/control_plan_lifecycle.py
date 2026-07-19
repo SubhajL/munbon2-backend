@@ -31,6 +31,9 @@ _PREDICTION_MEMBERS = frozenset({"lower", "nominal", "upper"})
 STATE_DRAFT = "draft"
 STATE_UNDER_REVIEW = "under_review"
 STATE_APPROVED = "approved_for_shadow"
+# PR 4.3c: an approved plan that has been ACTIVATED — its command intents are in the
+# outbox and it holds machine authority (shadow mode). Non-terminal.
+STATE_ACTIVATED = "shadow_active"
 STATE_CANCELLED = "cancelled"
 STATE_SUPERSEDED = "superseded"
 STATE_INVALIDATED = "invalidated"
@@ -40,6 +43,7 @@ LIFECYCLE_STATES = frozenset(
         STATE_DRAFT,
         STATE_UNDER_REVIEW,
         STATE_APPROVED,
+        STATE_ACTIVATED,
         STATE_CANCELLED,
         STATE_SUPERSEDED,
         STATE_INVALIDATED,
@@ -62,6 +66,10 @@ _EDGES: frozenset = frozenset(
         ("invalidated", STATE_DRAFT, STATE_INVALIDATED),
         ("invalidated", STATE_UNDER_REVIEW, STATE_INVALIDATED),
         ("invalidated", STATE_APPROVED, STATE_INVALIDATED),
+        # PR 4.3c-1: activate an approved plan; emergency-invalidate an active one
+        # (releasing its scope). Supersede-of-active + safe-handover is 4.3c-2.
+        ("shadow_activated", STATE_APPROVED, STATE_ACTIVATED),
+        ("invalidated", STATE_ACTIVATED, STATE_INVALIDATED),
     }
 )
 # to_state reachable from a given current state, keyed by transition_type.
@@ -75,6 +83,8 @@ TRANSITION_TARGET = {
     ("invalidated", STATE_DRAFT): STATE_INVALIDATED,
     ("invalidated", STATE_UNDER_REVIEW): STATE_INVALIDATED,
     ("invalidated", STATE_APPROVED): STATE_INVALIDATED,
+    ("shadow_activated", STATE_APPROVED): STATE_ACTIVATED,
+    ("invalidated", STATE_ACTIVATED): STATE_INVALIDATED,
 }
 
 

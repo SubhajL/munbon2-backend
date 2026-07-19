@@ -111,6 +111,48 @@ class TestNextState:
             next_state("under_review", "superseded")
 
 
+ACTIVATE = ("shadow_activated", "approved_for_shadow", "shadow_active")
+
+
+class TestActivationEdges:
+    def test_activation_chain_derives_to_shadow_active(self):
+        assert (
+            derive_control_plan_state(_history(DRAFT, REVIEW, APPROVE, ACTIVATE))
+            == "shadow_active"
+        )
+
+    def test_shadow_active_is_not_terminal(self):
+        from core.control_plan_lifecycle import STATE_ACTIVATED, TERMINAL_STATES
+
+        assert STATE_ACTIVATED not in TERMINAL_STATES
+
+    def test_activate_is_legal_only_from_approved(self):
+        assert next_state("approved_for_shadow", "shadow_activated") == "shadow_active"
+        for illegal in ("draft", "under_review", "shadow_active"):
+            with pytest.raises(IllegalTransitionError):
+                next_state(illegal, "shadow_activated")
+
+    def test_active_plan_can_be_emergency_invalidated(self):
+        assert next_state("shadow_active", "invalidated") == "invalidated"
+        assert (
+            derive_control_plan_state(
+                _history(
+                    DRAFT,
+                    REVIEW,
+                    APPROVE,
+                    ACTIVATE,
+                    ("invalidated", "shadow_active", "invalidated"),
+                )
+            )
+            == "invalidated"
+        )
+
+    def test_active_plan_cannot_be_cancelled_or_reviewed(self):
+        for illegal_action in ("cancelled", "review_requested", "shadow_activated"):
+            with pytest.raises(IllegalTransitionError):
+                next_state("shadow_active", illegal_action)
+
+
 class TestRequirementSetHash:
     def test_order_independent(self):
         pairs = [("r1", '{"v":1}'), ("r2", '{"v":2}')]

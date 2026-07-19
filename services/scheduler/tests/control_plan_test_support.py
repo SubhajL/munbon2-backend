@@ -27,6 +27,7 @@ from repositories.control_plan_projection_repository import (
 )
 from repositories.control_plan_repository import (
     PlanContentConflictError,
+    ScopeConflictError,
     TransitionConflictError,
     TransitionRecord,
     UnknownCampaignError,
@@ -412,6 +413,11 @@ class FakeRepository:
         # campaign_id -> highest committed plan_version, mirroring the immutable
         # control_plan_campaign_versions table's max(plan_version) per campaign.
         self.campaign_versions = {}
+        # PR 4.3c-1 activation state: the one-per-scope authority mutex, the outbox,
+        # and the taken scope rows — twins of the Postgres tables.
+        self.active_scopes = {}  # (section_id, gate_id) -> (plan_id, plan_version)
+        self.outbox = {}  # (plan_id, plan_version) -> list[OutboxRow]
+        self.scope_rows = {}  # (plan_id, plan_version) -> list[ScopeRow]
 
     async def allocate_campaign_version(self, session, campaign_id):
         # Interface-pinned twin of the Postgres advisory-lock allocator: absent ->
@@ -477,6 +483,56 @@ class FakeRepository:
         )
         self.by_key[(plan_id, plan_version)] = updated
         self.by_input_hash[record.input_content_hash] = updated
+
+    def _advance(self, plan_id, plan_version, transition):
+        record = self.by_key.get((plan_id, plan_version))
+        if record is None:
+            raise KeyError((plan_id, plan_version))
+        if any(
+            t.transition_sequence == transition.transition_sequence
+            for t in record.transitions
+        ):
+            raise TransitionConflictError(
+                "a concurrent lifecycle action already advanced this plan"
+            )
+        updated = replace(record, transitions=record.transitions + (transition,))
+        self.by_key[(plan_id, plan_version)] = updated
+        self.by_input_hash[record.input_content_hash] = updated
+
+    async def insert_activation(
+        self, session, *, plan_id, plan_version, transition, outbox_rows, scope_rows
+    ):
+        # One-per-scope mutex twin: a scope already held by another plan conflicts.
+        for scope in sorted(scope_rows, key=lambda s: (s.section_id, s.gate_id)):
+            if (scope.section_id, scope.gate_id) in self.active_scopes:
+                raise ScopeConflictError(
+                    "another active plan already controls one of these gates"
+                )
+        self._advance(plan_id, plan_version, transition)
+        for scope in scope_rows:
+            self.active_scopes[(scope.section_id, scope.gate_id)] = (
+                plan_id,
+                plan_version,
+            )
+        self.scope_rows[(plan_id, plan_version)] = list(scope_rows)
+        self.outbox[(plan_id, plan_version)] = list(outbox_rows)
+
+    async def append_transition_and_release_scope(
+        self, session, *, plan_id, plan_version, transition
+    ):
+        self._advance(plan_id, plan_version, transition)
+        self.active_scopes = {
+            key: holder
+            for key, holder in self.active_scopes.items()
+            if holder != (plan_id, plan_version)
+        }
+        self.scope_rows.pop((plan_id, plan_version), None)
+
+    async def load_command_outbox(self, session, plan_id, plan_version):
+        return list(self.outbox.get((plan_id, plan_version), []))
+
+    async def load_active_scopes(self, session, plan_id, plan_version):
+        return list(self.scope_rows.get((plan_id, plan_version), []))
 
 
 # --- Bounded list-projection fixtures + fake (PR 4.4a-3) --------------------

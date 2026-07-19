@@ -12,6 +12,8 @@ CONTROL_TABLES = {
     "scheduler.control_state_transitions",
     "scheduler.section_delivery_ledger",
     "scheduler.control_plan_campaign_versions",
+    "scheduler.control_command_outbox",
+    "scheduler.control_active_gate_authority",
 }
 
 LEGACY_TABLES = {

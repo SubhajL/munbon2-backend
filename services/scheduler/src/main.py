@@ -16,6 +16,11 @@ from models import *  # noqa: F401,F403
 from algorithms.hydraulic_schedule_optimizer import (
     optimize_limited_adjustment_plan,
 )
+from core.device_capabilities import (
+    DeviceCapabilityConfigError,
+    empty_device_capability_snapshot,
+    load_device_capability_snapshot,
+)
 
 # Setup logging
 setup_logging()
@@ -62,6 +67,25 @@ app.state.optimize_limited_adjustment_plan = partial(
     max_intermediate_trims=settings.control_max_intermediate_trims,
     solver_timeout_seconds=settings.optimization_timeout_seconds,
 )
+# PR 4.3c-1: load the device-capability snapshot ONCE at startup. A broken/tampered
+# config must NOT take down the whole service (health, draft, list) — it only
+# disables ACTIVATION, so log loudly and fall back to the empty dark default (zero
+# machine-capable gates ⇒ activation fails closed). An unset path is the same
+# default without an error.
+try:
+    app.state.device_capability_snapshot = load_device_capability_snapshot(
+        {
+            "SCHEDULER_DEVICE_CAPABILITY_SNAPSHOT_PATH": (
+                settings.scheduler_device_capability_snapshot_path or ""
+            )
+        }
+    )
+except DeviceCapabilityConfigError as error:
+    logger.error(
+        "device-capability snapshot failed to load; activation disabled",
+        error=str(error),
+    )
+    app.state.device_capability_snapshot = empty_device_capability_snapshot()
 
 # Add middleware
 app.add_middleware(

@@ -104,8 +104,19 @@ class TestMigrationPairShape:
         assert "jsonb" not in _code_lines(ALL_DOWN).lower()
 
     def test_immutability_triggers_cover_all_control_tables(self):
+        # control_active_gate_authority is a MUTABLE materialized current-authority
+        # index (PR 4.3c-1): rows are INSERTed on activation and DELETEd on exit, so
+        # it deliberately carries NO immutability trigger. Every OTHER control table
+        # is append-only and must.
+        mutable_current_state = {"control_active_gate_authority"}
         for qualified in ControlBase.metadata.tables:
             table_name = qualified.split(".", 1)[1]
+            if table_name in mutable_current_state:
+                assert not re.search(
+                    rf"BEFORE UPDATE OR DELETE ON scheduler\.{table_name}\b",
+                    ALL_UP,
+                ), f"{table_name} is the mutable mutex and must NOT be immutable"
+                continue
             assert re.search(
                 rf"BEFORE UPDATE OR DELETE ON scheduler\.{table_name}\b",
                 ALL_UP,

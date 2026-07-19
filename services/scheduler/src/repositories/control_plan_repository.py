@@ -15,7 +15,7 @@ from datetime import date, datetime
 from typing import Optional
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, select, text
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,6 +32,8 @@ from core.predicted_delivery_ledger import (
     verify_ledger_entry_columns,
 )
 from models.control_plan import (
+    ControlActiveGateAuthority,
+    ControlCommandOutboxRow,
     ControlPlanCampaignVersion,
     ControlPlanRequirement,
     ControlPlanRun,
@@ -115,6 +117,59 @@ class TransitionRecord:
     reason: Optional[str]
     transition_document_text: Optional[str]
     occurred_at: Optional[datetime] = None
+
+
+@dataclass(frozen=True)
+class OutboxRow:
+    """One append-only command-intent outbox row (PR 4.3c-1)."""
+
+    intent_id: UUID
+    correlation_id: UUID
+    request_id: str
+    idempotency_key: str
+    canonical_gate_id: str
+    event_kind: str
+    event_sequence: int
+    gate_event_sequence: int
+    device_id: str
+    adapter_gate_id: str
+    capability_release_id: str
+    capability_hash: str
+    target_position_m: float
+    target_level: int
+    not_before: datetime
+    deadline: datetime
+    mode: str
+    intent_document_text: str
+    intent_content_hash: str
+    activation_transition_sequence: int
+
+
+@dataclass(frozen=True)
+class ScopeRow:
+    """One (section, gate) authority-mutex row taken by an activation (PR 4.3c-1)."""
+
+    section_id: str
+    gate_id: str
+    activation_transition_sequence: int
+
+
+class ScopeConflictError(Exception):
+    """Another active plan already holds one of the requested (section, gate) scopes."""
+
+
+def _violated_constraint(error: IntegrityError):
+    """The Postgres constraint name behind an IntegrityError.
+
+    SQLAlchemy's asyncpg adapter does NOT copy ``constraint_name`` onto the wrapper
+    (``error.orig``); the attribute lives on the underlying asyncpg exception, which
+    is the wrapper's ``__cause__``. Checking both keeps the classification robust.
+    """
+    for candidate in (error.orig, getattr(error.orig, "__cause__", None)):
+        name = getattr(candidate, "constraint_name", None)
+        if name:
+            return name
+    return None
 
 
 @dataclass(frozen=True)
@@ -749,6 +804,116 @@ class PostgresControlPlanRepository:
         except BaseException:
             await session.rollback()
             raise
+
+    async def insert_activation(
+        self,
+        session: AsyncSession,
+        *,
+        plan_id: UUID,
+        plan_version: int,
+        transition: "TransitionRecord",
+        outbox_rows: "list[OutboxRow]",
+        scope_rows: "list[ScopeRow]",
+    ) -> None:
+        """Atomically append the shadow_activated transition, insert the
+        command-intent outbox rows, and take the one-per-scope authority mutex — all
+        in ONE txn. The transition (plan, version, sequence) PK is the lifecycle
+        concurrency backstop (409); the mutex (section, gate) PK is the one-per-scope
+        lock — a conflict there means another active plan already owns the scope
+        (409). Scope rows insert in deterministic (section, gate) order so concurrent
+        activations over intersecting scopes cannot deadlock."""
+        try:
+            await session.execute(
+                pg_insert(ControlStateTransition).values(
+                    plan_id=plan_id, plan_version=plan_version, **transition.__dict__
+                )
+            )
+            for row in outbox_rows:
+                await session.execute(
+                    pg_insert(ControlCommandOutboxRow).values(
+                        plan_id=plan_id, plan_version=plan_version, **row.__dict__
+                    )
+                )
+            for scope in sorted(scope_rows, key=lambda s: (s.section_id, s.gate_id)):
+                await session.execute(
+                    pg_insert(ControlActiveGateAuthority).values(
+                        plan_id=plan_id, plan_version=plan_version, **scope.__dict__
+                    )
+                )
+            await session.commit()
+        except IntegrityError as error:
+            await session.rollback()
+            if _violated_constraint(error) == "control_active_gate_authority_pkey":
+                raise ScopeConflictError(
+                    "another active plan already controls one of these gates"
+                ) from error
+            if getattr(error.orig, "sqlstate", None) == "23505":
+                raise TransitionConflictError(
+                    "a concurrent lifecycle action already advanced this plan"
+                ) from error
+            raise
+        except BaseException:
+            await session.rollback()
+            raise
+
+    async def append_transition_and_release_scope(
+        self,
+        session: AsyncSession,
+        *,
+        plan_id: UUID,
+        plan_version: int,
+        transition: "TransitionRecord",
+    ) -> None:
+        """Atomically append a terminal transition FROM shadow_active (emergency
+        invalidate) AND release this plan's authority-mutex rows, so leaving
+        shadow_active never orphans the scope."""
+        try:
+            await session.execute(
+                pg_insert(ControlStateTransition).values(
+                    plan_id=plan_id, plan_version=plan_version, **transition.__dict__
+                )
+            )
+            await session.execute(
+                delete(ControlActiveGateAuthority).where(
+                    ControlActiveGateAuthority.plan_id == plan_id,
+                    ControlActiveGateAuthority.plan_version == plan_version,
+                )
+            )
+            await session.commit()
+        except IntegrityError as error:
+            await session.rollback()
+            if getattr(error.orig, "sqlstate", None) == "23505":
+                raise TransitionConflictError(
+                    "a concurrent lifecycle action already advanced this plan"
+                ) from error
+            raise
+        except BaseException:
+            await session.rollback()
+            raise
+
+    async def load_command_outbox(
+        self, session: AsyncSession, plan_id: UUID, plan_version: int
+    ) -> list:
+        rows = await session.scalars(
+            select(ControlCommandOutboxRow)
+            .where(
+                ControlCommandOutboxRow.plan_id == plan_id,
+                ControlCommandOutboxRow.plan_version == plan_version,
+            )
+            .order_by(ControlCommandOutboxRow.event_sequence)
+        )
+        return list(rows)
+
+    async def load_active_scopes(
+        self, session: AsyncSession, plan_id: UUID, plan_version: int
+    ) -> list:
+        rows = await session.scalars(
+            select(ControlActiveGateAuthority).where(
+                ControlActiveGateAuthority.plan_id == plan_id,
+                ControlActiveGateAuthority.plan_version == plan_version,
+            )
+        )
+        return list(rows)
 
     async def _assemble(
         self, session: AsyncSession, run: ControlPlanRun
