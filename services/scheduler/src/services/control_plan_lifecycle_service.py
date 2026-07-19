@@ -42,6 +42,7 @@ from core.control_plan_lifecycle import (
 )
 from core.device_capabilities import empty_device_capability_snapshot
 from core.predicted_delivery_ledger import predicted_delivery_ledger_sha256
+from repositories.control_plan_projection_repository import gate_handover_verdicts
 from repositories.control_plan_repository import (
     DraftPlanRecord,
     OutboxRow,
@@ -60,6 +61,11 @@ class SupersedeScopeError(Exception):
 
 class ActivationNotAllowedError(Exception):
     """The plan cannot be activated (untrusted approval, no intents, or no freeze)."""
+
+
+class HandoverUnsafeError(Exception):
+    """An active plan cannot be gracefully superseded — a gate is not modeled-safe
+    to hand over (short, undrained, or without a terminal close)."""
 
 
 class ControlPlanLifecycleService:
@@ -123,9 +129,19 @@ class ControlPlanLifecycleService:
             transition_document_text=document_text,
             occurred_at=occurred_at,
         )
-        await self._repository.append_state_transition(
-            session, record.plan_id, record.plan_version, transition
-        )
+        if current == STATE_ACTIVATED:
+            # Leaving shadow_active by ANY edge (invalidate, supersede, or a future
+            # terminal edge) releases the one-per-scope authority mutex atomically
+            # with the transition — centralized here so no exit path can forget it
+            # and orphan the scope.
+            await self._repository.append_transition_and_release_scope(
+                session, plan_id=record.plan_id, plan_version=record.plan_version,
+                transition=transition,
+            )
+        else:
+            await self._repository.append_state_transition(
+                session, record.plan_id, record.plan_version, transition
+            )
         return await self._load(
             session, record.plan_id, record.plan_version
         )
@@ -271,29 +287,9 @@ class ControlPlanLifecycleService:
     async def invalidate_control_plan(
         self, session, plan_id, plan_version, actor_subject, reason
     ) -> DraftPlanRecord:
+        # Emergency-invalidate: legal from any pre-terminal state. If the plan is
+        # shadow_active, `_append` releases its authority mutex atomically.
         record = await self._load(session, plan_id, plan_version)
-        current = derive_control_plan_state(record.transitions)
-        if current == STATE_ACTIVATED:
-            # Emergency-invalidate an ACTIVE plan: append the transition AND release
-            # its authority mutex atomically, so leaving shadow_active never orphans
-            # the scope (which would brick it against future activations).
-            transition = TransitionRecord(
-                transition_sequence=len(record.transitions) + 1,
-                transition_type="invalidated",
-                from_state=current,
-                to_state=next_state(current, "invalidated"),
-                actor_subject=actor_subject,
-                reason=reason,
-                transition_document_text=None,
-                occurred_at=self._clock(),
-            )
-            await self._repository.append_transition_and_release_scope(
-                session,
-                plan_id=record.plan_id,
-                plan_version=record.plan_version,
-                transition=transition,
-            )
-            return await self._load(session, record.plan_id, record.plan_version)
         return await self._append(
             session, record, "invalidated", actor_subject, reason, None
         )
@@ -396,6 +392,12 @@ class ControlPlanLifecycleService:
                 ),
             }
         )
+        # PR 4.3c-2: retiring an ACTIVE incumbent (not just an approved one) requires
+        # a modeled-safe handover of EVERY gate BEFORE the edge is appended. `_append`
+        # then releases the incumbent's authority mutex atomically (an approved,
+        # never-activated target holds no mutex and simply appends).
+        if derive_control_plan_state(record.transitions) == STATE_ACTIVATED:
+            _require_safe_handover(record)
         return await self._append(
             session, record, "superseded", actor_subject, reason, document
         )
@@ -407,6 +409,28 @@ def _physical_scope(record: DraftPlanRecord) -> set:
         for r in record.requirements
         if r.planning_disposition == "scheduled"
     }
+
+
+def _require_safe_handover(record: DraftPlanRecord) -> None:
+    """Fail closed unless EVERY gate of an active plan is modeled-safe to hand over
+    (reuses the shared `gate_handover_verdicts` builder, never a fork). A gate that
+    is short, undrained, or lacks a terminal close blocks the graceful supersede —
+    a legitimately rolling plan that holds a gate open across the horizon is
+    intentionally NOT hand-over-able and must be retired by emergency invalidate."""
+    unsafe = sorted(
+        gate_id
+        for gate_id, _requirement_ids, verdict in gate_handover_verdicts(
+            record.prediction_status,
+            record.ledger_entries,
+            record.events,
+            record.requirements,
+        )
+        if not verdict.is_safe
+    )
+    if unsafe:
+        raise HandoverUnsafeError(
+            f"the active plan cannot be safely handed over on gates {unsafe}"
+        )
 
 
 def _build_outbox_rows(record, intents, activation_sequence: int) -> list:

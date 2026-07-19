@@ -67,9 +67,12 @@ _EDGES: frozenset = frozenset(
         ("invalidated", STATE_UNDER_REVIEW, STATE_INVALIDATED),
         ("invalidated", STATE_APPROVED, STATE_INVALIDATED),
         # PR 4.3c-1: activate an approved plan; emergency-invalidate an active one
-        # (releasing its scope). Supersede-of-active + safe-handover is 4.3c-2.
+        # (releasing its scope).
         ("shadow_activated", STATE_APPROVED, STATE_ACTIVATED),
         ("invalidated", STATE_ACTIVATED, STATE_INVALIDATED),
+        # PR 4.3c-2: gracefully supersede an ACTIVE plan (gated by safe-handover,
+        # releasing its scope) in favour of an approved successor.
+        ("superseded", STATE_ACTIVATED, STATE_SUPERSEDED),
     }
 )
 # to_state reachable from a given current state, keyed by transition_type.
@@ -85,6 +88,7 @@ TRANSITION_TARGET = {
     ("invalidated", STATE_APPROVED): STATE_INVALIDATED,
     ("shadow_activated", STATE_APPROVED): STATE_ACTIVATED,
     ("invalidated", STATE_ACTIVATED): STATE_INVALIDATED,
+    ("superseded", STATE_ACTIVATED): STATE_SUPERSEDED,
 }
 
 

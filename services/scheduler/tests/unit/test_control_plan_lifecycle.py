@@ -147,6 +147,21 @@ class TestActivationEdges:
             == "invalidated"
         )
 
+    def test_active_plan_can_be_gracefully_superseded(self):
+        assert next_state("shadow_active", "superseded") == "superseded"
+        assert (
+            derive_control_plan_state(
+                _history(
+                    DRAFT,
+                    REVIEW,
+                    APPROVE,
+                    ACTIVATE,
+                    ("superseded", "shadow_active", "superseded"),
+                )
+            )
+            == "superseded"
+        )
+
     def test_active_plan_cannot_be_cancelled_or_reviewed(self):
         for illegal_action in ("cancelled", "review_requested", "shadow_activated"):
             with pytest.raises(IllegalTransitionError):

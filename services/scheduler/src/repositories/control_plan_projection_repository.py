@@ -661,7 +661,10 @@ def _bounds(values: list) -> MemberBoundsOut:
     return MemberBoundsOut(lower_bound=lower, nominal=nominal, upper_bound=upper)
 
 
-def _handover_verdicts(prediction_status, ledger_entries, events, requirements):
+def gate_handover_verdicts(prediction_status, ledger_entries, events, requirements):
+    """Per-gate safe-handover verdicts for a plan (PR 5.1 ledger route + PR 4.3c-2
+    graceful supersede). Public + shared so supersede-of-active reuses the exact
+    construction rather than forking it. Yields (gate_id, [requirement_ids], verdict)."""
     gate_events = [
         GateEvent(
             gate_id=event.gate_id,
@@ -808,7 +811,7 @@ def build_ledger_projection(
             is_safe=verdict.is_safe,
             reasons=list(verdict.reasons),
         )
-        for gate_id, requirement_ids, verdict in _handover_verdicts(
+        for gate_id, requirement_ids, verdict in gate_handover_verdicts(
             header.prediction_status, ledger_entries, events, requirements
         )
     ]

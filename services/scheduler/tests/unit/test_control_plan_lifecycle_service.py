@@ -277,6 +277,65 @@ class TestSupersede:
         ) == "approved_for_shadow"
 
     @pytest.mark.asyncio
+    async def test_supersede_of_active_plan_with_safe_handover_releases_scope(self):
+        repo = FakeRepository()
+        a, b, svc = await self._two_approved(repo)
+        a = await repo.load_draft_plan(None, a.plan_id, 1)
+        act_svc = _activation_service(repo, _snapshot_for(a))
+        await act_svc.activate_control_plan(
+            None, a.plan_id, 1, "op", authorization_evidence=_strict_evidence()
+        )
+        assert repo.active_scopes  # incumbent holds the mutex
+        superseded = await svc.supersede_control_plan(
+            None, a.plan_id, 1, b.plan_id, b.plan_version, "op", "roll"
+        )
+        assert current_lifecycle_state(superseded) == "superseded"
+        assert not repo.active_scopes  # the graceful handover released the scope
+        # The core value proposition: the successor can now be activated on the
+        # freed scope with no lingering ScopeConflictError.
+        b = await repo.load_draft_plan(None, b.plan_id, b.plan_version)
+        activated_b = await _activation_service(
+            repo, _snapshot_for(b)
+        ).activate_control_plan(
+            None, b.plan_id, b.plan_version, "op",
+            authorization_evidence=_strict_evidence(),
+        )
+        assert current_lifecycle_state(activated_b) == "shadow_active"
+        assert repo.active_scopes
+
+    @pytest.mark.asyncio
+    async def test_supersede_of_active_with_unsafe_handover_is_refused_keeps_scope(
+        self, monkeypatch
+    ):
+        # Drive an UNSAFE handover through the REAL supersede service path: it must be
+        # refused (HandoverUnsafeError) and leave the incumbent ACTIVE, still holding
+        # its authority mutex — never a silent handoff.
+        from core.predicted_delivery_ledger import HandoverVerdict
+        from services.control_plan_lifecycle_service import HandoverUnsafeError
+
+        repo = FakeRepository()
+        a, b, svc = await self._two_approved(repo)
+        a = await repo.load_draft_plan(None, a.plan_id, 1)
+        await _activation_service(repo, _snapshot_for(a)).activate_control_plan(
+            None, a.plan_id, 1, "op", authorization_evidence=_strict_evidence()
+        )
+        monkeypatch.setattr(
+            "services.control_plan_lifecycle_service.gate_handover_verdicts",
+            lambda *args, **kwargs: iter(
+                [("G1", ["r"], HandoverVerdict(False, ("no_terminal_close_event",)))]
+            ),
+        )
+        with pytest.raises(HandoverUnsafeError):
+            await svc.supersede_control_plan(
+                None, a.plan_id, 1, b.plan_id, b.plan_version, "op", "roll"
+            )
+        assert (
+            current_lifecycle_state(await repo.load_draft_plan(None, a.plan_id, 1))
+            == "shadow_active"
+        )
+        assert repo.active_scopes  # authority NOT handed off
+
+    @pytest.mark.asyncio
     async def test_supersede_must_roll_forward_within_campaign(self):
         # a is v1, b is v2 of the SAME campaign — both approved, trusted, same
         # physical scope. Retiring the NEWER v2 with the OLDER v1 is rejected: a
@@ -567,3 +626,77 @@ def test_build_scope_rows_rejects_a_requirement_missing_its_gate():
     )
     with pytest.raises(ActivationNotAllowedError):
         _build_scope_rows(record, 2)
+
+
+def test_require_safe_handover_isolates_the_missing_terminal_close():
+    # The rolling-campaign case the review flagged: a plan that holds a gate OPEN
+    # across the horizon (no terminal close) is NOT modeled-safe to hand over. This
+    # ISOLATES that reason — the ledger row is SATISFIED + drained in both cases, so
+    # the SOLE difference is the terminal close: with it the plan is hand-over-able,
+    # without it the supersede is refused. (An empty ledger would mask the close
+    # guard behind a 'no_ledger_rows' reason — false assurance.)
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    from core.predicted_delivery_ledger import LedgerEntry
+    from services.control_plan_lifecycle_service import (
+        HandoverUnsafeError,
+        _require_safe_handover,
+    )
+
+    when = datetime(2026, 7, 20, 6, 0, tzinfo=timezone.utc)
+    req_id = "11111111-1111-1111-1111-111111111111"
+    requirement = SimpleNamespace(
+        planning_disposition="scheduled",
+        gate_id="G1",
+        section_id="SEC-1",
+        requirement_id=req_id,
+        required_volume_m3=100.0,
+        approved_excess_m3=10.0,
+        path_reach_ids_document_text='["r1"]',
+        window_start=when,
+        window_end=when,
+    )
+    satisfied_terminal = LedgerEntry(
+        requirement_id=req_id,
+        section_id="SEC-1",
+        checkpoint_index=0,
+        checkpoint_at=when,
+        status="predicted_fulfilled",
+        required_volume_m3=100.0,
+        approved_excess_m3=10.0,
+        lower_delivered_m3=100.0,
+        nominal_delivered_m3=100.0,
+        upper_delivered_m3=100.0,
+        lower_path_in_transit_m3=0.0,
+        nominal_path_in_transit_m3=0.0,
+        upper_path_in_transit_m3=0.0,
+        checkpoint_reasons=("horizon_end",),
+        prediction_run_id="p",
+        prediction_response_sha256="s",
+        projection_sha256="j",
+        projection_document_text="{}",
+    )
+
+    def _record(events):
+        return SimpleNamespace(
+            prediction_status="completed",
+            ledger_entries=[satisfied_terminal],
+            events=events,
+            requirements=[requirement],
+        )
+
+    open_event = SimpleNamespace(
+        gate_id="G1", event_kind="open", planned_at=when, target_position_m=0.5
+    )
+    close_event = SimpleNamespace(
+        gate_id="G1",
+        event_kind="close",
+        planned_at=when + timedelta(hours=1),
+        target_position_m=0.0,
+    )
+    # With a terminal close, the satisfied + drained plan IS hand-over-able.
+    _require_safe_handover(_record([open_event, close_event]))
+    # Holding the gate OPEN across the horizon is the SOLE reason it becomes unsafe.
+    with pytest.raises(HandoverUnsafeError):
+        _require_safe_handover(_record([open_event]))

@@ -221,3 +221,48 @@ async def test_insert_activation_through_the_real_repository_maps_a_scope_confli
             await conn.execute("DROP SCHEMA IF EXISTS scheduler CASCADE")
         finally:
             await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_migration_0008_admits_the_active_supersede_edge():
+    """0008 widens the edge graph so a shadow_active plan can be gracefully
+    superseded; an undeclared edge is still rejected, and a down refuses once such a
+    row exists."""
+    conn = await _connect()
+    try:
+        await conn.execute("DROP SCHEMA IF EXISTS scheduler CASCADE")
+        outcomes = dict(await migrate.apply_all_migrations(conn))
+        assert outcomes["0008_control_plan_active_supersede"] == "applied"
+
+        plan_id, version = uuid4(), 1
+        await _insert_run(conn, plan_id, version)
+        await _insert_activation_transition(
+            conn, plan_id, version, sequence=2, from_state="approved_for_shadow"
+        )
+        # B1(0008): the (superseded, shadow_active, superseded) edge is admitted.
+        await conn.execute(
+            "INSERT INTO scheduler.control_state_transitions (plan_id, plan_version,"
+            " transition_sequence, transition_type, from_state, to_state, "
+            "actor_subject) VALUES ($1, $2, 3, 'superseded', 'shadow_active', "
+            "'superseded', 'op')",
+            plan_id, version,
+        )
+        # ... but an undeclared edge (superseded straight from draft) is rejected.
+        with pytest.raises(asyncpg.exceptions.CheckViolationError):
+            await conn.execute(
+                "INSERT INTO scheduler.control_state_transitions (plan_id, "
+                "plan_version, transition_sequence, transition_type, from_state, "
+                "to_state, actor_subject) VALUES ($1, $2, 4, 'superseded', 'draft', "
+                "'superseded', 'op')",
+                plan_id, version,
+            )
+        # A down REFUSES while a graceful-supersede row exists (forward-fix).
+        with pytest.raises(asyncpg.exceptions.CheckViolationError):
+            await migrate.rollback_migration(
+                conn, "0008_control_plan_active_supersede"
+            )
+    finally:
+        try:
+            await conn.execute("DROP SCHEMA IF EXISTS scheduler CASCADE")
+        finally:
+            await conn.close()
