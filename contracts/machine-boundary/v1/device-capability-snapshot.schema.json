@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://munbon.internal/contracts/machine-boundary/v1/device-capability-snapshot.schema.json",
+  "title": "MachineBoundaryDeviceCapabilitySnapshotV1",
+  "description": "Content-hashed snapshot of machine-capable gates. 6.1a produces it from the registry. `capabilities` is a MAP keyed by canonical_gate_id so one gate structurally maps to at most one device. An empty map is the valid dark default (zero machine-capable gates). It carries NO hostname, port, unit id, register address, credential, or transport endpoint as a KEY; value-level endpoint/secret hygiene is 6.1a's registry-projection responsibility (a shape schema cannot prove secret absence).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "capability_release_id", "capability_hash", "capabilities"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "capability_release_id": { "$ref": "#/$defs/id_token" },
+    "capability_hash": { "$ref": "#/$defs/sha256" },
+    "capabilities": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/id_token" },
+      "additionalProperties": { "$ref": "#/$defs/capability" }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "minLength": 64, "maxLength": 64, "pattern": "^[0-9a-f]{64}$" },
+    "id_token": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[!-~]+$" },
+    "position_m": { "type": "number", "minimum": 0, "maximum": 1000 },
+    "target_level": { "type": "integer", "minimum": 0, "maximum": 65535 },
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["device_id", "adapter_gate_id", "targets"],
+      "properties": {
+        "device_id": { "$ref": "#/$defs/id_token" },
+        "adapter_gate_id": { "$ref": "#/$defs/id_token" },
+        "targets": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/target" }
+        }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target_position_m", "target_level"],
+      "properties": {
+        "target_position_m": { "$ref": "#/$defs/position_m" },
+        "target_level": { "$ref": "#/$defs/target_level" }
+      }
+    }
+  }
+}
