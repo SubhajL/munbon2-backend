@@ -56,6 +56,11 @@ class Settings(BaseSettings):
     weather_service_url: str
     auth_service_url: str
 
+    # PR 4.3c-1: path to the 6.1a device-capability snapshot the scheduler pins
+    # when activating a plan. Unset -> the empty dark default (zero machine-capable
+    # gates), so activation fails closed until a real snapshot is configured.
+    scheduler_device_capability_snapshot_path: Optional[str] = None
+
     # JWT Configuration
     jwt_secret_key: str
     jwt_algorithm: str = "HS256"

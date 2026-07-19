@@ -1,5 +1,6 @@
 """Lifecycle orchestration: transitions, approval freeze, supersede, races."""
 
+import json
 from functools import partial
 
 import pytest
@@ -11,9 +12,13 @@ from core.control_plan_lifecycle import (
     ApprovalCoverageError,
     IllegalTransitionError,
 )
-from repositories.control_plan_repository import TransitionConflictError
+from repositories.control_plan_repository import (
+    ScopeConflictError,
+    TransitionConflictError,
+)
 from schemas.control_plan import DraftControlPlanRequest
 from services.control_plan_lifecycle_service import (
+    ActivationNotAllowedError,
     ControlPlanLifecycleService,
     PlanNotFoundError,
     SupersedeScopeError,
@@ -401,3 +406,164 @@ class TestConcurrency:
             await repo.append_state_transition(
                 None, draft.plan_id, 1, transition
             )
+
+
+def _snapshot_for(record):
+    """Build a device-capability snapshot pinned to a plan's gate events, so every
+    event position is an exact quantizer member (the activation happy-path fixture)."""
+    from core.canonical_json import canonicalize, sha256_hex
+    from schemas.machine_boundary import DeviceCapabilitySnapshot
+
+    gate_positions = {}
+    for event in record.events:
+        positions = gate_positions.setdefault(event.gate_id, [])
+        if event.target_position_m not in positions:
+            positions.append(event.target_position_m)
+    capabilities = {}
+    for index, (gate_id, positions) in enumerate(gate_positions.items()):
+        capabilities[gate_id] = {
+            "device_id": f"rtu-{index}",
+            "adapter_gate_id": f"ch-{index}",
+            "targets": [
+                {"target_position_m": position, "target_level": level}
+                for level, position in enumerate(positions)
+            ],
+        }
+    snapshot = {
+        "schema_version": 1,
+        "capability_release_id": "cap-test",
+        "capabilities": capabilities,
+    }
+    snapshot["capability_hash"] = sha256_hex(
+        "munbon:device-capability-snapshot:v1\n" + canonicalize(snapshot)
+    )
+    return DeviceCapabilitySnapshot(**snapshot)
+
+
+async def _approved(repo, evidence=None, run_id=None):
+    draft = await _make_draft(repo, run_id=run_id)
+    svc = _lifecycle(repo)
+    await svc.review_control_plan(None, draft.plan_id, draft.plan_version, "reviewer")
+    await svc.approve_shadow_plan(
+        None,
+        draft.plan_id,
+        draft.plan_version,
+        "approver",
+        authorization_evidence=evidence or _strict_evidence(),
+    )
+    return await repo.load_draft_plan(None, draft.plan_id, draft.plan_version)
+
+
+def _activation_service(repo, snapshot):
+    return ControlPlanLifecycleService(
+        repository=repo, device_capability_snapshot=snapshot
+    )
+
+
+class TestActivation:
+    @pytest.mark.asyncio
+    async def test_activate_writes_intents_takes_mutex_and_grants_authority(self):
+        repo = FakeRepository()
+        record = await _approved(repo)
+        svc = _activation_service(repo, _snapshot_for(record))
+        activated = await svc.activate_control_plan(
+            None,
+            record.plan_id,
+            record.plan_version,
+            "operator",
+            authorization_evidence=_strict_evidence(),
+        )
+        assert current_lifecycle_state(activated) == "shadow_active"
+        outbox = await repo.load_command_outbox(None, record.plan_id, record.plan_version)
+        assert len(outbox) == len(record.events)
+        assert all(row.mode == "shadow" for row in outbox)
+        scopes = await repo.load_active_scopes(None, record.plan_id, record.plan_version)
+        assert scopes
+        activation = next(
+            t for t in activated.transitions if t.transition_type == "shadow_activated"
+        )
+        document = json.loads(activation.transition_document_text)
+        assert document["activation_freeze"]["machine_authority_granted"] is True
+
+    @pytest.mark.asyncio
+    async def test_activate_requires_approved_state(self):
+        repo = FakeRepository()
+        draft = await _make_draft(repo)
+        svc = _activation_service(repo, _snapshot_for(draft))
+        with pytest.raises(IllegalTransitionError):
+            await svc.activate_control_plan(
+                None, draft.plan_id, draft.plan_version, "operator"
+            )
+
+    @pytest.mark.asyncio
+    async def test_activate_rejects_an_untrusted_compat_approval(self):
+        repo = FakeRepository()
+        compat_evidence = {**_strict_evidence(), "claim_policy_mode": "compat"}
+        record = await _approved(repo, evidence=compat_evidence)
+        svc = _activation_service(repo, _snapshot_for(record))
+        with pytest.raises(ActivationNotAllowedError):
+            await svc.activate_control_plan(
+                None, record.plan_id, record.plan_version, "operator"
+            )
+
+    @pytest.mark.asyncio
+    async def test_activate_fails_closed_on_an_empty_snapshot(self):
+        from core.device_capabilities import CapabilityMembershipError
+
+        repo = FakeRepository()
+        record = await _approved(repo)
+        svc = ControlPlanLifecycleService(repository=repo)  # empty dark default
+        with pytest.raises(CapabilityMembershipError):
+            await svc.activate_control_plan(
+                None, record.plan_id, record.plan_version, "operator"
+            )
+
+    @pytest.mark.asyncio
+    async def test_second_activation_on_the_same_scope_conflicts(self):
+        from uuid import uuid4
+
+        repo = FakeRepository()
+        record_a = await _approved(repo, run_id=uuid4())
+        snapshot = _snapshot_for(record_a)
+        await _activation_service(repo, snapshot).activate_control_plan(
+            None, record_a.plan_id, record_a.plan_version, "op",
+            authorization_evidence=_strict_evidence(),
+        )
+        record_b = await _approved(repo, run_id=uuid4())
+        with pytest.raises(ScopeConflictError):
+            await _activation_service(repo, snapshot).activate_control_plan(
+                None, record_b.plan_id, record_b.plan_version, "op",
+                authorization_evidence=_strict_evidence(),
+            )
+
+    @pytest.mark.asyncio
+    async def test_invalidating_an_active_plan_releases_the_scope(self):
+        repo = FakeRepository()
+        record = await _approved(repo)
+        svc = _activation_service(repo, _snapshot_for(record))
+        await svc.activate_control_plan(
+            None, record.plan_id, record.plan_version, "op",
+            authorization_evidence=_strict_evidence(),
+        )
+        assert repo.active_scopes
+        invalidated = await svc.invalidate_control_plan(
+            None, record.plan_id, record.plan_version, "op", "emergency stop"
+        )
+        assert current_lifecycle_state(invalidated) == "invalidated"
+        assert not repo.active_scopes
+
+
+def test_build_scope_rows_rejects_a_requirement_missing_its_gate():
+    from types import SimpleNamespace
+
+    from services.control_plan_lifecycle_service import _build_scope_rows
+
+    record = SimpleNamespace(
+        requirements=[
+            SimpleNamespace(
+                section_id="sec-1", gate_id=None, planning_disposition="scheduled"
+            )
+        ]
+    )
+    with pytest.raises(ActivationNotAllowedError):
+        _build_scope_rows(record, 2)

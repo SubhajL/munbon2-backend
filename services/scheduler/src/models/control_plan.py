@@ -1,10 +1,12 @@
 """Control-plan draft ORM models (PR 4.3a).
 
 These tables attach to ControlBase ONLY and are created exclusively by the
-checksum migration runner (0001_control_plan_drafts). They must never be
-imported by models/__init__.py, main.py, or core/database.py — the legacy
-create_all path must not see them (tests/unit/test_create_all_isolation.py).
-Rows are immutable: DB triggers reject UPDATE and DELETE on all four tables.
+checksum migration runner (0001 onward). They must never be imported by
+models/__init__.py, main.py, or core/database.py — the legacy create_all path
+must not see them (tests/unit/test_create_all_isolation.py). Every table is
+append-only (DB triggers reject UPDATE and DELETE) EXCEPT
+control_active_gate_authority (PR 4.3c-1), a mutable materialized
+current-authority index that is INSERTed on activation and DELETEd on exit.
 """
 
 from sqlalchemy import (
@@ -248,5 +250,84 @@ class SectionDeliveryLedgerEntry(ControlBase):
     prediction_run_id = Column(CHAR(64), nullable=False)
     prediction_response_sha256 = Column(CHAR(64), nullable=False)
     projected_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class ControlCommandOutboxRow(ControlBase):
+    """Append-only shadow command-intent outbox (PR 4.3c-1).
+
+    One row per compiled CommandIntent; written atomically with the
+    ``shadow_activated`` transition. Rows are immutable (DB trigger). 6.2 reads
+    these and produces validation receipts; nothing here dispatches or actuates.
+    """
+
+    __tablename__ = "control_command_outbox"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["plan_id", "plan_version"],
+            [f"{SCHEMA}.control_plan_runs.plan_id",
+             f"{SCHEMA}.control_plan_runs.plan_version"],
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint("idempotency_key"),
+        UniqueConstraint("plan_id", "plan_version", "event_sequence"),
+        {"schema": SCHEMA},
+    )
+
+    intent_id = Column(UUID(as_uuid=True), primary_key=True)
+    correlation_id = Column(UUID(as_uuid=True), nullable=False)
+    request_id = Column(Text, nullable=False)
+    idempotency_key = Column(Text, nullable=False)
+    canonical_gate_id = Column(Text, nullable=False)
+    event_kind = Column(String, nullable=False)
+    event_sequence = Column(Integer, nullable=False)
+    gate_event_sequence = Column(Integer, nullable=False)
+    device_id = Column(Text, nullable=False)
+    adapter_gate_id = Column(Text, nullable=False)
+    capability_release_id = Column(Text, nullable=False)
+    capability_hash = Column(CHAR(64), nullable=False)
+    target_position_m = Column(Float(53), nullable=False)
+    target_level = Column(Integer, nullable=False)
+    not_before = Column(DateTime(timezone=True), nullable=False)
+    deadline = Column(DateTime(timezone=True), nullable=False)
+    mode = Column(String, nullable=False)
+    intent_document_text = Column(Text, nullable=False)
+    intent_content_hash = Column(CHAR(64), nullable=False)
+    plan_id = Column(UUID(as_uuid=True), nullable=False)
+    plan_version = Column(Integer, nullable=False)
+    activation_transition_sequence = Column(Integer, nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class ControlActiveGateAuthority(ControlBase):
+    """MUTABLE one-per-scope authority mutex (PR 4.3c-1).
+
+    A materialized current-authority index (NOT the audit authority — the
+    append-only transitions remain that). The (section_id, gate_id) PK is the
+    DB-level one-per-scope lock. Rows are INSERTed on activation and DELETEd when
+    the holder leaves shadow_active, so — uniquely among control tables — this
+    table has NO immutability trigger (see the drift test's documented exemption).
+    """
+
+    __tablename__ = "control_active_gate_authority"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["plan_id", "plan_version"],
+            [f"{SCHEMA}.control_plan_runs.plan_id",
+             f"{SCHEMA}.control_plan_runs.plan_version"],
+            ondelete="RESTRICT",
+        ),
+        {"schema": SCHEMA},
+    )
+
+    section_id = Column(Text, primary_key=True)
+    gate_id = Column(Text, primary_key=True)
+    plan_id = Column(UUID(as_uuid=True), nullable=False)
+    plan_version = Column(Integer, nullable=False)
+    activation_transition_sequence = Column(Integer, nullable=False)
+    granted_at = Column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

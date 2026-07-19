@@ -297,10 +297,20 @@ class SupersedeRequest(_StrictModel):
     reason: NonBlank
 
 
+class ActivateRequest(_StrictModel):
+    """Activation REQUIRES a reason and at least one non-blank evidence reference —
+    the human authorization trail pinned into the activation freeze (this transition
+    grants machine authority). Mirrors ShadowApprovalRequest's bounds."""
+
+    reason: BoundedReason
+    evidence_refs: list[BoundedEvidenceRef] = Field(min_length=1, max_length=20)
+
+
 _LIFECYCLE_STATE = Literal[
     "draft",
     "under_review",
     "approved_for_shadow",
+    "shadow_active",
     "cancelled",
     "superseded",
     "invalidated",

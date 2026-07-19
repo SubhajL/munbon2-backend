@@ -55,6 +55,7 @@ from repositories.control_plan_projection_repository import (
     ProjectionCorruptError,
 )
 from schemas.control_plan import (
+    ActivateRequest,
     ControlPlanLedgerResponse,
     ControlPlanLifecycleHistoryResponse,
     ControlPlanListFilters,
@@ -70,6 +71,11 @@ from schemas.control_plan import (
     ReasonedActionRequest,
     ShadowApprovalRequest,
     SupersedeRequest,
+)
+from core.command_intent import NonActivatablePlanError
+from core.device_capabilities import (
+    CapabilityMembershipError,
+    DeviceCapabilityConfigError,
 )
 from services.clients.control_client_errors import (
     FlowLineageConflictError,
@@ -89,6 +95,7 @@ from services.control_plan_service import (
     parse_member_summaries,
 )
 from services.control_plan_lifecycle_service import (
+    ActivationNotAllowedError,
     ControlPlanLifecycleService,
     PlanNotFoundError as LifecyclePlanNotFoundError,
     SupersedeScopeError,
@@ -100,7 +107,10 @@ from core.control_plan_lifecycle import (
     IllegalTransitionError,
     LifecycleHistoryCorruptError,
 )
-from repositories.control_plan_repository import TransitionConflictError
+from repositories.control_plan_repository import (
+    ScopeConflictError,
+    TransitionConflictError,
+)
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -125,9 +135,14 @@ async def get_control_plan_service(request: Request):
         await flow_client.aclose()
 
 
-def get_lifecycle_service() -> ControlPlanLifecycleService:
+def get_lifecycle_service(request: Request) -> ControlPlanLifecycleService:
+    # The 6.1a snapshot loaded once at startup. getattr guards any wiring that
+    # mounts this router without main.py's startup assignment; the service turns a
+    # None into the empty dark default, so no lifecycle endpoint can AttributeError.
+    snapshot = getattr(request.app.state, "device_capability_snapshot", None)
     return ControlPlanLifecycleService(
-        repository=PostgresControlPlanRepository()
+        repository=PostgresControlPlanRepository(),
+        device_capability_snapshot=snapshot,
     )
 
 
@@ -570,14 +585,24 @@ def _map_lifecycle_errors(error: Exception) -> HTTPException:
             ApprovalCoverageError,
             SupersedeScopeError,
             ApprovalFreezeMismatchError,
+            # PR 4.3c-1 activation conflicts (all fail-closed 409, never 500):
+            ActivationNotAllowedError,
+            ScopeConflictError,
+            CapabilityMembershipError,
+            NonActivatablePlanError,
         ),
     ):
         return HTTPException(status.HTTP_409_CONFLICT, detail=str(error))
-    # Corruption of stored evidence (bad hash, malformed history/document) is a
-    # fail-closed 503, matching the draft GET path — never an opaque 500.
+    # Corruption of stored evidence (bad hash, malformed history/document) or a
+    # broken device-capability config is a fail-closed 503 — never an opaque 500.
     if isinstance(
         error,
-        (LifecycleHistoryCorruptError, DraftStoreCorruptError, StoredDocumentError),
+        (
+            LifecycleHistoryCorruptError,
+            DraftStoreCorruptError,
+            StoredDocumentError,
+            DeviceCapabilityConfigError,
+        ),
     ):
         return HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)
@@ -655,6 +680,48 @@ async def approve_shadow_plan(
             body.reason,
             authorization_evidence=authorization_evidence,
             evidence_refs=body.evidence_refs,
+        )
+    )
+
+
+@router.post(
+    "/{plan_id}/versions/{plan_version}/activate",
+    response_model=DraftControlPlanResponse,
+    dependencies=[
+        Depends(require_supervisor),
+        Depends(require_strict_approval_policy),
+    ],
+)
+async def activate_shadow_plan(
+    plan_id: UUID,
+    plan_version: int,
+    body: ActivateRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: Dict = Depends(get_current_user),
+    service: ControlPlanLifecycleService = Depends(get_lifecycle_service),
+):
+    """Activate a strict-TRUSTED approved v2 plan: compile its command intents into
+    the append-only outbox, take the one-per-scope authority mutex, and grant machine
+    authority (shadow mode — nothing dispatches). Dark by default: unreachable in the
+    compat claim policy (route + document trust gates) and fails closed on a
+    non-member position or an occupied scope."""
+    actor = _actor_subject(current_user)
+    policy = policy_from_settings(settings)
+    authorization_evidence = build_authorization_evidence(
+        principal=principal_from_user(current_user),
+        request_id=getattr(request.state, "request_id", None),
+        policy=policy,
+        evidence_refs=body.evidence_refs,
+    )
+    return await _run_lifecycle(
+        lambda: service.activate_control_plan(
+            db,
+            plan_id,
+            plan_version,
+            actor,
+            body.reason,
+            authorization_evidence=authorization_evidence,
         )
     )
 
