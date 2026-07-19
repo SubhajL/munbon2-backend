@@ -1,0 +1,32 @@
+{
+  "description": "Golden cross-language vector for the FROZEN device-capability-snapshot content hash (PR 6.1a). capability_hash = sha256( domain_prefix || RFC-8785-JCS(snapshot) ), where snapshot has NO capability_hash field. A Python producer/verifier (4.3c/6.2) MUST reproduce canonical_json + capability_hash byte-for-byte. Lives OUTSIDE v1/ so the v1 conformance roster is unaffected.",
+  "domain_prefix": "munbon:device-capability-snapshot:v1\n",
+  "snapshot": {
+    "schema_version": 1,
+    "capability_release_id": "cap-golden-v1",
+    "capabilities": {
+      "M(0,0;1,0)": {
+        "device_id": "scada-rtu-07",
+        "adapter_gate_id": "ch3",
+        "targets": [
+          { "target_position_m": 0.45, "target_level": 3 },
+          { "target_position_m": 0, "target_level": 0 }
+        ]
+      }
+    }
+  },
+  "canonical_json": "{\"capabilities\":{\"M(0,0;1,0)\":{\"adapter_gate_id\":\"ch3\",\"device_id\":\"scada-rtu-07\",\"targets\":[{\"target_level\":3,\"target_position_m\":0.45},{\"target_level\":0,\"target_position_m\":0}]}},\"capability_release_id\":\"cap-golden-v1\",\"schema_version\":1}",
+  "capability_hash": "dc4f089df8c0b1c061b0cff18e28bfc40406798f0f929f16adea072f6cc0904e",
+  "number_canonicalization_vectors": {
+    "description": "RFC-8785 / ES6 Number->String conformance for the number-valued fields of a snapshot (e.g. target_position_m). Each `raw` JSON number MUST canonicalize to the string `canonical`. A naive Python producer using json.dumps DIVERGES on every case that carries `python_json_dumps` (giving a DIFFERENT capability_hash across languages) and MUST instead use a compliant JCS library. capability-hash.spec.ts (TS) asserts every case; the future Python producer/verifier (4.3c/6.2) MUST assert them too. This table does not affect the snapshot or capability_hash above.",
+    "cases": [
+      { "raw": 2.0, "canonical": "2", "python_json_dumps": "2.0" },
+      { "raw": 1000, "canonical": "1000" },
+      { "raw": 0.45, "canonical": "0.45" },
+      { "raw": 1e-6, "canonical": "0.000001", "python_json_dumps": "1e-06" },
+      { "raw": 1e-7, "canonical": "1e-7", "python_json_dumps": "1e-07" },
+      { "raw": -0.0, "canonical": "0", "python_json_dumps": "-0.0" },
+      { "raw": 999.9999999, "canonical": "999.9999999" }
+    ]
+  }
+}
