@@ -97,6 +97,7 @@ from services.control_plan_service import (
 from services.control_plan_lifecycle_service import (
     ActivationNotAllowedError,
     ControlPlanLifecycleService,
+    HandoverUnsafeError,
     PlanNotFoundError as LifecyclePlanNotFoundError,
     SupersedeScopeError,
     current_lifecycle_state,
@@ -590,6 +591,8 @@ def _map_lifecycle_errors(error: Exception) -> HTTPException:
             ScopeConflictError,
             CapabilityMembershipError,
             NonActivatablePlanError,
+            # PR 4.3c-2 graceful supersede: an unsafe handover is a 409.
+            HandoverUnsafeError,
         ),
     ):
         return HTTPException(status.HTTP_409_CONFLICT, detail=str(error))
@@ -602,6 +605,10 @@ def _map_lifecycle_errors(error: Exception) -> HTTPException:
             DraftStoreCorruptError,
             StoredDocumentError,
             DeviceCapabilityConfigError,
+            # A corrupt stored projection reached the safe-handover builder during a
+            # supersede-of-active: fail closed with a 503 like the ledger route, not
+            # an opaque 500.
+            ProjectionCorruptError,
         ),
     ):
         return HTTPException(
