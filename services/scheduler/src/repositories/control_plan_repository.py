@@ -15,7 +15,7 @@ from datetime import date, datetime
 from typing import Optional
 from uuid import UUID, uuid4
 
-from sqlalchemy import delete, func, select, text
+from sqlalchemy import delete, func, select, text, tuple_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,6 +24,13 @@ from core.control_plan import (
     canonical_json_text,
     control_plan_draft_hash,
     control_plan_input_hash,
+)
+from core.control_plan_lifecycle import TERMINAL_STATES
+from core.open_loop_execution import (
+    ACTIVATION_TRANSITION_TYPE,
+    ExpectedScope,
+    RecoveryPlan,
+    RecoveryReport,
 )
 from core.predicted_delivery_ledger import (
     LedgerEntry,
@@ -240,6 +247,16 @@ def _campaign_advisory_lock_key(campaign_id: UUID) -> int:
     single campaign's own version allocations."""
     digest = hashlib.sha256(str(campaign_id).encode("utf-8")).digest()[:8]
     return int.from_bytes(digest, "big", signed=True)
+
+
+# A fixed SIGNED 64-bit key that serializes restart authority-recovery across pods
+# (mirrors migrate.MIGRATIONS_LOCK_ID). Distinct from every campaign lock key, so a
+# recovery never blocks — or is blocked by — a live version allocation.
+RECOVERY_LOCK_ID = int.from_bytes(
+    hashlib.sha256(b"scheduler:open-loop-authority-recovery").digest()[:8],
+    "big",
+    signed=True,
+)
 
 
 PROVENANCE_VERSION_V2 = 2
@@ -821,8 +838,17 @@ class PostgresControlPlanRepository:
         concurrency backstop (409); the mutex (section, gate) PK is the one-per-scope
         lock — a conflict there means another active plan already owns the scope
         (409). Scope rows insert in deterministic (section, gate) order so concurrent
-        activations over intersecting scopes cannot deadlock."""
+        activations over intersecting scopes cannot deadlock.
+
+        Takes the global RECOVERY_LOCK_ID advisory lock FIRST (as does every other
+        mutex writer and restart recovery) so a boot-time reconcile can never read
+        the transition truth and the mutex across a concurrent activation/release —
+        i.e. it can never resurrect or drop an authority row mid-flight."""
         try:
+            await session.execute(
+                text("SELECT pg_advisory_xact_lock(:key)"),
+                {"key": RECOVERY_LOCK_ID},
+            )
             await session.execute(
                 pg_insert(ControlStateTransition).values(
                     plan_id=plan_id, plan_version=plan_version, **transition.__dict__
@@ -866,8 +892,16 @@ class PostgresControlPlanRepository:
     ) -> None:
         """Atomically append a terminal transition FROM shadow_active (emergency
         invalidate) AND release this plan's authority-mutex rows, so leaving
-        shadow_active never orphans the scope."""
+        shadow_active never orphans the scope.
+
+        Takes the global RECOVERY_LOCK_ID advisory lock FIRST (same lock activation
+        and restart recovery take) so a concurrent boot-time reconcile cannot
+        observe this release half-applied and resurrect the freed authority row."""
         try:
+            await session.execute(
+                text("SELECT pg_advisory_xact_lock(:key)"),
+                {"key": RECOVERY_LOCK_ID},
+            )
             await session.execute(
                 pg_insert(ControlStateTransition).values(
                     plan_id=plan_id, plan_version=plan_version, **transition.__dict__
@@ -914,6 +948,183 @@ class PostgresControlPlanRepository:
             )
         )
         return list(rows)
+
+    async def acquire_recovery_lock(self, session: AsyncSession) -> None:
+        """First statement of the recovery txn: the fixed global advisory lock that
+        EVERY mutex writer (``insert_activation`` / ``append_transition_and_release_
+        scope``) also takes. While recovery holds it no activation or release can
+        commit, so ``load_recovery_plans`` reads the transition truth and the mutex
+        with zero concurrent mutation — closing the stale-snapshot resurrection race.
+        Held until the recovery txn commits (in ``reconcile_active_gate_authority``).
+        """
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(:key)"), {"key": RECOVERY_LOCK_ID}
+        )
+
+    async def load_recovery_plans(self, session: AsyncSession) -> "list[RecoveryPlan]":
+        """Bounded scan for restart recovery (PR 5.2a). Loads the plans recovery must
+        classify: those that are PLAUSIBLY-ACTIVE (carry a ``shadow_activated``
+        transition and NO terminal ``to_state``) PLUS the holders of every current
+        mutex row (so terminal orphans are classified for deletion). Each is returned
+        with its FULL transition history and scheduled ``(section_id, gate_id)`` scope
+        pairs. The set is bounded by live plans + mutex size, not by all history.
+        MUST run after ``acquire_recovery_lock`` in the same txn."""
+        activated = {
+            (row.plan_id, row.plan_version)
+            for row in await session.execute(
+                select(
+                    ControlStateTransition.plan_id,
+                    ControlStateTransition.plan_version,
+                )
+                .where(
+                    ControlStateTransition.transition_type
+                    == ACTIVATION_TRANSITION_TYPE
+                )
+                .distinct()
+            )
+        }
+        if not activated:
+            return []
+        terminated = {
+            (row.plan_id, row.plan_version)
+            for row in await session.execute(
+                select(
+                    ControlStateTransition.plan_id,
+                    ControlStateTransition.plan_version,
+                )
+                .where(ControlStateTransition.to_state.in_(sorted(TERMINAL_STATES)))
+                .distinct()
+            )
+        }
+        holders = {
+            (row.plan_id, row.plan_version)
+            for row in await session.execute(
+                select(
+                    ControlActiveGateAuthority.plan_id,
+                    ControlActiveGateAuthority.plan_version,
+                ).distinct()
+            )
+        }
+        # Plausibly-active plans (for rebuild) + every current mutex holder (so a
+        # terminal orphan is loaded and classified for deletion).
+        candidates = sorted((activated - terminated) | holders)
+        if not candidates:
+            return []
+        key_tuple = tuple_(
+            ControlStateTransition.plan_id, ControlStateTransition.plan_version
+        )
+        transition_rows = await session.scalars(
+            select(ControlStateTransition)
+            .where(key_tuple.in_(candidates))
+            .order_by(
+                ControlStateTransition.plan_id,
+                ControlStateTransition.plan_version,
+                ControlStateTransition.transition_sequence,
+            )
+        )
+        transitions_by_key: dict = {}
+        for row in transition_rows:
+            transitions_by_key.setdefault(
+                (row.plan_id, row.plan_version), []
+            ).append(row)
+        requirement_key_tuple = tuple_(
+            ControlPlanRequirement.plan_id, ControlPlanRequirement.plan_version
+        )
+        scope_rows = await session.execute(
+            select(
+                ControlPlanRequirement.plan_id,
+                ControlPlanRequirement.plan_version,
+                ControlPlanRequirement.section_id,
+                ControlPlanRequirement.gate_id,
+            ).where(
+                requirement_key_tuple.in_(candidates),
+                ControlPlanRequirement.planning_disposition == "scheduled",
+            )
+        )
+        scopes_by_key: dict = {}
+        for row in scope_rows:
+            scopes_by_key.setdefault((row.plan_id, row.plan_version), set()).add(
+                (row.section_id, row.gate_id)
+            )
+        return [
+            RecoveryPlan(
+                plan_id=plan_id,
+                plan_version=plan_version,
+                transitions=transitions_by_key.get((plan_id, plan_version), []),
+                scope_pairs=frozenset(
+                    scopes_by_key.get((plan_id, plan_version), set())
+                ),
+            )
+            for (plan_id, plan_version) in candidates
+        ]
+
+    async def reconcile_active_gate_authority(
+        self,
+        session: AsyncSession,
+        *,
+        expected: "set[ExpectedScope]",
+        terminal_keys: "set[tuple[UUID, int]]",
+    ) -> "RecoveryReport":
+        """Self-heal the MUTABLE authority mutex to equal the append-only truth
+        (PR 5.2a). Runs inside the recovery txn AFTER ``acquire_recovery_lock``, so
+        no mutex writer can interleave. DELETE terminal orphans FIRST (one batched
+        statement) so a scope can transfer from a terminal holder to an active plan
+        in the SAME pass, THEN INSERT any missing expected row with ``ON CONFLICT DO
+        NOTHING``. Deletes only rows whose holder is POSITIVELY terminal (never a
+        live ``shadow_active`` row); the (section, gate) PK makes each pair identify
+        exactly one row. Idempotent — a no-op when the mutex already matches."""
+        try:
+            current = list(
+                await session.scalars(select(ControlActiveGateAuthority))
+            )
+            orphan_pairs = [
+                (row.section_id, row.gate_id)
+                for row in current
+                if (row.plan_id, row.plan_version) in terminal_keys
+            ]
+            deleted = 0
+            if orphan_pairs:
+                result = await session.execute(
+                    delete(ControlActiveGateAuthority).where(
+                        tuple_(
+                            ControlActiveGateAuthority.section_id,
+                            ControlActiveGateAuthority.gate_id,
+                        ).in_(orphan_pairs)
+                    )
+                )
+                deleted = result.rowcount or 0
+            occupied = {
+                (row.section_id, row.gate_id) for row in current
+            } - set(orphan_pairs)
+            inserted = 0
+            for scope in sorted(
+                expected, key=lambda s: (s.section_id, s.gate_id)
+            ):
+                if (scope.section_id, scope.gate_id) in occupied:
+                    continue
+                result = await session.execute(
+                    pg_insert(ControlActiveGateAuthority)
+                    .values(
+                        section_id=scope.section_id,
+                        gate_id=scope.gate_id,
+                        plan_id=scope.plan_id,
+                        plan_version=scope.plan_version,
+                        activation_transition_sequence=(
+                            scope.activation_transition_sequence
+                        ),
+                    )
+                    .on_conflict_do_nothing(
+                        index_elements=["section_id", "gate_id"]
+                    )
+                )
+                inserted += result.rowcount or 0
+            await session.commit()
+            return RecoveryReport(
+                inserted=inserted, deleted=deleted, checked=len(current)
+            )
+        except BaseException:
+            await session.rollback()
+            raise
 
     async def _assemble(
         self, session: AsyncSession, run: ControlPlanRun

@@ -45,6 +45,29 @@ async def lifespan(app: FastAPI):
     await redis_client.connect()
     logger.info("Redis client initialized")
 
+    # PR 5.2a: rebuild the restart-safe authority mutex from the append-only
+    # transition truth. Degrade-on-failure like the device-snapshot loader below: a
+    # recovery error (e.g. migrations not yet applied) must NOT boot-loop the pod —
+    # `/ready` still gates traffic on the control tables' presence.
+    try:
+        from core.database import AsyncSessionLocal
+        from repositories.control_plan_repository import (
+            PostgresControlPlanRepository,
+        )
+        from services.open_loop_execution_service import OpenLoopExecutionService
+
+        async with AsyncSessionLocal() as session:
+            # The service logs the reconcile counts (loguru, correctly formatted).
+            await OpenLoopExecutionService(
+                PostgresControlPlanRepository()
+            ).recover_execution_state(session)
+    except Exception as error:
+        logger.error(
+            "authority recovery failed; continuing, control tables gate "
+            "readiness: {}",
+            str(error),
+        )
+
     yield
 
     # Shutdown
