@@ -28,6 +28,10 @@ APPROVAL_FREEZE_SCHEMA_VERSION_V3 = 3
 PROVENANCE_VERSION_V2 = 2
 _PREDICTION_MEMBERS = frozenset({"lower", "nominal", "upper"})
 
+# The transition type that grants machine authority (PR 4.3c-1). Exported so other
+# modules (e.g. open-loop recovery) reference ONE definition, never a second copy.
+TRANSITION_SHADOW_ACTIVATED = "shadow_activated"
+
 STATE_DRAFT = "draft"
 STATE_UNDER_REVIEW = "under_review"
 STATE_APPROVED = "approved_for_shadow"
