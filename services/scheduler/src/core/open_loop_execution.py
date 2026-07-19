@@ -13,6 +13,7 @@ state — which is what makes the mutex provably a derived view, not authority.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Sequence
 
 from core.control_plan_lifecycle import (
@@ -156,3 +157,155 @@ def derive_recovery_actions(plans: Sequence[RecoveryPlan]) -> RecoveryDerivation
         corrupt_keys=frozenset(corrupt),
         null_scope_keys=frozenset(null_scope),
     )
+
+
+# --- PR 5.2b: per-intent open-loop execution state machine -------------------
+
+INTENT_PENDING = "pending"
+INTENT_CLAIMED = "claimed"
+INTENT_MISSED = "missed"
+INTENT_INVALIDATED = "invalidated"
+INTENT_EXECUTION_STATES = frozenset(
+    {INTENT_PENDING, INTENT_CLAIMED, INTENT_MISSED, INTENT_INVALIDATED}
+)
+# The per-intent execution event types (plan-level held/resumed are NOT per-intent).
+_TERMINAL_INTENT_EVENTS = frozenset(
+    {INTENT_CLAIMED, INTENT_MISSED, INTENT_INVALIDATED}
+)
+
+EXECUTION_HELD = "held"
+EXECUTION_RESUMED = "resumed"
+
+# Timing classification (pure due/missed decision).
+TIMING_PENDING = "pending"
+TIMING_DUE = "due"
+TIMING_MISSED = "missed"
+
+
+class IntentExecutionCorruptError(Exception):
+    """An intent carries contradictory terminal execution events (fail closed)."""
+
+
+def derive_intent_execution_state(events: Sequence) -> str:
+    """Fold an intent's append-only execution events into its current state.
+
+    In PR 5.2b an intent takes at most ONE terminal event (claimed | missed |
+    invalidated) — the DB ``UNIQUE(intent_id, event_type)`` backstops it — so more
+    than one DISTINCT terminal is corruption and fails closed.
+    """
+    terminals = {
+        event.event_type
+        for event in events
+        if event.event_type in _TERMINAL_INTENT_EVENTS
+    }
+    if not terminals:
+        return INTENT_PENDING
+    if len(terminals) > 1:
+        raise IntentExecutionCorruptError(
+            f"intent has contradictory execution events: {sorted(terminals)}"
+        )
+    return next(iter(terminals))
+
+
+def _require_aware(**instants) -> None:
+    for label, value in instants.items():
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError(f"{label} must be timezone-aware")
+
+
+def classify_intent_timing(
+    *,
+    not_before,
+    deadline,
+    now,
+    premove_seconds: int,
+) -> str:
+    """Pure due/missed classification for one intent. All datetimes MUST be
+    timezone-aware (a naive value is a bug → fail closed).
+
+    Past the intent's own ``deadline`` the command is stale → ``missed``. Within the
+    pre-move window before ``not_before`` it is ``due`` (claimable); earlier it is
+    ``pending``.
+
+    NOTE: 5.2b deliberately does NOT cap the deadline by the authority lease
+    (``granted_at + lease``). The 24h lease is a RENEWABLE checkpoint (renewal is
+    7.1); enforcing it here as a hard cap would self-invalidate every valid campaign
+    longer than the lease. Lease-expiry enforcement lands with its renewal in 7.1.
+    """
+    _require_aware(not_before=not_before, deadline=deadline, now=now)
+    if now >= deadline:
+        return TIMING_MISSED
+    if now >= not_before - timedelta(seconds=premove_seconds):
+        return TIMING_DUE
+    return TIMING_PENDING
+
+
+def is_plan_held(events: Sequence) -> bool:
+    """Whether the plan is currently on operator hold: its latest plan-level
+    hold/resume event (``intent_id`` NULL) is a ``held``. Ordered by occurrence,
+    then insertion, so a resume after a hold clears it."""
+    plan_events = [
+        event
+        for event in events
+        if event.event_type in (EXECUTION_HELD, EXECUTION_RESUMED)
+    ]
+    if not plan_events:
+        return False
+    latest = max(plan_events, key=lambda e: (e.occurred_at, e.created_at))
+    return latest.event_type == EXECUTION_HELD
+
+
+@dataclass(frozen=True)
+class OpenLoopActions:
+    """The actions one worker tick must take for a plan, decided purely.
+
+    ``missed_intent`` is the earliest pending intent whose deadline has passed; when
+    set, the open-loop sequence is broken, so ``invalidated_intents`` are every OTHER
+    still-pending intent and no claim happens. When ``missed_intent`` is None,
+    ``due_intents`` are the pending intents in their pre-move window ready to claim.
+    """
+
+    missed_intent: object
+    invalidated_intents: tuple
+    due_intents: tuple
+
+
+def plan_open_loop_actions(
+    outbox: Sequence,
+    events_by_intent: dict,
+    *,
+    now,
+    premove_seconds: int,
+) -> OpenLoopActions:
+    """Decide a worker tick over a plan's ordered outbox (pure).
+
+    A missed deadline invalidates the WHOLE remaining campaign (a gap in an open-loop
+    sequence can never be safely resumed): the earliest pending+missed intent is the
+    ``missed_intent`` and every other pending intent is invalidated. Absent a miss,
+    pending intents inside their pre-move window are due to claim. ``outbox`` MUST be
+    ordered by ``event_sequence``.
+    """
+    missed_intent = None
+    pending = []
+    due = []
+    for intent in outbox:
+        events = events_by_intent.get(intent.intent_id, [])
+        if derive_intent_execution_state(events) != INTENT_PENDING:
+            continue
+        pending.append(intent)
+        timing = classify_intent_timing(
+            not_before=intent.not_before,
+            deadline=intent.deadline,
+            now=now,
+            premove_seconds=premove_seconds,
+        )
+        if timing == TIMING_MISSED and missed_intent is None:
+            missed_intent = intent
+        elif timing == TIMING_DUE:
+            due.append(intent)
+    if missed_intent is None:
+        return OpenLoopActions(None, (), tuple(due))
+    invalidated = tuple(
+        intent for intent in pending if intent.intent_id != missed_intent.intent_id
+    )
+    return OpenLoopActions(missed_intent, invalidated, ())

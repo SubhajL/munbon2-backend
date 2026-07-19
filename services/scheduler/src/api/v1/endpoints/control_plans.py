@@ -54,6 +54,12 @@ from repositories.control_plan_projection_repository import (
     PostgresControlPlanProjectionRepository,
     ProjectionCorruptError,
 )
+from services.open_loop_execution_service import (
+    ExecutionModeNotEnabledError,
+    HoldNotAllowedError,
+    OpenLoopExecutionService,
+    OpenLoopPlanNotFoundError,
+)
 from schemas.control_plan import (
     ActivateRequest,
     ControlPlanLedgerResponse,
@@ -73,6 +79,7 @@ from schemas.control_plan import (
     SupersedeRequest,
 )
 from core.command_intent import NonActivatablePlanError
+from core.open_loop_execution import IntentExecutionCorruptError
 from core.device_capabilities import (
     CapabilityMembershipError,
     DeviceCapabilityConfigError,
@@ -151,6 +158,12 @@ def get_control_plan_projection_repository() -> (
     PostgresControlPlanProjectionRepository
 ):
     return PostgresControlPlanProjectionRepository()
+
+
+def get_open_loop_service() -> OpenLoopExecutionService:
+    # PR 5.2b: reads execution mode / pre-move window from settings; the worker only
+    # claims in shadow mode and NEVER dispatches.
+    return OpenLoopExecutionService(repository=PostgresControlPlanRepository())
 
 
 class StoredDocumentError(Exception):
@@ -800,3 +813,115 @@ async def supersede_control_plan(
             body.reason,
         )
     )
+
+
+@router.post(
+    "/{plan_id}/versions/{plan_version}/hold",
+    dependencies=[Depends(require_supervisor)],
+)
+async def hold_control_plan(
+    plan_id: UUID,
+    plan_version: int,
+    body: ReasonedActionRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: Dict = Depends(get_current_user),
+    service: OpenLoopExecutionService = Depends(get_open_loop_service),
+):
+    """PR 5.2b: place a shadow_active plan on operator hold — pauses local claiming
+    WITHOUT a lifecycle transition (the plan keeps its authority mutex). Nothing
+    dispatches or actuates."""
+    actor = _actor_subject(current_user)
+    try:
+        await service.hold_control_plan(db, plan_id, plan_version, actor, body.reason)
+    except OpenLoopPlanNotFoundError as error:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(error))
+    except HoldNotAllowedError as error:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=str(error))
+    except LifecycleHistoryCorruptError as error:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error))
+    except SQLAlchemyError as error:
+        logger.error("hold store failed: {}", str(error))
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="control-plan store is unavailable",
+        )
+    return {"plan_id": str(plan_id), "plan_version": plan_version, "status": "held"}
+
+
+@router.post(
+    "/{plan_id}/versions/{plan_version}/resume",
+    dependencies=[Depends(require_supervisor)],
+)
+async def resume_control_plan(
+    plan_id: UUID,
+    plan_version: int,
+    body: ReasonedActionRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: Dict = Depends(get_current_user),
+    service: OpenLoopExecutionService = Depends(get_open_loop_service),
+):
+    """PR 5.2b: lift an operator hold so local claiming can proceed again. Symmetric
+    with hold; also not a lifecycle transition."""
+    actor = _actor_subject(current_user)
+    try:
+        await service.resume_control_plan(db, plan_id, plan_version, actor, body.reason)
+    except OpenLoopPlanNotFoundError as error:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(error))
+    except HoldNotAllowedError as error:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=str(error))
+    except LifecycleHistoryCorruptError as error:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error))
+    except SQLAlchemyError as error:
+        logger.error("resume store failed: {}", str(error))
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="control-plan store is unavailable",
+        )
+    return {"plan_id": str(plan_id), "plan_version": plan_version, "status": "resumed"}
+
+
+@router.post(
+    "/{plan_id}/versions/{plan_version}/advance",
+    dependencies=[Depends(require_supervisor)],
+)
+async def advance_control_plan_execution(
+    plan_id: UUID,
+    plan_version: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Dict = Depends(get_current_user),
+    service: OpenLoopExecutionService = Depends(get_open_loop_service),
+):
+    """PR 5.2b: run ONE open-loop worker tick for a plan (the 6.3 dispatcher will
+    drive this on a loop). In shadow mode it claims due intents or, on a missed
+    deadline, invalidates the remaining campaign and releases authority — all LOCAL,
+    NEVER dispatching. Dark in the default 'disabled' execution mode."""
+    actor = _actor_subject(current_user)
+    try:
+        result = await service.advance_open_loop_execution(
+            db, plan_id, plan_version, worker_id=actor
+        )
+    except OpenLoopPlanNotFoundError as error:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(error))
+    except ExecutionModeNotEnabledError as error:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=str(error))
+    except TransitionConflictError as error:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=str(error))
+    except (LifecycleHistoryCorruptError, IntentExecutionCorruptError) as error:
+        # A corrupt derived transition history, or a shadow_active plan missing its
+        # authority row / a contradictory per-intent history, is fail-closed
+        # corruption — a 503 that alarms the dispatcher and triggers recovery, never
+        # an opaque 500 (or a 404 that would drop a still-live campaign).
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error))
+    except SQLAlchemyError as error:
+        logger.error("advance store failed: {}", str(error))
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="control-plan store is unavailable",
+        )
+    return {
+        "plan_id": str(plan_id),
+        "plan_version": plan_version,
+        "action": result.action,
+        "claimed": [str(intent_id) for intent_id in result.claimed_intent_ids],
+        "invalidated": result.invalidated,
+    }

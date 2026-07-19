@@ -17,12 +17,14 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKeyConstraint,
+    Index,
     Integer,
     SmallInteger,
     String,
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 
@@ -329,5 +331,52 @@ class ControlActiveGateAuthority(ControlBase):
     plan_version = Column(Integer, nullable=False)
     activation_transition_sequence = Column(Integer, nullable=False)
     granted_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class ControlCommandExecutionEvent(ControlBase):
+    """Append-only open-loop execution audit log (PR 5.2b).
+
+    One row per execution-state change of a command-intent (``claimed`` / ``missed``
+    / ``invalidated``) plus plan-level operator events (``held`` / ``resumed``,
+    ``intent_id`` NULL). Rows are immutable (DB trigger). The per-intent execution
+    state is DERIVED from these events; the plan lifecycle stays event-sourced in
+    ``control_state_transitions``. Nothing here dispatches or actuates.
+    """
+
+    __tablename__ = "control_command_execution_events"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["plan_id", "plan_version"],
+            [f"{SCHEMA}.control_plan_runs.plan_id",
+             f"{SCHEMA}.control_plan_runs.plan_version"],
+            ondelete="RESTRICT",
+        ),
+        # No FK on intent_id to control_command_outbox: kept additively independent
+        # of the 0007 migration; the partial unique index below backstops claims.
+        # At most ONE terminal event per intent (claimed | missed | invalidated) so a
+        # concurrent claim + invalidate for the same intent can never both land;
+        # plan-level held/resumed (intent_id NULL) are excluded and may repeat.
+        Index(
+            "control_command_execution_events_one_terminal_per_intent",
+            "intent_id",
+            unique=True,
+            postgresql_where=text(
+                "event_type IN ('claimed', 'missed', 'invalidated')"
+            ),
+        ),
+        {"schema": SCHEMA},
+    )
+
+    event_id = Column(UUID(as_uuid=True), primary_key=True)
+    plan_id = Column(UUID(as_uuid=True), nullable=False)
+    plan_version = Column(Integer, nullable=False)
+    intent_id = Column(UUID(as_uuid=True), nullable=True)
+    event_type = Column(String, nullable=False)
+    worker_id = Column(Text, nullable=True)
+    detail_document_text = Column(Text, nullable=True)
+    occurred_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

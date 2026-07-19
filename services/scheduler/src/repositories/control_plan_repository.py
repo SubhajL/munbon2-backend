@@ -40,6 +40,7 @@ from core.predicted_delivery_ledger import (
 )
 from models.control_plan import (
     ControlActiveGateAuthority,
+    ControlCommandExecutionEvent,
     ControlCommandOutboxRow,
     ControlPlanCampaignVersion,
     ControlPlanRequirement,
@@ -159,6 +160,32 @@ class ScopeRow:
     section_id: str
     gate_id: str
     activation_transition_sequence: int
+
+
+@dataclass(frozen=True)
+class ExecutionEventRow:
+    """One append-only open-loop execution event (PR 5.2b). ``intent_id`` is None
+    for plan-level operator events (held/resumed)."""
+
+    event_id: UUID
+    intent_id: Optional[UUID]
+    event_type: str
+    worker_id: Optional[str]
+    detail_document_text: Optional[str]
+    occurred_at: datetime
+
+
+@dataclass(frozen=True)
+class OpenLoopContext:
+    """Everything a worker tick needs for a plan (PR 5.2b): its full transition
+    history (for the derived lifecycle state), its outbox intents ordered by the
+    global ``event_sequence``, its execution events, and the authority row's
+    ``granted_at`` (None if the plan holds no scope)."""
+
+    transitions: list
+    outbox: list
+    events: list
+    granted_at: Optional[datetime]
 
 
 class ScopeConflictError(Exception):
@@ -897,11 +924,36 @@ class PostgresControlPlanRepository:
         Takes the global RECOVERY_LOCK_ID advisory lock FIRST (same lock activation
         and restart recovery take) so a concurrent boot-time reconcile cannot
         observe this release half-applied and resurrect the freed authority row."""
+        await self._release_scope_on_transition(
+            session, plan_id, plan_version, transition
+        )
+
+    async def _release_scope_on_transition(
+        self,
+        session: AsyncSession,
+        plan_id: UUID,
+        plan_version: int,
+        transition: "TransitionRecord",
+        *,
+        pre_insert_rows: "tuple[ExecutionEventRow, ...]" = (),
+    ) -> None:
+        """The shared atomic core of every exit from shadow_active: under
+        RECOVERY_LOCK_ID, insert any ``pre_insert_rows`` (execution events), append the
+        terminal transition, and delete the authority mutex — committing once. A 23505
+        (transition PK, or a terminal-event partial-index conflict from a concurrent
+        claim) becomes TransitionConflictError. Used by the emergency-invalidate
+        release path and the missed-deadline cascade so neither forks the algorithm."""
         try:
             await session.execute(
                 text("SELECT pg_advisory_xact_lock(:key)"),
                 {"key": RECOVERY_LOCK_ID},
             )
+            for row in pre_insert_rows:
+                await session.execute(
+                    pg_insert(ControlCommandExecutionEvent).values(
+                        plan_id=plan_id, plan_version=plan_version, **row.__dict__
+                    )
+                )
             await session.execute(
                 pg_insert(ControlStateTransition).values(
                     plan_id=plan_id, plan_version=plan_version, **transition.__dict__
@@ -1125,6 +1177,119 @@ class PostgresControlPlanRepository:
         except BaseException:
             await session.rollback()
             raise
+
+    async def load_open_loop_context(
+        self, session: AsyncSession, plan_id: UUID, plan_version: int
+    ) -> "OpenLoopContext":
+        """Load the plan slice a worker tick needs (PR 5.2b): full transition history,
+        outbox intents ordered by the global ``event_sequence``, execution events, and
+        the authority row's ``granted_at``."""
+        transitions = list(
+            await session.scalars(
+                select(ControlStateTransition)
+                .where(
+                    ControlStateTransition.plan_id == plan_id,
+                    ControlStateTransition.plan_version == plan_version,
+                )
+                .order_by(ControlStateTransition.transition_sequence)
+            )
+        )
+        outbox = list(
+            await session.scalars(
+                select(ControlCommandOutboxRow)
+                .where(
+                    ControlCommandOutboxRow.plan_id == plan_id,
+                    ControlCommandOutboxRow.plan_version == plan_version,
+                )
+                .order_by(ControlCommandOutboxRow.event_sequence)
+            )
+        )
+        events = list(
+            await session.scalars(
+                select(ControlCommandExecutionEvent).where(
+                    ControlCommandExecutionEvent.plan_id == plan_id,
+                    ControlCommandExecutionEvent.plan_version == plan_version,
+                )
+            )
+        )
+        granted_at = await session.scalar(
+            select(ControlActiveGateAuthority.granted_at)
+            .where(
+                ControlActiveGateAuthority.plan_id == plan_id,
+                ControlActiveGateAuthority.plan_version == plan_version,
+            )
+            .limit(1)
+        )
+        return OpenLoopContext(
+            transitions=transitions,
+            outbox=outbox,
+            events=events,
+            granted_at=granted_at,
+        )
+
+    async def append_execution_events(
+        self,
+        session: AsyncSession,
+        plan_id: UUID,
+        plan_version: int,
+        rows: "list[ExecutionEventRow]",
+        *,
+        ignore_conflicts: bool = False,
+    ) -> "list[UUID]":
+        """Append execution events in ONE multi-row insert (PR 5.2b). With
+        ``ignore_conflicts`` a row whose intent already holds a terminal event is
+        skipped via ON CONFLICT DO NOTHING on the one-terminal-per-intent partial
+        index — so claim is idempotent AND a claim that races a committed invalidate
+        simply no-ops (never a contradictory pair). Returns the intent_ids ACTUALLY
+        inserted (via RETURNING), so the caller reports only intents it truly claimed —
+        never merely attempted. Plan-level rows (intent_id NULL) return no id."""
+        if not rows:
+            return []
+        try:
+            statement = pg_insert(ControlCommandExecutionEvent).values(
+                [
+                    {"plan_id": plan_id, "plan_version": plan_version, **row.__dict__}
+                    for row in rows
+                ]
+            )
+            if ignore_conflicts:
+                statement = statement.on_conflict_do_nothing(
+                    index_elements=["intent_id"],
+                    index_where=text(
+                        "event_type IN ('claimed', 'missed', 'invalidated')"
+                    ),
+                )
+            statement = statement.returning(ControlCommandExecutionEvent.intent_id)
+            result = await session.execute(statement)
+            inserted = [iid for iid in result.scalars().all() if iid is not None]
+            await session.commit()
+            return inserted
+        except BaseException:
+            await session.rollback()
+            raise
+
+    async def record_missed_and_invalidate(
+        self,
+        session: AsyncSession,
+        plan_id: UUID,
+        plan_version: int,
+        *,
+        event_rows: "list[ExecutionEventRow]",
+        transition: "TransitionRecord",
+    ) -> None:
+        """Atomically record a missed-deadline break (PR 5.2b): append the missed +
+        invalidated execution events, append the ``invalidated`` lifecycle transition,
+        and release the authority mutex — all in ONE txn under RECOVERY_LOCK_ID via the
+        SHARED release core (no forked algorithm). A released scope can never be
+        resurrected; the transition PK (or a terminal-event partial-index conflict from
+        a concurrent claim) surfaces as TransitionConflictError."""
+        await self._release_scope_on_transition(
+            session,
+            plan_id,
+            plan_version,
+            transition,
+            pre_insert_rows=tuple(event_rows),
+        )
 
     async def _assemble(
         self, session: AsyncSession, run: ControlPlanRun

@@ -150,3 +150,143 @@ def test_single_plan_holding_many_scopes_is_not_a_conflict():
     result = derive_recovery_actions([plan])
 
     assert {s.gate_id for s in result.expected_scopes} == {"G1", "G2"}
+
+
+# --- PR 5.2b: intent execution state machine + timing ------------------------
+
+from datetime import datetime, timedelta, timezone  # noqa: E402
+
+from core.open_loop_execution import (  # noqa: E402
+    IntentExecutionCorruptError,
+    TIMING_DUE,
+    TIMING_MISSED,
+    TIMING_PENDING,
+    classify_intent_timing,
+    derive_intent_execution_state,
+    is_plan_held,
+)
+
+_T0 = datetime(2026, 7, 19, 12, 0, tzinfo=timezone.utc)
+
+
+class _Event:
+    def __init__(self, event_type, occurred_at=_T0, created_at=_T0):
+        self.event_type = event_type
+        self.occurred_at = occurred_at
+        self.created_at = created_at
+
+
+def test_derive_intent_state_pending_when_no_terminal_event():
+    assert derive_intent_execution_state([]) == "pending"
+
+
+@pytest.mark.parametrize("terminal", ["claimed", "missed", "invalidated"])
+def test_derive_intent_state_reflects_single_terminal_event(terminal):
+    assert derive_intent_execution_state([_Event(terminal)]) == terminal
+
+
+def test_derive_intent_state_contradictory_terminals_fail_closed():
+    with pytest.raises(IntentExecutionCorruptError):
+        derive_intent_execution_state([_Event("claimed"), _Event("invalidated")])
+
+
+def _timing(now, *, not_before, deadline, premove=300):
+    return classify_intent_timing(
+        not_before=not_before,
+        deadline=deadline,
+        now=now,
+        premove_seconds=premove,
+    )
+
+
+def test_classify_timing_pending_before_premove_window():
+    not_before = _T0 + timedelta(hours=2)
+    # 10 min before the 5-min pre-move window opens -> still pending.
+    now = not_before - timedelta(seconds=600)
+    assert _timing(now, not_before=not_before, deadline=_T0 + timedelta(hours=3)) == (
+        TIMING_PENDING
+    )
+
+
+def test_classify_timing_due_within_premove_window():
+    not_before = _T0 + timedelta(hours=2)
+    now = not_before - timedelta(seconds=120)  # inside the 300s pre-move window
+    assert _timing(now, not_before=not_before, deadline=_T0 + timedelta(hours=3)) == (
+        TIMING_DUE
+    )
+
+
+def test_classify_timing_missed_past_deadline():
+    deadline = _T0 + timedelta(hours=3)
+    now = deadline + timedelta(seconds=1)
+    assert _timing(
+        now, not_before=_T0 + timedelta(hours=2), deadline=deadline
+    ) == TIMING_MISSED
+
+
+def test_classify_timing_naive_datetime_fails_closed():
+    naive_now = datetime(2026, 7, 19, 12, 30)  # no tzinfo
+    with pytest.raises(ValueError):
+        _timing(
+            naive_now,
+            not_before=_T0 + timedelta(hours=2),
+            deadline=_T0 + timedelta(hours=3),
+        )
+
+
+def test_is_plan_held_latest_hold_resume_event_wins():
+    held = _Event("held", occurred_at=_T0, created_at=_T0)
+    resumed = _Event("resumed", occurred_at=_T0 + timedelta(minutes=5),
+                     created_at=_T0 + timedelta(minutes=5))
+    assert is_plan_held([held]) is True
+    assert is_plan_held([held, resumed]) is False
+    assert is_plan_held([]) is False
+
+
+from core.open_loop_execution import plan_open_loop_actions  # noqa: E402
+
+
+class _Intent:
+    def __init__(self, intent_id, not_before, deadline):
+        self.intent_id = intent_id
+        self.not_before = not_before
+        self.deadline = deadline
+
+
+def test_plan_actions_claims_due_intents_when_no_miss():
+    now = _T0 + timedelta(hours=1)
+    horizon = _T0 + timedelta(days=6)
+    a = _Intent("a", not_before=now - timedelta(seconds=60), deadline=horizon)  # due
+    b = _Intent("b", not_before=now + timedelta(hours=5), deadline=horizon)  # pending
+    actions = plan_open_loop_actions(
+        [a, b], {}, now=now, premove_seconds=300
+    )
+    assert actions.missed_intent is None
+    assert [i.intent_id for i in actions.due_intents] == ["a"]
+
+
+def test_plan_actions_missed_deadline_invalidates_all_remaining_pending():
+    now = _T0 + timedelta(hours=25)
+    past = now - timedelta(minutes=1)  # deadline already passed -> missed
+    a = _Intent("a", not_before=_T0 + timedelta(hours=1), deadline=past)
+    b = _Intent("b", not_before=_T0 + timedelta(hours=2), deadline=past)
+    c = _Intent("c", not_before=_T0 + timedelta(hours=3), deadline=past)
+    actions = plan_open_loop_actions(
+        [a, b, c], {}, now=now, premove_seconds=300
+    )
+    assert actions.missed_intent.intent_id == "a"           # earliest pending
+    assert {i.intent_id for i in actions.invalidated_intents} == {"b", "c"}
+    assert actions.due_intents == ()                        # no claiming on a miss
+
+
+def test_plan_actions_skips_already_claimed_intents():
+    now = _T0 + timedelta(hours=1)
+    horizon = _T0 + timedelta(days=6)
+    a = _Intent("a", not_before=now - timedelta(seconds=60), deadline=horizon)
+    b = _Intent("b", not_before=now - timedelta(seconds=60), deadline=horizon)
+    # a is already claimed -> only b is due.
+    actions = plan_open_loop_actions(
+        [a, b], {"a": [_Event("claimed")]},
+        now=now, premove_seconds=300
+    )
+    assert [i.intent_id for i in actions.due_intents] == ["b"]

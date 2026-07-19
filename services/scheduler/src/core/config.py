@@ -81,6 +81,12 @@ class Settings(BaseSettings):
     schedule_horizon_days: int = 7
     control_model_step_seconds: int = Field(default=300, gt=0)
     control_max_intermediate_trims: int = Field(default=1, ge=0, le=2)
+    # PR 5.2b open-loop execution: the worker only claims intents in "shadow" mode;
+    # "disabled" is dark (no claiming); "operator_approved" is DEFINED but REFUSED in
+    # 5.2 (execute path is 7.x). Nothing here dispatches or actuates.
+    control_execution_mode: str = "disabled"
+    control_authority_lease_hours: int = Field(default=24, gt=0)
+    control_premove_validation_seconds: int = Field(default=300, ge=0)
 
     # Field Team Configuration
     max_operations_per_day: int = 30
