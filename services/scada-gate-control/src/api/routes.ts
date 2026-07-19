@@ -12,6 +12,7 @@ import { z } from 'zod';
 import type { CommandOutcome, CommandService } from '../services/command-service';
 import type { GateSnapshot } from '../state/store';
 import type { WriteDenyReason } from '../domain/write-safety';
+import type { DeviceCapabilitySnapshot } from '../domain/machine-boundary';
 import type { TokenVerifier } from './auth';
 import { requireAuth } from './middleware';
 import { commandRateLimit, SlidingWindowRateLimiter, type RateLimitConfig } from './rate-limit';
@@ -23,6 +24,9 @@ export type ApiDeps = {
   readonly site: { readonly gateId: string; readonly name: string };
   readonly endpoint: { readonly host: string; readonly port: number; readonly unitId: number };
   readonly rateLimit: RateLimitConfig;
+  // PR 6.1a — the content-hashed device-capability snapshot, loaded once at
+  // startup and served read-only via the internal capability endpoint.
+  readonly deviceCapabilities: DeviceCapabilitySnapshot;
 };
 
 const commandLevelSchema = z.object({ targetValue: z.number(), confirmed: z.boolean() });

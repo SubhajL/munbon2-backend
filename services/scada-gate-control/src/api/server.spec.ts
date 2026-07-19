@@ -4,6 +4,7 @@ import { describe, expect, test } from 'vitest';
 import { buildServer } from './server';
 import { JwtTokenVerifier } from './auth';
 import { CommandService } from '../services/command-service';
+import { emptyDeviceCapabilitySnapshot } from '../domain/device-registry';
 import { InMemoryAuditRepository } from '../audit/memory-repository';
 import type { GateActuator } from '../state/gate-controller';
 import { buildSnapshot, emptyState, recordPoll, type GateSnapshot } from '../state/store';
@@ -66,6 +67,7 @@ function setup(rateLimit = generousRateLimit) {
     site,
     endpoint,
     rateLimit,
+    deviceCapabilities: emptyDeviceCapabilitySnapshot(),
   });
   return { app, writes, audit };
 }

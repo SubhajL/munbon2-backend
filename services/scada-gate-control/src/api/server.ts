@@ -1,5 +1,6 @@
 import express, { type Express, type NextFunction, type Request, type Response } from 'express';
 import { logger } from '../utils/logger';
+import { buildInternalRouter } from './internal-routes';
 import { buildRouter, type ApiDeps } from './routes';
 
 /** Builds the Express app (does not listen) so it can be driven by supertest. */
@@ -12,6 +13,7 @@ export function buildServer(deps: ApiDeps): Express {
   });
 
   app.use('/api', buildRouter(deps));
+  app.use('/internal', buildInternalRouter(deps));
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   app.use((error: unknown, req: Request, res: Response, _next: NextFunction) => {

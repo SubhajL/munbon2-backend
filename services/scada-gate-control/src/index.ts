@@ -5,6 +5,7 @@ import { ModbusSerialTransport } from './transport/modbus-serial-transport';
 import { GateController } from './state/gate-controller';
 import { JwtTokenVerifier } from './api/auth';
 import { buildServer } from './api/server';
+import { loadDeviceCapabilitySnapshot } from './domain/device-registry';
 import { CommandService } from './services/command-service';
 import { InMemoryAuditRepository } from './audit/memory-repository';
 import { PostgresAuditRepository } from './audit/pg-repository';
@@ -55,6 +56,9 @@ async function main(): Promise<void> {
     site: config.site,
   });
 
+  // Fail-fast at startup on a broken registry (empty when unset = zero gates).
+  const deviceCapabilities = loadDeviceCapabilitySnapshot();
+
   const app = buildServer({
     verifier: new JwtTokenVerifier({
       secret: config.auth.jwtSecret,
@@ -66,6 +70,7 @@ async function main(): Promise<void> {
     site: config.site,
     endpoint,
     rateLimit: config.rateLimit,
+    deviceCapabilities,
   });
 
   controller.start();
