@@ -15,6 +15,7 @@ import type { WriteDenyReason } from '../domain/write-safety';
 import type { DeviceCapabilitySnapshot } from '../domain/machine-boundary';
 import type { ApprovedLineageAnchor } from '../domain/approved-field-artifact';
 import type { CommandIntentReceiptRepository } from '../command-intents/types';
+import type { ScadaMetrics } from '../metrics/registry';
 import type { TokenVerifier } from './auth';
 import type { ServiceTokenVerifier } from './service-auth';
 import { requireAuth } from './middleware';
@@ -40,6 +41,9 @@ export type ApiDeps = {
   readonly approvedLineageAnchor: ApprovedLineageAnchor | null;
   // PR 6.3b — the canonical_gate_id of the polled site gate for the readback projection, or null.
   readonly siteCanonicalGateId: string | null;
+  // PR 6.4 — the per-build Prometheus registry served at GET /metrics and incremented at the
+  // write chokepoint (writeMeter) and the validate route (schema_invalid rejections).
+  readonly metrics: ScadaMetrics;
 };
 
 const commandLevelSchema = z.object({ targetValue: z.number(), confirmed: z.boolean() });

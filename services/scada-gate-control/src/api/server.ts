@@ -19,6 +19,20 @@ export function buildServer(deps: ApiDeps): Express {
     res.json({ status: 'healthy', service: 'scada-gate-control' });
   });
 
+  // Prometheus scrape endpoint — unauthenticated (like /health), read-only, no body parser.
+  // It exposes only aggregate operational counts (write/rejection volume), never gate values
+  // or credentials. DEPLOY NOTE: like any Prometheus target, restrict reachability at the
+  // network layer (bind the scrape port to the internal monitoring interface); do not expose
+  // it to untrusted networks.
+  app.get('/metrics', async (_req, res, next) => {
+    try {
+      res.set('Content-Type', deps.metrics.contentType);
+      res.send(await deps.metrics.render());
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.use('/api', buildRouter(deps));
   app.use('/internal', buildInternalRouter(deps));
 

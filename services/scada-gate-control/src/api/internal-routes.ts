@@ -23,10 +23,14 @@ import { projectGateReadback } from '../domain/gate-readback';
 import type { CommandIntent } from '../domain/machine-boundary';
 import type { ValidationReceiptRecord } from '../command-intents/types';
 import { logger } from '../utils/logger';
+import type { RejectionRecorder } from '../metrics/registry';
 import { requireServiceAuth } from './service-auth';
 import { requireAuth, requireRole } from './middleware';
 import type { ApiDeps } from './routes';
 
+// The machine boundary gets ONLY the rejection recorder, never the full ScadaMetrics — so it
+// is type-impossible for the no-actuator validate/readback router to record a Modbus write
+// (which would emit a phantom shadow-write tripwire hit). Mirrors the no-CommandService rule.
 type InternalDeps = Pick<
   ApiDeps,
   | 'verifier'
@@ -37,7 +41,7 @@ type InternalDeps = Pick<
   | 'approvedLineageAnchor'
   | 'snapshot'
   | 'siteCanonicalGateId'
->;
+> & { readonly metrics: RejectionRecorder };
 
 /** Return a stored receipt (idempotent replay) or a 409 conflict, without persisting. */
 function respondFromExisting(
@@ -102,6 +106,13 @@ export function buildInternalRouter(deps: InternalDeps): Router {
       try {
         if (!validateIntent(req.body)) {
           // A malformed intent cannot mint a trustworthy keyable receipt: 422, no receipt.
+          // schema_invalid is the ONLY rejection reason SCADA counts: its 422 body is a plain
+          // error (no receipt) that the scheduler persists nowhere, so it is invisible to the
+          // scheduler's 0010-derived metric. Every other reason DOES leave a durable receipt
+          // the scheduler counts — the merit rejections via a 200 receipt, and even
+          // idempotency_conflict via the 409 body, which is itself a ValidationReceipt the
+          // scheduler dispatcher persists into control_command_validation_receipts (PR 6.3a).
+          deps.metrics.recordSchemaInvalidRejection();
           res.status(422).json({
             error: 'command intent failed schema validation',
             reason_code: 'schema_invalid',

@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { emptyDeviceCapabilitySnapshot } from '../domain/device-registry';
 import type { DeviceCapabilitySnapshot } from '../domain/machine-boundary';
 import { InMemoryCommandIntentReceiptRepository } from '../command-intents/memory-repository';
+import { createScadaMetrics } from '../metrics/registry';
 import { buildSnapshot, emptyState } from '../state/store';
 import { JwtTokenVerifier } from './auth';
 import { buildInternalRouter } from './internal-routes';
@@ -55,6 +56,7 @@ function makeApp(deviceCapabilities: DeviceCapabilitySnapshot): express.Express 
       approvedLineageAnchor: null,
       snapshot: () => OFFLINE_SNAPSHOT,
       siteCanonicalGateId: null,
+      metrics: createScadaMetrics(),
     }),
   );
   return app;
@@ -104,6 +106,7 @@ describe('no-Modbus by construction (compile-time)', () => {
       approvedLineageAnchor: null,
       snapshot: () => OFFLINE_SNAPSHOT,
       siteCanonicalGateId: null,
+      metrics: createScadaMetrics(),
       // @ts-expect-error — the machine-boundary router MUST NOT accept an actuator/command
       // service; if this ever stops erroring, a write path leaked into the validate route.
       commandService: {},
