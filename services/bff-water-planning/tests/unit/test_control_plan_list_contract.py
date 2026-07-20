@@ -8,6 +8,9 @@ A shared fixture that BOTH strict models accept is the drift trip-wire.
 import json
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
 from schemas.control_plan import (
     ControlPlanListPageProjection,
     ControlPlanSummaryProjection,
@@ -27,13 +30,11 @@ def _load(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def test_bff_accepts_the_same_v1_list_fixture():
-    page = ControlPlanListPageProjection.model_validate(_load(_FIXTURE))
-    assert page.projection_schema_version == 1
-    assert len(page.items) == 2
-    assert page.items[0].approval_trust is True
-    assert page.items[1].optimizer_status == "infeasible"
-    assert page.items[1].prediction_run_id is None
+def test_bff_runtime_rejects_the_retired_v1_list_fixture():
+    fixture = _load(_FIXTURE)
+    assert fixture["projection_schema_version"] == 1
+    with pytest.raises(ValidationError):
+        ControlPlanListPageProjection.model_validate(fixture)
 
 
 def test_bff_mirror_schema_and_fixture_agree_on_the_exact_field_set():

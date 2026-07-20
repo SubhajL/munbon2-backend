@@ -582,6 +582,12 @@ _CHAIN_TO_STATE = {
         ("review_requested", "draft", "under_review"),
         ("shadow_approved", "under_review", "approved_for_shadow"),
     ],
+    "shadow_active": [
+        ("draft_created", None, "draft"),
+        ("review_requested", "draft", "under_review"),
+        ("shadow_approved", "under_review", "approved_for_shadow"),
+        ("shadow_activated", "approved_for_shadow", "shadow_active"),
+    ],
     "cancelled": [
         ("draft_created", None, "draft"),
         ("cancelled", "draft", "cancelled"),

@@ -1,0 +1,29 @@
+{
+  "plan_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  "plan_version": 3,
+  "campaign_id": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+  "requirement_run_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+  "requirement_version": 2,
+  "model_snapshot_id": "model-snap-1",
+  "model_release_id": "model-rel-1",
+  "model_release_content_hash": "sha256:model-hash",
+  "input_content_hash": "sha256:input-hash",
+  "draft_content_hash": "sha256:draft-hash",
+  "optimizer_status": "infeasible",
+  "prediction_status": "infeasible",
+  "prediction_run_id": "pred-run-1",
+  "prediction_member_statuses": [
+    {
+      "member": "lower",
+      "status": "infeasible"
+    },
+    {
+      "member": "nominal",
+      "status": "infeasible"
+    },
+    {
+      "member": "upper",
+      "status": "infeasible"
+    }
+  ]
+}

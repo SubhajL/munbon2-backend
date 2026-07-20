@@ -78,6 +78,16 @@ safe-handover (activation/4.3c owns that) and NO one-approved-per-scope uniquene
   casually, and prefer inline `@asynccontextmanager` helpers over async fixtures (ratified
   pattern; survives the eventual pytest 8.x jump).
 
+## Control-plan read contract v2 (BE-FE0)
+
+The canonical read-only list/detail/prediction-coverage/ledger/lifecycle-history
+contract is pinned under `contracts/control-plans/v2/` with a manifest, per-file
+SHA-256 values, valid examples, and invalid drift fixtures. The list response is
+`projection_schema_version=2` and includes `shadow_active`; v1 remains immutable
+history and is no longer accepted by the runtime response model. Scheduler and
+BFF must update their strict mirrors and fixture suites atomically on any future
+version bump.
+
 ## Gotchas / Watch-outs (PR 4.2 audit — foundation repaired, features NOT)
 - **Removed as generation-drifted (2026-07-17)**: unit suites for MixedIntegerOptimizer +
   RealTimeAdapter (tested nonexistent APIs) and the 3 integration API suites (fake bearer

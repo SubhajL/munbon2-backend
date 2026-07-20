@@ -1,0 +1,547 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://munbon.internal/contracts/control-plans/v2/control-plan-detail.schema.json",
+  "$defs": {
+    "GatePlanEventOut": {
+      "additionalProperties": false,
+      "properties": {
+        "event_sequence": {
+          "title": "Event Sequence",
+          "type": "integer"
+        },
+        "gate_id": {
+          "title": "Gate Id",
+          "type": "string"
+        },
+        "event_kind": {
+          "enum": [
+            "open",
+            "trim",
+            "close"
+          ],
+          "title": "Event Kind",
+          "type": "string"
+        },
+        "planned_at": {
+          "format": "date-time",
+          "title": "Planned At",
+          "type": "string"
+        },
+        "target_position_m": {
+          "title": "Target Position M",
+          "type": "number"
+        },
+        "source_flow_m3s": {
+          "title": "Source Flow M3S",
+          "type": "number"
+        },
+        "gate_event_sequence": {
+          "title": "Gate Event Sequence",
+          "type": "integer"
+        },
+        "trim_ordinal": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Trim Ordinal"
+        }
+      },
+      "required": [
+        "event_sequence",
+        "gate_id",
+        "event_kind",
+        "planned_at",
+        "target_position_m",
+        "source_flow_m3s",
+        "gate_event_sequence",
+        "trim_ordinal"
+      ],
+      "title": "GatePlanEventOut",
+      "type": "object"
+    },
+    "PlanRequirementOut": {
+      "additionalProperties": false,
+      "properties": {
+        "requirement_id": {
+          "title": "Requirement Id",
+          "type": "string"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "source_version": {
+          "title": "Source Version",
+          "type": "integer"
+        },
+        "service_date": {
+          "format": "date",
+          "title": "Service Date",
+          "type": "string"
+        },
+        "section_id": {
+          "title": "Section Id",
+          "type": "string"
+        },
+        "zone": {
+          "title": "Zone",
+          "type": "integer"
+        },
+        "required_volume_m3": {
+          "title": "Required Volume M3",
+          "type": "number"
+        },
+        "window_start": {
+          "format": "date-time",
+          "title": "Window Start",
+          "type": "string"
+        },
+        "window_end": {
+          "format": "date-time",
+          "title": "Window End",
+          "type": "string"
+        },
+        "quality": {
+          "title": "Quality",
+          "type": "string"
+        },
+        "published_at": {
+          "format": "date-time",
+          "title": "Published At",
+          "type": "string"
+        },
+        "as_of_date": {
+          "format": "date",
+          "title": "As Of Date",
+          "type": "string"
+        },
+        "source_data_status": {
+          "const": "published",
+          "title": "Source Data Status"
+        },
+        "planning_disposition": {
+          "enum": [
+            "scheduled",
+            "no_delivery_required"
+          ],
+          "title": "Planning Disposition",
+          "type": "string"
+        },
+        "delivery_node_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Delivery Node Id"
+        },
+        "gate_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Gate Id"
+        },
+        "maximum_delivery_m3s": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Maximum Delivery M3S"
+        },
+        "approved_excess_m3": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Approved Excess M3"
+        },
+        "travel_delay_seconds": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Travel Delay Seconds"
+        },
+        "minimum_delivery_fraction": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Minimum Delivery Fraction"
+        },
+        "maximum_delivery_fraction": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Maximum Delivery Fraction"
+        },
+        "path_reach_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Path Reach Ids"
+        },
+        "rotation_windows": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Rotation Windows"
+        }
+      },
+      "required": [
+        "requirement_id",
+        "run_id",
+        "source_version",
+        "service_date",
+        "section_id",
+        "zone",
+        "required_volume_m3",
+        "window_start",
+        "window_end",
+        "quality",
+        "published_at",
+        "as_of_date",
+        "source_data_status",
+        "planning_disposition",
+        "delivery_node_id",
+        "gate_id",
+        "maximum_delivery_m3s",
+        "approved_excess_m3",
+        "travel_delay_seconds",
+        "minimum_delivery_fraction",
+        "maximum_delivery_fraction",
+        "path_reach_ids",
+        "rotation_windows"
+      ],
+      "title": "PlanRequirementOut",
+      "type": "object"
+    },
+    "PlanTransitionOut": {
+      "additionalProperties": false,
+      "properties": {
+        "transition_sequence": {
+          "title": "Transition Sequence",
+          "type": "integer"
+        },
+        "transition_type": {
+          "title": "Transition Type",
+          "type": "string"
+        },
+        "from_state": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "From State"
+        },
+        "to_state": {
+          "title": "To State",
+          "type": "string"
+        },
+        "actor_subject": {
+          "title": "Actor Subject",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reason"
+        },
+        "transition_document": {
+          "anyOf": [
+            {
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Transition Document"
+        },
+        "occurred_at": {
+          "format": "date-time",
+          "title": "Occurred At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "transition_sequence",
+        "transition_type",
+        "from_state",
+        "to_state",
+        "actor_subject",
+        "reason",
+        "occurred_at"
+      ],
+      "title": "PlanTransitionOut",
+      "type": "object"
+    },
+    "PredictionMemberStatusOut": {
+      "additionalProperties": false,
+      "properties": {
+        "member": {
+          "enum": [
+            "lower",
+            "nominal",
+            "upper"
+          ],
+          "title": "Member",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "completed",
+            "infeasible"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "member",
+        "status"
+      ],
+      "title": "PredictionMemberStatusOut",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "plan_id": {
+      "format": "uuid",
+      "title": "Plan Id",
+      "type": "string"
+    },
+    "plan_version": {
+      "title": "Plan Version",
+      "type": "integer"
+    },
+    "campaign_id": {
+      "format": "uuid",
+      "title": "Campaign Id",
+      "type": "string"
+    },
+    "lifecycle_state": {
+      "enum": [
+        "draft",
+        "under_review",
+        "approved_for_shadow",
+        "shadow_active",
+        "cancelled",
+        "superseded",
+        "invalidated"
+      ],
+      "title": "Lifecycle State",
+      "type": "string"
+    },
+    "input_content_hash": {
+      "title": "Input Content Hash",
+      "type": "string"
+    },
+    "draft_content_hash": {
+      "title": "Draft Content Hash",
+      "type": "string"
+    },
+    "requirement_run_id": {
+      "format": "uuid",
+      "title": "Requirement Run Id",
+      "type": "string"
+    },
+    "requirement_version": {
+      "title": "Requirement Version",
+      "type": "integer"
+    },
+    "model_snapshot_id": {
+      "title": "Model Snapshot Id",
+      "type": "string"
+    },
+    "model_release_id": {
+      "title": "Model Release Id",
+      "type": "string"
+    },
+    "model_release_content_hash": {
+      "title": "Model Release Content Hash",
+      "type": "string"
+    },
+    "optimizer_status": {
+      "enum": [
+        "feasible",
+        "infeasible"
+      ],
+      "title": "Optimizer Status",
+      "type": "string"
+    },
+    "prediction_status": {
+      "enum": [
+        "not_requested",
+        "completed",
+        "infeasible"
+      ],
+      "title": "Prediction Status",
+      "type": "string"
+    },
+    "prediction_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Prediction Run Id"
+    },
+    "prediction_member_statuses": {
+      "items": {
+        "$ref": "#/$defs/PredictionMemberStatusOut"
+      },
+      "title": "Prediction Member Statuses",
+      "type": "array"
+    },
+    "horizon_start": {
+      "format": "date-time",
+      "title": "Horizon Start",
+      "type": "string"
+    },
+    "horizon_end": {
+      "format": "date-time",
+      "title": "Horizon End",
+      "type": "string"
+    },
+    "model_step_seconds": {
+      "title": "Model Step Seconds",
+      "type": "integer"
+    },
+    "max_intermediate_trims": {
+      "title": "Max Intermediate Trims",
+      "type": "integer"
+    },
+    "optimizer_result": {
+      "title": "Optimizer Result",
+      "type": "object"
+    },
+    "requirements": {
+      "items": {
+        "$ref": "#/$defs/PlanRequirementOut"
+      },
+      "title": "Requirements",
+      "type": "array"
+    },
+    "events": {
+      "items": {
+        "$ref": "#/$defs/GatePlanEventOut"
+      },
+      "title": "Events",
+      "type": "array"
+    },
+    "transitions": {
+      "items": {
+        "$ref": "#/$defs/PlanTransitionOut"
+      },
+      "title": "Transitions",
+      "type": "array"
+    },
+    "created_by_subject": {
+      "title": "Created By Subject",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "plan_id",
+    "plan_version",
+    "campaign_id",
+    "lifecycle_state",
+    "input_content_hash",
+    "draft_content_hash",
+    "requirement_run_id",
+    "requirement_version",
+    "model_snapshot_id",
+    "model_release_id",
+    "model_release_content_hash",
+    "optimizer_status",
+    "prediction_status",
+    "prediction_run_id",
+    "prediction_member_statuses",
+    "horizon_start",
+    "horizon_end",
+    "model_step_seconds",
+    "max_intermediate_trims",
+    "optimizer_result",
+    "requirements",
+    "events",
+    "transitions",
+    "created_by_subject",
+    "created_at"
+  ],
+  "title": "DraftControlPlanResponse",
+  "type": "object"
+}

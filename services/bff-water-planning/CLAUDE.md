@@ -67,8 +67,15 @@ is **bounded** — header columns + a derived `lifecycle_state`/`approval_trust`
 flag only, never optimizer_result / requirements / events / transitions / ledger /
 trajectory — the cursor is opaque, and on any upstream failure the route fails
 closed (same taxonomy) rather than **fabricating an empty page**. Both sides
-validate the shared `contracts/control-plans/v1/` list-page fixture, so a mirror
-drift fails a test.
+validate the same versioned contract fixtures, so a mirror drift fails a test.
+BE-FE0 replaces the runtime list projection with the immutable
+`contracts/control-plans/v2/` contract set. V2 adds the already-valid
+`shadow_active` lifecycle state and canonical schemas/examples for list, detail,
+prediction coverage, ledger, and lifecycle history; the manifest pins every file
+and the complete set by SHA-256. The BFF accepts only list
+`projection_schema_version=2`, and every control-plan success or error response
+sets `Cache-Control: no-store`.
+
 The service now ships a `pytest.ini` (`testpaths=tests`, `asyncio_mode=strict`) so
 bare `pytest` is the gate and never collects the root integration scripts.
 

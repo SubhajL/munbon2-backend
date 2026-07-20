@@ -1,0 +1,46 @@
+{
+  "plan_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  "plan_version": 3,
+  "prediction_run_id": "pred-run-1",
+  "prediction_status": "completed",
+  "ledger_sha256": "sha256:ledger-hash",
+  "entries": [
+    {
+      "requirement_id": "req-1",
+      "section_id": "section-1",
+      "checkpoint_index": 0,
+      "checkpoint_at": "2026-07-17T00:00:00Z",
+      "status": "predicted_fulfilled",
+      "required_volume_m3": 800.0,
+      "approved_excess_m3": 10.0,
+      "delivered_m3": {
+        "lower_bound": 780.0,
+        "nominal": 800.0,
+        "upper_bound": 820.0
+      },
+      "path_in_transit_m3": {
+        "lower_bound": 0.0,
+        "nominal": 0.0,
+        "upper_bound": 0.0
+      },
+      "remaining_m3": {
+        "lower_bound": null,
+        "nominal": null,
+        "upper_bound": null
+      },
+      "checkpoint_reasons": [
+        "horizon_end"
+      ]
+    }
+  ],
+  "handover": [
+    {
+      "gate_id": "G1",
+      "requirement_ids": [
+        "req-1"
+      ],
+      "is_safe": true,
+      "reasons": []
+    }
+  ]
+}

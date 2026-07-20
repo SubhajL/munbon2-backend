@@ -15,8 +15,13 @@ from typing import Awaitable, Callable, Optional, TypeVar
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
+from fastapi.routing import APIRoute
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import ValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.responses import Response
 
 from core import get_logger
 from clients.scheduler_client import (
@@ -40,7 +45,38 @@ from schemas.control_plan import (
 )
 
 logger = get_logger(__name__)
-router = APIRouter(prefix="/api/v1/control-plans", tags=["control-plans"])
+
+
+class NoStoreControlPlanRoute(APIRoute):
+    def get_route_handler(
+        self,
+    ) -> Callable[[Request], Awaitable[Response]]:
+        route_handler = super().get_route_handler()
+
+        async def no_store_route_handler(request: Request) -> Response:
+            try:
+                response = await route_handler(request)
+            except RequestValidationError as exc:
+                response = await request_validation_exception_handler(request, exc)
+            except StarletteHTTPException as exc:
+                headers = dict(exc.headers or {})
+                headers["Cache-Control"] = "no-store"
+                raise HTTPException(
+                    status_code=exc.status_code,
+                    detail=exc.detail,
+                    headers=headers,
+                ) from exc
+            response.headers["Cache-Control"] = "no-store"
+            return response
+
+        return no_store_route_handler
+
+
+router = APIRouter(
+    prefix="/api/v1/control-plans",
+    tags=["control-plans"],
+    route_class=NoStoreControlPlanRoute,
+)
 
 # The scheduler remains the JWT + Redis-blacklist authority; the BFF forwards the
 # operator's bearer token and never issues a service token of its own.

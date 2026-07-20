@@ -1,0 +1,207 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://munbon.internal/contracts/control-plans/v2/control-plan-ledger.schema.json",
+  "$defs": {
+    "HandoverVerdictOut": {
+      "additionalProperties": false,
+      "properties": {
+        "gate_id": {
+          "title": "Gate Id",
+          "type": "string"
+        },
+        "requirement_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Requirement Ids",
+          "type": "array"
+        },
+        "is_safe": {
+          "title": "Is Safe",
+          "type": "boolean"
+        },
+        "reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reasons",
+          "type": "array"
+        }
+      },
+      "required": [
+        "gate_id",
+        "requirement_ids",
+        "is_safe",
+        "reasons"
+      ],
+      "title": "HandoverVerdictOut",
+      "type": "object"
+    },
+    "LedgerEntryOut": {
+      "additionalProperties": false,
+      "properties": {
+        "requirement_id": {
+          "title": "Requirement Id",
+          "type": "string"
+        },
+        "section_id": {
+          "title": "Section Id",
+          "type": "string"
+        },
+        "checkpoint_index": {
+          "title": "Checkpoint Index",
+          "type": "integer"
+        },
+        "checkpoint_at": {
+          "format": "date-time",
+          "title": "Checkpoint At",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "required_volume_m3": {
+          "title": "Required Volume M3",
+          "type": "number"
+        },
+        "approved_excess_m3": {
+          "title": "Approved Excess M3",
+          "type": "number"
+        },
+        "delivered_m3": {
+          "$ref": "#/$defs/MemberBoundsOut"
+        },
+        "path_in_transit_m3": {
+          "$ref": "#/$defs/MemberBoundsOut"
+        },
+        "remaining_m3": {
+          "$ref": "#/$defs/MemberBoundsOut"
+        },
+        "checkpoint_reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Checkpoint Reasons",
+          "type": "array"
+        }
+      },
+      "required": [
+        "requirement_id",
+        "section_id",
+        "checkpoint_index",
+        "checkpoint_at",
+        "status",
+        "required_volume_m3",
+        "approved_excess_m3",
+        "delivered_m3",
+        "path_in_transit_m3",
+        "remaining_m3",
+        "checkpoint_reasons"
+      ],
+      "title": "LedgerEntryOut",
+      "type": "object"
+    },
+    "MemberBoundsOut": {
+      "additionalProperties": false,
+      "properties": {
+        "lower_bound": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Lower Bound"
+        },
+        "nominal": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Nominal"
+        },
+        "upper_bound": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Upper Bound"
+        }
+      },
+      "required": [
+        "lower_bound",
+        "nominal",
+        "upper_bound"
+      ],
+      "title": "MemberBoundsOut",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "plan_id": {
+      "format": "uuid",
+      "title": "Plan Id",
+      "type": "string"
+    },
+    "plan_version": {
+      "title": "Plan Version",
+      "type": "integer"
+    },
+    "prediction_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Prediction Run Id"
+    },
+    "prediction_status": {
+      "title": "Prediction Status",
+      "type": "string"
+    },
+    "ledger_sha256": {
+      "title": "Ledger Sha256",
+      "type": "string"
+    },
+    "entries": {
+      "items": {
+        "$ref": "#/$defs/LedgerEntryOut"
+      },
+      "title": "Entries",
+      "type": "array"
+    },
+    "handover": {
+      "items": {
+        "$ref": "#/$defs/HandoverVerdictOut"
+      },
+      "title": "Handover",
+      "type": "array"
+    }
+  },
+  "required": [
+    "plan_id",
+    "plan_version",
+    "prediction_run_id",
+    "prediction_status",
+    "ledger_sha256",
+    "entries",
+    "handover"
+  ],
+  "title": "ControlPlanLedgerResponse",
+  "type": "object"
+}

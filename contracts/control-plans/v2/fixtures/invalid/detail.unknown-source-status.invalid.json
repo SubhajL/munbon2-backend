@@ -1,0 +1,123 @@
+{
+  "plan_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  "plan_version": 3,
+  "campaign_id": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+  "lifecycle_state": "shadow_active",
+  "input_content_hash": "sha256:input-hash",
+  "draft_content_hash": "sha256:draft-hash",
+  "requirement_run_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+  "requirement_version": 2,
+  "model_snapshot_id": "model-snap-1",
+  "model_release_id": "model-rel-1",
+  "model_release_content_hash": "sha256:model-hash",
+  "optimizer_status": "feasible",
+  "prediction_status": "completed",
+  "prediction_run_id": "pred-run-1",
+  "prediction_member_statuses": [
+    {
+      "member": "lower",
+      "status": "completed"
+    },
+    {
+      "member": "nominal",
+      "status": "completed"
+    },
+    {
+      "member": "upper",
+      "status": "completed"
+    }
+  ],
+  "horizon_start": "2026-07-16T00:00:00Z",
+  "horizon_end": "2026-07-17T00:00:00Z",
+  "model_step_seconds": 3600,
+  "max_intermediate_trims": 2,
+  "optimizer_result": {
+    "objective": 1.5,
+    "gates": {
+      "G1": 0.4
+    }
+  },
+  "requirements": [
+    {
+      "requirement_id": "req-1",
+      "run_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "source_version": 2,
+      "service_date": "2026-07-16",
+      "section_id": "section-1",
+      "zone": 1,
+      "required_volume_m3": 800.0,
+      "window_start": "2026-07-16T06:00:00Z",
+      "window_end": "2026-07-16T18:00:00Z",
+      "quality": "estimated",
+      "published_at": "2026-07-16T02:30:00Z",
+      "as_of_date": "2026-07-16",
+      "source_data_status": "stale",
+      "planning_disposition": "scheduled",
+      "delivery_node_id": "node-1",
+      "gate_id": "G1",
+      "maximum_delivery_m3s": 0.48,
+      "approved_excess_m3": 10.0,
+      "travel_delay_seconds": 3600,
+      "minimum_delivery_fraction": 0.1,
+      "maximum_delivery_fraction": 1.0,
+      "path_reach_ids": [
+        "reach-1",
+        "reach-2"
+      ],
+      "rotation_windows": [
+        {
+          "start": "2026-07-16T06:00:00Z",
+          "end": "2026-07-16T18:00:00Z"
+        }
+      ]
+    }
+  ],
+  "events": [
+    {
+      "event_sequence": 1,
+      "gate_id": "G1",
+      "event_kind": "open",
+      "planned_at": "2026-07-16T06:00:00Z",
+      "target_position_m": 0.4,
+      "source_flow_m3s": 0.48,
+      "gate_event_sequence": 1,
+      "trim_ordinal": null
+    }
+  ],
+  "transitions": [
+    {
+      "transition_sequence": 1,
+      "transition_type": "create",
+      "from_state": null,
+      "to_state": "draft",
+      "actor_subject": "operator-7",
+      "reason": null,
+      "transition_document": null,
+      "occurred_at": "2026-07-16T02:00:00Z"
+    },
+    {
+      "transition_sequence": 2,
+      "transition_type": "review",
+      "from_state": "draft",
+      "to_state": "under_review",
+      "actor_subject": "operator-7",
+      "reason": "ready for review",
+      "transition_document": null,
+      "occurred_at": "2026-07-16T02:45:00Z"
+    },
+    {
+      "transition_sequence": 3,
+      "transition_type": "shadow_activated",
+      "from_state": "approved_for_shadow",
+      "to_state": "shadow_active",
+      "actor_subject": "operator-7",
+      "reason": "approved field rehearsal",
+      "transition_document": {
+        "machine_authority_granted": true
+      },
+      "occurred_at": "2026-07-16T03:30:00Z"
+    }
+  ],
+  "created_by_subject": "operator-7",
+  "created_at": "2026-07-16T02:00:00Z"
+}

@@ -38,6 +38,14 @@ def _finite_number(value: Any) -> Any:
     return value
 
 
+def _strict_json_int(value: Any) -> Any:
+    if value is None:
+        return value
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError("expected a JSON integer")
+    return value
+
+
 def _no_boundary_whitespace(value: str) -> str:
     # The optimizer rejects boundary whitespace on identifiers (Munbon gate ids
     # legitimately carry interior spaces), so catch it here as a 422 rather than
@@ -58,6 +66,7 @@ def _non_blank(value: str) -> str:
 AwareUtc = Annotated[datetime, AfterValidator(_require_aware_utc)]
 StrictNumber = Annotated[float, BeforeValidator(_finite_number)]
 StrictInt = Annotated[int, BeforeValidator(_reject_bool)]
+StrictJsonInt = Annotated[int, BeforeValidator(_strict_json_int)]
 StrictId = Annotated[str, Field(min_length=1), AfterValidator(_no_boundary_whitespace)]
 NonBlank = Annotated[str, Field(min_length=1), AfterValidator(_non_blank)]
 # Bounded, non-blank text for the persisted shadow-approval document: the list
@@ -188,23 +197,23 @@ class DraftControlPlanRequest(_StrictModel):
 class PlanRequirementOut(_StrictModel):
     requirement_id: str
     run_id: str
-    source_version: int
+    source_version: StrictJsonInt
     service_date: date
     section_id: str
-    zone: int
+    zone: StrictJsonInt
     required_volume_m3: float
     window_start: datetime
     window_end: datetime
     quality: str
     published_at: datetime
     as_of_date: date
-    source_data_status: str
+    source_data_status: Literal["published"]
     planning_disposition: Literal["scheduled", "no_delivery_required"]
     delivery_node_id: Optional[str]
     gate_id: Optional[str]
     maximum_delivery_m3s: Optional[float]
     approved_excess_m3: Optional[float]
-    travel_delay_seconds: Optional[int]
+    travel_delay_seconds: Optional[StrictJsonInt]
     minimum_delivery_fraction: Optional[float]
     maximum_delivery_fraction: Optional[float]
     path_reach_ids: Optional[list[str]]
@@ -212,18 +221,18 @@ class PlanRequirementOut(_StrictModel):
 
 
 class GatePlanEventOut(_StrictModel):
-    event_sequence: int
+    event_sequence: StrictJsonInt
     gate_id: str
     event_kind: Literal["open", "trim", "close"]
     planned_at: datetime
     target_position_m: float
     source_flow_m3s: float
-    gate_event_sequence: int
-    trim_ordinal: Optional[int]
+    gate_event_sequence: StrictJsonInt
+    trim_ordinal: Optional[StrictJsonInt]
 
 
 class PlanTransitionOut(_StrictModel):
-    transition_sequence: int
+    transition_sequence: StrictJsonInt
     transition_type: str
     from_state: Optional[str]
     to_state: str
@@ -247,7 +256,7 @@ class MemberBoundsOut(_StrictModel):
 class LedgerEntryOut(_StrictModel):
     requirement_id: str
     section_id: str
-    checkpoint_index: int
+    checkpoint_index: StrictJsonInt
     checkpoint_at: datetime
     status: str
     required_volume_m3: float
@@ -267,7 +276,7 @@ class HandoverVerdictOut(_StrictModel):
 
 class ControlPlanLedgerResponse(_StrictModel):
     plan_id: UUID
-    plan_version: int
+    plan_version: StrictJsonInt
     prediction_run_id: Optional[str]
     prediction_status: str
     ledger_sha256: str
@@ -321,7 +330,7 @@ _LIFECYCLE_STATE = Literal[
 
 class DraftControlPlanResponse(_StrictModel):
     plan_id: UUID
-    plan_version: int
+    plan_version: StrictJsonInt
     # The stable campaign identity this version belongs to (PR 4.4b-4); a legacy
     # singleton campaign's id equals its plan_id.
     campaign_id: UUID
@@ -329,7 +338,7 @@ class DraftControlPlanResponse(_StrictModel):
     input_content_hash: str
     draft_content_hash: str
     requirement_run_id: UUID
-    requirement_version: int
+    requirement_version: StrictJsonInt
     model_snapshot_id: str
     model_release_id: str
     model_release_content_hash: str
@@ -339,8 +348,8 @@ class DraftControlPlanResponse(_StrictModel):
     prediction_member_statuses: list[PredictionMemberStatusOut]
     horizon_start: datetime
     horizon_end: datetime
-    model_step_seconds: int
-    max_intermediate_trims: int
+    model_step_seconds: StrictJsonInt
+    max_intermediate_trims: StrictJsonInt
     optimizer_result: dict[str, Any]
     requirements: list[PlanRequirementOut]
     events: list[GatePlanEventOut]
@@ -360,12 +369,12 @@ class ControlPlanPredictionCoverageResponse(_StrictModel):
     detail response already exposes; `infeasible`/`not_requested` are verbatim."""
 
     plan_id: UUID
-    plan_version: int
+    plan_version: StrictJsonInt
     # The campaign this version belongs to, sourced from the mapping table via a
     # small indexed join (PR 4.4b-4).
     campaign_id: UUID
     requirement_run_id: UUID
-    requirement_version: int
+    requirement_version: StrictJsonInt
     model_snapshot_id: str
     model_release_id: str
     model_release_content_hash: str
@@ -382,7 +391,7 @@ class ControlPlanLifecycleHistoryResponse(_StrictModel):
     history, each `transition_document` preserved verbatim (history needs them)."""
 
     plan_id: UUID
-    plan_version: int
+    plan_version: StrictJsonInt
     lifecycle_state: _LIFECYCLE_STATE
     created_by_subject: str
     created_at: datetime
@@ -462,7 +471,7 @@ class ControlPlanExecutionStateResponse(_StrictModel):
 # document (optimizer_result, prediction response, requirements/events/
 # transitions/ledger, trajectory). Bumping this version signals an incompatible
 # change to the list-page shape to every consumer (scheduler + BFF + contracts).
-PROJECTION_SCHEMA_VERSION = 1
+PROJECTION_SCHEMA_VERSION = 2
 
 
 class ControlPlanListFilters(_StrictModel):
@@ -496,7 +505,7 @@ class ControlPlanSummaryOut(_StrictModel):
     requirements/events/transitions/ledger, NO trajectory."""
 
     plan_id: UUID
-    plan_version: int
+    plan_version: StrictJsonInt
     # Stable campaign identity (PR 4.4b-4), joined from the mapping table.
     campaign_id: UUID
     lifecycle_state: _LIFECYCLE_STATE
@@ -504,7 +513,7 @@ class ControlPlanSummaryOut(_StrictModel):
     horizon_start: datetime
     horizon_end: datetime
     requirement_run_id: UUID
-    requirement_version: int
+    requirement_version: StrictJsonInt
     input_content_hash: str
     model_snapshot_id: str
     model_release_content_hash: str
@@ -523,4 +532,4 @@ class ControlPlanListPage(_StrictModel):
     # it as a Literal (not a bare int) means bumping the projection is a deliberate
     # code change on both the scheduler and the BFF mirror, and an unexpected
     # version can never round-trip silently.
-    projection_schema_version: Literal[1]
+    projection_schema_version: Annotated[Literal[2], BeforeValidator(_strict_json_int)]
