@@ -6,6 +6,7 @@ import { JwtTokenVerifier } from './auth';
 import { CommandService } from '../services/command-service';
 import { emptyDeviceCapabilitySnapshot } from '../domain/device-registry';
 import { InMemoryAuditRepository } from '../audit/memory-repository';
+import { InMemoryCommandIntentReceiptRepository } from '../command-intents/memory-repository';
 import type { GateActuator } from '../state/gate-controller';
 import { buildSnapshot, emptyState, recordPoll, type GateSnapshot } from '../state/store';
 import type { ModbusWrite } from '../domain/command';
@@ -68,6 +69,9 @@ function setup(rateLimit = generousRateLimit) {
     endpoint,
     rateLimit,
     deviceCapabilities: emptyDeviceCapabilitySnapshot(),
+    serviceVerifier: null,
+    receipts: new InMemoryCommandIntentReceiptRepository(),
+    clock: () => 1_700_000_000_000,
   });
   return { app, writes, audit };
 }

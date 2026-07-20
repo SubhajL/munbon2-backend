@@ -7,13 +7,15 @@
  * All routes require authentication (Viewer can read); writes are additionally
  * gated by the command service's safety planner.
  */
-import { Router, type Request, type Response } from 'express';
+import express, { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import type { CommandOutcome, CommandService } from '../services/command-service';
 import type { GateSnapshot } from '../state/store';
 import type { WriteDenyReason } from '../domain/write-safety';
 import type { DeviceCapabilitySnapshot } from '../domain/machine-boundary';
+import type { CommandIntentReceiptRepository } from '../command-intents/types';
 import type { TokenVerifier } from './auth';
+import type { ServiceTokenVerifier } from './service-auth';
 import { requireAuth } from './middleware';
 import { commandRateLimit, SlidingWindowRateLimiter, type RateLimitConfig } from './rate-limit';
 
@@ -27,6 +29,11 @@ export type ApiDeps = {
   // PR 6.1a — the content-hashed device-capability snapshot, loaded once at
   // startup and served read-only via the internal capability endpoint.
   readonly deviceCapabilities: DeviceCapabilitySnapshot;
+  // PR 6.2 — the machine-boundary validate endpoint's deps. serviceVerifier is null
+  // when SCHEDULER_SERVICE_JWT_SECRET is unset (the endpoint then fails closed 503).
+  readonly serviceVerifier: ServiceTokenVerifier | null;
+  readonly receipts: CommandIntentReceiptRepository;
+  readonly clock: () => number;
 };
 
 const commandLevelSchema = z.object({ targetValue: z.number(), confirmed: z.boolean() });
@@ -50,6 +57,7 @@ function outcomeStatus(outcome: CommandOutcome): number {
 
 export function buildRouter(deps: ApiDeps): Router {
   const router = Router();
+  router.use(express.json({ limit: '2kb' })); // command bodies are tiny (scoped here, not global)
   const auth = requireAuth(deps.verifier);
   const limiter = new SlidingWindowRateLimiter(deps.rateLimit);
   const rateLimit = commandRateLimit(

@@ -11,12 +11,18 @@ declare global {
   }
 }
 
+/** Extract the token from an `Authorization: Bearer <token>` header, or null. Shared by
+ * the operator (`requireAuth`) and scheduler-service (`requireServiceAuth`) middleware so
+ * the header-parsing rule cannot diverge across the two auth surfaces. */
+export function extractBearerToken(req: Request): string | null {
+  const match = /^Bearer (.+)$/i.exec(req.header('authorization') ?? '');
+  return match?.[1] ?? null;
+}
+
 /** Express middleware: require a valid Bearer access token; attaches req.auth. */
 export function requireAuth(verifier: TokenVerifier) {
   return (req: Request, res: Response, next: NextFunction): void => {
-    const header = req.header('authorization') ?? '';
-    const match = /^Bearer (.+)$/i.exec(header);
-    const token = match?.[1];
+    const token = extractBearerToken(req);
     if (!token) {
       res.status(401).json({ error: 'missing bearer token' });
       return;

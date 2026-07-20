@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 import { emptyDeviceCapabilitySnapshot } from '../domain/device-registry';
 import type { DeviceCapabilitySnapshot } from '../domain/machine-boundary';
+import { InMemoryCommandIntentReceiptRepository } from '../command-intents/memory-repository';
 import { JwtTokenVerifier } from './auth';
 import { buildInternalRouter } from './internal-routes';
 
@@ -42,6 +43,9 @@ function makeApp(deviceCapabilities: DeviceCapabilitySnapshot): express.Express 
     buildInternalRouter({
       verifier: new JwtTokenVerifier({ secret: SECRET, issuer: ISSUER, audience: AUDIENCE }),
       deviceCapabilities,
+      serviceVerifier: null,
+      receipts: new InMemoryCommandIntentReceiptRepository(),
+      clock: () => 1_700_000_000_000,
     }),
   );
   return app;
@@ -76,5 +80,22 @@ describe('GET /internal/v1/device-capabilities', () => {
       .expect(200);
     expect(res.body.capabilities).toEqual({});
     expect(res.body.capability_release_id).toBe('__empty__');
+  });
+});
+
+describe('no-Modbus by construction (compile-time)', () => {
+  it('does not type-check an actuator/commandService into the internal router', () => {
+    const verifier = new JwtTokenVerifier({ secret: SECRET, issuer: ISSUER, audience: AUDIENCE });
+    const router = buildInternalRouter({
+      verifier,
+      deviceCapabilities: emptyDeviceCapabilitySnapshot(),
+      serviceVerifier: null,
+      receipts: new InMemoryCommandIntentReceiptRepository(),
+      clock: () => 0,
+      // @ts-expect-error — the machine-boundary router MUST NOT accept an actuator/command
+      // service; if this ever stops erroring, a write path leaked into the validate route.
+      commandService: {},
+    });
+    expect(router).toBeDefined();
   });
 });
