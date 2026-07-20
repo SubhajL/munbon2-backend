@@ -16,6 +16,8 @@ from pydantic import (
     model_validator,
 )
 
+from schemas.machine_boundary import ValidationRejectionReason
+
 
 def _require_aware_utc(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
@@ -385,6 +387,74 @@ class ControlPlanLifecycleHistoryResponse(_StrictModel):
     created_by_subject: str
     created_at: datetime
     transitions: list[PlanTransitionOut]
+
+
+# --- Bounded machine-boundary reads (PR 6.5a) -------------------------------
+# Read-only projections of the shadow-dispatch durable evidence, for the operator
+# dashboard (via the BFF). NO large documents; NO command affordance.
+class IntentTimelineEntryOut(_StrictModel):
+    """One command intent's claimed→dispatched→validated arc: the outbox intent
+    (gate/kind/window, 0007), its per-intent execution state (0009), and its
+    validation receipt (0010) if one has been persisted yet. Delivery is PREDICTED
+    evidence — never an observed device state."""
+
+    intent_id: UUID
+    canonical_gate_id: str
+    event_kind: Literal["open", "trim", "close"]
+    event_sequence: int
+    not_before: datetime
+    deadline: datetime
+    execution_state: Literal["pending", "claimed", "missed", "invalidated"]
+    claimed_at: Optional[datetime]
+    receipt_status: Optional[Literal["validation_accepted", "validation_rejected"]]
+    # The frozen 6.0 rejection vocabulary — a stored out-of-vocab reason fails closed (503)
+    # at the projection rather than passing an unknown value through to the dashboard.
+    reason_code: Optional[ValidationRejectionReason]
+    validated_at: Optional[datetime]
+    dispatched_at: Optional[datetime]
+    receipt_content_sha256: Optional[str]
+
+
+class ControlPlanIntentTimelineResponse(_StrictModel):
+    plan_id: UUID
+    plan_version: int
+    intents: list[IntentTimelineEntryOut]
+
+
+class ReadbackObservationOut(_StrictModel):
+    """One shadow readback reconciliation observation (0011). `unavailable` means the
+    reading could not be trusted (never a hold); a null observed_level is explicit."""
+
+    canonical_gate_id: str
+    observed_level: Optional[int]
+    expected_level: int
+    quality: str
+    verdict: Literal["ok", "mismatch", "unavailable"]
+    reconciliation_mode: Literal["observe", "enforce"]
+    observed_at: datetime
+
+
+class ControlPlanReadbackObservationsResponse(_StrictModel):
+    plan_id: UUID
+    plan_version: int
+    observations: list[ReadbackObservationOut]
+
+
+class HoldEventOut(_StrictModel):
+    event_type: Literal["held", "resumed"]
+    worker_id: Optional[str]
+    occurred_at: datetime
+
+
+class ControlPlanExecutionStateResponse(_StrictModel):
+    """Plan-level open-loop execution posture: the DERIVED current hold state plus the
+    ordered held/resumed history (0009). A hold pauses claiming; it is NOT a lifecycle
+    exit (the plan keeps its authority)."""
+
+    plan_id: UUID
+    plan_version: int
+    is_held: bool
+    hold_events: list[HoldEventOut]
 
 
 # --- Bounded list projection (PR 4.4a-3) ------------------------------------

@@ -42,7 +42,15 @@ from tests.control_plan_test_support import (
 _OPERATOR = {"sub": "operator-1", "roles": ["operator"], "iss": "munbon-auth"}
 _FIELD_TEAM = {"sub": "ft-1", "roles": ["field_team"]}
 
-_SUFFIXES = ("/prediction-coverage", "/lifecycle-history", "/ledger")
+_SUFFIXES = (
+    "/prediction-coverage",
+    "/lifecycle-history",
+    "/ledger",
+    # PR 6.5a machine-boundary reads
+    "/intent-timeline",
+    "/readback-observations",
+    "/execution-state",
+)
 
 
 async def _run_blocking(func, *args, **kwargs):
@@ -99,6 +107,15 @@ class _RaisingProjectionRepo:
 
     async def load_ledger_projection(self, session, plan_id, plan_version):
         raise ProjectionCorruptError("stored ledger row is corrupt")
+
+    async def load_intent_timeline_projection(self, session, plan_id, plan_version):
+        raise ProjectionCorruptError("intent execution history is corrupt")
+
+    async def load_readback_observations_projection(self, session, plan_id, plan_version):
+        raise ProjectionCorruptError("stored observation is corrupt")
+
+    async def load_execution_state_projection(self, session, plan_id, plan_version):
+        raise ProjectionCorruptError("stored hold event is corrupt")
 
 
 def _base(plan_id, plan_version=1):
@@ -209,6 +226,9 @@ def test_read_projection_fake_pins_the_real_repository_interface():
         "load_prediction_coverage",
         "load_lifecycle_history",
         "load_ledger_projection",
+        "load_intent_timeline_projection",
+        "load_readback_observations_projection",
+        "load_execution_state_projection",
     ):
         real_sig = inspect.signature(getattr(real, name))
         fake_sig = inspect.signature(getattr(fake, name))

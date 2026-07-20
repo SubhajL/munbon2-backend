@@ -21,9 +21,12 @@ from core.control_plan_cursor import decode_plan_cursor, encode_plan_cursor
 from core.control_plan_lifecycle import derive_control_plan_state
 from core.auth import is_trusted_shadow_approval
 from repositories.control_plan_projection_repository import (
+    build_execution_state,
+    build_intent_timeline,
     build_ledger_projection,
     build_lifecycle_history,
     build_prediction_coverage,
+    build_readback_observations,
 )
 from repositories.control_plan_repository import (
     PlanContentConflictError,
@@ -845,4 +848,31 @@ class FakeReadProjectionRepository:
             else build_ledger_projection(
                 record, record.ledger_entries, record.events, record.requirements
             )
+        )
+
+    # PR 6.5a machine-boundary reads. A DraftPlanRecord carries no outbox/execution/
+    # receipt/observation rows, so these fold empty inputs (present plan → empty
+    # projection, absent plan → None) — enough to pin the route RBAC/404/503 behavior.
+    async def load_intent_timeline_projection(self, session, plan_id, plan_version):
+        record = self._record(plan_id, plan_version)
+        return (
+            None
+            if record is None
+            else build_intent_timeline(plan_id, plan_version, [], [], [])
+        )
+
+    async def load_readback_observations_projection(self, session, plan_id, plan_version):
+        record = self._record(plan_id, plan_version)
+        return (
+            None
+            if record is None
+            else build_readback_observations(plan_id, plan_version, [])
+        )
+
+    async def load_execution_state_projection(self, session, plan_id, plan_version):
+        record = self._record(plan_id, plan_version)
+        return (
+            None
+            if record is None
+            else build_execution_state(plan_id, plan_version, [])
         )

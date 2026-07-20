@@ -35,10 +35,15 @@ from repositories.control_plan_projection_repository import (
     coverage_query,
     history_header_query,
     history_transitions_query,
+    hold_events_query,
     ledger_entries_query,
     ledger_events_query,
     ledger_requirements_query,
     ledger_run_query,
+    observations_query,
+    timeline_events_query,
+    timeline_outbox_query,
+    timeline_receipts_query,
 )
 from repositories.control_plan_repository import (
     build_draft_hash_document,
@@ -332,6 +337,32 @@ _RUN_LARGE_DOCS = (
     "canonical_input_document_text",
     "model_snapshot_document_text",
 )
+
+# The machine-boundary heavy documents a bounded read (PR 6.5a) must NEVER select.
+_MACHINE_BOUNDARY_LARGE_DOCS = (
+    "intent_document_text",
+    "receipt_document_text",
+    "detail_document_text",
+)
+
+
+def test_machine_boundary_queries_omit_large_document_columns():
+    plan_id = UUID("22222222-0000-4000-8000-000000000000")
+    statements = {
+        "timeline_outbox": timeline_outbox_query(plan_id, 1),
+        "timeline_events": timeline_events_query(plan_id, 1),
+        "timeline_receipts": timeline_receipts_query(plan_id, 1),
+        "observations": observations_query(plan_id, 1),
+        "hold_events": hold_events_query(plan_id, 1),
+    }
+    for name, stmt in statements.items():
+        compiled = _compiled(stmt)
+        for column in _MACHINE_BOUNDARY_LARGE_DOCS:
+            assert column not in compiled, f"{name} must not select {column}"
+    # The receipt read exposes only the 64-char content sha, never the full receipt document.
+    receipt_sql = _compiled(statements["timeline_receipts"])
+    assert "receipt_content_sha256" in receipt_sql
+    assert "receipt_document_text" not in receipt_sql
 
 
 def _compiled(stmt):

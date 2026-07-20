@@ -62,11 +62,14 @@ from services.open_loop_execution_service import (
 )
 from schemas.control_plan import (
     ActivateRequest,
+    ControlPlanExecutionStateResponse,
+    ControlPlanIntentTimelineResponse,
     ControlPlanLedgerResponse,
     ControlPlanLifecycleHistoryResponse,
     ControlPlanListFilters,
     ControlPlanListPage,
     ControlPlanPredictionCoverageResponse,
+    ControlPlanReadbackObservationsResponse,
     DraftControlPlanRequest,
     DraftControlPlanResponse,
     GatePlanEventOut,
@@ -499,7 +502,8 @@ def _map_projection_errors(error: Exception, action: str) -> HTTPException:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)
         )
     if isinstance(error, SQLAlchemyError):
-        logger.error(f"{action} load failed", error=str(error))
+        # loguru positional (an `error=` kwarg with no {error} placeholder is silently dropped).
+        logger.error("{} load failed: {}", action, str(error))
         return HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="control-plan store is unavailable",
@@ -588,6 +592,85 @@ async def get_control_plan_ledger(
     return _projection_or_error(ledger, plan_id, plan_version)
 
 
+@router.get(
+    "/{plan_id}/versions/{plan_version}/intent-timeline",
+    response_model=ControlPlanIntentTimelineResponse,
+    dependencies=[Depends(require_operator)],
+)
+async def get_control_plan_intent_timeline(
+    plan_id: UUID,
+    plan_version: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Dict = Depends(get_current_user),
+    repository: PostgresControlPlanProjectionRepository = Depends(
+        get_control_plan_projection_repository
+    ),
+):
+    """Bounded per-intent claimed→dispatched→validated timeline (require_operator):
+    the outbox intent + its execution state + its validation receipt. Read-only; no
+    command affordance. Delivery is PREDICTED evidence, never observed device state."""
+    _actor_subject(current_user)
+    try:
+        timeline = await repository.load_intent_timeline_projection(
+            db, plan_id, plan_version
+        )
+    except Exception as error:  # noqa: BLE001 — remapped to a typed HTTP status
+        raise _map_projection_errors(error, "intent-timeline")
+    return _projection_or_error(timeline, plan_id, plan_version)
+
+
+@router.get(
+    "/{plan_id}/versions/{plan_version}/readback-observations",
+    response_model=ControlPlanReadbackObservationsResponse,
+    dependencies=[Depends(require_operator)],
+)
+async def get_control_plan_readback_observations(
+    plan_id: UUID,
+    plan_version: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Dict = Depends(get_current_user),
+    repository: PostgresControlPlanProjectionRepository = Depends(
+        get_control_plan_projection_repository
+    ),
+):
+    """Bounded shadow readback observations (require_operator): the durable evidence
+    behind any drift hold. `unavailable`/null observed level is explicit — never masked."""
+    _actor_subject(current_user)
+    try:
+        observations = await repository.load_readback_observations_projection(
+            db, plan_id, plan_version
+        )
+    except Exception as error:  # noqa: BLE001 — remapped to a typed HTTP status
+        raise _map_projection_errors(error, "readback-observations")
+    return _projection_or_error(observations, plan_id, plan_version)
+
+
+@router.get(
+    "/{plan_id}/versions/{plan_version}/execution-state",
+    response_model=ControlPlanExecutionStateResponse,
+    dependencies=[Depends(require_operator)],
+)
+async def get_control_plan_execution_state(
+    plan_id: UUID,
+    plan_version: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Dict = Depends(get_current_user),
+    repository: PostgresControlPlanProjectionRepository = Depends(
+        get_control_plan_projection_repository
+    ),
+):
+    """Bounded plan-level execution posture (require_operator): the DERIVED hold state
+    + the ordered held/resumed history. A hold pauses claiming without releasing authority."""
+    _actor_subject(current_user)
+    try:
+        state = await repository.load_execution_state_projection(
+            db, plan_id, plan_version
+        )
+    except Exception as error:  # noqa: BLE001 — remapped to a typed HTTP status
+        raise _map_projection_errors(error, "execution-state")
+    return _projection_or_error(state, plan_id, plan_version)
+
+
 def _map_lifecycle_errors(error: Exception) -> HTTPException:
     if isinstance(error, LifecyclePlanNotFoundError):
         return HTTPException(status.HTTP_404_NOT_FOUND, detail=str(error))
@@ -628,7 +711,8 @@ def _map_lifecycle_errors(error: Exception) -> HTTPException:
             status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)
         )
     if isinstance(error, SQLAlchemyError):
-        logger.error("lifecycle store failed", error=str(error))
+        # loguru positional (the `error=` kwarg was silently dropped — no cause was logged).
+        logger.error("lifecycle store failed: {}", str(error))
         return HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="control-plan store is unavailable",
