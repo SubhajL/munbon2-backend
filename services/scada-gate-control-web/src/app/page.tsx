@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ApiError, createApiClient } from "@/lib/api";
 import { usePolling } from "@/hooks/usePolling";
@@ -74,6 +75,12 @@ function HomeContent() {
         <div className="pointer-events-auto inline-block">
           <SystemPanel summary={summary} error={errorText(sitesPoll.error)} />
         </div>
+        <Link
+          href="/control-plans"
+          className="pointer-events-auto absolute right-4 top-4 rounded-lg border border-border bg-surface/80 px-3 py-1.5 text-xs backdrop-blur"
+        >
+          Shadow control plans →
+        </Link>
       </div>
 
       <div className="pointer-events-none absolute bottom-4 left-4">
