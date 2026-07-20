@@ -1,0 +1,71 @@
+"""PR 6.3a — the dispatch-job factory: dark-by-default wiring + a minting token provider."""
+
+from datetime import datetime, timezone
+from types import SimpleNamespace
+
+import httpx
+import jwt
+
+from jobs.shadow_dispatch_once import build_scada_validation_client
+
+NOW = datetime(2026, 7, 20, 3, 0, 0, tzinfo=timezone.utc)
+SECRET = "a-strong-dedicated-service-secret-0123456789xyz"
+
+
+def _settings(base_url=None, secret=None, execution_mode="disabled"):
+    return SimpleNamespace(
+        scheduler_scada_base_url=base_url,
+        scheduler_service_jwt_secret=secret,
+        scheduler_service_jwt_issuer="munbon-scheduler",
+        scheduler_service_jwt_audience="munbon-scada-machine-boundary",
+        scheduler_service_jwt_subject="scheduler-shadow-dispatcher",
+        scheduler_service_jwt_max_age_seconds=300,
+        control_execution_mode=execution_mode,
+    )
+
+
+def _mock_http():
+    return httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200)))
+
+
+def test_dark_without_base_url():
+    client = build_scada_validation_client(_settings(secret=SECRET), clock=lambda: NOW)
+    assert client is None
+
+
+def test_dark_without_service_secret():
+    client = build_scada_validation_client(
+        _settings(base_url="http://scada.local"), clock=lambda: NOW
+    )
+    assert client is None
+
+
+def test_configured_builds_a_client_whose_token_provider_mints_a_valid_service_token():
+    client = build_scada_validation_client(
+        _settings(base_url="http://scada.local", secret=SECRET),
+        clock=lambda: NOW,
+        http_client=_mock_http(),
+    )
+    assert client is not None
+    payload = jwt.decode(
+        client._token_provider(),
+        SECRET,
+        algorithms=["HS256"],
+        audience="munbon-scada-machine-boundary",
+        issuer="munbon-scheduler",
+        options={"verify_exp": False},
+    )
+    assert payload["type"] == "service"
+    assert payload["sub"] == "scheduler-shadow-dispatcher"
+    assert payload["exp"] - payload["iat"] == 300
+
+
+def test_factory_threads_execution_mode_from_the_injected_settings():
+    # L4: the open-loop service must read the INJECTED settings' mode, not the module global.
+    from jobs.shadow_dispatch_once import build_shadow_dispatch_service
+
+    settings = _settings(base_url="http://scada.local", secret=SECRET, execution_mode="disabled")
+    service = build_shadow_dispatch_service(
+        settings, object(), clock=lambda: NOW, http_client=_mock_http()
+    )
+    assert service._open_loop._execution_mode == "disabled"

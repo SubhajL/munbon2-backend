@@ -121,3 +121,18 @@ class TestMigrationPairShape:
                 rf"BEFORE UPDATE OR DELETE ON scheduler\.{table_name}\b",
                 ALL_UP,
             ), f"{table_name} lacks an immutability trigger"
+
+
+def test_migration_0010_reason_vocab_matches_the_frozen_contract():
+    """L6: the DB reason_code CHECK vocabulary must equal the Python ValidationRejectionReason
+    Literal, so a future edit to one is caught by a test, not a runtime INSERT failure."""
+    from typing import get_args
+
+    from schemas.machine_boundary import ValidationRejectionReason
+
+    contract = set(get_args(ValidationRejectionReason))
+    sql = (MIGRATIONS_DIR / "0010_shadow_dispatch_receipts.up.sql").read_text()
+    match = re.search(r"reason_code IN \(([^)]*)\)", sql, re.S)
+    assert match, "0010 up.sql has no reason_code IN (...) vocabulary CHECK"
+    vocab = set(re.findall(r"'([a-z_]+)'", match.group(1)))
+    assert vocab == contract, f"DB vocab {sorted(vocab)} != contract {sorted(contract)}"

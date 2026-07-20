@@ -380,3 +380,53 @@ class ControlCommandExecutionEvent(ControlBase):
     created_at = Column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class ControlCommandValidationReceipt(ControlBase):
+    """Append-only durable ValidationReceipt store (PR 6.3a).
+
+    One row per command-intent (``intent_id`` PK) recording the SCADA 6.0
+    ValidationReceipt the shadow dispatcher got back from the machine-boundary
+    validate endpoint — so an at-least-once dispatch is an exactly-once persisted
+    effect (a retried dispatch replays SCADA's byte-identical receipt and the second
+    INSERT ... ON CONFLICT (intent_id) DO NOTHING no-ops). Rows are immutable (DB
+    trigger). Nothing here dispatches or actuates — this is the durable audit of a
+    validation-only round-trip.
+    """
+
+    __tablename__ = "control_command_validation_receipts"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["plan_id", "plan_version"],
+            [f"{SCHEMA}.control_plan_runs.plan_id",
+             f"{SCHEMA}.control_plan_runs.plan_version"],
+            ondelete="RESTRICT",
+        ),
+        # Second exactly-once backstop mirroring the 0007 outbox + the SCADA receipt
+        # store: the same idempotency_key can never file two receipts.
+        UniqueConstraint(
+            "idempotency_key",
+            name="control_command_validation_receipts_idem",
+        ),
+        {"schema": SCHEMA},
+    )
+
+    intent_id = Column(UUID(as_uuid=True), primary_key=True)
+    plan_id = Column(UUID(as_uuid=True), nullable=False)
+    plan_version = Column(Integer, nullable=False)
+    receipt_id = Column(UUID(as_uuid=True), nullable=False)
+    correlation_id = Column(UUID(as_uuid=True), nullable=False)
+    request_id = Column(Text, nullable=False)
+    idempotency_key = Column(Text, nullable=False)
+    intent_content_hash = Column(CHAR(64), nullable=False)
+    capability_hash = Column(CHAR(64), nullable=False)
+    status = Column(Text, nullable=False)
+    reason_code = Column(Text, nullable=True)
+    validated_at = Column(DateTime(timezone=True), nullable=False)
+    receipt_document_text = Column(Text, nullable=False)
+    receipt_content_sha256 = Column(CHAR(64), nullable=False)
+    dispatch_worker_id = Column(Text, nullable=True)
+    dispatched_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
