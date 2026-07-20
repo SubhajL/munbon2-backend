@@ -1,10 +1,8 @@
 import { readFileSync, statSync } from 'fs';
 
-import Ajv2020 from 'ajv/dist/2020';
-import addFormats from 'ajv-formats';
-
 import { computeCapabilityHash } from './capability-hash';
 import { DEVICE_CAPABILITY_SNAPSHOT_SCHEMA_V1 } from './device-capability-snapshot.schema';
+import { newMachineBoundaryAjv } from './machine-boundary-ajv';
 import type { DeviceCapabilitySnapshot } from './machine-boundary';
 
 /**
@@ -40,9 +38,7 @@ const ENDPOINT_OR_CREDENTIAL = /:\/\/|@/;
 let cachedValidate: ((data: unknown) => boolean) | null = null;
 function snapshotValidator(): (data: unknown) => boolean {
   if (cachedValidate) return cachedValidate;
-  const ajv = new Ajv2020({ strict: true, allErrors: true, validateFormats: true });
-  addFormats(ajv);
-  cachedValidate = ajv.compile(
+  cachedValidate = newMachineBoundaryAjv().compile(
     DEVICE_CAPABILITY_SNAPSHOT_SCHEMA_V1 as unknown as Record<string, unknown>,
   );
   return cachedValidate;

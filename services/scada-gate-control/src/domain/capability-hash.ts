@@ -1,6 +1,6 @@
-import { createHash } from 'crypto';
-
 import canonicalize from 'canonicalize';
+
+import { sha256OfCanonicalJson } from './canonical-hash';
 
 /**
  * The FROZEN (PR 6.0) device-capability-snapshot content hash:
@@ -10,7 +10,9 @@ import canonicalize from 'canonicalize';
  * JCS = RFC 8785 canonical JSON (object keys sorted at every level, array order
  * preserved, ES6-shortest numbers) via the `canonicalize` reference library. A
  * future Python producer/verifier (4.3c/6.2) must reproduce these exact bytes;
- * `capability-hash.spec.ts` pins a golden cross-language vector.
+ * `capability-hash.spec.ts` pins a golden cross-language vector. The canonicalize +
+ * sha256 plumbing is shared with the command-intent hash via `sha256OfCanonicalJson`
+ * (this one supplies the domain prefix; the intent hash supplies none).
  */
 export const CAPABILITY_HASH_DOMAIN_PREFIX = 'munbon:device-capability-snapshot:v1\n';
 
@@ -23,8 +25,5 @@ export function canonicalizeSnapshot(snapshotWithoutHash: Record<string, unknown
 }
 
 export function computeCapabilityHash(snapshotWithoutHash: Record<string, unknown>): string {
-  const canonical = canonicalizeSnapshot(snapshotWithoutHash);
-  return createHash('sha256')
-    .update(Buffer.from(CAPABILITY_HASH_DOMAIN_PREFIX + canonical, 'utf-8'))
-    .digest('hex');
+  return sha256OfCanonicalJson(snapshotWithoutHash, CAPABILITY_HASH_DOMAIN_PREFIX);
 }
