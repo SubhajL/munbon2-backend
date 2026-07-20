@@ -3,6 +3,7 @@
  * without a .env (the field PLC just shows as offline until reachable).
  * Validation fails fast on incoherent values.
  */
+import type { SchedulerServiceTokenConfig } from './api/service-auth';
 import { DEFAULT_UNIT_ID } from './domain/registers';
 import type { FreshnessThresholds } from './state/freshness';
 import type { ModbusConnectionConfig } from './transport/modbus-serial-transport';
@@ -31,6 +32,13 @@ export type AppConfig = {
   /** Allow the non-persistent in-memory audit sink when DATABASE_URL is unset. */
   readonly allowInMemoryAudit: boolean;
   readonly rateLimit: { readonly windowMs: number; readonly max: number };
+  /**
+   * Scheduler service-to-service JWT policy for the machine-boundary validation
+   * endpoint (PR 6.2), reusing the verifier's own config type. `null` when
+   * `SCHEDULER_SERVICE_JWT_SECRET` is unset — the endpoint then fails closed (503)
+   * while the rest of SCADA still boots.
+   */
+  readonly serviceAuth: (SchedulerServiceTokenConfig & { readonly maxAge: string }) | null;
 };
 
 function optionalEnv(env: NodeJS.ProcessEnv, name: string, fallback: string): string {
@@ -105,5 +113,38 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       windowMs: optionalEnvInt(env, 'COMMAND_RATE_WINDOW_MS', 60_000),
       max: optionalEnvInt(env, 'COMMAND_RATE_MAX', 30),
     },
+    serviceAuth: loadServiceAuth(env),
   };
+}
+
+/**
+ * Machine-boundary service auth is dark unless its DEDICATED secret is set (kept
+ * cryptographically separate from the operator JWT_SECRET). Unset -> null -> the
+ * validate endpoint fails closed (503) without blocking operator gate control.
+ */
+function loadServiceAuth(env: NodeJS.ProcessEnv): AppConfig['serviceAuth'] {
+  const secret = optionalEnv(env, 'SCHEDULER_SERVICE_JWT_SECRET', '');
+  if (secret === '') return null;
+  return {
+    secret,
+    issuer: optionalEnv(env, 'SCHEDULER_SERVICE_JWT_ISSUER', 'munbon-scheduler'),
+    audience: optionalEnv(env, 'SCHEDULER_SERVICE_JWT_AUDIENCE', 'munbon-scada-machine-boundary'),
+    maxAge: requireDuration(env, 'SCHEDULER_SERVICE_JWT_MAX_AGE', '5m'),
+  };
+}
+
+/**
+ * A `jsonwebtoken`/`ms` duration: a positive number of seconds, or a number + unit
+ * (`5m`, `30s`, `1.5h`, `2 days`). Fail CLOSED at config load on a garbage value like
+ * `abc`, which `ms()` resolves to `undefined` and jsonwebtoken would then treat as "no
+ * max-age check" — silently disabling the short-lived-token policy.
+ */
+const DURATION_PATTERN =
+  /^\d+(\.\d+)?\s*(milliseconds?|msecs?|ms|seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h|days?|d|weeks?|w|years?|yrs?|y)?$/i;
+function requireDuration(env: NodeJS.ProcessEnv, name: string, fallback: string): string {
+  const value = optionalEnv(env, name, fallback);
+  if (!DURATION_PATTERN.test(value.trim())) {
+    throw new ConfigError(`Invalid duration for ${name}: "${value}"`);
+  }
+  return value;
 }

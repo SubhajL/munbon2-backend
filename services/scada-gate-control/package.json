@@ -28,6 +28,8 @@
   "author": "Munbon Team",
   "license": "PROPRIETARY",
   "dependencies": {
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
     "canonicalize": "^2.1.0",
     "dotenv": "^16.3.1",
     "express": "^4.22.2",
@@ -45,8 +47,6 @@
     "@types/supertest": "^6.0.3",
     "@typescript-eslint/eslint-plugin": "^6.13.2",
     "@typescript-eslint/parser": "^6.13.2",
-    "ajv": "^8.20.0",
-    "ajv-formats": "^3.0.1",
     "eslint": "^8.55.0",
     "prettier": "^3.1.1",
     "supertest": "^6.3.4",

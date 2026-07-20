@@ -35,6 +35,57 @@ describe('loadConfig', () => {
     expect(loadConfig(withHost({ ALLOW_IN_MEMORY_AUDIT: 'true' })).allowInMemoryAudit).toBe(true);
   });
 
+  test('service auth is null (dark) when SCHEDULER_SERVICE_JWT_SECRET is unset', () => {
+    expect(loadConfig(withHost()).serviceAuth).toBeNull();
+  });
+
+  test('service auth uses scheduler/machine-boundary defaults when only the secret is set', () => {
+    expect(
+      loadConfig(withHost({ SCHEDULER_SERVICE_JWT_SECRET: 'svc-secret' })).serviceAuth,
+    ).toEqual({
+      secret: 'svc-secret',
+      issuer: 'munbon-scheduler',
+      audience: 'munbon-scada-machine-boundary',
+      maxAge: '5m',
+    });
+  });
+
+  test('rejects a malformed SCHEDULER_SERVICE_JWT_MAX_AGE (fail closed, not a disabled policy)', () => {
+    expect(() =>
+      loadConfig(
+        withHost({
+          SCHEDULER_SERVICE_JWT_SECRET: 'svc-secret',
+          SCHEDULER_SERVICE_JWT_MAX_AGE: 'abc',
+        }),
+      ),
+    ).toThrow(ConfigError);
+  });
+
+  test('accepts a valid duration override for the service-token maxAge', () => {
+    expect(
+      loadConfig(
+        withHost({ SCHEDULER_SERVICE_JWT_SECRET: 's', SCHEDULER_SERVICE_JWT_MAX_AGE: '90s' }),
+      ).serviceAuth?.maxAge,
+    ).toBe('90s');
+  });
+
+  test('service auth issuer/audience/maxAge are overridable from env', () => {
+    const cfg = loadConfig(
+      withHost({
+        SCHEDULER_SERVICE_JWT_SECRET: 'svc-secret',
+        SCHEDULER_SERVICE_JWT_ISSUER: 'iss-x',
+        SCHEDULER_SERVICE_JWT_AUDIENCE: 'aud-x',
+        SCHEDULER_SERVICE_JWT_MAX_AGE: '2m',
+      }),
+    );
+    expect(cfg.serviceAuth).toEqual({
+      secret: 'svc-secret',
+      issuer: 'iss-x',
+      audience: 'aud-x',
+      maxAge: '2m',
+    });
+  });
+
   test('applies defaults for everything but the required host', () => {
     const cfg = loadConfig(withHost());
     expect(cfg.modbus).toEqual({
