@@ -97,3 +97,20 @@ def test_service_token_max_age_capped_at_scada_default(monkeypatch):
     monkeypatch.setenv("SCHEDULER_SERVICE_JWT_MAX_AGE_SECONDS", "600")
     with pytest.raises(Exception):
         Settings(_env_file=None)
+
+
+def test_readback_reconciliation_mode_defaults_off(monkeypatch):
+    _seed_required_env(monkeypatch)
+    _seed_db(monkeypatch)
+    monkeypatch.delenv("CONTROL_READBACK_RECONCILIATION_MODE", raising=False)
+    assert Settings(_env_file=None).control_readback_reconciliation_mode == "off"
+
+
+def test_unknown_readback_reconciliation_mode_is_rejected(monkeypatch):
+    import pytest
+
+    _seed_required_env(monkeypatch)
+    _seed_db(monkeypatch)
+    monkeypatch.setenv("CONTROL_READBACK_RECONCILIATION_MODE", "haywire")
+    with pytest.raises(Exception):
+        Settings(_env_file=None)

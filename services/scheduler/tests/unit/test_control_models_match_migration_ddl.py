@@ -136,3 +136,23 @@ def test_migration_0010_reason_vocab_matches_the_frozen_contract():
     assert match, "0010 up.sql has no reason_code IN (...) vocabulary CHECK"
     vocab = set(re.findall(r"'([a-z_]+)'", match.group(1)))
     assert vocab == contract, f"DB vocab {sorted(vocab)} != contract {sorted(contract)}"
+
+
+def test_migration_0011_verdict_and_mode_vocab_match_the_constants():
+    """L6/L3: the 0011 verdict + mode CHECK vocab must equal the Python constants so a drift is
+    caught by a test, not a runtime INSERT failure."""
+    from core.readback_reconciliation import (
+        VERDICT_MISMATCH,
+        VERDICT_OK,
+        VERDICT_UNAVAILABLE,
+    )
+    from services.readback_reconciliation_service import MODE_ENFORCE, MODE_OBSERVE
+
+    sql = (MIGRATIONS_DIR / "0011_gate_readback_observations.up.sql").read_text()
+    verdict = re.search(r"verdict IN \(([^)]*)\)", sql)
+    mode = re.search(r"reconciliation_mode IN \(([^)]*)\)", sql)
+    assert verdict and mode
+    assert set(re.findall(r"'([a-z_]+)'", verdict.group(1))) == {
+        VERDICT_OK, VERDICT_MISMATCH, VERDICT_UNAVAILABLE,
+    }
+    assert set(re.findall(r"'([a-z_]+)'", mode.group(1))) == {MODE_OBSERVE, MODE_ENFORCE}

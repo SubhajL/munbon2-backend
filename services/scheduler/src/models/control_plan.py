@@ -430,3 +430,38 @@ class ControlCommandValidationReceipt(ControlBase):
     created_at = Column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class ControlGateReadbackObservation(ControlBase):
+    """Append-only shadow readback-reconciliation audit (PR 6.3b).
+
+    One row per (plan, gate) reconcile: the observed vs expected(baseline) level, the reading
+    quality, the verdict (ok/mismatch/unavailable), and the mode it ran in. The hold-on-drift
+    decision (a plan-level ``held`` execution event) is recorded in 0009; this is its evidence.
+    Rows are immutable (DB trigger). Nothing here actuates.
+    """
+
+    __tablename__ = "control_gate_readback_observations"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["plan_id", "plan_version"],
+            [f"{SCHEMA}.control_plan_runs.plan_id",
+             f"{SCHEMA}.control_plan_runs.plan_version"],
+            ondelete="RESTRICT",
+        ),
+        {"schema": SCHEMA},
+    )
+
+    observation_id = Column(UUID(as_uuid=True), primary_key=True)
+    plan_id = Column(UUID(as_uuid=True), nullable=False)
+    plan_version = Column(Integer, nullable=False)
+    canonical_gate_id = Column(Text, nullable=False)
+    observed_level = Column(Integer, nullable=True)
+    expected_level = Column(Integer, nullable=False)
+    quality = Column(Text, nullable=False)
+    verdict = Column(Text, nullable=False)
+    reconciliation_mode = Column(Text, nullable=False)
+    observed_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

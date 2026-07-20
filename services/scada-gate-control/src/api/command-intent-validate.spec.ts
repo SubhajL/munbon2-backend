@@ -89,6 +89,7 @@ function makeApp(
     snapshot?: DeviceCapabilitySnapshot;
     serviceConfigured?: boolean;
     approvedLineageAnchor?: ApprovedLineageAnchor | null;
+    siteCanonicalGateId?: string | null;
   } = {},
 ) {
   const writes: ModbusWrite[] = [];
@@ -127,6 +128,7 @@ function makeApp(
     receipts,
     clock: () => IN_WINDOW_MS,
     approvedLineageAnchor: opts.approvedLineageAnchor ?? null,
+    siteCanonicalGateId: opts.siteCanonicalGateId ?? null,
   });
   return { app, writes, receipts };
 }
@@ -287,5 +289,48 @@ describe('POST /internal/v1/command-intents/validate', () => {
       .set('Content-Type', 'application/json')
       .send('{ not json')
       .expect(503);
+  });
+});
+
+describe('GET /internal/v1/gate-readback (PR 6.3b)', () => {
+  const getReadback = (app: Express, token: string | null) => {
+    const req = request(app).get('/internal/v1/gate-readback');
+    return token ? req.set('Authorization', `Bearer ${token}`) : req;
+  };
+
+  it('is DARK (503) when the service secret is unset', async () => {
+    const { app } = makeApp({ serviceConfigured: false });
+    await getReadback(app, serviceToken()).expect(503);
+  });
+
+  it('rejects a missing token (401) and an operator token (401) — it is service-authed', async () => {
+    const { app } = makeApp();
+    await getReadback(app, null).expect(401);
+    const operatorToken = jwt.sign(
+      { sub: 'op', type: 'access', roles: ['zone_manager'] },
+      OP_SECRET,
+      {
+        issuer: OP_ISSUER,
+        audience: OP_AUDIENCE,
+        expiresIn: '5m',
+      },
+    );
+    await getReadback(app, operatorToken).expect(401);
+  });
+
+  it('serves an unavailable machine gate when no site canonical gate is configured (no-store)', async () => {
+    const { app } = makeApp(); // MATCHING_SNAPSHOT has gate M(0,0;1,0); siteCanonicalGateId null
+    const res = await getReadback(app, serviceToken()).expect(200);
+    expect(res.headers['cache-control']).toBe('no-store');
+    expect(res.body.gates['M(0,0;1,0)'].observed_level).toBeNull();
+    expect(res.body.gates['M(0,0;1,0)'].quality).toBe('unavailable');
+  });
+
+  it('attaches the live poll level when the gate is the configured site gate', async () => {
+    const { app } = makeApp({ siteCanonicalGateId: 'M(0,0;1,0)' });
+    const res = await getReadback(app, serviceToken()).expect(200);
+    // okSnapshot polled gateLevel raw = 2.
+    expect(res.body.gates['M(0,0;1,0)'].observed_level).toBe(2);
+    expect(res.body.gates['M(0,0;1,0)'].quality).toBe('ok');
   });
 });

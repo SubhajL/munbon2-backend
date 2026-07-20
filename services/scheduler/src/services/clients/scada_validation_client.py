@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Callable, Optional
-from urllib.parse import urlparse
 
 import httpx
 from pydantic import ValidationError
@@ -25,11 +24,11 @@ from .scada_client_errors import (
     ScadaServiceAuthError,
     ScadaUnavailableError,
 )
+from .scada_http import SCADA_TIMEOUT, require_hostonly_base_url
 
 # The ONLY path this client ever builds. Not configurable — a validation client can never
 # hold an execute URL.
 _VALIDATE_PATH = "/internal/v1/command-intents/validate"
-_TIMEOUT = httpx.Timeout(30.0, connect=5.0)
 
 
 @dataclass(frozen=True)
@@ -40,27 +39,6 @@ class ValidationDispatchResult:
     conflict: bool  # True ONLY on a 409 idempotency_conflict (a failure, never a success)
 
 
-def _require_hostonly_base_url(base_url: str) -> str:
-    """Reject a base URL that carries any path beyond the host — defense-in-depth so a
-    misconfigured base can never smuggle an operator/execute path into ``{base}{path}``."""
-    trimmed = base_url.rstrip("/")
-    parsed = urlparse(trimmed)
-    if not parsed.scheme or not parsed.netloc:
-        raise ValueError(f"SCADA base URL must be an absolute http(s) URL: {base_url!r}")
-    if parsed.path not in ("", "/"):
-        raise ValueError(
-            f"SCADA base URL must carry no path (got path {parsed.path!r}); the client "
-            "appends only the validate path"
-        )
-    if parsed.query or parsed.fragment:
-        raise ValueError("SCADA base URL must carry no query or fragment")
-    # Reject userinfo (user:pass@host): a base like `http://realhost@evil.com` would ship the
-    # BEARER SERVICE TOKEN to the userinfo-decoded host. The service token is a credential.
-    if parsed.username or parsed.password:
-        raise ValueError("SCADA base URL must not embed userinfo (credentials)")
-    return trimmed
-
-
 class ScadaValidationClient:
     def __init__(
         self,
@@ -68,9 +46,9 @@ class ScadaValidationClient:
         token_provider: Callable[[], str],
         client: Optional[httpx.AsyncClient] = None,
     ) -> None:
-        self._base_url = _require_hostonly_base_url(base_url)
+        self._base_url = require_hostonly_base_url(base_url)
         self._token_provider = token_provider
-        self._client = client or httpx.AsyncClient(timeout=_TIMEOUT)
+        self._client = client or httpx.AsyncClient(timeout=SCADA_TIMEOUT)
 
     async def aclose(self) -> None:
         await self._client.aclose()

@@ -38,6 +38,8 @@ export type ApiDeps = {
   // PR 6.1b — the approved lineage anchor for the reserved `lineage_mismatch` check, or null
   // (dark) when SCADA_APPROVED_LINEAGE_ANCHOR_PATH is unset (then validation is 6.2-identical).
   readonly approvedLineageAnchor: ApprovedLineageAnchor | null;
+  // PR 6.3b — the canonical_gate_id of the polled site gate for the readback projection, or null.
+  readonly siteCanonicalGateId: string | null;
 };
 
 const commandLevelSchema = z.object({ targetValue: z.number(), confirmed: z.boolean() });

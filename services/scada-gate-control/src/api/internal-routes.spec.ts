@@ -6,8 +6,14 @@ import { describe, expect, it } from 'vitest';
 import { emptyDeviceCapabilitySnapshot } from '../domain/device-registry';
 import type { DeviceCapabilitySnapshot } from '../domain/machine-boundary';
 import { InMemoryCommandIntentReceiptRepository } from '../command-intents/memory-repository';
+import { buildSnapshot, emptyState } from '../state/store';
 import { JwtTokenVerifier } from './auth';
 import { buildInternalRouter } from './internal-routes';
+
+const OFFLINE_SNAPSHOT = buildSnapshot(emptyState(), 0, {
+  staleAfterMs: 10_000,
+  offlineAfterMs: 20_000,
+});
 
 const SECRET = 'test-secret';
 const ISSUER = 'munbon-auth';
@@ -47,6 +53,8 @@ function makeApp(deviceCapabilities: DeviceCapabilitySnapshot): express.Express 
       receipts: new InMemoryCommandIntentReceiptRepository(),
       clock: () => 1_700_000_000_000,
       approvedLineageAnchor: null,
+      snapshot: () => OFFLINE_SNAPSHOT,
+      siteCanonicalGateId: null,
     }),
   );
   return app;
@@ -94,6 +102,8 @@ describe('no-Modbus by construction (compile-time)', () => {
       receipts: new InMemoryCommandIntentReceiptRepository(),
       clock: () => 0,
       approvedLineageAnchor: null,
+      snapshot: () => OFFLINE_SNAPSHOT,
+      siteCanonicalGateId: null,
       // @ts-expect-error — the machine-boundary router MUST NOT accept an actuator/command
       // service; if this ever stops erroring, a write path leaked into the validate route.
       commandService: {},
