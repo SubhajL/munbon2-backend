@@ -72,6 +72,19 @@ drift fails a test.
 The service now ships a `pytest.ini` (`testpaths=tests`, `asyncio_mode=strict`) so
 bare `pytest` is the gate and never collects the root integration scripts.
 
+**Machine-boundary reads (PR 6.5b)** — three more bearer-forwarded, strict-mirror
+GETs under `/api/v1/control-plans/{plan_id}/versions/{plan_version}`:
+`/intent-timeline` (per-intent claimed→dispatched→validated arc),
+`/readback-observations`, `/execution-state` (derived hold + held/resumed
+history). Same fail-closed pass-through as PR 4.4 (`ControlPlanIntentTimeline`
+/`ControlPlanReadbackObservations`/`ControlPlanExecutionState` mirrors, snake_case,
+`extra="forbid"`, StrictInt/StrictBool/**StrictDatetime** so a retyped scalar — incl.
+a numeric epoch for a timestamp — 502s instead of coercing). All bounded reads now
+share ONE generic `_load(fetch, model_cls, …)` (no fork). The three reads have a
+shared `contracts/control-plans/v1/{intent-timeline,readback-observations,
+execution-state}.example.json` fixture validated by BOTH the BFF and scheduler
+suites, so a mirror drift fails a test at PR time.
+
 ## Gotchas / Watch-outs
 - 🚨🚨 **CONFIRMED hardcoded PRODUCTION DB credentials** in `scripts/populate_weekly_demands_with_events.py` (`GIS_DB_CONFIG`/`BFF_DB_CONFIG`: host `43.208.201.191`, plaintext password). The **same password appears in ~34 `scripts/` files** and the prod IP in ~40 files — this is the **SEC / F-07** remediation item. Rotate the password, move to env/secrets, add secret-scanning. Do **not** copy this pattern.
 - `/health` external-service checks are **stubbed** (hardcoded `True`, no real probing); `/health` reports version `1.0.0` while the app is `2.0.0`.

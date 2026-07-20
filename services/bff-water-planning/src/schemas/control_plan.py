@@ -4,13 +4,14 @@ These are *validated pass-through* models: every field name/type mirrors the
 scheduler's `DraftControlPlanResponse` / `ControlPlanLedgerResponse` exactly
 (snake_case), so the BFF never invents vocabulary and never fabricates delivery
 numbers. `extra="forbid"` catches added/renamed fields, and the strict scalar
-aliases below catch *retyped* ones — a JSON string or boolean where the
-scheduler emits an integer/float would otherwise be silently coerced (`"3"`->3,
-`true`->1), turning contract drift into apparently-valid lineage. Both surface
-as a ValidationError, which the routes translate to a 502: the BFF fails closed
-on drift rather than projecting a corrupted plan. Nullable-but-required fields
-stay required so a dropped field still 502s; only fields the scheduler itself
-defaults (`transition_document`) are optional.
+aliases below catch *retyped* ones — a JSON string/boolean where the scheduler
+emits an integer/float, OR a numeric epoch where it emits an ISO-8601 datetime,
+would otherwise be silently coerced (`"3"`->3, `true`->1, `1770000000`->a
+timestamp), turning contract drift into apparently-valid lineage. Both surface as
+a ValidationError, which the routes translate to a 502: the BFF fails closed on
+drift rather than projecting a corrupted plan. A field is `Optional` here ONLY
+where the scheduler itself models it as nullable/defaulted; every other field
+stays required so a dropped field still 502s.
 """
 
 from __future__ import annotations
@@ -52,9 +53,20 @@ def _strict_bool(value: Any) -> Any:
     return value
 
 
+def _strict_datetime(value: Any) -> Any:
+    # The scheduler emits ISO-8601 strings. Accept ONLY strings: pydantic's lax mode would
+    # otherwise coerce a numeric JSON value into a Unix-epoch datetime (e.g. 1770000000 ->
+    # 2026-02-02T…), laundering a retyped/mis-scaled upstream timestamp into a confident 200
+    # instead of failing closed (502) on the drift.
+    if value is not None and not isinstance(value, str):
+        raise ValueError("expected an ISO-8601 datetime string")
+    return value
+
+
 StrictInt = Annotated[int, BeforeValidator(_strict_int)]
 StrictNumber = Annotated[float, BeforeValidator(_strict_number)]
 StrictBool = Annotated[bool, BeforeValidator(_strict_bool)]
+StrictDatetime = Annotated[datetime, BeforeValidator(_strict_datetime)]
 
 
 class StrictControlPlanModel(BaseModel):
@@ -70,10 +82,10 @@ class PlanRequirementProjection(StrictControlPlanModel):
     section_id: str
     zone: StrictInt
     required_volume_m3: StrictNumber
-    window_start: datetime
-    window_end: datetime
+    window_start: StrictDatetime
+    window_end: StrictDatetime
     quality: str
-    published_at: datetime
+    published_at: StrictDatetime
     as_of_date: date
     source_data_status: str
     planning_disposition: Literal["scheduled", "no_delivery_required"]
@@ -92,7 +104,7 @@ class GatePlanEventProjection(StrictControlPlanModel):
     event_sequence: StrictInt
     gate_id: str
     event_kind: Literal["open", "trim", "close"]
-    planned_at: datetime
+    planned_at: StrictDatetime
     target_position_m: StrictNumber
     source_flow_m3s: StrictNumber
     gate_event_sequence: StrictInt
@@ -107,7 +119,7 @@ class PlanTransitionProjection(StrictControlPlanModel):
     actor_subject: str
     reason: Optional[str]
     transition_document: Optional[dict[str, Any]] = None
-    occurred_at: datetime
+    occurred_at: StrictDatetime
 
 
 class PredictionMemberStatusProjection(StrictControlPlanModel):
@@ -143,8 +155,8 @@ class ControlPlanProjection(StrictControlPlanModel):
     prediction_status: Literal["not_requested", "completed", "infeasible"]
     prediction_run_id: Optional[str]
     prediction_member_statuses: list[PredictionMemberStatusProjection]
-    horizon_start: datetime
-    horizon_end: datetime
+    horizon_start: StrictDatetime
+    horizon_end: StrictDatetime
     model_step_seconds: StrictInt
     max_intermediate_trims: StrictInt
     optimizer_result: dict[str, Any]
@@ -152,7 +164,7 @@ class ControlPlanProjection(StrictControlPlanModel):
     events: list[GatePlanEventProjection]
     transitions: list[PlanTransitionProjection]
     created_by_subject: str
-    created_at: datetime
+    created_at: StrictDatetime
 
 
 # --- ledger sub-models (mirror scheduler ledger OUT schemas) ----------------
@@ -166,7 +178,7 @@ class LedgerEntryProjection(StrictControlPlanModel):
     requirement_id: str
     section_id: str
     checkpoint_index: StrictInt
-    checkpoint_at: datetime
+    checkpoint_at: StrictDatetime
     status: str
     required_volume_m3: StrictNumber
     approved_excess_m3: StrictNumber
@@ -224,8 +236,78 @@ class ControlPlanLifecycleHistory(StrictControlPlanModel):
     plan_version: StrictInt
     lifecycle_state: LifecycleState
     created_by_subject: str
-    created_at: datetime
+    created_at: StrictDatetime
     transitions: list[PlanTransitionProjection]
+
+
+# --- machine-boundary reads (mirror scheduler PR 6.5a OUT schemas) ----------
+_REJECTION_REASON = Literal[
+    "schema_invalid",
+    "capability_mismatch",
+    "target_invalid",
+    "not_before_violation",
+    "deadline_expired",
+    "lineage_mismatch",
+    "freshness_failed",
+    "idempotency_conflict",
+]
+
+
+class IntentTimelineEntryProjection(StrictControlPlanModel):
+    intent_id: UUID
+    canonical_gate_id: str
+    event_kind: Literal["open", "trim", "close"]
+    event_sequence: StrictInt
+    not_before: StrictDatetime
+    deadline: StrictDatetime
+    execution_state: Literal["pending", "claimed", "missed", "invalidated"]
+    claimed_at: Optional[StrictDatetime]
+    receipt_status: Optional[Literal["validation_accepted", "validation_rejected"]]
+    reason_code: Optional[_REJECTION_REASON]
+    validated_at: Optional[StrictDatetime]
+    dispatched_at: Optional[StrictDatetime]
+    receipt_content_sha256: Optional[str]
+
+
+class ControlPlanIntentTimeline(StrictControlPlanModel):
+    """Strict mirror of the scheduler intent-timeline read (GET /versions/{v}/intent-timeline)."""
+
+    plan_id: UUID
+    plan_version: StrictInt
+    intents: list[IntentTimelineEntryProjection]
+
+
+class ReadbackObservationProjection(StrictControlPlanModel):
+    canonical_gate_id: str
+    observed_level: Optional[StrictInt]
+    expected_level: StrictInt
+    quality: str
+    verdict: Literal["ok", "mismatch", "unavailable"]
+    reconciliation_mode: Literal["observe", "enforce"]
+    observed_at: StrictDatetime
+
+
+class ControlPlanReadbackObservations(StrictControlPlanModel):
+    """Strict mirror of the scheduler readback-observations read."""
+
+    plan_id: UUID
+    plan_version: StrictInt
+    observations: list[ReadbackObservationProjection]
+
+
+class HoldEventProjection(StrictControlPlanModel):
+    event_type: Literal["held", "resumed"]
+    worker_id: Optional[str]
+    occurred_at: StrictDatetime
+
+
+class ControlPlanExecutionState(StrictControlPlanModel):
+    """Strict mirror of the scheduler execution-state read (derived hold + held/resumed history)."""
+
+    plan_id: UUID
+    plan_version: StrictInt
+    is_held: StrictBool
+    hold_events: list[HoldEventProjection]
 
 
 # --- bounded list projection (mirror scheduler ControlPlanListPage) ----------
@@ -241,8 +323,8 @@ class ControlPlanSummaryProjection(StrictControlPlanModel):
     campaign_id: UUID
     lifecycle_state: LifecycleState
     approval_trust: StrictBool
-    horizon_start: datetime
-    horizon_end: datetime
+    horizon_start: StrictDatetime
+    horizon_end: StrictDatetime
     requirement_run_id: UUID
     requirement_version: StrictInt
     input_content_hash: str
@@ -253,7 +335,7 @@ class ControlPlanSummaryProjection(StrictControlPlanModel):
     prediction_run_id: Optional[str]
     prediction_response_sha256: Optional[str]
     created_by_subject: str
-    created_at: datetime
+    created_at: StrictDatetime
 
 
 class ControlPlanListPageProjection(StrictControlPlanModel):
