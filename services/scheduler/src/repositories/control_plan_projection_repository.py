@@ -43,6 +43,14 @@ from core.control_plan_lifecycle import (
     LifecycleHistoryCorruptError,
     derive_control_plan_state,
 )
+from core.open_loop_execution import (
+    EXECUTION_HELD,
+    EXECUTION_RESUMED,
+    INTENT_CLAIMED,
+    IntentExecutionCorruptError,
+    derive_intent_execution_state,
+    is_plan_held,
+)
 from core.predicted_delivery_ledger import (
     GateEvent,
     LedgerEntry,
@@ -53,6 +61,10 @@ from core.predicted_delivery_ledger import (
     verify_ledger_entry_columns,
 )
 from models.control_plan import (
+    ControlCommandExecutionEvent,
+    ControlCommandOutboxRow,
+    ControlCommandValidationReceipt,
+    ControlGateReadbackObservation,
     ControlPlanCampaignVersion,
     ControlPlanRequirement,
     ControlPlanRun,
@@ -62,17 +74,23 @@ from models.control_plan import (
 )
 from schemas.control_plan import (
     PROJECTION_SCHEMA_VERSION,
+    ControlPlanExecutionStateResponse,
+    ControlPlanIntentTimelineResponse,
     ControlPlanLedgerResponse,
     ControlPlanLifecycleHistoryResponse,
     ControlPlanListFilters,
     ControlPlanListPage,
     ControlPlanPredictionCoverageResponse,
+    ControlPlanReadbackObservationsResponse,
     ControlPlanSummaryOut,
     HandoverVerdictOut,
+    HoldEventOut,
+    IntentTimelineEntryOut,
     LedgerEntryOut,
     MemberBoundsOut,
     PlanTransitionOut,
     PredictionMemberStatusOut,
+    ReadbackObservationOut,
 )
 
 # Provenance version of an artifact-reference (v2) row — kept as a local literal
@@ -843,6 +861,246 @@ async def _begin_snapshot_read(session: AsyncSession) -> None:
     )
 
 
+# MACHINE-BOUNDARY READS (PR 6.5a) -------------------------------------------
+# Bounded read-only projections of the shadow-dispatch durable evidence (outbox 0007,
+# execution events 0009, receipts 0010, readback observations 0011) for the operator
+# dashboard. Same pattern as the reads above: a column tuple, a pure query builder, a
+# pure build_* fn (fail-closed via ProjectionCorruptError), then a load_* method.
+_PLAN_HEADER_COLUMNS = (ControlPlanRun.plan_id, ControlPlanRun.plan_version)
+
+
+def plan_header_query(plan_id: UUID, plan_version: int):
+    """Existence probe: an absent plan → 404 (never fabricate an empty projection)."""
+    return select(*_PLAN_HEADER_COLUMNS).where(
+        ControlPlanRun.plan_id == plan_id,
+        ControlPlanRun.plan_version == plan_version,
+    )
+
+
+# -- intent timeline (outbox ⋈ execution events ⋈ receipts, per intent) --------
+_TIMELINE_OUTBOX_COLUMNS = (
+    ControlCommandOutboxRow.intent_id,
+    ControlCommandOutboxRow.canonical_gate_id,
+    ControlCommandOutboxRow.event_kind,
+    ControlCommandOutboxRow.event_sequence,
+    ControlCommandOutboxRow.not_before,
+    ControlCommandOutboxRow.deadline,
+)
+_TIMELINE_EVENT_COLUMNS = (
+    ControlCommandExecutionEvent.intent_id,
+    ControlCommandExecutionEvent.event_type,
+    ControlCommandExecutionEvent.occurred_at,
+)
+_TIMELINE_RECEIPT_COLUMNS = (
+    ControlCommandValidationReceipt.intent_id,
+    ControlCommandValidationReceipt.status,
+    ControlCommandValidationReceipt.reason_code,
+    ControlCommandValidationReceipt.validated_at,
+    ControlCommandValidationReceipt.dispatched_at,
+    ControlCommandValidationReceipt.receipt_content_sha256,
+)
+
+
+def timeline_outbox_query(plan_id: UUID, plan_version: int):
+    return (
+        select(*_TIMELINE_OUTBOX_COLUMNS)
+        .where(
+            ControlCommandOutboxRow.plan_id == plan_id,
+            ControlCommandOutboxRow.plan_version == plan_version,
+        )
+        .order_by(ControlCommandOutboxRow.event_sequence)
+    )
+
+
+def timeline_events_query(plan_id: UUID, plan_version: int):
+    # Only per-intent events (claimed/missed/invalidated carry intent_id); plan-level
+    # held/resumed have intent_id NULL and belong to the execution-state read instead.
+    return select(*_TIMELINE_EVENT_COLUMNS).where(
+        ControlCommandExecutionEvent.plan_id == plan_id,
+        ControlCommandExecutionEvent.plan_version == plan_version,
+        ControlCommandExecutionEvent.intent_id.isnot(None),
+    )
+
+
+def timeline_receipts_query(plan_id: UUID, plan_version: int):
+    return select(*_TIMELINE_RECEIPT_COLUMNS).where(
+        ControlCommandValidationReceipt.plan_id == plan_id,
+        ControlCommandValidationReceipt.plan_version == plan_version,
+    )
+
+
+def _intent_timeline_entry(row, state, claimed_at, receipt) -> IntentTimelineEntryOut:
+    return _model_or_corrupt(
+        lambda: IntentTimelineEntryOut(
+            intent_id=row.intent_id,
+            canonical_gate_id=row.canonical_gate_id,
+            event_kind=row.event_kind,
+            event_sequence=row.event_sequence,
+            not_before=row.not_before,
+            deadline=row.deadline,
+            execution_state=state,
+            claimed_at=claimed_at,
+            receipt_status=receipt.status if receipt else None,
+            reason_code=receipt.reason_code if receipt else None,
+            validated_at=receipt.validated_at if receipt else None,
+            dispatched_at=receipt.dispatched_at if receipt else None,
+            receipt_content_sha256=receipt.receipt_content_sha256 if receipt else None,
+        )
+    )
+
+
+def build_intent_timeline(
+    plan_id: UUID, plan_version: int, outbox_rows, event_rows, receipt_rows
+) -> ControlPlanIntentTimelineResponse:
+    """Fold the outbox intents (in event_sequence order) with their per-intent execution
+    state (0009) and validation receipt (0010). A receipt maps 1:1 by intent_id (PK). FAILS
+    CLOSED (ProjectionCorruptError → 503) on contradictory durable state rather than serving a
+    self-contradictory / evidence-omitting timeline: a contradictory execution history, an
+    execution event or receipt whose intent has no outbox row (an orphan — both tables are
+    written only for outbox intents), or a receipt on a non-claimed intent (a receipt always
+    follows a claim, so a receipt without one is corruption)."""
+    events_by_intent: dict = {}
+    for event in event_rows:
+        events_by_intent.setdefault(event.intent_id, []).append(event)
+    receipts_by_intent = {receipt.intent_id: receipt for receipt in receipt_rows}
+
+    outbox_ids = {row.intent_id for row in outbox_rows}
+    orphans = (set(events_by_intent) | set(receipts_by_intent)) - outbox_ids
+    if orphans:
+        raise ProjectionCorruptError(
+            f"execution evidence references intents with no outbox row: {sorted(map(str, orphans))}"
+        )
+
+    intents = []
+    for row in outbox_rows:
+        events = events_by_intent.get(row.intent_id, [])
+        try:
+            state = derive_intent_execution_state(events)
+        except IntentExecutionCorruptError as error:
+            raise ProjectionCorruptError(str(error)) from error
+        receipt = receipts_by_intent.get(row.intent_id)
+        if receipt is not None and state != INTENT_CLAIMED:
+            raise ProjectionCorruptError(
+                f"intent {row.intent_id} carries a receipt but execution state is {state!r}"
+            )
+        claimed_at = next(
+            (event.occurred_at for event in events if event.event_type == INTENT_CLAIMED), None
+        )
+        intents.append(_intent_timeline_entry(row, state, claimed_at, receipt))
+    return ControlPlanIntentTimelineResponse(
+        plan_id=plan_id, plan_version=plan_version, intents=intents
+    )
+
+
+# -- readback observations (0011) ----------------------------------------------
+_OBSERVATION_COLUMNS = (
+    ControlGateReadbackObservation.observation_id,
+    ControlGateReadbackObservation.canonical_gate_id,
+    ControlGateReadbackObservation.observed_level,
+    ControlGateReadbackObservation.expected_level,
+    ControlGateReadbackObservation.quality,
+    ControlGateReadbackObservation.verdict,
+    ControlGateReadbackObservation.reconciliation_mode,
+    ControlGateReadbackObservation.observed_at,
+)
+
+
+# Observations grow one row per (gate, reconcile tick), so — unlike the timeline, whose intents
+# are bounded at activation — this read caps at the most-recent window (newest first) to keep the
+# dashboard response bounded while the snapshot is held. A full paginated history is a follow-up.
+_MAX_OBSERVATIONS = 1000
+
+
+def observations_query(plan_id: UUID, plan_version: int):
+    return (
+        select(*_OBSERVATION_COLUMNS)
+        .where(
+            ControlGateReadbackObservation.plan_id == plan_id,
+            ControlGateReadbackObservation.plan_version == plan_version,
+        )
+        .order_by(
+            ControlGateReadbackObservation.observed_at.desc(),
+            ControlGateReadbackObservation.observation_id.desc(),
+        )
+        .limit(_MAX_OBSERVATIONS)
+    )
+
+
+def _observation_out(row) -> ReadbackObservationOut:
+    return _model_or_corrupt(
+        lambda: ReadbackObservationOut(
+            canonical_gate_id=row.canonical_gate_id,
+            observed_level=row.observed_level,
+            expected_level=row.expected_level,
+            quality=row.quality,
+            verdict=row.verdict,
+            reconciliation_mode=row.reconciliation_mode,
+            observed_at=row.observed_at,
+        )
+    )
+
+
+def build_readback_observations(
+    plan_id: UUID, plan_version: int, rows
+) -> ControlPlanReadbackObservationsResponse:
+    return ControlPlanReadbackObservationsResponse(
+        plan_id=plan_id,
+        plan_version=plan_version,
+        observations=[_observation_out(row) for row in rows],
+    )
+
+
+# -- execution state / holds (0009 plan-level events) --------------------------
+_HOLD_EVENT_COLUMNS = (
+    ControlCommandExecutionEvent.event_type,
+    ControlCommandExecutionEvent.worker_id,
+    ControlCommandExecutionEvent.occurred_at,
+    ControlCommandExecutionEvent.created_at,
+)
+
+
+def hold_events_query(plan_id: UUID, plan_version: int):
+    return (
+        select(*_HOLD_EVENT_COLUMNS)
+        .where(
+            ControlCommandExecutionEvent.plan_id == plan_id,
+            ControlCommandExecutionEvent.plan_version == plan_version,
+            ControlCommandExecutionEvent.event_type.in_([EXECUTION_HELD, EXECUTION_RESUMED]),
+        )
+        # event_id is the FINAL, total tiebreak: is_plan_held picks max by (occurred_at,
+        # created_at) and Python's max returns the FIRST maximal element, so a deterministic
+        # input order makes is_held stable across reads even when two events share a timestamp.
+        .order_by(
+            ControlCommandExecutionEvent.occurred_at,
+            ControlCommandExecutionEvent.created_at,
+            ControlCommandExecutionEvent.event_id,
+        )
+    )
+
+
+def _hold_event_out(row) -> HoldEventOut:
+    return _model_or_corrupt(
+        lambda: HoldEventOut(
+            event_type=row.event_type,
+            worker_id=row.worker_id,
+            occurred_at=row.occurred_at,
+        )
+    )
+
+
+def build_execution_state(
+    plan_id: UUID, plan_version: int, hold_rows
+) -> ControlPlanExecutionStateResponse:
+    """Derived plan-level hold posture (is_plan_held picks the latest held/resumed by
+    (occurred_at, created_at)) + the ordered held/resumed history."""
+    return ControlPlanExecutionStateResponse(
+        plan_id=plan_id,
+        plan_version=plan_version,
+        is_held=is_plan_held(hold_rows),
+        hold_events=[_hold_event_out(row) for row in hold_rows],
+    )
+
+
 class PostgresControlPlanProjectionRepository:
     """Header-only list read model. Twin-checked against the in-memory fake by
     ``test_control_plan_projection`` (both expose the same ``list_plan_summaries``
@@ -988,3 +1246,51 @@ class PostgresControlPlanProjectionRepository:
         return build_ledger_projection(
             header, ledger_entries, events, requirements
         )
+
+    async def load_intent_timeline_projection(
+        self, session: AsyncSession, plan_id: UUID, plan_version: int
+    ) -> Optional[ControlPlanIntentTimelineResponse]:
+        await _begin_snapshot_read(session)
+        header = (
+            await session.execute(plan_header_query(plan_id, plan_version))
+        ).one_or_none()
+        if header is None:
+            return None
+        outbox = (
+            await session.execute(timeline_outbox_query(plan_id, plan_version))
+        ).all()
+        events = (
+            await session.execute(timeline_events_query(plan_id, plan_version))
+        ).all()
+        receipts = (
+            await session.execute(timeline_receipts_query(plan_id, plan_version))
+        ).all()
+        return build_intent_timeline(plan_id, plan_version, outbox, events, receipts)
+
+    async def load_readback_observations_projection(
+        self, session: AsyncSession, plan_id: UUID, plan_version: int
+    ) -> Optional[ControlPlanReadbackObservationsResponse]:
+        await _begin_snapshot_read(session)
+        header = (
+            await session.execute(plan_header_query(plan_id, plan_version))
+        ).one_or_none()
+        if header is None:
+            return None
+        rows = (
+            await session.execute(observations_query(plan_id, plan_version))
+        ).all()
+        return build_readback_observations(plan_id, plan_version, rows)
+
+    async def load_execution_state_projection(
+        self, session: AsyncSession, plan_id: UUID, plan_version: int
+    ) -> Optional[ControlPlanExecutionStateResponse]:
+        await _begin_snapshot_read(session)
+        header = (
+            await session.execute(plan_header_query(plan_id, plan_version))
+        ).one_or_none()
+        if header is None:
+            return None
+        rows = (
+            await session.execute(hold_events_query(plan_id, plan_version))
+        ).all()
+        return build_execution_state(plan_id, plan_version, rows)
