@@ -19,6 +19,7 @@ import {
   validateCommandIntent,
 } from '../domain/command-intent-validation';
 import { intentContentHash } from '../domain/intent-content-hash';
+import { projectGateReadback } from '../domain/gate-readback';
 import type { CommandIntent } from '../domain/machine-boundary';
 import type { ValidationReceiptRecord } from '../command-intents/types';
 import { logger } from '../utils/logger';
@@ -34,6 +35,8 @@ type InternalDeps = Pick<
   | 'receipts'
   | 'clock'
   | 'approvedLineageAnchor'
+  | 'snapshot'
+  | 'siteCanonicalGateId'
 >;
 
 /** Return a stored receipt (idempotent replay) or a 409 conflict, without persisting. */
@@ -71,6 +74,21 @@ export function buildInternalRouter(deps: InternalDeps): Router {
   router.get('/v1/device-capabilities', auth, requireRole('operator'), (_req, res) => {
     res.set('Cache-Control', 'no-store');
     res.json(deps.deviceCapabilities);
+  });
+
+  // PR 6.3b — service-authed machine-boundary readback (dark 503 when the service secret is
+  // unset). The scheduler's shadow reconciler reads this with its SERVICE token — never operator
+  // creds. Read-only: it holds no actuator/transport, so there is no write path from here.
+  router.get('/v1/gate-readback', requireServiceAuth(deps.serviceVerifier), (_req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json(
+      projectGateReadback(
+        deps.deviceCapabilities,
+        deps.snapshot(),
+        deps.siteCanonicalGateId,
+        new Date(deps.clock()).toISOString(),
+      ),
+    );
   });
 
   router.post(

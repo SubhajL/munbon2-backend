@@ -125,6 +125,12 @@ class Settings(BaseSettings):
     # so mint fresh per call — which the dispatcher does — and keep the two clocks NTP-synced.)
     scheduler_service_jwt_max_age_seconds: int = Field(default=300, gt=0, le=300)
 
+    # PR 6.3b — shadow readback reconciliation, DARK-by-default. off -> no reads, no observations,
+    # no holds (byte-identical to no-6.3b). observe -> read + record an observation, NEVER hold.
+    # enforce -> read + record + HOLD the plan on a fresh readback that drifts from the plan's
+    # expected baseline. Kept off until D6 provides real per-gate readback + baselines.
+    control_readback_reconciliation_mode: str = "off"
+
     # Field Team Configuration
     max_operations_per_day: int = 30
     default_operation_time_minutes: int = 15
@@ -188,6 +194,15 @@ class Settings(BaseSettings):
         if v not in ("compat", "strict"):
             raise ValueError(
                 "jwt_claim_policy_mode must be exactly 'compat' or 'strict'"
+            )
+        return v
+
+    @field_validator("control_readback_reconciliation_mode")
+    @classmethod
+    def require_known_readback_mode(cls, v: str) -> str:
+        if v not in ("off", "observe", "enforce"):
+            raise ValueError(
+                "control_readback_reconciliation_mode must be 'off', 'observe', or 'enforce'"
             )
         return v
 

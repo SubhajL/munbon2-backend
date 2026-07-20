@@ -129,6 +129,7 @@ async function main(): Promise<void> {
     receipts,
     clock: () => Date.now(),
     approvedLineageAnchor,
+    siteCanonicalGateId: config.siteCanonicalGateId,
   });
 
   controller.start();

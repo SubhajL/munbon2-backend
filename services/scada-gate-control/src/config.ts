@@ -39,6 +39,13 @@ export type AppConfig = {
    * while the rest of SCADA still boots.
    */
   readonly serviceAuth: (SchedulerServiceTokenConfig & { readonly maxAge: string }) | null;
+  /**
+   * PR 6.3b — the machine-boundary canonical_gate_id of the ONE polled site gate, so the
+   * service-authed readback endpoint can attach the live poll to that gate. `null` (unset) ->
+   * every machine-capable gate reads back `unavailable` (no live source). The real multi-gate
+   * mapping needs D6.
+   */
+  readonly siteCanonicalGateId: string | null;
 };
 
 function optionalEnv(env: NodeJS.ProcessEnv, name: string, fallback: string): string {
@@ -114,6 +121,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       max: optionalEnvInt(env, 'COMMAND_RATE_MAX', 30),
     },
     serviceAuth: loadServiceAuth(env),
+    siteCanonicalGateId: (() => {
+      const v = env.SCADA_SITE_CANONICAL_GATE_ID?.trim();
+      return v ? v : null;
+    })(),
   };
 }
 

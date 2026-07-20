@@ -73,6 +73,7 @@ function setup(rateLimit = generousRateLimit) {
     receipts: new InMemoryCommandIntentReceiptRepository(),
     clock: () => 1_700_000_000_000,
     approvedLineageAnchor: null,
+    siteCanonicalGateId: null,
   });
   return { app, writes, audit };
 }

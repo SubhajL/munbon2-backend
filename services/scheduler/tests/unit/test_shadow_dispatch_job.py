@@ -1,4 +1,5 @@
 """PR 6.3a — the dispatch-job factory: dark-by-default wiring + a minting token provider."""
+import pytest
 
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -69,3 +70,80 @@ def test_factory_threads_execution_mode_from_the_injected_settings():
         settings, object(), clock=lambda: NOW, http_client=_mock_http()
     )
     assert service._open_loop._execution_mode == "disabled"
+
+
+def test_build_readback_client_dark_without_config():
+    from jobs.shadow_dispatch_once import build_readback_client
+
+    assert build_readback_client(_settings(), clock=lambda: NOW) is None  # no base_url/secret
+
+
+def test_build_readback_client_configured():
+    from jobs.shadow_dispatch_once import build_readback_client
+
+    client = build_readback_client(
+        _settings(base_url="http://scada.local", secret=SECRET),
+        clock=lambda: NOW,
+        http_client=_mock_http(),
+    )
+    assert client is not None
+
+
+def test_build_readback_reconciliation_service_threads_mode():
+    from jobs.shadow_dispatch_once import build_readback_reconciliation_service
+
+    settings = _settings(execution_mode="shadow")
+    settings.control_readback_reconciliation_mode = "enforce"
+    svc = build_readback_reconciliation_service(settings, object(), clock=lambda: NOW)
+    assert svc._mode == "enforce"
+
+
+@pytest.mark.asyncio
+async def test_reconcile_active_plans_is_dark_without_a_client():
+    from jobs.shadow_dispatch_once import reconcile_active_plans
+
+    reports = await reconcile_active_plans(object(), None, None, object(), baselines={})
+    assert reports == []
+
+
+class _FakeReadbackClient:
+    def __init__(self, *, raises=None):
+        self.called = False
+        self._raises = raises
+
+    async def get_gate_readback(self):
+        self.called = True
+        if self._raises is not None:
+            raise self._raises
+        return {}
+
+
+class _FakeRepoKeys:
+    def __init__(self, keys):
+        self._keys = keys
+
+    async def load_active_shadow_plan_keys(self, session):
+        return self._keys
+
+
+@pytest.mark.asyncio
+async def test_reconcile_active_plans_short_circuits_without_touching_scada_when_no_baselines():
+    from jobs.shadow_dispatch_once import reconcile_active_plans
+
+    client = _FakeReadbackClient()
+    reports = await reconcile_active_plans(object(), client, None, _FakeRepoKeys([]), baselines={})
+    assert reports == []
+    assert client.called is False  # never polls SCADA when there is nothing to reconcile
+
+
+@pytest.mark.asyncio
+async def test_reconcile_active_plans_isolates_a_readback_outage():
+    from jobs.shadow_dispatch_once import reconcile_active_plans
+    from services.clients.scada_client_errors import ScadaUnavailableError
+
+    client = _FakeReadbackClient(raises=ScadaUnavailableError("down"))
+    # baselines non-empty so it reaches the (failing) fetch — must NOT raise.
+    reports = await reconcile_active_plans(
+        object(), client, None, _FakeRepoKeys([]), baselines={("k", 1): {"G1": 2}}
+    )
+    assert reports == []

@@ -43,6 +43,7 @@ from models.control_plan import (
     ControlCommandExecutionEvent,
     ControlCommandOutboxRow,
     ControlCommandValidationReceipt,
+    ControlGateReadbackObservation,
     ControlPlanCampaignVersion,
     ControlPlanRequirement,
     ControlPlanRun,
@@ -225,6 +226,22 @@ class ValidationReceiptRow:
     receipt_content_sha256: str
     dispatch_worker_id: Optional[str]
     dispatched_at: datetime
+
+
+@dataclass(frozen=True)
+class ReadbackObservationRow:
+    """One append-only shadow readback-reconciliation observation (PR 6.3b)."""
+
+    observation_id: UUID
+    plan_id: UUID
+    plan_version: int
+    canonical_gate_id: str
+    observed_level: Optional[int]
+    expected_level: int
+    quality: str
+    verdict: str
+    reconciliation_mode: str
+    observed_at: datetime
 
 
 class ScopeConflictError(Exception):
@@ -1403,6 +1420,18 @@ class PostgresControlPlanRepository:
             inserted = result.scalar_one_or_none() is not None
             await session.commit()
             return inserted
+        except BaseException:
+            await session.rollback()
+            raise
+
+    async def record_readback_observation(
+        self, session: AsyncSession, row: "ReadbackObservationRow"
+    ) -> None:
+        """Append one immutable readback-reconciliation observation (PR 6.3b)."""
+        statement = pg_insert(ControlGateReadbackObservation).values(**row.__dict__)
+        try:
+            await session.execute(statement)
+            await session.commit()
         except BaseException:
             await session.rollback()
             raise
