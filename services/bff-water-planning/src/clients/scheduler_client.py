@@ -320,6 +320,35 @@ class SchedulerClient:
             bearer_token,
         )
 
+    async def get_intent_timeline(
+        self, plan_id: UUID, plan_version: int, bearer_token: str
+    ) -> Dict[str, Any]:
+        """Fetch the scheduler's bounded per-intent timeline (PR 6.5a). Same fail-closed
+        taxonomy; a 404 (endpoint not yet deployed) fails closed, never fabricated."""
+        return await self._get_control_plan_document(
+            f"/api/v1/control-plans/{plan_id}/versions/{plan_version}/intent-timeline",
+            bearer_token,
+        )
+
+    async def get_readback_observations(
+        self, plan_id: UUID, plan_version: int, bearer_token: str
+    ) -> Dict[str, Any]:
+        """Fetch the scheduler's bounded readback observations (PR 6.5a). Fail-closed taxonomy."""
+        return await self._get_control_plan_document(
+            "/api/v1/control-plans/"
+            f"{plan_id}/versions/{plan_version}/readback-observations",
+            bearer_token,
+        )
+
+    async def get_execution_state(
+        self, plan_id: UUID, plan_version: int, bearer_token: str
+    ) -> Dict[str, Any]:
+        """Fetch the scheduler's bounded plan-level execution/hold state (PR 6.5a). Fail-closed."""
+        return await self._get_control_plan_document(
+            f"/api/v1/control-plans/{plan_id}/versions/{plan_version}/execution-state",
+            bearer_token,
+        )
+
     async def list_control_plans(
         self,
         *,
