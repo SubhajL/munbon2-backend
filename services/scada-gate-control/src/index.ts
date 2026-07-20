@@ -15,6 +15,7 @@ import { InMemoryCommandIntentReceiptRepository } from './command-intents/memory
 import { PostgresCommandIntentReceiptRepository } from './command-intents/pg-repository';
 import type { CommandIntentReceiptRepository } from './command-intents/types';
 import { SchedulerServiceTokenVerifier, type ServiceTokenVerifier } from './api/service-auth';
+import { createScadaMetrics } from './metrics/registry';
 import { logger } from './utils/logger';
 
 type Storage = {
@@ -60,11 +61,15 @@ async function main(): Promise<void> {
     unitId: config.modbus.unitId,
   };
 
+  // One per-process metrics registry, shared by the write chokepoint and the /metrics route.
+  const metrics = createScadaMetrics();
+
   const transport = new ModbusSerialTransport(config.modbus);
   const controller = new GateController({
     transport,
     thresholds: config.freshness,
     intervalMs: config.modbus.pollIntervalMs,
+    writeMeter: metrics,
     onError: (error) =>
       logger.warn({ err: error instanceof Error ? error.message : String(error) }, 'poll error'),
   });
@@ -130,6 +135,7 @@ async function main(): Promise<void> {
     clock: () => Date.now(),
     approvedLineageAnchor,
     siteCanonicalGateId: config.siteCanonicalGateId,
+    metrics,
   });
 
   controller.start();

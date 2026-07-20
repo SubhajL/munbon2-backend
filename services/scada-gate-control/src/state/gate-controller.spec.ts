@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from 'vitest';
-import { GateController, classifyReadError } from './gate-controller';
+import { GateController, classifyReadError, noopWriteMeter } from './gate-controller';
 import type { FreshnessThresholds } from './freshness';
 import type { ModbusWrite } from '../domain/command';
 import type { ModbusTransport, PointReads } from '../transport/types';
@@ -53,7 +53,13 @@ describe('classifyReadError', () => {
 describe('GateController.poll', () => {
   test('a successful read yields an ok snapshot', async () => {
     const { transport } = loggingTransport();
-    const ctrl = new GateController({ transport, thresholds, intervalMs: 3_000, now: () => 5_000 });
+    const ctrl = new GateController({
+      transport,
+      thresholds,
+      intervalMs: 3_000,
+      now: () => 5_000,
+      writeMeter: noopWriteMeter,
+    });
     expect((await ctrl.poll()).connection).toBe('ok');
   });
 
@@ -74,6 +80,7 @@ describe('GateController.poll', () => {
       intervalMs: 3_000,
       now: () => 5_000,
       onError,
+      writeMeter: noopWriteMeter,
     });
     expect((await ctrl.poll()).connection).toBe('offline');
     expect(onError).toHaveBeenCalledOnce();
@@ -83,7 +90,13 @@ describe('GateController.poll', () => {
 describe('GateController serialization (the actuator-safety fix)', () => {
   test('two concurrent commands never interleave their Modbus operations', async () => {
     const { transport, log } = loggingTransport();
-    const ctrl = new GateController({ transport, thresholds, intervalMs: 3_000, now: () => 1_000 });
+    const ctrl = new GateController({
+      transport,
+      thresholds,
+      intervalMs: 3_000,
+      now: () => 1_000,
+      writeMeter: noopWriteMeter,
+    });
 
     const writesA: ModbusWrite[] = [
       { kind: 'writeHoldingRegister', point: 'Op_gate', address: 108, value: 2 },
@@ -92,7 +105,10 @@ describe('GateController serialization (the actuator-safety fix)', () => {
       { kind: 'writeHoldingRegister', point: 'Op_gate', address: 108, value: 4 },
     ];
 
-    await Promise.all([ctrl.executeWrites(writesA), ctrl.executeWrites(writesB)]);
+    await Promise.all([
+      ctrl.executeWrites(writesA, 'operator'),
+      ctrl.executeWrites(writesB, 'operator'),
+    ]);
 
     // Command A's write + read-back must fully precede command B's.
     expect(log).toEqual([
@@ -109,9 +125,15 @@ describe('GateController serialization (the actuator-safety fix)', () => {
 
   test('a command and a concurrent poll do not interleave', async () => {
     const { transport, log } = loggingTransport();
-    const ctrl = new GateController({ transport, thresholds, intervalMs: 3_000, now: () => 1_000 });
+    const ctrl = new GateController({
+      transport,
+      thresholds,
+      intervalMs: 3_000,
+      now: () => 1_000,
+      writeMeter: noopWriteMeter,
+    });
 
-    await Promise.all([ctrl.executeWrites(gateWrites), ctrl.poll()]);
+    await Promise.all([ctrl.executeWrites(gateWrites, 'operator'), ctrl.poll()]);
 
     // Whichever acquires the queue first runs to completion before the other.
     const firstRead = log.indexOf('read:begin');
@@ -127,9 +149,15 @@ describe('GateController serialization (the actuator-safety fix)', () => {
 describe('GateController.executeWrites', () => {
   test('applies all writes and reads back the new state', async () => {
     const { transport, log } = loggingTransport();
-    const ctrl = new GateController({ transport, thresholds, intervalMs: 3_000, now: () => 1_000 });
+    const ctrl = new GateController({
+      transport,
+      thresholds,
+      intervalMs: 3_000,
+      now: () => 1_000,
+      writeMeter: noopWriteMeter,
+    });
 
-    const execution = await ctrl.executeWrites(gateWrites);
+    const execution = await ctrl.executeWrites(gateWrites, 'operator');
 
     expect(execution.failed).toBeNull();
     expect(execution.succeeded).toEqual(gateWrites);
@@ -146,14 +174,76 @@ describe('GateController.executeWrites', () => {
 
   test('on a write failure: records the failed write, stops, still reads back', async () => {
     const { transport, log } = loggingTransport({ failWrite: true });
-    const ctrl = new GateController({ transport, thresholds, intervalMs: 3_000, now: () => 1_000 });
+    const ctrl = new GateController({
+      transport,
+      thresholds,
+      intervalMs: 3_000,
+      now: () => 1_000,
+      writeMeter: noopWriteMeter,
+    });
 
-    const execution = await ctrl.executeWrites(gateWrites);
+    const execution = await ctrl.executeWrites(gateWrites, 'operator');
 
     expect(execution.succeeded).toEqual([]);
     expect(execution.failed).toEqual({ write: gateWrites[0], error: 'write failed' });
     expect(log).toContain('read:begin'); // hazard read-back happened
     expect(log).not.toContain('coil:begin:17'); // stopped before the confirmation coil
+  });
+});
+
+describe('GateController.executeWrites — write metering (PR 6.4)', () => {
+  test('records one metered write per accepted physical write, tagged with provenance', async () => {
+    const recorded: string[] = [];
+    const meter = { recordModbusWrite: (p: string) => recorded.push(p) };
+    const { transport } = loggingTransport();
+    const ctrl = new GateController({
+      transport,
+      thresholds,
+      intervalMs: 3_000,
+      now: () => 1_000,
+      writeMeter: meter,
+    });
+
+    await ctrl.executeWrites(gateWrites, 'operator'); // HR 108 + coil 17 = two writes
+
+    expect(recorded).toEqual(['operator', 'operator']);
+  });
+
+  test('a would-be machine write lights up a non-operator series (the shadow-alert tripwire)', async () => {
+    const recorded: string[] = [];
+    const meter = { recordModbusWrite: (p: string) => recorded.push(p) };
+    const { transport } = loggingTransport();
+    const ctrl = new GateController({
+      transport,
+      thresholds,
+      intervalMs: 3_000,
+      now: () => 1_000,
+      writeMeter: meter,
+    });
+
+    await ctrl.executeWrites(gateWrites, 'shadow');
+
+    expect(recorded).toEqual(['shadow', 'shadow']);
+  });
+
+  test('an attempted write is metered even when it fails (fail-safe: a write can move the PLC then throw)', async () => {
+    const recorded: string[] = [];
+    const meter = { recordModbusWrite: (p: string) => recorded.push(p) };
+    const { transport } = loggingTransport({ failWrite: true }); // first write throws
+    const ctrl = new GateController({
+      transport,
+      thresholds,
+      intervalMs: 3_000,
+      now: () => 1_000,
+      writeMeter: meter,
+    });
+
+    await ctrl.executeWrites(gateWrites, 'operator');
+
+    // The first write is attempted (and counted) before it throws; the loop then stops, so
+    // the second write is never attempted. Over-counting the failed write is the fail-safe
+    // direction for the zero-shadow-write tripwire.
+    expect(recorded).toEqual(['operator']);
   });
 });
 
@@ -174,6 +264,7 @@ describe('GateController.start/stop', () => {
         thresholds,
         intervalMs: 3_000,
         now: () => 1_000,
+        writeMeter: noopWriteMeter,
       });
       ctrl.start();
       await vi.advanceTimersByTimeAsync(0); // let the immediate poll's queued read run

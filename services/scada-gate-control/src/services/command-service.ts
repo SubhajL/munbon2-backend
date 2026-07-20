@@ -98,7 +98,11 @@ export class CommandService {
     writes: readonly ModbusWrite[],
     isSettled: (after: GateSnapshot) => boolean,
   ): Promise<CommandOutcome> {
-    const execution = await this.deps.actuator.executeWrites(writes);
+    // Operator-authenticated actuation is the ONLY reachable write path today, so the
+    // provenance is a hardcoded 'operator'. A future machine-authority write path MUST NOT be
+    // routed through this method (it would inherit this literal and mis-attribute its writes
+    // as operator, keeping the shadow tripwire dark) — it must carry its own provenance.
+    const execution = await this.deps.actuator.executeWrites(writes, 'operator');
     if (execution.failed) {
       const attempted = [...execution.succeeded, execution.failed.write];
       await this.recordAudit(

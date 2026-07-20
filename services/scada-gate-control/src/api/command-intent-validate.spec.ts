@@ -12,9 +12,11 @@ import type { CommandIntent, DeviceCapabilitySnapshot } from '../domain/machine-
 import type { ApprovedLineageAnchor } from '../domain/approved-field-artifact';
 import { CommandService } from '../services/command-service';
 import { buildSnapshot, emptyState, recordPoll, type GateSnapshot } from '../state/store';
-import type { GateActuator } from '../state/gate-controller';
+import { GateController, type GateActuator } from '../state/gate-controller';
+import { createScadaMetrics, type ScadaMetrics } from '../metrics/registry';
+import { readSeriesValue } from '../metrics/exposition.test-helpers';
 import type { ModbusWrite } from '../domain/command';
-import type { PointReads } from '../transport/types';
+import type { ModbusTransport, PointReads } from '../transport/types';
 import { JwtTokenVerifier } from './auth';
 import { SchedulerServiceTokenVerifier } from './service-auth';
 import { buildServer } from './server';
@@ -90,16 +92,19 @@ function makeApp(
     serviceConfigured?: boolean;
     approvedLineageAnchor?: ApprovedLineageAnchor | null;
     siteCanonicalGateId?: string | null;
+    actuator?: GateActuator;
+    metrics?: ScadaMetrics;
   } = {},
 ) {
   const writes: ModbusWrite[] = [];
-  const actuator: GateActuator = {
+  const actuator: GateActuator = opts.actuator ?? {
     snapshot: () => okSnapshot,
     executeWrites: async (planned: readonly ModbusWrite[]) => {
       writes.push(...planned);
       return { succeeded: planned, failed: null, snapshot: okSnapshot };
     },
   };
+  const metrics = opts.metrics ?? createScadaMetrics();
   const receipts = new InMemoryCommandIntentReceiptRepository();
   const commandService = new CommandService({
     actuator,
@@ -111,7 +116,7 @@ function makeApp(
   const app = buildServer({
     verifier: new JwtTokenVerifier({ secret: OP_SECRET, issuer: OP_ISSUER, audience: OP_AUDIENCE }),
     commandService,
-    snapshot: () => okSnapshot,
+    snapshot: () => actuator.snapshot(),
     site,
     endpoint,
     rateLimit: { windowMs: 60_000, max: 100 },
@@ -129,8 +134,9 @@ function makeApp(
     clock: () => IN_WINDOW_MS,
     approvedLineageAnchor: opts.approvedLineageAnchor ?? null,
     siteCanonicalGateId: opts.siteCanonicalGateId ?? null,
+    metrics,
   });
-  return { app, writes, receipts };
+  return { app, writes, receipts, metrics };
 }
 
 const post = (app: Express, token: string | null, body: unknown) => {
@@ -332,5 +338,86 @@ describe('GET /internal/v1/gate-readback (PR 6.3b)', () => {
     // okSnapshot polled gateLevel raw = 2.
     expect(res.body.gates['M(0,0;1,0)'].observed_level).toBe(2);
     expect(res.body.gates['M(0,0;1,0)'].quality).toBe('ok');
+  });
+});
+
+/** A transport that records physical writes (reads return a valid, fresh gate state). */
+function recordingTransport() {
+  const modbusWrites: Array<{ kind: string; address: number; value: number }> = [];
+  const transport: ModbusTransport = {
+    connect: async () => undefined,
+    readAll: async () => ({ gateLevel: 2, doorSw: 1, horn: 0, gateCf: 0 }) as PointReads,
+    writeHoldingRegister: async (address: number, value: number) => {
+      modbusWrites.push({ kind: 'hr', address, value });
+    },
+    writeCoil: async (address: number, value: boolean) => {
+      modbusWrites.push({ kind: 'coil', address, value: value ? 1 : 0 });
+    },
+    close: async () => undefined,
+  };
+  return { transport, modbusWrites };
+}
+
+const operatorToken = jwt.sign({ sub: 'op', type: 'access', roles: ['zone_manager'] }, OP_SECRET, {
+  issuer: OP_ISSUER,
+  audience: OP_AUDIENCE,
+  expiresIn: '5m',
+});
+
+// The zero-shadow-write invariant, triangulated: a REAL GateController (where the write
+// counter lives) is wired to the same metrics registry the server serves at /metrics.
+describe('machine_modbus_writes_total invariant (PR 6.4)', () => {
+  it('test_shadow_modbus_write_metric_must_remain_zero: the machine boundary issues zero writes', async () => {
+    const metrics = createScadaMetrics();
+    const { transport, modbusWrites } = recordingTransport();
+    const controller = new GateController({
+      transport,
+      thresholds,
+      intervalMs: 3_000,
+      now: () => IN_WINDOW_MS,
+      writeMeter: metrics,
+    });
+    await controller.poll(); // a read, not a write — establishes a fresh snapshot
+    const { app } = makeApp({ actuator: controller, metrics });
+
+    await post(app, serviceToken(), SHADOW).expect(200); // accepted validation
+    await post(app, serviceToken(), { nonsense: true }).expect(422); // schema_invalid
+    await request(app)
+      .get('/internal/v1/gate-readback')
+      .set('Authorization', `Bearer ${serviceToken()}`)
+      .expect(200);
+
+    const body = await metrics.render();
+    // Metric says zero AND the transport recorded zero writes — no un-metered write slipped by.
+    expect(readSeriesValue(body, 'machine_modbus_writes_total{mode="operator"}')).toBe(0);
+    expect(readSeriesValue(body, 'machine_modbus_writes_total{mode="shadow"}')).toBe(0);
+    expect(readSeriesValue(body, 'machine_modbus_writes_total{mode="operator_approved"}')).toBe(0);
+    expect(modbusWrites).toEqual([]);
+    // The 422 leaves no receipt, so SCADA is the only place it can be counted.
+    expect(readSeriesValue(body, 'command_intent_rejections_total{reason="schema_invalid"}')).toBe(1);
+  });
+
+  it('non-vacuous: an operator command increments machine_modbus_writes_total{mode="operator"}', async () => {
+    const metrics = createScadaMetrics();
+    const { transport, modbusWrites } = recordingTransport();
+    const controller = new GateController({
+      transport,
+      thresholds,
+      intervalMs: 3_000,
+      now: () => IN_WINDOW_MS,
+      writeMeter: metrics,
+    });
+    await controller.poll(); // fresh 'ok' snapshot so the safety planner allows the command
+    const { app } = makeApp({ actuator: controller, metrics });
+
+    await request(app)
+      .post('/api/gates/waste-way/command-level')
+      .set('Authorization', `Bearer ${operatorToken}`)
+      .send({ targetValue: 3, confirmed: true })
+      .expect(202);
+
+    const body = await metrics.render();
+    expect(readSeriesValue(body, 'machine_modbus_writes_total{mode="operator"}')).toBe(2); // HR 108 + coil 17
+    expect(modbusWrites).toHaveLength(2);
   });
 });

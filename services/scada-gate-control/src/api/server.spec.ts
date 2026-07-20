@@ -7,6 +7,7 @@ import { CommandService } from '../services/command-service';
 import { emptyDeviceCapabilitySnapshot } from '../domain/device-registry';
 import { InMemoryAuditRepository } from '../audit/memory-repository';
 import { InMemoryCommandIntentReceiptRepository } from '../command-intents/memory-repository';
+import { createScadaMetrics } from '../metrics/registry';
 import type { GateActuator } from '../state/gate-controller';
 import { buildSnapshot, emptyState, recordPoll, type GateSnapshot } from '../state/store';
 import type { ModbusWrite } from '../domain/command';
@@ -61,6 +62,7 @@ function setup(rateLimit = generousRateLimit) {
     endpoint,
     site,
   });
+  const metrics = createScadaMetrics();
   const app = buildServer({
     verifier: new JwtTokenVerifier({ secret: SECRET, issuer: ISSUER, audience: AUDIENCE }),
     commandService,
@@ -74,8 +76,9 @@ function setup(rateLimit = generousRateLimit) {
     clock: () => 1_700_000_000_000,
     approvedLineageAnchor: null,
     siteCanonicalGateId: null,
+    metrics,
   });
-  return { app, writes, audit };
+  return { app, writes, audit, metrics };
 }
 
 describe('GET /api/sites', () => {
@@ -180,6 +183,16 @@ describe('POST /api/gates/:id/horn', () => {
       .send({ enabled: true, confirmed: true })
       .expect(202);
     expect(ctx.writes).toEqual([{ kind: 'coil', address: 15, value: true }]);
+  });
+});
+
+describe('GET /metrics', () => {
+  test('is unauthenticated and exposes the pre-registered series in Prometheus text', async () => {
+    const res = await request(setup().app).get('/metrics').expect(200);
+    expect(res.headers['content-type']).toContain('text/plain');
+    expect(res.text).toContain('# TYPE machine_modbus_writes_total counter');
+    expect(res.text).toContain('machine_modbus_writes_total{mode="operator"} 0');
+    expect(res.text).toContain('command_intent_rejections_total{reason="schema_invalid"} 0');
   });
 });
 

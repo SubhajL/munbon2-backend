@@ -30,10 +30,33 @@ export type WriteExecution = {
   readonly snapshot: GateSnapshot;
 };
 
+/**
+ * Who originated a physical Modbus write. Today only `operator` is reachable — the
+ * machine boundary (validate/readback) holds no actuator, so it cannot write. `shadow`
+ * and `operator_approved` mirror the machine-boundary command modes and exist so that if a
+ * machine-authority write path is ever added it MUST declare its provenance here (a
+ * required arg on executeWrites), lighting up a non-operator series that the zero-shadow-
+ * write alert watches. Nothing today can produce them.
+ */
+export type WriteProvenance = 'operator' | 'shadow' | 'operator_approved';
+
+/** Sink for the physical-write counter; decouples the controller from prom-client. */
+export interface WriteMeter {
+  recordModbusWrite(provenance: WriteProvenance): void;
+}
+
+/** Explicit no-op meter for controllers in tests that do not assert on write metrics.
+ * The production meter is REQUIRED (see GateControllerOptions), so the zero-shadow-write
+ * tripwire cannot be silently disarmed by forgetting to wire it. */
+export const noopWriteMeter: WriteMeter = { recordModbusWrite: () => undefined };
+
 /** The capability the command service needs: read state + actuate atomically. */
 export interface GateActuator {
   snapshot(): GateSnapshot;
-  executeWrites(writes: readonly ModbusWrite[]): Promise<WriteExecution>;
+  executeWrites(
+    writes: readonly ModbusWrite[],
+    provenance: WriteProvenance,
+  ): Promise<WriteExecution>;
 }
 
 export type GateControllerOptions = {
@@ -43,6 +66,10 @@ export type GateControllerOptions = {
   readonly now?: () => number;
   readonly onSnapshot?: (snapshot: GateSnapshot) => void;
   readonly onError?: (error: unknown) => void;
+  // Counts each physical Modbus write by provenance. REQUIRED so the safety tripwire cannot
+  // be disarmed by omission (a dropped injection is a compile error, not a silent zero);
+  // tests that don't assert on metrics pass `noopWriteMeter`.
+  readonly writeMeter: WriteMeter;
 };
 
 export class GateController implements GateActuator {
@@ -90,11 +117,20 @@ export class GateController implements GateActuator {
     return snapshot;
   }
 
-  async executeWrites(writes: readonly ModbusWrite[]): Promise<WriteExecution> {
+  async executeWrites(
+    writes: readonly ModbusWrite[],
+    provenance: WriteProvenance,
+  ): Promise<WriteExecution> {
     const succeeded: ModbusWrite[] = [];
     let failed: WriteFailure | null = null;
     const result = await this.queue.run(async () => {
       for (const write of writes) {
+        // Meter the ATTEMPT, before issuing it and OUTSIDE the write try/catch. Two reasons:
+        // (1) a write can reach and move the PLC yet still throw on ack/timeout, so for the
+        // zero-shadow-write tripwire an attempt must count (over-count is the fail-safe
+        // direction); (2) metering before the try keeps a metering fault from being caught as
+        // a write failure, which would falsely report a real actuation as failed.
+        this.opts.writeMeter.recordModbusWrite(provenance);
         try {
           await this.applyWrite(write);
           succeeded.push(write);
