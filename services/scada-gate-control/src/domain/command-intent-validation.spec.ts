@@ -12,6 +12,7 @@ import {
   parseUtcInstant,
   validateCommandIntent,
 } from './command-intent-validation';
+import type { ApprovedLineageAnchor } from './approved-field-artifact';
 import type { CommandIntent, DeviceCapabilitySnapshot } from './machine-boundary';
 import { intentContentHash } from './intent-content-hash';
 import { VALIDATION_RECEIPT_SCHEMA_V1 } from './validation-receipt.schema';
@@ -183,6 +184,98 @@ describe('validateCommandIntent', () => {
         IN_WINDOW,
       ).reason_code,
     ).toBe('freshness_failed');
+  });
+});
+
+describe('validateCommandIntent with an approved lineage anchor (PR 6.1b)', () => {
+  // Matches BASE_INTENT's lineage (the shadow.valid fixture).
+  const ANCHOR: ApprovedLineageAnchor = {
+    model_release_id: 'engineering-prior-v3-v1',
+    model_release_content_hash: '5'.repeat(64),
+    engine_descriptor_content_hash: '7'.repeat(64),
+  };
+  const wrongLineage = (over: Partial<CommandIntent['lineage']>): CommandIntent =>
+    intent({ lineage: { ...BASE_INTENT.lineage, ...over } });
+
+  it('with anchor null, behaves identically to 6.2 (accepts, never lineage_mismatch)', () => {
+    expect(validateCommandIntent(BASE_INTENT, MATCHING_SNAPSHOT, IN_WINDOW, null)).toEqual({
+      status: 'validation_accepted',
+      reason_code: null,
+    });
+    // The default 3-arg call is also a no-op anchor.
+    expect(validateCommandIntent(BASE_INTENT, MATCHING_SNAPSHOT, IN_WINDOW).reason_code).toBeNull();
+  });
+
+  it('accepts an intent whose lineage matches the configured anchor', () => {
+    expect(validateCommandIntent(BASE_INTENT, MATCHING_SNAPSHOT, IN_WINDOW, ANCHOR)).toEqual({
+      status: 'validation_accepted',
+      reason_code: null,
+    });
+  });
+
+  it.each([
+    ['model_release_id', { model_release_id: 'engineering-prior-v9-v1' }],
+    ['model_release_content_hash', { model_release_content_hash: 'a'.repeat(64) }],
+    ['engine_descriptor_content_hash', { engine_descriptor_content_hash: 'b'.repeat(64) }],
+  ])('rejects lineage_mismatch when %s differs from the anchor', (_f, over) => {
+    expect(
+      validateCommandIntent(wrongLineage(over), MATCHING_SNAPSHOT, IN_WINDOW, ANCHOR).reason_code,
+    ).toBe('lineage_mismatch');
+  });
+
+  it('does NOT pin per-plan fields: a new plan_id/prediction_run_id still validates', () => {
+    const nextVersion = intent({
+      lineage: {
+        ...BASE_INTENT.lineage,
+        plan_id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+        plan_version: 2,
+        prediction_run_id: 'd'.repeat(64),
+        artifact_sha256: 'e'.repeat(64),
+      },
+    });
+    expect(
+      validateCommandIntent(nextVersion, MATCHING_SNAPSHOT, IN_WINDOW, ANCHOR).reason_code,
+    ).toBeNull();
+  });
+
+  it('reports freshness_failed (not lineage_mismatch) for a stale intent with wrong lineage', () => {
+    const staleWrong = intent({
+      capability_release_id: 'cap-old',
+      lineage: { ...BASE_INTENT.lineage, model_release_id: 'unapproved-v1' },
+    });
+    expect(
+      validateCommandIntent(staleWrong, MATCHING_SNAPSHOT, IN_WINDOW, ANCHOR).reason_code,
+    ).toBe('freshness_failed');
+  });
+
+  it('reports capability_mismatch (not lineage_mismatch) for an absent gate with wrong lineage', () => {
+    const absentWrong = intent({
+      canonical_gate_id: 'M(9,9;9,9)',
+      lineage: { ...BASE_INTENT.lineage, model_release_id: 'unapproved-v1' },
+    });
+    expect(
+      validateCommandIntent(absentWrong, MATCHING_SNAPSHOT, IN_WINDOW, ANCHOR).reason_code,
+    ).toBe('capability_mismatch');
+  });
+
+  it('reports lineage_mismatch (not deadline_expired) for a wrong-lineage expired intent', () => {
+    const past = Date.parse('2026-07-20T09:00:00Z');
+    const wrong = wrongLineage({ model_release_id: 'unapproved-v1' });
+    // Without an anchor this same intent would report deadline_expired (position 6)...
+    expect(validateCommandIntent(wrong, MATCHING_SNAPSHOT, past).reason_code).toBe(
+      'deadline_expired',
+    );
+    // ...but with the anchor the position-4 lineage check fires first.
+    expect(validateCommandIntent(wrong, MATCHING_SNAPSHOT, past, ANCHOR).reason_code).toBe(
+      'lineage_mismatch',
+    );
+  });
+
+  it('a matching-lineage intent is still subject to deadline_expired', () => {
+    const past = Date.parse('2026-07-20T09:00:00Z');
+    expect(validateCommandIntent(BASE_INTENT, MATCHING_SNAPSHOT, past, ANCHOR).reason_code).toBe(
+      'deadline_expired',
+    );
   });
 });
 

@@ -1,0 +1,45 @@
+{
+  "artifact_version": 1,
+  "capability_release_id": "cap-2026-07-19-a",
+  "approval": {
+    "scope": "pilot",
+    "approved_by_role": "EXAMPLE-field-authority",
+    "approved_at": "2026-07-19T00:00:00Z",
+    "approval_reference": "EXAMPLE-FIXTURE-NOT-FIELD-APPROVED-DO-NOT-DEPLOY",
+    "evidence": [
+      {
+        "kind": "flume-calibration",
+        "reference": "doc://example/flume-calibration",
+        "sha256": "9999999999999999999999999999999999999999999999999999999999999999"
+      }
+    ]
+  },
+  "approved_lineage_anchor": {
+    "model_release_id": "engineering-prior-v3-v1",
+    "model_release_content_hash": "5555555555555555555555555555555555555555555555555555555555555555",
+    "engine_descriptor_content_hash": "7777777777777777777777777777777777777777777777777777777777777777"
+  },
+  "gates": [
+    {
+      "canonical_gate_id": "M(0,0;1,0)",
+      "device_id": "scada-rtu-07",
+      "adapter_gate_id": "ch3",
+      "register": { "unit_id": 1, "command_register": 40001, "readback_register": 30001 },
+      "readback": { "tolerance_m": 0.02, "settle_ms": 5000 },
+      "quantizer": {
+        "targets": [
+          { "target_position_m": 1.2, "target_level": 8 },
+          { "target_position_m": 0.0, "target_level": 0 },
+          { "target_position_m": 0.45, "target_level": 3 }
+        ]
+      },
+      "evidence": [
+        {
+          "kind": "stroke-test",
+          "reference": "doc://example/stroke-test-M00",
+          "sha256": "1010101010101010101010101010101010101010101010101010101010101010"
+        }
+      ]
+    }
+  ]
+}

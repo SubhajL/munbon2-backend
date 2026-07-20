@@ -28,7 +28,12 @@ import type { ApiDeps } from './routes';
 
 type InternalDeps = Pick<
   ApiDeps,
-  'verifier' | 'deviceCapabilities' | 'serviceVerifier' | 'receipts' | 'clock'
+  | 'verifier'
+  | 'deviceCapabilities'
+  | 'serviceVerifier'
+  | 'receipts'
+  | 'clock'
+  | 'approvedLineageAnchor'
 >;
 
 /** Return a stored receipt (idempotent replay) or a 409 conflict, without persisting. */
@@ -106,7 +111,12 @@ export function buildInternalRouter(deps: InternalDeps): Router {
         }
 
         const nowMs = deps.clock();
-        const verdict = validateCommandIntent(intent, deps.deviceCapabilities, nowMs);
+        const verdict = validateCommandIntent(
+          intent,
+          deps.deviceCapabilities,
+          nowMs,
+          deps.approvedLineageAnchor,
+        );
         const receipt = buildValidationReceipt({
           intent,
           verdict,

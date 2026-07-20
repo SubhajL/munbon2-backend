@@ -8,6 +8,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "probe": "ts-node src/scripts/probe-device.ts",
+    "build-device-registry": "ts-node src/ops/build-device-registry.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

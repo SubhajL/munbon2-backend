@@ -46,6 +46,7 @@ function makeApp(deviceCapabilities: DeviceCapabilitySnapshot): express.Express 
       serviceVerifier: null,
       receipts: new InMemoryCommandIntentReceiptRepository(),
       clock: () => 1_700_000_000_000,
+      approvedLineageAnchor: null,
     }),
   );
   return app;
@@ -92,6 +93,7 @@ describe('no-Modbus by construction (compile-time)', () => {
       serviceVerifier: null,
       receipts: new InMemoryCommandIntentReceiptRepository(),
       clock: () => 0,
+      approvedLineageAnchor: null,
       // @ts-expect-error — the machine-boundary router MUST NOT accept an actuator/command
       // service; if this ever stops erroring, a write path leaked into the validate route.
       commandService: {},

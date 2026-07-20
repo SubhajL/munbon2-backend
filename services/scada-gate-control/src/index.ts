@@ -6,6 +6,7 @@ import { GateController } from './state/gate-controller';
 import { JwtTokenVerifier } from './api/auth';
 import { buildServer } from './api/server';
 import { loadDeviceCapabilitySnapshot } from './domain/device-registry';
+import { loadApprovedLineageAnchor } from './domain/approved-field-artifact';
 import { CommandService } from './services/command-service';
 import { InMemoryAuditRepository } from './audit/memory-repository';
 import { PostgresAuditRepository } from './audit/pg-repository';
@@ -81,6 +82,26 @@ async function main(): Promise<void> {
   // Fail-fast at startup on a broken registry (empty when unset = zero gates).
   const deviceCapabilities = loadDeviceCapabilitySnapshot();
 
+  // PR 6.1b — the approved lineage anchor for the reserved `lineage_mismatch` check. Null
+  // (dark) unless SCADA_APPROVED_LINEAGE_ANCHOR_PATH is set; a set-but-broken anchor fails
+  // fast (opting in is deliberate — never silently disable the check).
+  const approvedLineageAnchor = loadApprovedLineageAnchor();
+  if (!approvedLineageAnchor) {
+    logger.warn(
+      'SCADA_APPROVED_LINEAGE_ANCHOR_PATH is unset — the lineage_mismatch check is DARK (6.2-identical validation)',
+    );
+  } else {
+    // Surface the anchor↔registry binding so a release-A registry paired with a release-B
+    // anchor (fail-closed, but otherwise silent 100% lineage_mismatch) is visible at startup.
+    logger.info(
+      {
+        capability_release_id: deviceCapabilities.capability_release_id,
+        anchor_model_release_id: approvedLineageAnchor.model_release_id,
+      },
+      'lineage_mismatch check is ARMED — validating intents against the approved lineage anchor',
+    );
+  }
+
   // PR 6.2 — service verifier for the machine-boundary validate endpoint. Null (dark,
   // 503) unless a DEDICATED service secret is configured, kept separate from operator auth.
   const serviceVerifier: ServiceTokenVerifier | null = config.serviceAuth
@@ -107,6 +128,7 @@ async function main(): Promise<void> {
     serviceVerifier,
     receipts,
     clock: () => Date.now(),
+    approvedLineageAnchor,
   });
 
   controller.start();

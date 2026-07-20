@@ -13,6 +13,7 @@ import type { CommandOutcome, CommandService } from '../services/command-service
 import type { GateSnapshot } from '../state/store';
 import type { WriteDenyReason } from '../domain/write-safety';
 import type { DeviceCapabilitySnapshot } from '../domain/machine-boundary';
+import type { ApprovedLineageAnchor } from '../domain/approved-field-artifact';
 import type { CommandIntentReceiptRepository } from '../command-intents/types';
 import type { TokenVerifier } from './auth';
 import type { ServiceTokenVerifier } from './service-auth';
@@ -34,6 +35,9 @@ export type ApiDeps = {
   readonly serviceVerifier: ServiceTokenVerifier | null;
   readonly receipts: CommandIntentReceiptRepository;
   readonly clock: () => number;
+  // PR 6.1b — the approved lineage anchor for the reserved `lineage_mismatch` check, or null
+  // (dark) when SCADA_APPROVED_LINEAGE_ANCHOR_PATH is unset (then validation is 6.2-identical).
+  readonly approvedLineageAnchor: ApprovedLineageAnchor | null;
 };
 
 const commandLevelSchema = z.object({ targetValue: z.number(), confirmed: z.boolean() });

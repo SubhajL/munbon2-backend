@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { InMemoryAuditRepository } from '../audit/memory-repository';
 import { InMemoryCommandIntentReceiptRepository } from '../command-intents/memory-repository';
 import type { CommandIntent, DeviceCapabilitySnapshot } from '../domain/machine-boundary';
+import type { ApprovedLineageAnchor } from '../domain/approved-field-artifact';
 import { CommandService } from '../services/command-service';
 import { buildSnapshot, emptyState, recordPoll, type GateSnapshot } from '../state/store';
 import type { GateActuator } from '../state/gate-controller';
@@ -83,7 +84,13 @@ function serviceToken(overrides: jwt.SignOptions = {}, payload: object = {}): st
   });
 }
 
-function makeApp(opts: { snapshot?: DeviceCapabilitySnapshot; serviceConfigured?: boolean } = {}) {
+function makeApp(
+  opts: {
+    snapshot?: DeviceCapabilitySnapshot;
+    serviceConfigured?: boolean;
+    approvedLineageAnchor?: ApprovedLineageAnchor | null;
+  } = {},
+) {
   const writes: ModbusWrite[] = [];
   const actuator: GateActuator = {
     snapshot: () => okSnapshot,
@@ -119,6 +126,7 @@ function makeApp(opts: { snapshot?: DeviceCapabilitySnapshot; serviceConfigured?
           }),
     receipts,
     clock: () => IN_WINDOW_MS,
+    approvedLineageAnchor: opts.approvedLineageAnchor ?? null,
   });
   return { app, writes, receipts };
 }
@@ -205,6 +213,34 @@ describe('POST /internal/v1/command-intents/validate', () => {
     const replay = await post(app, serviceToken(), SHADOW).expect(200);
     expect(replay.body).toEqual(first.body);
     expect(await receipts.getByIdempotencyKey(SHADOW.idempotency_key)).not.toBeNull();
+  });
+
+  it('PR 6.1b: a configured lineage anchor rejects an unapproved intent as lineage_mismatch (no writes)', async () => {
+    const { app, writes, receipts } = makeApp({
+      approvedLineageAnchor: {
+        model_release_id: 'a-different-approved-release',
+        model_release_content_hash: 'c'.repeat(64),
+        engine_descriptor_content_hash: 'd'.repeat(64),
+      },
+    });
+    const res = await post(app, serviceToken(), SHADOW).expect(200);
+    expect(res.body.status).toBe('validation_rejected');
+    expect(res.body.reason_code).toBe('lineage_mismatch');
+    expect(await receipts.getByIdempotencyKey(SHADOW.idempotency_key)).not.toBeNull();
+    expect(writes).toEqual([]);
+  });
+
+  it('PR 6.1b: a matching lineage anchor still accepts the approved intent', async () => {
+    const { app } = makeApp({
+      approvedLineageAnchor: {
+        model_release_id: 'engineering-prior-v3-v1',
+        model_release_content_hash: '5'.repeat(64),
+        engine_descriptor_content_hash: '7'.repeat(64),
+      },
+    });
+    const res = await post(app, serviceToken(), SHADOW).expect(200);
+    expect(res.body.status).toBe('validation_accepted');
+    expect(res.body.reason_code).toBeNull();
   });
 
   it('rejects a schema-invalid intent with 422 and persists NO receipt', async () => {
