@@ -1,0 +1,41 @@
+{
+  "plan_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  "plan_version": 3,
+  "lifecycle_state": "shadow_active",
+  "created_by_subject": "operator-7",
+  "created_at": "2026-07-16T02:00:00Z",
+  "transitions": [
+    {
+      "transition_sequence": 1,
+      "transition_type": "create",
+      "from_state": null,
+      "to_state": "draft",
+      "actor_subject": "operator-7",
+      "reason": null,
+      "transition_document": null,
+      "occurred_at": "2026-07-16T02:00:00Z"
+    },
+    {
+      "transition_sequence": 2,
+      "transition_type": "review",
+      "from_state": "draft",
+      "to_state": "under_review",
+      "actor_subject": "operator-7",
+      "reason": "ready for review",
+      "transition_document": null,
+      "occurred_at": "2026-07-16T02:45:00Z"
+    },
+    {
+      "transition_sequence": 3,
+      "transition_type": "shadow_activated",
+      "from_state": "approved_for_shadow",
+      "to_state": "shadow_active",
+      "actor_subject": "operator-7",
+      "reason": "approved field rehearsal",
+      "transition_document": {
+        "machine_authority_granted": true
+      },
+      "occurred_at": "2026-07-16T03:30:00Z"
+    }
+  ]
+}

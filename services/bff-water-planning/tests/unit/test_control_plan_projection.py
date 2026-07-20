@@ -578,6 +578,30 @@ def test_bff_history_uses_dedicated_endpoint():
     assert stub.calls == [("history", PLAN_ID, PLAN_VERSION, TOKEN)]
 
 
+@pytest.mark.parametrize(
+    "suffix,stub",
+    [
+        ("", _StubSchedulerClient(projection=_detail_payload())),
+        ("/prediction-coverage", _StubSchedulerClient(coverage=_coverage_payload())),
+        ("/ledger", _StubSchedulerClient(ledger=_ledger_payload())),
+        ("/lifecycle-history", _StubSchedulerClient(history=_history_payload())),
+    ],
+)
+def test_control_plan_projection_successes_are_not_cacheable(suffix, stub):
+    response = _app(stub).get(_base(suffix), headers=AUTH)
+    assert response.status_code == 200, response.text
+    assert response.headers["Cache-Control"] == "no-store"
+
+
+def test_control_plan_projection_errors_are_not_cacheable():
+    stub = _StubSchedulerClient(
+        projection_error=SchedulerUnavailableError("scheduler is unavailable")
+    )
+    response = _app(stub).get(_base(), headers=AUTH)
+    assert response.status_code == 503
+    assert response.headers["Cache-Control"] == "no-store"
+
+
 def test_bff_preserves_unavailable_prediction_status():
     stub = _StubSchedulerClient(
         coverage_error=SchedulerUnavailableError("scheduler is unavailable")
@@ -728,12 +752,11 @@ def test_bff_preserves_empty_ledger_without_fabrication():
     assert body["ledger_sha256"] == "sha256:ledger-hash"
 
 
-def test_bff_preserves_stale_source_data_status_exactly():
+def test_bff_rejects_source_status_the_scheduler_cannot_persist():
     stub = _StubSchedulerClient(projection=_detail_payload(source_data_status="stale"))
     response = _app(stub).get(_base(), headers=AUTH)
 
-    assert response.status_code == 200
-    assert response.json()["requirements"][0]["source_data_status"] == "stale"
+    assert response.status_code == 502
 
 
 # --- route layer: auth + fail-closed error mapping --------------------------

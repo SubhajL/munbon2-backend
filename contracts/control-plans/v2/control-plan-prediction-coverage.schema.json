@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://munbon.internal/contracts/control-plans/v2/control-plan-prediction-coverage.schema.json",
+  "$defs": {
+    "PredictionMemberStatusOut": {
+      "additionalProperties": false,
+      "properties": {
+        "member": {
+          "enum": [
+            "lower",
+            "nominal",
+            "upper"
+          ],
+          "title": "Member",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "completed",
+            "infeasible"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "member",
+        "status"
+      ],
+      "title": "PredictionMemberStatusOut",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Prediction lineage + exact per-member statuses (NO optimizer_result, NO\nrequirements/events/transitions/ledger, NO trajectory). Mirrors the subset the\ndetail response already exposes; `infeasible`/`not_requested` are verbatim.",
+  "properties": {
+    "plan_id": {
+      "format": "uuid",
+      "title": "Plan Id",
+      "type": "string"
+    },
+    "plan_version": {
+      "title": "Plan Version",
+      "type": "integer"
+    },
+    "campaign_id": {
+      "format": "uuid",
+      "title": "Campaign Id",
+      "type": "string"
+    },
+    "requirement_run_id": {
+      "format": "uuid",
+      "title": "Requirement Run Id",
+      "type": "string"
+    },
+    "requirement_version": {
+      "title": "Requirement Version",
+      "type": "integer"
+    },
+    "model_snapshot_id": {
+      "title": "Model Snapshot Id",
+      "type": "string"
+    },
+    "model_release_id": {
+      "title": "Model Release Id",
+      "type": "string"
+    },
+    "model_release_content_hash": {
+      "title": "Model Release Content Hash",
+      "type": "string"
+    },
+    "input_content_hash": {
+      "title": "Input Content Hash",
+      "type": "string"
+    },
+    "draft_content_hash": {
+      "title": "Draft Content Hash",
+      "type": "string"
+    },
+    "optimizer_status": {
+      "enum": [
+        "feasible",
+        "infeasible"
+      ],
+      "title": "Optimizer Status",
+      "type": "string"
+    },
+    "prediction_status": {
+      "enum": [
+        "not_requested",
+        "completed",
+        "infeasible"
+      ],
+      "title": "Prediction Status",
+      "type": "string"
+    },
+    "prediction_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Prediction Run Id"
+    },
+    "prediction_member_statuses": {
+      "items": {
+        "$ref": "#/$defs/PredictionMemberStatusOut"
+      },
+      "title": "Prediction Member Statuses",
+      "type": "array"
+    }
+  },
+  "required": [
+    "plan_id",
+    "plan_version",
+    "campaign_id",
+    "requirement_run_id",
+    "requirement_version",
+    "model_snapshot_id",
+    "model_release_id",
+    "model_release_content_hash",
+    "input_content_hash",
+    "draft_content_hash",
+    "optimizer_status",
+    "prediction_status",
+    "prediction_run_id",
+    "prediction_member_statuses"
+  ],
+  "title": "ControlPlanPredictionCoverageResponse",
+  "type": "object"
+}

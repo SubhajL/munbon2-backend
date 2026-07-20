@@ -61,7 +61,7 @@ def _page(*, items=None, next_cursor=None) -> dict:
     return {
         "items": items if items is not None else [_summary()],
         "next_cursor": next_cursor,
-        "projection_schema_version": 1,
+        "projection_schema_version": 2,
     }
 
 
@@ -125,7 +125,7 @@ async def test_bff_list_forwards_bearer_cursor_and_filters():
         bearer_token=TOKEN,
     )
 
-    assert page["projection_schema_version"] == 1
+    assert page["projection_schema_version"] == 2
     assert len(captured) == 1
     request = captured[0]
     assert request.url.path == "/api/v1/control-plans"
@@ -216,7 +216,8 @@ def test_bff_list_route_returns_page_and_forwards_query():
     body = response.json()
     assert body["next_cursor"] == "next-page-cursor"
     assert body["items"][0]["plan_id"] == PLAN_ID
-    assert body["projection_schema_version"] == 1
+    assert body["projection_schema_version"] == 2
+    assert response.headers["Cache-Control"] == "no-store"
     # the operator bearer + exact filters/cursor/limit reached the client
     call = stub.calls[0]
     assert call["bearer_token"] == TOKEN
@@ -271,6 +272,16 @@ def test_bff_list_boolean_approval_trust_must_be_boolean_502():
     assert response.status_code == 502
 
 
+def test_bff_list_accepts_shadow_active_in_v2():
+    response = _app(
+        _StubSchedulerClient(
+            page=_page(items=[_summary(lifecycle_state="shadow_active")])
+        )
+    ).get("/api/v1/control-plans", headers=AUTH)
+    assert response.status_code == 200, response.text
+    assert response.json()["items"][0]["lifecycle_state"] == "shadow_active"
+
+
 @pytest.mark.parametrize(
     "error,expected_status",
     [
@@ -310,15 +321,25 @@ def test_bff_list_scheduler_422_becomes_422_retaining_detail():
 
 
 def test_bff_list_projection_version_drift_fails_closed_502():
-    # An upstream page announcing projection_schema_version 2 is projection drift:
+    # An upstream page announcing the retired projection_schema_version 1 is drift:
     # the strict mirror rejects it, so the route 502s rather than serving an
     # unknown-shape page as a confident 200.
     drifted = _page()
-    drifted["projection_schema_version"] = 2
+    drifted["projection_schema_version"] = 1
     response = _app(_StubSchedulerClient(page=drifted)).get(
         "/api/v1/control-plans", headers=AUTH
     )
     assert response.status_code == 502
+
+
+def test_bff_list_error_response_is_not_cacheable():
+    response = _app(
+        _StubSchedulerClient(
+            error=SchedulerUnavailableError("scheduler is unavailable")
+        )
+    ).get("/api/v1/control-plans", headers=AUTH)
+    assert response.status_code == 503
+    assert response.headers["Cache-Control"] == "no-store"
 
 
 def test_bff_list_never_fabricates_empty_page_on_failure():
@@ -338,12 +359,19 @@ def test_bff_list_rejects_missing_bearer_without_contacting_scheduler():
     stub = _StubSchedulerClient(page=_page())
     response = _app(stub).get("/api/v1/control-plans")  # no Authorization header
     assert response.status_code == 403
+    assert response.headers["Cache-Control"] == "no-store"
     assert stub.calls == []
 
 
 def test_bff_list_limit_out_of_range_rejected_before_scheduler_call():
     stub = _StubSchedulerClient(page=_page())
     client = _app(stub)
-    assert client.get("/api/v1/control-plans?limit=51", headers=AUTH).status_code == 422
-    assert client.get("/api/v1/control-plans?limit=0", headers=AUTH).status_code == 422
+    responses = [
+        client.get("/api/v1/control-plans?limit=51", headers=AUTH),
+        client.get("/api/v1/control-plans?limit=0", headers=AUTH),
+    ]
+    assert [response.status_code for response in responses] == [422, 422]
+    assert all(
+        response.headers["cache-control"] == "no-store" for response in responses
+    )
     assert stub.calls == []

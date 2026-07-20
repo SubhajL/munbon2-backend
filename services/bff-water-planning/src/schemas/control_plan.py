@@ -87,7 +87,7 @@ class PlanRequirementProjection(StrictControlPlanModel):
     quality: str
     published_at: StrictDatetime
     as_of_date: date
-    source_data_status: str
+    source_data_status: Literal["published"]
     planning_disposition: Literal["scheduled", "no_delivery_required"]
     delivery_node_id: Optional[str]
     gate_id: Optional[str]
@@ -131,6 +131,7 @@ LifecycleState = Literal[
     "draft",
     "under_review",
     "approved_for_shadow",
+    "shadow_active",
     "cancelled",
     "superseded",
     "invalidated",
@@ -346,4 +347,4 @@ class ControlPlanListPageProjection(StrictControlPlanModel):
     # Pinned to the current projection version: an upstream page announcing v2
     # (or any other value / retyped scalar) fails strict validation, so the route
     # 502s on projection drift instead of laundering an unknown shape.
-    projection_schema_version: Annotated[Literal[1], BeforeValidator(_strict_int)]
+    projection_schema_version: Annotated[Literal[2], BeforeValidator(_strict_int)]

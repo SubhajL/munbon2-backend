@@ -1,0 +1,127 @@
+{
+  "manifest_version": 1,
+  "contract_family": "control-plans",
+  "contract_version": 2,
+  "json_schema_dialect": "https://json-schema.org/draft/2020-12/schema",
+  "contract_set_sha256": "ab61d1a8301f77a139d2aa0fe32c48ee9954969f7a1bb467204a2f86825e4933",
+  "schemas": [
+    {
+      "relative_path": "control-plan-list-page.schema.json",
+      "sha256": "f08ed5a89eb325375e25b1cf021e7222c8d25339c69bcc39277a870c4250acd2"
+    },
+    {
+      "relative_path": "control-plan-detail.schema.json",
+      "sha256": "95809c29321c83ddc1cc85390f75c995c7fc51b0cd0654cc55af8af819286f7e"
+    },
+    {
+      "relative_path": "control-plan-prediction-coverage.schema.json",
+      "sha256": "e10e4c7509431ec25cfa87594839f20bbc80853f8b89841d84ac87cc2db54022"
+    },
+    {
+      "relative_path": "control-plan-ledger.schema.json",
+      "sha256": "2c772d688dcaa9446cba5227667c2d7f709ad08ae769e884a75afbcd6f154e0c"
+    },
+    {
+      "relative_path": "control-plan-lifecycle-history.schema.json",
+      "sha256": "2645d19b5cfd4f113222ecbd1e3b507331f5e2a3d55bf37dd509efac7db61445"
+    }
+  ],
+  "fixtures": [
+    {
+      "relative_path": "fixtures/valid/list.all-lifecycle-states.valid.json",
+      "schema": "control-plan-list-page.schema.json",
+      "expected_valid": true,
+      "sha256": "b64b0f58b2b0e2a07c73e3b1fb269bae18193dd621f5619cfafec03cf9eb8da2"
+    },
+    {
+      "relative_path": "fixtures/valid/detail.shadow-active.valid.json",
+      "schema": "control-plan-detail.schema.json",
+      "expected_valid": true,
+      "sha256": "cbee45fb58aec1b5383286ca7a581e555f7d9ac6c6763d01bb8b7c6f895f238a"
+    },
+    {
+      "relative_path": "fixtures/valid/detail.infeasible.valid.json",
+      "schema": "control-plan-detail.schema.json",
+      "expected_valid": true,
+      "sha256": "1aa1f06f608af47d484caf03b8125297b40e75e8079656bec8b17e02d2126a3e"
+    },
+    {
+      "relative_path": "fixtures/valid/prediction-coverage.completed.valid.json",
+      "schema": "control-plan-prediction-coverage.schema.json",
+      "expected_valid": true,
+      "sha256": "1df5252be9fc91a7d667263c30b26ecae1b40fb19c6b179af3d916fb9103c698"
+    },
+    {
+      "relative_path": "fixtures/valid/prediction-coverage.infeasible.valid.json",
+      "schema": "control-plan-prediction-coverage.schema.json",
+      "expected_valid": true,
+      "sha256": "f24382c65473a9fc6dd68ad6b1c5734c74032de07c2d8b720faeb63fc1a3b29a"
+    },
+    {
+      "relative_path": "fixtures/valid/ledger.completed.valid.json",
+      "schema": "control-plan-ledger.schema.json",
+      "expected_valid": true,
+      "sha256": "2262cac829bb6452bb532948e91ff51d5b60a049a31e62b418fa73ee15f62108"
+    },
+    {
+      "relative_path": "fixtures/valid/ledger.unavailable-bounds.valid.json",
+      "schema": "control-plan-ledger.schema.json",
+      "expected_valid": true,
+      "sha256": "3f02b0d517e8895a4bcb41a54a39ecf81373eb71f5c8cfd7c022ffeb34e4e5ec"
+    },
+    {
+      "relative_path": "fixtures/valid/lifecycle-history.shadow-active.valid.json",
+      "schema": "control-plan-lifecycle-history.schema.json",
+      "expected_valid": true,
+      "sha256": "d779f4e0972106ab478793e96c92c0eb9f46a8ac5774f92fc0345bd47c19ec33"
+    },
+    {
+      "relative_path": "fixtures/invalid/list.v1.invalid.json",
+      "schema": "control-plan-list-page.schema.json",
+      "expected_valid": false,
+      "sha256": "92ed19d1fab7e02c9bf944f524ea70b4a967299961ca58c839665ffcb5a36d2b"
+    },
+    {
+      "relative_path": "fixtures/invalid/list.unknown-lifecycle.invalid.json",
+      "schema": "control-plan-list-page.schema.json",
+      "expected_valid": false,
+      "sha256": "6f88f80ffbf779e58045a838b4d87a5edb007cf067cd79533c279ae00d02ab7b"
+    },
+    {
+      "relative_path": "fixtures/invalid/detail.extra-field.invalid.json",
+      "schema": "control-plan-detail.schema.json",
+      "expected_valid": false,
+      "sha256": "3f10df353e435e3be6db5988be12317b558a3481849f40f3d6bfe1595c44bb6d"
+    },
+    {
+      "relative_path": "fixtures/invalid/detail.retyped-plan-version.invalid.json",
+      "schema": "control-plan-detail.schema.json",
+      "expected_valid": false,
+      "sha256": "10125cca0fb2e084636bf65d0836a2061f9f14fe660c8710d5531391fc6d07dd"
+    },
+    {
+      "relative_path": "fixtures/invalid/detail.unknown-source-status.invalid.json",
+      "schema": "control-plan-detail.schema.json",
+      "expected_valid": false,
+      "sha256": "1c19341b08718501d2558a469f7ab4631d8b7960a8a9873aca6f2c751e133ff6"
+    },
+    {
+      "relative_path": "fixtures/invalid/prediction-coverage.unknown-status.invalid.json",
+      "schema": "control-plan-prediction-coverage.schema.json",
+      "expected_valid": false,
+      "sha256": "18ae5971f6a6666a5af4ce91ff2a2170ca049e7beb7622ca1ac38e447543f867"
+    },
+    {
+      "relative_path": "fixtures/invalid/ledger.retyped-checkpoint-index.invalid.json",
+      "schema": "control-plan-ledger.schema.json",
+      "expected_valid": false,
+      "sha256": "5c0819cb059d1bdc1c6c9430047b4da179a4eb127c65b68d5b7f954b35edbf6e"
+    },
+    {
+      "relative_path": "fixtures/invalid/lifecycle-history.unknown-state.invalid.json",
+      "schema": "control-plan-lifecycle-history.schema.json",
+      "expected_valid": false,
+      "sha256": "3448be6858a2a6e7be137b3c7df955f1392e200a5fcdd3bb06700eb322dafaf2"
+    }
+  ]
+}

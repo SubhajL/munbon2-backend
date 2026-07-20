@@ -33,15 +33,11 @@ def _load(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def test_scheduler_accepts_the_v1_list_fixture():
-    page = ControlPlanListPage.model_validate(_load(_FIXTURE))
-    assert page.projection_schema_version == PROJECTION_SCHEMA_VERSION
-    assert len(page.items) == 2
-    # Both the feasible/completed and infeasible/not_requested rows round-trip.
-    assert page.items[0].approval_trust is True
-    assert page.items[0].lifecycle_state == "approved_for_shadow"
-    assert page.items[1].optimizer_status == "infeasible"
-    assert page.items[1].prediction_run_id is None
+def test_scheduler_runtime_rejects_the_retired_v1_list_fixture():
+    fixture = _load(_FIXTURE)
+    assert fixture["projection_schema_version"] == 1
+    with pytest.raises(ValidationError):
+        ControlPlanListPage.model_validate(fixture)
 
 
 def test_summary_model_schema_and_fixture_agree_on_the_exact_field_set():
@@ -70,11 +66,10 @@ def test_contract_forbids_any_large_document_field():
         assert forbidden not in summary["properties"]
 
 
-def test_contract_page_version_matches_the_code_constant():
+def test_v1_contract_stays_immutable_after_runtime_moves_to_v2():
     schema = _load(_SCHEMA)
-    assert schema["properties"]["projection_schema_version"]["const"] == (
-        PROJECTION_SCHEMA_VERSION
-    )
+    assert schema["properties"]["projection_schema_version"]["const"] == 1
+    assert PROJECTION_SCHEMA_VERSION == 2
 
 
 def test_list_page_rejects_unknown_projection_version():

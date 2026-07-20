@@ -72,7 +72,7 @@ class TestListProjection:
         response = TestClient(app).get("/api/v1/control-plans?limit=25")
         assert response.status_code == 200, response.text
         body = response.json()
-        assert body["projection_schema_version"] == 1
+        assert body["projection_schema_version"] == 2
         assert body["next_cursor"] is None
         # created_at DESC, plan_id DESC.
         created = [item["created_at"] for item in body["items"]]
@@ -108,6 +108,21 @@ class TestListProjection:
             "model_snapshot_document_text",
         ):
             assert forbidden not in item
+
+    def test_list_projects_shadow_active_without_contract_failure(self):
+        app, _ = _build_app(
+            records=[
+                projection_record(
+                    _IDS[0],
+                    created_at=datetime(2026, 7, 18, 8, tzinfo=timezone.utc),
+                    lifecycle="shadow_active",
+                    approval_document=TRUSTED_APPROVAL_DOCUMENT,
+                )
+            ]
+        )
+        response = TestClient(app).get("/api/v1/control-plans")
+        assert response.status_code == 200, response.text
+        assert response.json()["items"][0]["lifecycle_state"] == "shadow_active"
 
     def test_list_paginates_through_next_cursor(self):
         app, _ = _build_app()

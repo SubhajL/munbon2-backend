@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://munbon.internal/contracts/control-plans/v2/control-plan-lifecycle-history.schema.json",
+  "$defs": {
+    "PlanTransitionOut": {
+      "additionalProperties": false,
+      "properties": {
+        "transition_sequence": {
+          "title": "Transition Sequence",
+          "type": "integer"
+        },
+        "transition_type": {
+          "title": "Transition Type",
+          "type": "string"
+        },
+        "from_state": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "From State"
+        },
+        "to_state": {
+          "title": "To State",
+          "type": "string"
+        },
+        "actor_subject": {
+          "title": "Actor Subject",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reason"
+        },
+        "transition_document": {
+          "anyOf": [
+            {
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Transition Document"
+        },
+        "occurred_at": {
+          "format": "date-time",
+          "title": "Occurred At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "transition_sequence",
+        "transition_type",
+        "from_state",
+        "to_state",
+        "actor_subject",
+        "reason",
+        "occurred_at"
+      ],
+      "title": "PlanTransitionOut",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Plan identity + derived lifecycle state + the COMPLETE ordered transition\nhistory, each `transition_document` preserved verbatim (history needs them).",
+  "properties": {
+    "plan_id": {
+      "format": "uuid",
+      "title": "Plan Id",
+      "type": "string"
+    },
+    "plan_version": {
+      "title": "Plan Version",
+      "type": "integer"
+    },
+    "lifecycle_state": {
+      "enum": [
+        "draft",
+        "under_review",
+        "approved_for_shadow",
+        "shadow_active",
+        "cancelled",
+        "superseded",
+        "invalidated"
+      ],
+      "title": "Lifecycle State",
+      "type": "string"
+    },
+    "created_by_subject": {
+      "title": "Created By Subject",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "transitions": {
+      "items": {
+        "$ref": "#/$defs/PlanTransitionOut"
+      },
+      "title": "Transitions",
+      "type": "array"
+    }
+  },
+  "required": [
+    "plan_id",
+    "plan_version",
+    "lifecycle_state",
+    "created_by_subject",
+    "created_at",
+    "transitions"
+  ],
+  "title": "ControlPlanLifecycleHistoryResponse",
+  "type": "object"
+}

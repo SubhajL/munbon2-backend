@@ -1,0 +1,176 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://munbon.internal/contracts/control-plans/v2/control-plan-list-page.schema.json",
+  "$defs": {
+    "ControlPlanSummaryOut": {
+      "additionalProperties": false,
+      "description": "One row of the bounded list projection — header columns + a derived\nlifecycle state and approval-trust flag. NO optimizer_result, NO\nrequirements/events/transitions/ledger, NO trajectory.",
+      "properties": {
+        "plan_id": {
+          "format": "uuid",
+          "title": "Plan Id",
+          "type": "string"
+        },
+        "plan_version": {
+          "title": "Plan Version",
+          "type": "integer"
+        },
+        "campaign_id": {
+          "format": "uuid",
+          "title": "Campaign Id",
+          "type": "string"
+        },
+        "lifecycle_state": {
+          "enum": [
+            "draft",
+            "under_review",
+            "approved_for_shadow",
+            "shadow_active",
+            "cancelled",
+            "superseded",
+            "invalidated"
+          ],
+          "title": "Lifecycle State",
+          "type": "string"
+        },
+        "approval_trust": {
+          "title": "Approval Trust",
+          "type": "boolean"
+        },
+        "horizon_start": {
+          "format": "date-time",
+          "title": "Horizon Start",
+          "type": "string"
+        },
+        "horizon_end": {
+          "format": "date-time",
+          "title": "Horizon End",
+          "type": "string"
+        },
+        "requirement_run_id": {
+          "format": "uuid",
+          "title": "Requirement Run Id",
+          "type": "string"
+        },
+        "requirement_version": {
+          "title": "Requirement Version",
+          "type": "integer"
+        },
+        "input_content_hash": {
+          "title": "Input Content Hash",
+          "type": "string"
+        },
+        "model_snapshot_id": {
+          "title": "Model Snapshot Id",
+          "type": "string"
+        },
+        "model_release_content_hash": {
+          "title": "Model Release Content Hash",
+          "type": "string"
+        },
+        "optimizer_status": {
+          "enum": [
+            "feasible",
+            "infeasible"
+          ],
+          "title": "Optimizer Status",
+          "type": "string"
+        },
+        "prediction_status": {
+          "enum": [
+            "not_requested",
+            "completed",
+            "infeasible"
+          ],
+          "title": "Prediction Status",
+          "type": "string"
+        },
+        "prediction_run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Prediction Run Id"
+        },
+        "prediction_response_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Prediction Response Sha256"
+        },
+        "created_by_subject": {
+          "title": "Created By Subject",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "plan_id",
+        "plan_version",
+        "campaign_id",
+        "lifecycle_state",
+        "approval_trust",
+        "horizon_start",
+        "horizon_end",
+        "requirement_run_id",
+        "requirement_version",
+        "input_content_hash",
+        "model_snapshot_id",
+        "model_release_content_hash",
+        "optimizer_status",
+        "prediction_status",
+        "prediction_run_id",
+        "prediction_response_sha256",
+        "created_by_subject",
+        "created_at"
+      ],
+      "title": "ControlPlanSummaryOut",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/ControlPlanSummaryOut"
+      },
+      "title": "Items",
+      "type": "array"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Next Cursor"
+    },
+    "projection_schema_version": {
+      "const": 2,
+      "title": "Projection Schema Version"
+    }
+  },
+  "required": [
+    "items",
+    "next_cursor",
+    "projection_schema_version"
+  ],
+  "title": "ControlPlanListPage",
+  "type": "object"
+}
