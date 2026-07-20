@@ -6,18 +6,24 @@
  * (`schema_invalid` → 422), then calls `validateCommandIntent` on a schema-valid
  * intent and persists the resulting receipt idempotently.
  *
- * Reason codes 6.2 enforces standalone (first failure wins, in this order):
+ * Reason codes enforced standalone (first failure wins, in this order):
  *   freshness_failed     — intent pins a capability release/hash SCADA no longer serves
  *   capability_mismatch  — gate absent, or device_id/adapter_gate_id disagree with the binding
  *   target_invalid       — (position, level) is not an EXACT member of the device's targets
+ *   lineage_mismatch     — (PR 6.1b, ONLY when an approved lineage anchor is configured) the
+ *                          intent's lineage is not the approved commandable release
  *   not_before_violation — malformed or inverted/empty temporal window (see below)
  *   deadline_expired     — now is past the deadline (evaluated once, frozen into the receipt)
- * `lineage_mismatch` is RESERVED for PR 6.1b (the approved-artifact lineage anchor); the frozen
- * 6.0 schema already validates lineage STRUCTURE, so 6.2 emits no lineage_mismatch.
+ * `lineage_mismatch` is dark-by-default: the optional `approvedLineageAnchor` param is `null`
+ * unless SCADA has `SCADA_APPROVED_LINEAGE_ANCHOR_PATH` configured, so an un-configured service
+ * is byte-identical to 6.2. It sits AFTER target and BEFORE window so it stays purely additive
+ * (a stale/absent-gate/bad-target intent still reports its 6.2 reason), while a static authority
+ * defect beats a transient timing one (window/deadline).
  */
 import { type ValidateFunction } from 'ajv/dist/2020';
 import canonicalize from 'canonicalize';
 
+import { type ApprovedLineageAnchor, lineageMatchesAnchor } from './approved-field-artifact';
 import { COMMAND_INTENT_SCHEMA_V1 } from './command-intent.schema';
 import { newMachineBoundaryAjv } from './machine-boundary-ajv';
 import { VALIDATION_RECEIPT_SCHEMA_V1 } from './validation-receipt.schema';
@@ -97,6 +103,7 @@ export function validateCommandIntent(
   intent: CommandIntent,
   snapshot: DeviceCapabilitySnapshot,
   nowMs: number,
+  approvedLineageAnchor: ApprovedLineageAnchor | null = null,
 ): ValidationVerdict {
   // 1. Freshness: the intent must be compiled against the release SCADA currently serves.
   if (
@@ -124,7 +131,18 @@ export function validateCommandIntent(
     return reject('target_invalid');
   }
 
-  // 4. Window (field-only, no clock). `not_before_violation` covers BOTH a malformed
+  // 4. Lineage (PR 6.1b): only when an approved anchor is configured (dark otherwise).
+  //    Rejects an intent whose lineage is not the approved commandable release. Placed here —
+  //    after the 6.2 device checks, before the timing checks — so it never masks a stale/
+  //    absent-gate/bad-target reason, while still preceding transient window/deadline defects.
+  if (
+    approvedLineageAnchor !== null &&
+    !lineageMatchesAnchor(intent.lineage, approvedLineageAnchor)
+  ) {
+    return reject('lineage_mismatch');
+  }
+
+  // 5. Window (field-only, no clock). `not_before_violation` covers BOTH a malformed
   //    instant (parseUtcInstant returns null for a calendar-impossible date the regex
   //    let through — fail closed, never silently rolled over) AND an inverted/empty
   //    window (not_before >= deadline). Note it is NOT "the window has not opened":
@@ -135,7 +153,7 @@ export function validateCommandIntent(
     return reject('not_before_violation');
   }
 
-  // 5. Deadline: evaluated once at first validation and frozen into the durable receipt.
+  // 6. Deadline: evaluated once at first validation and frozen into the durable receipt.
   if (deadlineMs < nowMs) {
     return reject('deadline_expired');
   }

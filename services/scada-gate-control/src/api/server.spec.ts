@@ -72,6 +72,7 @@ function setup(rateLimit = generousRateLimit) {
     serviceVerifier: null,
     receipts: new InMemoryCommandIntentReceiptRepository(),
     clock: () => 1_700_000_000_000,
+    approvedLineageAnchor: null,
   });
   return { app, writes, audit };
 }

@@ -1,5 +1,4 @@
-import { readFileSync, statSync } from 'fs';
-
+import { readCappedJsonFile } from './capped-json-file';
 import { computeCapabilityHash } from './capability-hash';
 import { DEVICE_CAPABILITY_SNAPSHOT_SCHEMA_V1 } from './device-capability-snapshot.schema';
 import { newMachineBoundaryAjv } from './machine-boundary-ajv';
@@ -30,10 +29,10 @@ const MAX_REGISTRY_BYTES = 1_048_576; // 1 MiB
  * `__proto__` reads back as the prototype (not the value), and `constructor` /
  * `prototype` shadow structural machinery. No canonical_gate_id uses them.
  */
-const RESERVED_GATE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+export const RESERVED_GATE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
 /** A transport endpoint or credential embedded in an id value (e.g. `tcp://u:p@host`). */
-const ENDPOINT_OR_CREDENTIAL = /:\/\/|@/;
+export const ENDPOINT_OR_CREDENTIAL = /:\/\/|@/;
 
 let cachedValidate: ((data: unknown) => boolean) | null = null;
 function snapshotValidator(): (data: unknown) => boolean {
@@ -98,31 +97,11 @@ export function loadDeviceCapabilitySnapshot(
   const path = env.SCADA_DEVICE_REGISTRY_PATH?.trim();
   if (!path) return emptyDeviceCapabilitySnapshot();
 
-  // Bound peak memory BEFORE reading the whole file into a string (an oversized
-  // file would otherwise OOM during the read, before any cap could fire).
-  let sizeBytes: number;
-  try {
-    sizeBytes = statSync(path).size;
-  } catch {
-    throw new Error('SCADA_DEVICE_REGISTRY_PATH is set but the registry file cannot be read');
-  }
-  if (sizeBytes > MAX_REGISTRY_BYTES) {
-    throw new Error('device registry file exceeds the 1 MiB cap');
-  }
-
-  let raw: string;
-  try {
-    raw = readFileSync(path, 'utf-8');
-  } catch {
-    throw new Error('SCADA_DEVICE_REGISTRY_PATH is set but the registry file cannot be read');
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    throw new Error('device registry is not valid JSON');
-  }
+  const parsed = readCappedJsonFile(path, MAX_REGISTRY_BYTES, {
+    unreadable: 'SCADA_DEVICE_REGISTRY_PATH is set but the registry file cannot be read',
+    tooBig: 'device registry file exceeds the 1 MiB cap',
+    notJson: 'device registry is not valid JSON',
+  });
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     throw new Error('device registry must be a JSON object');
   }
