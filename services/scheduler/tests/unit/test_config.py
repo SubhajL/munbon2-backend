@@ -47,3 +47,53 @@ def test_database_url_prefers_canonical_postgres_url_over_database_url(monkeypat
     s = Settings(_env_file=None)
     assert s.database_url == "postgresql+asyncpg://canon:canon@canonical-host:5432/canon_db"
     assert "stale-host" not in s.database_url
+
+
+def _seed_db(monkeypatch):
+    monkeypatch.setenv("POSTGRES_URL", "postgresql://p:p@localhost:5432/p")
+
+
+def test_shadow_dispatcher_settings_are_dark_by_default(monkeypatch):
+    # PR 6.3a: unset SCADA url + service secret => the dispatcher is dark.
+    _seed_required_env(monkeypatch)
+    _seed_db(monkeypatch)
+    for key in ("SCHEDULER_SCADA_BASE_URL", "SCHEDULER_SERVICE_JWT_SECRET"):
+        monkeypatch.delenv(key, raising=False)
+    s = Settings(_env_file=None)
+    assert s.scheduler_scada_base_url is None
+    assert s.scheduler_service_jwt_secret is None
+    # Defaults match what SCADA's verifier expects.
+    assert s.scheduler_service_jwt_issuer == "munbon-scheduler"
+    assert s.scheduler_service_jwt_audience == "munbon-scada-machine-boundary"
+    assert s.scheduler_service_jwt_max_age_seconds == 300
+
+
+def test_a_strong_service_secret_is_accepted(monkeypatch):
+    _seed_required_env(monkeypatch)
+    _seed_db(monkeypatch)
+    monkeypatch.setenv(
+        "SCHEDULER_SERVICE_JWT_SECRET", "a-strong-dedicated-service-secret-0123456789xyz"
+    )
+    s = Settings(_env_file=None)
+    assert s.scheduler_service_jwt_secret.startswith("a-strong-dedicated")
+
+
+def test_a_weak_service_secret_breaks_settings(monkeypatch):
+    import pytest
+
+    _seed_required_env(monkeypatch)
+    _seed_db(monkeypatch)
+    monkeypatch.setenv("SCHEDULER_SERVICE_JWT_SECRET", "change-me")
+    with pytest.raises(Exception):
+        Settings(_env_file=None)
+
+
+def test_service_token_max_age_capped_at_scada_default(monkeypatch):
+    import pytest
+
+    _seed_required_env(monkeypatch)
+    _seed_db(monkeypatch)
+    # M3: a max-age beyond SCADA's default maxAge (5m) is rejected so a token can't outlive it.
+    monkeypatch.setenv("SCHEDULER_SERVICE_JWT_MAX_AGE_SECONDS", "600")
+    with pytest.raises(Exception):
+        Settings(_env_file=None)

@@ -15,6 +15,7 @@ CONTROL_TABLES = {
     "scheduler.control_command_outbox",
     "scheduler.control_active_gate_authority",
     "scheduler.control_command_execution_events",
+    "scheduler.control_command_validation_receipts",
 }
 
 LEGACY_TABLES = {

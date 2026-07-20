@@ -42,6 +42,7 @@ from models.control_plan import (
     ControlActiveGateAuthority,
     ControlCommandExecutionEvent,
     ControlCommandOutboxRow,
+    ControlCommandValidationReceipt,
     ControlPlanCampaignVersion,
     ControlPlanRequirement,
     ControlPlanRun,
@@ -186,6 +187,44 @@ class OpenLoopContext:
     outbox: list
     events: list
     granted_at: Optional[datetime]
+
+
+@dataclass(frozen=True)
+class DispatchableIntent:
+    """A CLAIMED, not-yet-receipted outbox intent the shadow dispatcher should validate
+    (PR 6.3a). ``intent_document_text`` is the full canonical-JSON CommandIntent to POST;
+    ``intent_content_hash`` is the parity pin the returned receipt must echo."""
+
+    intent_id: UUID
+    plan_id: UUID
+    plan_version: int
+    correlation_id: UUID
+    request_id: str
+    idempotency_key: str
+    intent_content_hash: str
+    intent_document_text: str
+
+
+@dataclass(frozen=True)
+class ValidationReceiptRow:
+    """One durable SCADA ValidationReceipt to persist (PR 6.3a), keyed one-per-intent."""
+
+    intent_id: UUID
+    plan_id: UUID
+    plan_version: int
+    receipt_id: UUID
+    correlation_id: UUID
+    request_id: str
+    idempotency_key: str
+    intent_content_hash: str
+    capability_hash: str
+    status: str
+    reason_code: Optional[str]
+    validated_at: datetime
+    receipt_document_text: str
+    receipt_content_sha256: str
+    dispatch_worker_id: Optional[str]
+    dispatched_at: datetime
 
 
 class ScopeConflictError(Exception):
@@ -1290,6 +1329,96 @@ class PostgresControlPlanRepository:
             transition,
             pre_insert_rows=tuple(event_rows),
         )
+
+    async def load_dispatchable_intents(
+        self, session: AsyncSession, plan_id: UUID, plan_version: int
+    ) -> "list[DispatchableIntent]":
+        """The plan's CLAIMED, not-yet-receipted outbox intents, in event_sequence order
+        (PR 6.3a). ``claimed`` implies not missed/invalidated (the 0009 one-terminal-per-intent
+        index makes those mutually exclusive), so this is exactly the set the dispatcher owes
+        a validation round-trip. Bounds retries: once an intent has a receipt it drops out."""
+        outbox = ControlCommandOutboxRow
+        event = ControlCommandExecutionEvent
+        receipt = ControlCommandValidationReceipt
+        claimed_exists = (
+            select(1)
+            .where(
+                event.intent_id == outbox.intent_id,
+                event.event_type == "claimed",
+            )
+            .exists()
+        )
+        receipted_exists = (
+            select(1).where(receipt.intent_id == outbox.intent_id).exists()
+        )
+        statement = (
+            select(
+                outbox.intent_id,
+                outbox.plan_id,
+                outbox.plan_version,
+                outbox.correlation_id,
+                outbox.request_id,
+                outbox.idempotency_key,
+                outbox.intent_content_hash,
+                outbox.intent_document_text,
+            )
+            .where(
+                outbox.plan_id == plan_id,
+                outbox.plan_version == plan_version,
+                claimed_exists,
+                ~receipted_exists,
+            )
+            .order_by(outbox.event_sequence)
+        )
+        rows = (await session.execute(statement)).all()
+        return [
+            DispatchableIntent(
+                intent_id=row.intent_id,
+                plan_id=row.plan_id,
+                plan_version=row.plan_version,
+                correlation_id=row.correlation_id,
+                request_id=row.request_id,
+                idempotency_key=row.idempotency_key,
+                intent_content_hash=row.intent_content_hash,
+                intent_document_text=row.intent_document_text,
+            )
+            for row in rows
+        ]
+
+    async def record_validation_receipt(
+        self, session: AsyncSession, row: "ValidationReceiptRow"
+    ) -> bool:
+        """Persist a ValidationReceipt exactly once (PR 6.3a): INSERT ... ON CONFLICT
+        (intent_id) DO NOTHING. Returns True iff THIS call inserted the row; a retry (or a
+        concurrent tick) that lost the race returns False and never mutates the stored
+        receipt. The row is immutable (DB trigger)."""
+        statement = (
+            pg_insert(ControlCommandValidationReceipt)
+            .values(**row.__dict__)
+            .on_conflict_do_nothing(index_elements=["intent_id"])
+            .returning(ControlCommandValidationReceipt.intent_id)
+        )
+        try:
+            result = await session.execute(statement)
+            inserted = result.scalar_one_or_none() is not None
+            await session.commit()
+            return inserted
+        except BaseException:
+            await session.rollback()
+            raise
+
+    async def load_active_shadow_plan_keys(
+        self, session: AsyncSession
+    ) -> "list[tuple[UUID, int]]":
+        """Every (plan_id, plan_version) currently holding machine authority (PR 6.3a) —
+        the shadow-active plans the dispatch loop should tick. Sourced from the
+        control_active_gate_authority mutex (a plan holds >=1 scope while shadow_active)."""
+        authority = ControlActiveGateAuthority
+        statement = select(
+            authority.plan_id, authority.plan_version
+        ).distinct().order_by(authority.plan_id, authority.plan_version)
+        rows = (await session.execute(statement)).all()
+        return [(row.plan_id, row.plan_version) for row in rows]
 
     async def _assemble(
         self, session: AsyncSession, run: ControlPlanRun

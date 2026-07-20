@@ -20,6 +20,26 @@ _WEAK_JWT_SECRET_DENYLIST = frozenset(
 )
 
 
+def assert_strong_secret(v: str, field: str) -> str:
+    """Fail closed on a weak signing secret so no live token is ever signed with a guessable
+    key. Shared by the operator ``jwt_secret_key`` and the PR 6.3a service-token secret so the
+    two can never drift in strength (root CLAUDE.md: no second copy of an algorithm)."""
+    if not isinstance(v, str) or not v.strip():
+        raise ValueError(f"{field} must be a non-blank secret")
+    if len(v.encode("utf-8")) < 32:
+        raise ValueError(f"{field} must be at least 32 bytes of entropy")
+    if v.strip().lower() in _WEAK_JWT_SECRET_DENYLIST:
+        raise ValueError(f"{field} is a well-known weak/default value")
+    # Reject a short unit repeated to reach the length (e.g. "ab"*16), guessable despite >=32B.
+    n = len(v)
+    for period in range(1, n // 4 + 1):
+        if n % period == 0 and v == v[:period] * (n // period):
+            raise ValueError(f"{field} must not be a short repeated pattern")
+    if len(set(v)) < 5:
+        raise ValueError(f"{field} has too little character diversity")
+    return v
+
+
 class Settings(BaseSettings):
     # Service Configuration
     service_name: str = "scheduler"
@@ -88,6 +108,23 @@ class Settings(BaseSettings):
     control_authority_lease_hours: int = Field(default=24, gt=0)
     control_premove_validation_seconds: int = Field(default=300, ge=0)
 
+    # PR 6.3a — shadow dispatcher (DARK-by-default). The SCADA machine-boundary base URL and
+    # the DEDICATED service-token secret (cryptographically SEPARATE from jwt_secret_key — a
+    # leaked operator secret must not forge a service token). Both optional: either unset ->
+    # the dispatcher builds no SCADA client and dispatches nothing, exactly like the rest of
+    # the machine-authority surface behind the external trust cutover. issuer/audience default
+    # to what SCADA's verifier expects. Token max-age must stay within SCADA's maxAge (5m).
+    scheduler_scada_base_url: Optional[str] = None
+    scheduler_service_jwt_secret: Optional[str] = None
+    scheduler_service_jwt_issuer: str = "munbon-scheduler"
+    scheduler_service_jwt_audience: str = "munbon-scada-machine-boundary"
+    scheduler_service_jwt_subject: str = "scheduler-shadow-dispatcher"
+    # Capped at SCADA's DEFAULT maxAge (5m): the minted token's lifetime must stay <= SCADA's
+    # SCHEDULER_SERVICE_JWT_MAX_AGE or SCADA rejects it (401). Keep both sides at 300 unless an
+    # operator raises SCADA's maxAge in lockstep. (SCADA's verifier uses no clock-skew tolerance,
+    # so mint fresh per call — which the dispatcher does — and keep the two clocks NTP-synced.)
+    scheduler_service_jwt_max_age_seconds: int = Field(default=300, gt=0, le=300)
+
     # Field Team Configuration
     max_operations_per_day: int = 30
     default_operation_time_minutes: int = 15
@@ -127,30 +164,16 @@ class Settings(BaseSettings):
     def reject_weak_jwt_secret(cls, v: str) -> str:
         """Fail closed: a weak signing secret breaks Settings construction so
         the service can never boot on a guessable key."""
-        if not isinstance(v, str) or not v.strip():
-            raise ValueError("jwt_secret_key must be a non-blank secret")
-        if len(v.encode("utf-8")) < 32:
-            raise ValueError(
-                "jwt_secret_key must be at least 32 bytes of entropy"
-            )
-        if v.strip().lower() in _WEAK_JWT_SECRET_DENYLIST:
-            raise ValueError(
-                "jwt_secret_key is a well-known weak/default value"
-            )
-        # Reject low-entropy patterned secrets: a short unit repeated to reach the
-        # length (e.g. "ab"*16, "abc"*n, a single char) is guessable despite being
-        # >=32 bytes, and so is a secret drawn from a tiny alphabet.
-        n = len(v)
-        for period in range(1, n // 4 + 1):
-            if n % period == 0 and v == v[:period] * (n // period):
-                raise ValueError(
-                    "jwt_secret_key must not be a short repeated pattern"
-                )
-        if len(set(v)) < 5:
-            raise ValueError(
-                "jwt_secret_key has too little character diversity"
-            )
-        return v
+        return assert_strong_secret(v, "jwt_secret_key")
+
+    @field_validator("scheduler_service_jwt_secret")
+    @classmethod
+    def reject_weak_service_secret(cls, v: Optional[str]) -> Optional[str]:
+        """PR 6.3a: the DEDICATED SCADA service-token secret is optional (unset -> dispatcher
+        dark), but when present it must be as strong as the operator secret."""
+        if v is None:
+            return v
+        return assert_strong_secret(v, "scheduler_service_jwt_secret")
 
     @field_validator("jwt_algorithm")
     @classmethod
