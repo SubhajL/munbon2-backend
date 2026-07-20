@@ -13,7 +13,19 @@
  * (a replay reproduces the same durable receipt, no side effect). Any future
  * NON-idempotent endpoint reusing this verifier MUST add nonce/jti anti-replay.
  */
+import type { NextFunction, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
+
+import { extractBearerToken } from './middleware';
+
+declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
+  namespace Express {
+    interface Request {
+      serviceAuth?: ServicePrincipal;
+    }
+  }
+}
 
 export class ServiceAuthError extends Error {
   constructor(message: string) {
@@ -83,4 +95,34 @@ export class SchedulerServiceTokenVerifier implements ServiceTokenVerifier {
   verify(token: string): ServicePrincipal {
     return verifySchedulerServiceToken(token, this.config);
   }
+}
+
+/**
+ * Express middleware guarding the machine-boundary endpoint. A `null` verifier (service
+ * secret unset) fails CLOSED with 503 — the route stays mounted so its absence is never a
+ * silent contract change, but it validates nothing until a service secret is configured.
+ * On success attaches `req.serviceAuth`.
+ */
+export function requireServiceAuth(verifier: ServiceTokenVerifier | null) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    if (verifier === null) {
+      res.status(503).json({ error: 'service auth not configured' });
+      return;
+    }
+    const token = extractBearerToken(req);
+    if (!token) {
+      res.status(401).json({ error: 'missing service bearer token' });
+      return;
+    }
+    try {
+      req.serviceAuth = verifier.verify(token);
+      next();
+    } catch (error) {
+      if (error instanceof ServiceAuthError) {
+        res.status(401).json({ error: error.message });
+        return;
+      }
+      next(error);
+    }
+  };
 }

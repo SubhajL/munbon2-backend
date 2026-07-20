@@ -10,23 +10,45 @@ import { CommandService } from './services/command-service';
 import { InMemoryAuditRepository } from './audit/memory-repository';
 import { PostgresAuditRepository } from './audit/pg-repository';
 import type { AuditRepository } from './audit/types';
+import { InMemoryCommandIntentReceiptRepository } from './command-intents/memory-repository';
+import { PostgresCommandIntentReceiptRepository } from './command-intents/pg-repository';
+import type { CommandIntentReceiptRepository } from './command-intents/types';
+import { SchedulerServiceTokenVerifier, type ServiceTokenVerifier } from './api/service-auth';
 import { logger } from './utils/logger';
 
-/** Durable audit is mandatory unless explicitly opted out for development. */
-async function resolveAudit(config: AppConfig): Promise<AuditRepository> {
+type Storage = {
+  readonly audit: AuditRepository;
+  readonly receipts: CommandIntentReceiptRepository;
+};
+
+/**
+ * Durable audit + validation-receipt stores share one Postgres pool. Both are mandatory
+ * unless explicitly opted out for development (ALLOW_IN_MEMORY_AUDIT).
+ */
+async function resolveStorage(config: AppConfig): Promise<Storage> {
   if (config.databaseUrl) {
     const pool = new Pool({ connectionString: config.databaseUrl });
-    const repository = new PostgresAuditRepository(pool);
-    await repository.ensureSchema();
-    return repository;
+    // An idle pooled client dropping (DB restart / network blip) emits 'error' on the
+    // Pool; with no listener Node rethrows it as an uncaught exception and kills the
+    // process — which also runs the Modbus poll loop + operator gate control. Log and
+    // survive: only the receipt/audit path degrades (fails closed), not gate control.
+    pool.on('error', (err) => logger.error({ err: err.message }, 'audit/receipt pg pool error'));
+    const audit = new PostgresAuditRepository(pool);
+    const receipts = new PostgresCommandIntentReceiptRepository(pool);
+    // Independent DDLs — provision both in parallel (max round-trip, not sum).
+    await Promise.all([audit.ensureSchema(), receipts.ensureSchema()]);
+    return { audit, receipts };
   }
   if (!config.allowInMemoryAudit) {
     throw new Error(
-      'DATABASE_URL is required for a durable audit log; set ALLOW_IN_MEMORY_AUDIT=true only for development',
+      'DATABASE_URL is required for durable audit + validation-receipt logs; set ALLOW_IN_MEMORY_AUDIT=true only for development',
     );
   }
-  logger.warn('using NON-PERSISTENT in-memory audit log (ALLOW_IN_MEMORY_AUDIT=true)');
-  return new InMemoryAuditRepository();
+  logger.warn('using NON-PERSISTENT in-memory audit + receipt stores (ALLOW_IN_MEMORY_AUDIT=true)');
+  return {
+    audit: new InMemoryAuditRepository(),
+    receipts: new InMemoryCommandIntentReceiptRepository(),
+  };
 }
 
 async function main(): Promise<void> {
@@ -46,7 +68,7 @@ async function main(): Promise<void> {
       logger.warn({ err: error instanceof Error ? error.message : String(error) }, 'poll error'),
   });
 
-  const audit = await resolveAudit(config);
+  const { audit, receipts } = await resolveStorage(config);
 
   const commandService = new CommandService({
     actuator: controller,
@@ -58,6 +80,17 @@ async function main(): Promise<void> {
 
   // Fail-fast at startup on a broken registry (empty when unset = zero gates).
   const deviceCapabilities = loadDeviceCapabilitySnapshot();
+
+  // PR 6.2 — service verifier for the machine-boundary validate endpoint. Null (dark,
+  // 503) unless a DEDICATED service secret is configured, kept separate from operator auth.
+  const serviceVerifier: ServiceTokenVerifier | null = config.serviceAuth
+    ? new SchedulerServiceTokenVerifier(config.serviceAuth)
+    : null;
+  if (!serviceVerifier) {
+    logger.warn(
+      'SCHEDULER_SERVICE_JWT_SECRET is unset — POST /internal/v1/command-intents/validate is DARK (503)',
+    );
+  }
 
   const app = buildServer({
     verifier: new JwtTokenVerifier({
@@ -71,6 +104,9 @@ async function main(): Promise<void> {
     endpoint,
     rateLimit: config.rateLimit,
     deviceCapabilities,
+    serviceVerifier,
+    receipts,
+    clock: () => Date.now(),
   });
 
   controller.start();
