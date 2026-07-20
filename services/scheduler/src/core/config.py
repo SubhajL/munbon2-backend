@@ -131,6 +131,17 @@ class Settings(BaseSettings):
     # expected baseline. Kept off until D6 provides real per-gate readback + baselines.
     control_readback_reconciliation_mode: str = "off"
 
+    # PR 6.4 — staleness threshold (seconds) for the shadow-dispatch worker heartbeat. Readiness
+    # marks the worker "stale" once the last heartbeat is older than this. Only consulted when
+    # armed (shadow execution mode + SCADA base URL + service secret — the dispatcher's dark-gate).
+    control_worker_heartbeat_stale_seconds: int = Field(default=180, ge=1)
+    # PR 6.4 — whether a stale/missing worker heartbeat makes /ready return NOT-ready. Default
+    # False: worker health is REPORTED in /ready checks (and via metrics) but does NOT flip the
+    # LB-facing ready bool, so a dead out-of-process dispatch tick can never black out the
+    # read-only operator dashboard / scheduler read APIs. Enable ONLY in a topology where the
+    # dispatch worker and the read-serving API are separate deployments.
+    control_worker_health_gates_readiness: bool = False
+
     # Field Team Configuration
     max_operations_per_day: int = 30
     default_operation_time_minutes: int = 15

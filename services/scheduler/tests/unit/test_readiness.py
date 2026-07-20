@@ -10,6 +10,8 @@ engine + fake redis (no real Postgres/Redis needed for the bare gate). The
 real-DB assertion lives in the env-gated integration suite.
 """
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
 from core.readiness import (
@@ -18,8 +20,11 @@ from core.readiness import (
     check_scheduler_readiness,
     evaluate_control_tables,
     evaluate_migrations,
+    evaluate_worker_health,
 )
 import migrations.migrate as migrate
+
+_NOW = datetime(2026, 7, 20, 3, 0, 0, tzinfo=timezone.utc)
 
 
 def _real_tracked() -> dict[str, str]:
@@ -86,8 +91,12 @@ class _FakeRedisClient:
 
 
 class _FakeRedis:
-    def __init__(self, client):
+    def __init__(self, client, heartbeat=None):
         self.client = client
+        self._heartbeat = heartbeat
+
+    async def get(self, key):
+        return self._heartbeat
 
 
 def _healthy_engine():
@@ -305,6 +314,103 @@ class TestCheckSchedulerReadiness:
         result = await check_scheduler_readiness(engine, _FakeRedis(_FakeRedisClient()))
         assert result.ready is False
         assert result.checks["migrations"] == "incomplete"
+
+
+class TestEvaluateWorkerHealth:
+    def test_disabled_when_not_armed(self):
+        # Dark-by-default: an absent heartbeat is irrelevant when the worker isn't armed.
+        assert evaluate_worker_health(False, None, _NOW, 180) == "disabled"
+
+    def test_missing_when_armed_and_no_heartbeat(self):
+        assert evaluate_worker_health(True, None, _NOW, 180) == "missing"
+
+    def test_stale_when_beat_older_than_threshold(self):
+        old = (_NOW - timedelta(seconds=200)).isoformat()
+        assert evaluate_worker_health(True, old, _NOW, 180) == "stale"
+
+    def test_ok_when_beat_within_threshold(self):
+        fresh = (_NOW - timedelta(seconds=10)).isoformat()
+        assert evaluate_worker_health(True, fresh, _NOW, 180) == "ok"
+
+    def test_error_when_beat_is_unparseable(self):
+        assert evaluate_worker_health(True, "not-a-timestamp", _NOW, 180) == "error"
+
+
+class TestReadinessWorkerGate:
+    @pytest.mark.asyncio
+    async def test_readiness_fails_when_migration_or_worker_unhealthy(self):
+        # With the OPT-IN gate enabled (separate dispatch/read deployments), armed + a stale
+        # heartbeat → not ready, even though migrations/tables/redis are OK.
+        old = (_NOW - timedelta(seconds=500)).isoformat()
+        result = await check_scheduler_readiness(
+            _healthy_engine(),
+            _FakeRedis(_FakeRedisClient(pong=True), heartbeat=old),
+            worker_armed=True,
+            heartbeat_stale_seconds=180,
+            worker_health_gates_readiness=True,
+            now=_NOW,
+        )
+        assert result.ready is False
+        assert result.checks["dispatch_worker"] == "stale"
+
+    @pytest.mark.asyncio
+    async def test_stale_worker_is_reported_but_does_NOT_block_reads_by_default(self):
+        # DEFAULT (gate off): a stale heartbeat is REPORTED for visibility/alerting but must NOT
+        # flip the LB-facing ready bool — a dead out-of-process tick can never black out the
+        # read-only dashboard. This is the reviewers' required blast-radius behavior.
+        old = (_NOW - timedelta(seconds=500)).isoformat()
+        result = await check_scheduler_readiness(
+            _healthy_engine(),
+            _FakeRedis(_FakeRedisClient(pong=True), heartbeat=old),
+            worker_armed=True,
+            heartbeat_stale_seconds=180,
+            worker_health_gates_readiness=False,
+            now=_NOW,
+        )
+        assert result.ready is True  # reads still served
+        assert result.checks["dispatch_worker"] == "stale"  # but the staleness is visible
+
+    @pytest.mark.asyncio
+    async def test_gated_readiness_fails_when_armed_and_worker_heartbeat_missing(self):
+        result = await check_scheduler_readiness(
+            _healthy_engine(),
+            _FakeRedis(_FakeRedisClient(pong=True), heartbeat=None),
+            worker_armed=True,
+            heartbeat_stale_seconds=180,
+            worker_health_gates_readiness=True,
+            now=_NOW,
+        )
+        assert result.ready is False
+        assert result.checks["dispatch_worker"] == "missing"
+
+    @pytest.mark.asyncio
+    async def test_readiness_ignores_worker_when_execution_disabled(self):
+        # NOT armed: a stale/absent heartbeat must NOT make the service not-ready, and the
+        # worker must not even appear in the checks (blast-radius isolation).
+        result = await check_scheduler_readiness(
+            _healthy_engine(),
+            _FakeRedis(_FakeRedisClient(pong=True), heartbeat=None),
+            worker_armed=False,
+            heartbeat_stale_seconds=180,
+            worker_health_gates_readiness=True,  # even with the gate on, disarmed = invisible
+            now=_NOW,
+        )
+        assert result.ready is True
+        assert "dispatch_worker" not in result.checks
+
+    @pytest.mark.asyncio
+    async def test_readiness_ok_when_armed_and_worker_fresh(self):
+        fresh = (_NOW - timedelta(seconds=5)).isoformat()
+        result = await check_scheduler_readiness(
+            _healthy_engine(),
+            _FakeRedis(_FakeRedisClient(pong=True), heartbeat=fresh),
+            worker_armed=True,
+            heartbeat_stale_seconds=180,
+            worker_health_gates_readiness=True,
+            now=_NOW,
+        )
+        assert result.ready is True
+        assert result.checks["dispatch_worker"] == "ok"
 
 
 class TestHealthLivenessOnly:

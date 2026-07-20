@@ -1,6 +1,6 @@
 from typing import Any, Dict
 from functools import partial
-from fastapi import FastAPI, status
+from fastapi import FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
@@ -166,6 +166,20 @@ async def readiness_check():
             content=body,
         )
     return body
+
+
+# Prometheus scrape endpoint (PR 6.4). Metrics are DB-derived at scrape time (the dispatch
+# tick is a separate short-lived process, so in-process counters would never be scraped).
+# Unauthenticated like /health; exposes only aggregate control-plane counts. DEPLOY NOTE:
+# restrict the scrape port to the internal monitoring interface at the network layer.
+@app.get("/metrics")
+async def metrics_endpoint():
+    from api.metrics import render_metrics
+    from core.control_metrics import METRICS_CONTENT_TYPE
+
+    redis_client = await get_redis()
+    body = await render_metrics(engine, redis_client)
+    return Response(content=body, media_type=METRICS_CONTENT_TYPE)
 
 
 # Include API routes

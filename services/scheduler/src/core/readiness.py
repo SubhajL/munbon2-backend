@@ -17,9 +17,12 @@ exception text.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Mapping
 
 from sqlalchemy import text
+
+from core.worker_heartbeat import heartbeat_age_seconds, read_dispatch_heartbeat
 
 # The control-plane tables are migration-owned (ControlBase, never create_all).
 # Readiness proves all six exist before claiming the plane is serviceable.
@@ -145,6 +148,26 @@ async def _read_scheduler_db_state(engine):
     return registry_present, present, applied
 
 
+def evaluate_worker_health(
+    armed: bool, heartbeat_iso: str | None, now: datetime, threshold_seconds: int
+) -> str:
+    """Fail-closed verdict for the shadow-dispatch worker's liveness (PR 6.4).
+
+    DARK-by-default: when not armed the worker is not a readiness dependency at all (returns
+    "disabled" and never blocks). When armed (execution mode shadow + a SCADA base URL, i.e. the
+    tick is EXPECTED to run), a missing/unparseable/stale heartbeat fails closed — but note the
+    caller only lets this block `/ready` when armed, so a dead worker in dark deployments can
+    never black out the read-only dashboard that operators need to SEE that dispatch is stuck."""
+    if not armed:
+        return "disabled"
+    if heartbeat_iso is None:
+        return "missing"
+    age = heartbeat_age_seconds(heartbeat_iso, now)
+    if age is None:
+        return "error"  # present but unparseable/naive → do not trust it
+    return "ok" if age <= threshold_seconds else "stale"
+
+
 async def _ping_redis(redis) -> bool:
     client = getattr(redis, "client", None)
     if client is None:
@@ -156,8 +179,25 @@ async def _ping_redis(redis) -> bool:
         return False
 
 
-async def check_scheduler_readiness(engine, redis) -> ReadinessResult:
-    """Fail-closed dependency truth for the scheduler `/ready` endpoint."""
+async def check_scheduler_readiness(
+    engine,
+    redis,
+    *,
+    worker_armed: bool | None = None,
+    heartbeat_stale_seconds: int | None = None,
+    worker_health_gates_readiness: bool | None = None,
+    now: datetime | None = None,
+) -> ReadinessResult:
+    """Fail-closed dependency truth for the scheduler `/ready` endpoint.
+
+    `/ready` answers "can this replica serve reads" — migrations match + control tables exist +
+    Redis pings. Worker-health is DARK-by-default and BLAST-RADIUS-ISOLATED: read ONLY when armed
+    (the dispatcher's real dark-gate — shadow mode + SCADA base URL + service secret), REPORTED in
+    `checks` for visibility/alerting, but it flips the LB-facing `ready` bool ONLY when
+    `worker_health_gates_readiness` is explicitly enabled. By default a dead out-of-process
+    dispatch tick can never make a healthy read-serving replica not-ready — otherwise it would
+    black out the very read-only dashboard operators need to SEE that dispatch is stuck. The
+    primary worker-health signal is the Prometheus heartbeat gauge, not `/ready`."""
     try:
         registry_present, present, applied = await _read_scheduler_db_state(engine)
     except Exception:
@@ -174,4 +214,34 @@ async def check_scheduler_readiness(engine, redis) -> ReadinessResult:
         "redis": "ok" if redis_ok else "unreachable",
     }
     ready = migrations_status == "ok" and tables_status == "ok" and redis_ok
+
+    if (
+        worker_armed is None
+        or heartbeat_stale_seconds is None
+        or worker_health_gates_readiness is None
+    ):
+        from core.config import settings
+
+        if worker_armed is None:
+            # Mirror the dispatcher's dark-gate EXACTLY (build_scada_validation_client): base URL
+            # alone is not "armed" — without the service secret nothing can be dispatched.
+            worker_armed = (
+                settings.control_execution_mode == "shadow"
+                and bool(settings.scheduler_scada_base_url)
+                and bool(settings.scheduler_service_jwt_secret)
+            )
+        if heartbeat_stale_seconds is None:
+            heartbeat_stale_seconds = settings.control_worker_heartbeat_stale_seconds
+        if worker_health_gates_readiness is None:
+            worker_health_gates_readiness = settings.control_worker_health_gates_readiness
+
+    if worker_armed:
+        heartbeat_iso = await read_dispatch_heartbeat(redis)
+        worker_status = evaluate_worker_health(
+            True, heartbeat_iso, now or datetime.now(timezone.utc), heartbeat_stale_seconds
+        )
+        checks["dispatch_worker"] = worker_status
+        if worker_health_gates_readiness:
+            ready = ready and worker_status == "ok"
+
     return ReadinessResult(ready, checks)

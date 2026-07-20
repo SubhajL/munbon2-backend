@@ -203,6 +203,26 @@ async def main() -> None:  # pragma: no cover - external glue (parts are unit-te
         await service.aclose()
         if readback_client is not None:
             await readback_client.aclose()
+
+    # Heartbeat: prove the tick ran so readiness (armed mode) can tell a live-but-idle worker
+    # from a dead one. Best-effort, in its own connection — it can never fail the (already-
+    # committed) dispatch tick above. Only written when the tick reached here (a crashed tick
+    # writes no beat → readiness fails closed, which is correct). EVERYTHING (import, connect,
+    # write, AND disconnect) is inside the guard — a failure in any of them, including the
+    # disconnect in the finally, is swallowed so it can never fail the tick process.
+    try:
+        from core.redis import get_redis
+        from core.worker_heartbeat import record_dispatch_heartbeat
+
+        redis = await get_redis()
+        try:
+            await redis.connect()
+            await record_dispatch_heartbeat(redis, now=datetime.now(timezone.utc))
+        finally:
+            await redis.disconnect()
+    except Exception as error:  # noqa: BLE001 - heartbeat is best-effort
+        logger.error("dispatch heartbeat step failed (non-fatal): {}", str(error))
+
     persisted = sum(r.persisted_receipts for r in reports)
     failures = sum(len(r.failures) for r in reports)
     logger.info(
