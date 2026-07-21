@@ -17,6 +17,10 @@ python src/main.py                                 # dev server
 ```
 `.env` is load-bearing: `core/config.py` Settings has required fields with no defaults —
 bare pytest fails at import without it.
+The runtime manifest owns `loguru==0.7.3`, which `core/logger.py` imports during
+application startup. SQLAlchemy declares its `asyncio` extra so async engine
+construction also installs `greenlet` on platforms where the base wheel does not;
+do not replace either dependency with a host-level package overlay.
 
 ## Migrations (PR 4.2)
 `python migrations/migrate.py apply|rollback <id>` and `status` — one transaction per

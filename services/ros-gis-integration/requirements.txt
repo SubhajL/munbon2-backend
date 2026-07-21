@@ -17,6 +17,7 @@ geopandas==0.14.1
 shapely==2.0.2
 pyproj==3.6.1
 geoalchemy2==0.14.2
+networkx==3.2.1
 
 # Data processing
 pandas==2.1.3
