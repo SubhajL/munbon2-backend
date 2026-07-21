@@ -502,3 +502,12 @@ LOW
 - Exact merged-commit post-merge proof: 29 OPS tests passed; shell syntax and four-app Node manifest load passed.
 - Live SSH attempt to `ec2-43-209-12-182.ap-southeast-7.compute.amazonaws.com:22` timed out before authentication, so the live capacity command, activation, 300-second window, and bearer verifier could not execute.
 - Read-only AWS EC2 API fallback also failed because the locally configured AWS credentials returned `AuthFailure`. No host, PM2, database, security-group, or deployment state was mutated. Live activation remains fail-closed pending restored host reachability and valid operator access.
+
+## Archive and cleanup (2026-07-21)
+
+- Product `main` and `origin/main` both resolve to `e364d17fd38bc520195e9cfde06f659508e02b42`, containing merged PRs #111, #112, and #113 without Coding Log/plan artifacts.
+- This log and `.codex/coding-log.current` are committed only on `ops/archive-rt3-rt4-ops1-20260721`, based on that product main.
+- Verified `c352fdd6` is an ancestor of `ops/archive-control-plan-runtime-roadmap-20260721` and verified its runtime ecosystem and coding log are readable from that archive branch.
+- Removed clean worktree `/Users/subhajlimanond/dev/munbon2-backend-control-plan-runtime-20260721` and deleted its obsolete local `ops/control-plan-read-runtime-20260721` branch. Its material remains recoverable from the verified archive branch.
+- Concurrent/unrelated feature worktrees and branches were not switched, edited, cleaned, or removed. The primary checkout remains owned by concurrent work on `feat/7-3b-dark-deployment-observability`.
+- The temporary RT-3/RT-4/OPS-1 worktree will be removed only after this archive branch is pushed and its remote commit/content are verified; that final filesystem audit is reported in the session handoff.
