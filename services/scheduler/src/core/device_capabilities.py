@@ -74,6 +74,30 @@ def empty_device_capability_snapshot() -> DeviceCapabilitySnapshot:
     )
 
 
+def validate_device_capability_snapshot(data: object) -> DeviceCapabilitySnapshot:
+    """Parse a snapshot and independently verify its declared content hash."""
+    if not isinstance(data, dict):
+        raise DeviceCapabilityConfigError(
+            "device-capability snapshot must be an object"
+        )
+    try:
+        snapshot = DeviceCapabilitySnapshot.model_validate(data)
+    except (ValidationError, TypeError) as error:
+        raise DeviceCapabilityConfigError(
+            f"device-capability snapshot violates the v1 contract: {error}"
+        ) from error
+    expected = _content_hash(
+        snapshot.schema_version,
+        snapshot.capability_release_id,
+        data["capabilities"],
+    )
+    if snapshot.capability_hash != expected:
+        raise DeviceCapabilityConfigError(
+            "device-capability snapshot capability_hash does not match its content"
+        )
+    return snapshot
+
+
 def load_device_capability_snapshot(env) -> DeviceCapabilitySnapshot:
     path = env.get(_ENV_PATH_KEY)
     path = path.strip() if isinstance(path, str) else None
@@ -95,26 +119,7 @@ def load_device_capability_snapshot(env) -> DeviceCapabilitySnapshot:
         raise DeviceCapabilityConfigError(
             f"device-capability snapshot is not valid JSON: {error}"
         ) from error
-    if not isinstance(data, dict):
-        raise DeviceCapabilityConfigError("device-capability snapshot must be an object")
-
-    try:
-        snapshot = DeviceCapabilitySnapshot(**data)
-    except (ValidationError, TypeError) as error:
-        raise DeviceCapabilityConfigError(
-            f"device-capability snapshot violates the v1 contract: {error}"
-        ) from error
-
-    expected = _content_hash(
-        snapshot.schema_version,
-        snapshot.capability_release_id,
-        data["capabilities"],
-    )
-    if snapshot.capability_hash != expected:
-        raise DeviceCapabilityConfigError(
-            "device-capability snapshot capability_hash does not match its content"
-        )
-    return snapshot
+    return validate_device_capability_snapshot(data)
 
 
 def capability_member(

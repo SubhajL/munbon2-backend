@@ -26,6 +26,12 @@ _ROLE_IMPLICATIONS = {
     "supervisor": {"supervisor", "operator", "field_team"},
     "operator": {"operator", "field_team"},
     "field_team": {"field_team"},
+    # Exact aliases emitted by the Auth service. Unknown issuer roles retain
+    # no Scheduler privilege because the RoleChecker intersects only with the
+    # Scheduler vocabulary below.
+    "super_admin": {"admin", "supervisor", "operator", "field_team"},
+    "rid_admin": {"admin", "supervisor", "operator", "field_team"},
+    "zone_manager": {"operator", "field_team"},
 }
 
 
@@ -80,7 +86,7 @@ async def verify_token(token: str) -> Optional[Dict]:
 
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
-    redis: RedisClient = Depends(get_redis)
+    redis: RedisClient = Depends(get_redis),
 ) -> Dict:
     """Get the current authenticated user, fail-closed on the revocation store.
 
@@ -125,9 +131,7 @@ async def get_current_user(
     return payload
 
 
-async def _token_is_revoked(
-    redis: RedisClient, token: str, payload: Dict
-) -> bool:
+async def _token_is_revoked(redis: RedisClient, token: str, payload: Dict) -> bool:
     """Dual-read the hardened hashed key AND the legacy raw-token key.
 
     A revocation written by an as-yet-unmigrated logout/auth service (the old
@@ -145,23 +149,19 @@ async def _token_is_revoked(
 
 
 async def get_current_active_user(
-    current_user: Dict = Depends(get_current_user)
+    current_user: Dict = Depends(get_current_user),
 ) -> Dict:
     """Get current active user"""
 
     if not current_user.get("is_active", True):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Inactive user"
+            status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user"
         )
 
     return current_user
 
 
-async def verify_websocket_token(
-    token: str,
-    redis: RedisClient
-) -> Optional[Dict]:
+async def verify_websocket_token(token: str, redis: RedisClient) -> Optional[Dict]:
     """Verify token for WebSocket connections (fail-closed revocation)."""
 
     payload = await verify_token(token)

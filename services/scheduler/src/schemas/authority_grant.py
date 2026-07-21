@@ -208,6 +208,47 @@ class AuthorityGrantReviewResponse(_StrictModel):
     would_grant_content_sha256: Sha256
 
 
+AuthorityBlocker = Literal[
+    "plan_not_shadow_active",
+    "noncommandable_release",
+    "capability_unconfigured",
+    "capability_stale",
+    "scope_unapproved_gate",
+    "receipt_coverage_incomplete",
+    "plan_envelope_empty",
+    "grant_already_exists",
+]
+
+
+class AuthorityApplicabilityResponse(_StrictModel):
+    plan_id: UUID
+    plan_version: int
+    evaluated_at: datetime
+    lifecycle_state: str
+    model_release_id: str
+    model_release_content_hash: Sha256
+    engine_descriptor_content_hash: Sha256
+    model_release_commandable: bool
+    capability_release_id: str
+    capability_hash: Sha256
+    capability_configured: bool
+    capability_matches_outbox: bool
+    scope: GrantScopeIn
+    flow_lower_exclusive_m3s: float
+    flow_upper_inclusive_m3s: float
+    initialization: InitializationIn
+    maximum_continuous_open_seconds: int
+    maximum_intermediate_trims: int
+    outbox_intent_count: int
+    accepted_receipt_intent_count: int
+    matching_receipt_intent_count: int
+    receipt_coverage_complete: bool
+    existing_grant_status: Optional[Literal["active", "expired", "revoked"]]
+    existing_grant_id: Optional[UUID]
+    blockers: List[AuthorityBlocker]
+    can_grant: bool
+
+
 def build_grant_response(view) -> AuthorityGrantResponse:
     """Project an AuthorityGrantView into the bounded response model."""
     grant = view.grant

@@ -98,9 +98,7 @@ class TestVerifyToken:
 
     @pytest.mark.asyncio
     async def test_verify_token_rejects_expired(self):
-        expired = _token(
-            exp=datetime.now(timezone.utc) - timedelta(hours=1)
-        )
+        expired = _token(exp=datetime.now(timezone.utc) - timedelta(hours=1))
         assert await deps.verify_token(expired) is None
 
 
@@ -108,18 +106,14 @@ class TestGetCurrentUserRevocation:
     @pytest.mark.asyncio
     async def test_valid_token_with_clean_store_returns_payload(self):
         token = _token()
-        user = await deps.get_current_user(
-            _Credentials(token), _FakeRedis()
-        )
+        user = await deps.get_current_user(_Credentials(token), _FakeRedis())
         assert user["sub"] == "user-1"
 
     @pytest.mark.asyncio
     async def test_get_current_user_fails_closed_when_store_client_missing(self):
         token = _token()
         with pytest.raises(HTTPException) as info:
-            await deps.get_current_user(
-                _Credentials(token), _FakeRedis(client=None)
-            )
+            await deps.get_current_user(_Credentials(token), _FakeRedis(client=None))
         assert info.value.status_code == 503
 
     @pytest.mark.asyncio
@@ -213,6 +207,28 @@ class TestRoleHierarchy:
         with pytest.raises(HTTPException) as info:
             self._check(deps.require_supervisor, ["operator"])
         assert info.value.status_code == 403
+
+    @pytest.mark.parametrize("role", ["super_admin", "rid_admin"])
+    def test_auth_issuer_admin_roles_satisfy_scheduler_admin(self, role):
+        assert self._check(deps.require_admin, [role])["sub"] == "u"
+        assert self._check(deps.require_supervisor, [role])["sub"] == "u"
+        assert self._check(deps.require_operator, [role])["sub"] == "u"
+
+    def test_auth_issuer_zone_manager_is_operator_only(self):
+        assert self._check(deps.require_operator, ["zone_manager"])["sub"] == "u"
+        with pytest.raises(HTTPException) as supervisor:
+            self._check(deps.require_supervisor, ["zone_manager"])
+        assert supervisor.value.status_code == 403
+
+    def test_unknown_auth_issuer_role_never_gains_control_authority(self):
+        for checker in (
+            deps.require_operator,
+            deps.require_supervisor,
+            deps.require_admin,
+        ):
+            with pytest.raises(HTTPException) as info:
+                self._check(checker, ["government_official"])
+            assert info.value.status_code == 403
 
     def test_present_but_insufficient_role_is_403_even_in_compat(self):
         with pytest.raises(HTTPException) as info:

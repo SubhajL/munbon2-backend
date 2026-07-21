@@ -25,6 +25,12 @@ HMI styling from a Stitch-generated "Industrial SCADA Interface" design system.
       role + log out, silent refresh on mount and on a 401 (coalesced so
       concurrent pollers can't double-spend the rotating refresh token). The
       `NEXT_PUBLIC_DEV_TOKEN` escape hatch still bypasses login for local dev.
+- [x] PR 7.1b — the exact plan/version screen shows Scheduler authority
+      applicability, release/capability evidence, receipt coverage, scope, and
+      the grant event ledger. Admin-only lifecycle/grant controls require exact
+      confirmation; positive actions also require a one-use TOTP. Independent
+      authority polling keeps hold/revoke available when informational reads or
+      SCADA fail. The panel has no machine-write route.
 
 ## Run
 
@@ -41,10 +47,12 @@ npm run build
 | --- | --- | --- | --- |
 | `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:3030` | client | scada-gate-control backend base URL |
 | `AUTH_SERVICE_URL` | `http://localhost:3001` | **server** | `services/auth` base URL the auth BFF proxies to (never exposed to the browser) |
+| `SCHEDULER_URL` | `http://localhost:3021` | **server** | Scheduler base URL for authority applicability and lifecycle/grant mutations |
+| `SCADA_GATE_CONTROL_URL` | `http://localhost:3030` | **server** | SCADA base URL for health and capability evidence reads only |
 | `NEXT_PUBLIC_DEV_TOKEN` | — | client | dev-only JWT (Bearer); when set, skips the login flow entirely |
 
-`AUTH_SERVICE_URL` is read server-side only (in the `/api/auth/*` route handlers);
-do not give it a `NEXT_PUBLIC_` prefix.
+The three server URLs are used only by App Router handlers; do not give them a
+`NEXT_PUBLIC_` prefix. All must be host-only HTTP(S) origins.
 
 ## Notes
 
@@ -61,4 +69,10 @@ do not give it a `NEXT_PUBLIC_` prefix.
   twice. Browsers without Web Locks fall back to per-tab coalescing only.
 - A transient auth-service outage (5xx / network) during renewal keeps the
   current session rather than signing the user out; only a definitive 401 does.
+- Authority grant/renew and plan activate/resume are fail-closed on live SCADA
+  health/capability mismatch. Hold and revoke deliberately bypass Auth step-up
+  and SCADA availability after exact confirmation so the safety brake survives
+  those outages. A verified TOTP is consumed atomically by Scheduler and cannot
+  authorize another positive action during its validity window. Tracked
+  model/capability configuration keeps grant execution dark by default.
 - Storybook and full 4-breakpoint responsive passes were deferred (see Slice 6).
