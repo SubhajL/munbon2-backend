@@ -182,23 +182,34 @@ class AuthService {
             tokenType: 'Bearer',
         };
     }
-    async logout(userId, refreshToken) {
-        if (refreshToken) {
-            const token = await this.refreshTokenRepository.findOne({
-                where: { token: refreshToken, userId },
+    async logout(refreshToken) {
+        let payload;
+        try {
+            payload = jsonwebtoken_1.default.verify(refreshToken, config_1.config.jwt.secret, {
+                issuer: config_1.config.jwt.issuer,
+                audience: config_1.config.jwt.audience,
             });
-            if (token) {
-                token.revoke(userId, 'User logout');
-                await this.refreshTokenRepository.save(token);
-            }
         }
-        else {
-            await this.refreshTokenRepository.update({ userId, isActive: true }, { isActive: false, revokedAt: new Date(), revokedBy: userId });
+        catch {
+            throw new exceptions_1.UnauthorizedException('Invalid refresh token');
+        }
+        if (payload.type !== 'refresh' || typeof payload.sub !== 'string' || !payload.sub.trim()) {
+            throw new exceptions_1.UnauthorizedException('Invalid refresh token');
+        }
+        const token = await this.refreshTokenRepository.findOne({
+            where: { token: refreshToken },
+        });
+        if (!token || token.userId !== payload.sub) {
+            throw new exceptions_1.UnauthorizedException('Invalid refresh token');
+        }
+        if (token.isActive && !token.revokedAt) {
+            token.revoke(token.userId, 'User logout');
+            await this.refreshTokenRepository.save(token);
         }
         await audit_service_1.auditService.log({
-            userId,
+            userId: token.userId,
             action: audit_log_entity_1.AuditAction.LOGOUT,
-            resource: `user:${userId}`,
+            resource: `user:${token.userId}`,
             description: 'User logged out',
             success: true,
         });

@@ -80,12 +80,11 @@ class AuthController {
     }
     async logout(req, res, next) {
         try {
-            const userId = req.user?.id;
-            const refreshToken = req.body.refreshToken || req.cookies.refreshToken;
-            if (userId) {
-                await auth_service_1.authService.logout(userId, refreshToken);
-            }
+            const refreshToken = req.body.refreshToken || req.cookies?.refreshToken;
             res.clearCookie('refreshToken');
+            if (refreshToken) {
+                await auth_service_1.authService.logout(refreshToken);
+            }
             res.json({
                 success: true,
                 message: 'Logged out successfully',

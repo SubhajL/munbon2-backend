@@ -27,7 +27,7 @@ declare class AuthService {
     login(email: string, password: string, ip: string, userAgent?: string): Promise<LoginResult>;
     validateUser(email: string, password: string): Promise<User | null>;
     refreshAccessToken(refreshToken: string): Promise<LoginResult>;
-    logout(userId: string, refreshToken?: string): Promise<void>;
+    logout(refreshToken: string): Promise<void>;
     requestPasswordReset(email: string, ip: string): Promise<void>;
     resetPassword(token: string, newPassword: string, ip: string): Promise<void>;
     getThaiDigitalIdUserInfo(accessToken: string): Promise<any>;

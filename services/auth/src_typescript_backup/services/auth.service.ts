@@ -282,30 +282,38 @@ class AuthService {
     };
   }
 
-  async logout(userId: string, refreshToken?: string): Promise<void> {
-    if (refreshToken) {
-      // Revoke specific refresh token
-      const token = await this.refreshTokenRepository.findOne({
-        where: { token: refreshToken, userId },
-      });
-      
-      if (token) {
-        token.revoke(userId, 'User logout');
-        await this.refreshTokenRepository.save(token);
-      }
-    } else {
-      // Revoke all user's refresh tokens
-      await this.refreshTokenRepository.update(
-        { userId, isActive: true },
-        { isActive: false, revokedAt: new Date(), revokedBy: userId }
-      );
+  async logout(refreshToken: string): Promise<void> {
+    let payload: TokenPayload;
+    try {
+      payload = jwt.verify(refreshToken, config.jwt.secret, {
+        issuer: config.jwt.issuer,
+        audience: config.jwt.audience,
+      }) as TokenPayload;
+    } catch {
+      throw new UnauthorizedException('Invalid refresh token');
     }
 
-    // Audit log
+    if (payload.type !== 'refresh' || typeof payload.sub !== 'string' || !payload.sub.trim()) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    const token = await this.refreshTokenRepository.findOne({
+      where: { token: refreshToken },
+    });
+
+    if (!token || token.userId !== payload.sub) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    if (token.isActive && !token.revokedAt) {
+      token.revoke(token.userId, 'User logout');
+      await this.refreshTokenRepository.save(token);
+    }
+
     await auditService.log({
-      userId,
+      userId: token.userId,
       action: AuditAction.LOGOUT,
-      resource: `user:${userId}`,
+      resource: `user:${token.userId}`,
       description: 'User logged out',
       success: true,
     });
