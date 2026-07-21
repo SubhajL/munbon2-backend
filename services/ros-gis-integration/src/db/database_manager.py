@@ -134,7 +134,9 @@ class DatabaseManager:
                     await conn.fetchval("SELECT 1")
                     health["postgres"] = True
         except Exception as e:
-            self.logger.error("PostgreSQL health check failed", error=str(e))
+            self.logger.error(
+                "PostgreSQL health check failed", error_type=type(e).__name__
+            )
 
         if settings.daily_requirement_enabled:
             try:
@@ -143,7 +145,8 @@ class DatabaseManager:
                     health["requirement_source_postgres"] = True
             except Exception as e:
                 self.logger.error(
-                    "Requirement source PostgreSQL health check failed", error=str(e)
+                    "Requirement source PostgreSQL health check failed",
+                    error_type=type(e).__name__,
                 )
 
         try:
@@ -152,7 +155,7 @@ class DatabaseManager:
                 await self._redis_client.ping()
                 health["redis"] = True
         except Exception as e:
-            self.logger.error("Redis health check failed", error=str(e))
+            self.logger.error("Redis health check failed", error_type=type(e).__name__)
 
         return health
 

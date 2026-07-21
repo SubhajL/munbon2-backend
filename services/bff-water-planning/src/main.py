@@ -146,7 +146,7 @@ async def health_check():
 @app.get("/ready")
 async def readiness_check(request: Request):
     """Dependency-truth readiness: concurrently probe the required upstreams
-    (scheduler /ready, flow /ready, ros /health) over the pooled client, each
+    (scheduler /ready, flow /ready, ros /ready) over the pooled client, each
     bounded. 503 unless every upstream is ready; body carries only safe status
     strings (no host/URL/exception leaks)."""
     from services.readiness_service import (

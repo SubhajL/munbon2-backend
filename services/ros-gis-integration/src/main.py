@@ -28,6 +28,7 @@ db_manager = DatabaseManager()
 # ROS sync service instance
 ros_sync_service = RosSyncService()
 
+
 def build_daily_requirement_job(
     job_settings: Settings, manager: DatabaseManager
 ) -> DailyRequirementJob | None:
@@ -158,26 +159,48 @@ app.mount("/metrics", metrics_app)
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
-    health_status = await db_manager.check_health()
-
-    # Check external service connectivity
-    external_health = {
-        "flow_monitoring": True,  # Would check actual service
-        "scheduler": True,
-        "ros": True,
-        "gis": True,
-    }
-
-    all_healthy = all(health_status.values()) and all(external_health.values())
-
+    """Process liveness only; dependency truth is reported by /ready."""
     return {
-        "status": "healthy" if all_healthy else "unhealthy",
+        "status": "healthy",
         "service": settings.service_name,
-        "version": "1.0.0",
-        "databases": health_status,
-        "external_services": external_health,
+        "version": app.version,
     }
+
+
+@app.get("/ready")
+async def readiness_check(request: Request):
+    """Database-backed readiness with only safe dependency status labels."""
+    required_dependencies = ["postgres", "redis"]
+    if settings.daily_requirement_enabled:
+        required_dependencies.append("requirement_source_postgres")
+    try:
+        health_status = await request.app.state.db_manager.check_health()
+        if not isinstance(health_status, dict):
+            raise TypeError
+    except Exception as exc:
+        logger.error("Readiness dependency check failed", error_type=type(exc).__name__)
+        body = {
+            "status": "not ready",
+            "service": settings.service_name,
+            "version": app.version,
+            "checks": {"dependencies": "unreachable"},
+        }
+        return JSONResponse(status_code=503, content=body)
+
+    checks = {
+        name: "ok" if health_status.get(name) is True else "unhealthy"
+        for name in required_dependencies
+    }
+    ready = all(status == "ok" for status in checks.values())
+    body = {
+        "status": "ready" if ready else "not ready",
+        "service": settings.service_name,
+        "version": app.version,
+        "checks": checks,
+    }
+    if not ready:
+        return JSONResponse(status_code=503, content=body)
+    return body
 
 
 @app.get("/")
@@ -190,6 +213,7 @@ async def root():
         "endpoints": {
             "graphql": "/graphql",
             "health": "/health",
+            "ready": "/ready",
             "metrics": "/metrics",
             "docs": "/docs",
             "graphiql": "/graphql" if settings.environment == "development" else None,
