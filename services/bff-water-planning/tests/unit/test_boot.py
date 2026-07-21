@@ -9,8 +9,12 @@ ros-gis-integration per ADR D5 (docs/remediation, flow-monitoring).
 
 import importlib
 import importlib.util
+from importlib.metadata import version
+from pathlib import Path
 
 import pytest
+
+SERVICE_ROOT = Path(__file__).resolve().parents[2]
 
 # Modules deleted in 2.6a. Resurrecting any of them (or re-adding an import of
 # the never-committed modules they depended on) must fail this suite.
@@ -47,13 +51,30 @@ def test_main_imports_and_exposes_the_app():
     assert main.app.title == "Water Planning BFF Service"
 
 
+def test_bff_schema_imports_with_pinned_strawberry():
+    requirements = (SERVICE_ROOT / "requirements.txt").read_text().splitlines()
+
+    assert "strawberry-graphql[fastapi]==0.322.2" in requirements
+    assert "python-multipart==0.0.32" in requirements
+    assert version("strawberry-graphql") == "0.322.2"
+    assert version("python-multipart") == "0.0.32"
+
+    schema_module = importlib.import_module("api.schema")
+    graphql_app = schema_module.create_graphql_app()
+    schema_sdl = schema_module.schema.as_str()
+
+    assert "type Query {" in schema_sdl
+    assert "type Mutation {" in schema_sdl
+    assert "/graphql" in {route.path for route in graphql_app.routes}
+
+
 def test_live_route_surface_survives_boot():
     main = importlib.import_module("main")
     route_paths = {route.path for route in main.app.routes}
     for expected in ("/health", "/api/v1/status", "/graphql"):
-        assert any(path.startswith(expected) for path in route_paths), (
-            f"expected live route {expected} missing after boot restoration"
-        )
+        assert any(
+            path.startswith(expected) for path in route_paths
+        ), f"expected live route {expected} missing after boot restoration"
 
 
 @pytest.mark.parametrize("module_name", DELETED_WEEKLY_STACK)
