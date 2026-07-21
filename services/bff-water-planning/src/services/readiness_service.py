@@ -1,17 +1,17 @@
 """BFF dependency-truth readiness (PR 4.4a-2).
 
 `/ready` concurrently probes every REQUIRED upstream — the scheduler `/ready`,
-flow-monitoring `/ready`, and ros-gis `/health` — over the lifespan-owned pooled
+flow-monitoring `/ready`, and ros-gis `/ready` — over the lifespan-owned pooled
 `httpx.AsyncClient`. Each probe is bounded TWO ways: the httpx per-phase
 connect/read limits, AND a hard per-probe WALL-CLOCK (`asyncio.timeout`). httpx's
 `Timeout` has no wall-clock — a slow-drip upstream keeps resetting the read
 timeout and `/ready` would hang — so the wall-clock is the real ceiling that
 guarantees one hung upstream can never stall the check.
 
-Each target also declares the EXACT self-reported status it must return (the
-scheduler/flow `/ready` return "ready"; ros `/health` returns "healthy"), so a
-`/ready`→`/health` misroute that answers liveness ("healthy") can never pass as
-readiness. Any timeout, non-200, malformed body, wrong/absent status, closed
+Each target also declares the EXACT self-reported status it must return. All
+three `/ready` endpoints return "ready", so a `/ready`→`/health` misroute that
+answers liveness ("healthy") can never pass as readiness. Any timeout, non-200,
+malformed body, wrong/absent status, closed
 pooled client, or unexpected error makes the BFF NOT ready (503).
 
 The returned ``checks`` hold only safe status strings — never a hostname, URL, or
@@ -31,8 +31,8 @@ class ProbeTarget:
     name: str
     url: str
     # The EXACT status the upstream must self-report to count as serviceable.
-    # Liveness ("healthy") is NOT interchangeable with readiness ("ready"): a
-    # scheduler/flow target requires "ready", a ros /health target "healthy".
+    # Every target requires "ready"; liveness ("healthy") can never satisfy
+    # readiness.
     expected_status: str
 
 
@@ -134,9 +134,7 @@ def build_probe_wall_clock_seconds(settings) -> float:
 
 
 def build_required_targets(settings) -> list[ProbeTarget]:
-    """The BFF's required upstreams: scheduler + flow expose `/ready` (dependency
-    truth, must self-report "ready"); ros exposes `/health` (its readiness
-    surface, must self-report "healthy")."""
+    """The BFF's required upstream dependency-truth surfaces."""
     return [
         ProbeTarget(
             "scheduler",
@@ -150,7 +148,7 @@ def build_required_targets(settings) -> list[ProbeTarget]:
         ),
         ProbeTarget(
             "ros",
-            f"{settings.ros_service_url.rstrip('/')}/health",
-            expected_status="healthy",
+            f"{settings.ros_service_url.rstrip('/')}/ready",
+            expected_status="ready",
         ),
     ]

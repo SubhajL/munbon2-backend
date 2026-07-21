@@ -6,7 +6,7 @@ Layers, all network-free:
   hard per-probe wall-clock; any timeout/non-200/malformed/wrong-status fails the
   BFF readiness, and the body leaks no host/URL/exception text.
 - Expected-status: a target requires its EXACT self-reported status, so liveness
-  ("healthy") can never satisfy a readiness ("ready") probe and vice versa.
+  ("healthy") can never satisfy a readiness ("ready") probe.
 - Fail-closed client: a missing/closed pooled client makes /ready 503 (never a
   RuntimeError out through gather).
 - Lifespan: a fallible startup step still closes the pooled client (no leak).
@@ -38,6 +38,7 @@ READY_BODY = {"status": "ready", "checks": {}}
 HEALTHY_BODY = {"status": "healthy"}
 _WALL_CLOCK = 5.0
 
+
 # Distinct target factories keep each probe's REQUIRED status explicit.
 def _scheduler_target(url="http://s/ready") -> ProbeTarget:
     return ProbeTarget("scheduler", url, expected_status="ready")
@@ -47,8 +48,8 @@ def _flow_target(url="http://f/ready") -> ProbeTarget:
     return ProbeTarget("flow_monitoring", url, expected_status="ready")
 
 
-def _ros_target(url="http://r/health") -> ProbeTarget:
-    return ProbeTarget("ros", url, expected_status="healthy")
+def _ros_target(url="http://r/ready") -> ProbeTarget:
+    return ProbeTarget("ros", url, expected_status="ready")
 
 
 def _pooled_client(handler) -> tuple[httpx.AsyncClient, list[httpx.Request]]:
@@ -97,8 +98,12 @@ def _generous_timeout() -> httpx.Timeout:
 class TestProbeUpstream:
     @pytest.mark.asyncio
     async def test_healthy_ready_upstream_is_ok(self):
-        client, _ = _pooled_client(lambda r: httpx.Response(200, json=READY_BODY, request=r))
-        probe = await probe_upstream(client, _scheduler_target(), _timeout(), _WALL_CLOCK)
+        client, _ = _pooled_client(
+            lambda r: httpx.Response(200, json=READY_BODY, request=r)
+        )
+        probe = await probe_upstream(
+            client, _scheduler_target(), _timeout(), _WALL_CLOCK
+        )
         assert (probe.ok, probe.status) == (True, "ok")
 
     @pytest.mark.asyncio
@@ -119,7 +124,9 @@ class TestProbeUpstream:
 
     @pytest.mark.asyncio
     async def test_non_json_body_is_malformed(self):
-        client, _ = _pooled_client(lambda r: httpx.Response(200, content=b"<html>", request=r))
+        client, _ = _pooled_client(
+            lambda r: httpx.Response(200, content=b"<html>", request=r)
+        )
         probe = await probe_upstream(client, _ros_target(), _timeout(), _WALL_CLOCK)
         assert (probe.ok, probe.status) == (False, "malformed")
 
@@ -129,7 +136,9 @@ class TestProbeUpstream:
             raise httpx.ConnectError("connection refused", request=r)
 
         client, _ = _pooled_client(handler)
-        probe = await probe_upstream(client, _scheduler_target(), _timeout(), _WALL_CLOCK)
+        probe = await probe_upstream(
+            client, _scheduler_target(), _timeout(), _WALL_CLOCK
+        )
         assert (probe.ok, probe.status) == (False, "unreachable")
 
     @pytest.mark.asyncio
@@ -138,7 +147,9 @@ class TestProbeUpstream:
             raise httpx.ReadTimeout("read timed out", request=r)
 
         client, _ = _pooled_client(handler)
-        probe = await probe_upstream(client, _scheduler_target(), _timeout(), _WALL_CLOCK)
+        probe = await probe_upstream(
+            client, _scheduler_target(), _timeout(), _WALL_CLOCK
+        )
         assert (probe.ok, probe.status) == (False, "timeout")
 
     # FIX 3 (HIGH): liveness is NOT readiness.
@@ -149,14 +160,16 @@ class TestProbeUpstream:
         client, _ = _pooled_client(
             lambda r: httpx.Response(200, json=HEALTHY_BODY, request=r)
         )
-        probe = await probe_upstream(client, _scheduler_target(), _timeout(), _WALL_CLOCK)
+        probe = await probe_upstream(
+            client, _scheduler_target(), _timeout(), _WALL_CLOCK
+        )
         assert (probe.ok, probe.status) == (False, "unhealthy")
 
     @pytest.mark.asyncio
-    async def test_ros_ready_status_is_rejected_as_not_healthy(self):
-        # The ros target REQUIRES exactly "healthy"; a "ready" answer is not accepted.
+    async def test_ros_health_status_is_rejected_as_not_ready(self):
+        # ROS liveness cannot satisfy the exact readiness contract.
         client, _ = _pooled_client(
-            lambda r: httpx.Response(200, json={"status": "ready"}, request=r)
+            lambda r: httpx.Response(200, json=HEALTHY_BODY, request=r)
         )
         probe = await probe_upstream(client, _ros_target(), _timeout(), _WALL_CLOCK)
         assert (probe.ok, probe.status) == (False, "unhealthy")
@@ -182,16 +195,20 @@ class TestProbeRequiredUpstreams:
     @pytest.mark.asyncio
     async def test_ready_only_when_all_upstreams_ok(self):
         def handler(r):
-            if r.url.path == "/health":
-                return httpx.Response(200, json=HEALTHY_BODY, request=r)
             return httpx.Response(200, json=READY_BODY, request=r)
 
         client, captured = _pooled_client(handler)
         targets = [_scheduler_target(), _flow_target(), _ros_target()]
-        result = await probe_required_upstreams(client, targets, _timeout(), _WALL_CLOCK)
+        result = await probe_required_upstreams(
+            client, targets, _timeout(), _WALL_CLOCK
+        )
         assert isinstance(result, ReadinessResult)
         assert result.ready is True
-        assert result.checks == {"scheduler": "ok", "flow_monitoring": "ok", "ros": "ok"}
+        assert result.checks == {
+            "scheduler": "ok",
+            "flow_monitoring": "ok",
+            "ros": "ok",
+        }
         # every required upstream was actually probed (concurrently)
         assert len(captured) == 3
 
@@ -200,17 +217,17 @@ class TestProbeRequiredUpstreams:
         def handler(r):
             if r.url.host == "scheduler":
                 return httpx.Response(503, json={"status": "not ready"}, request=r)
-            if r.url.path == "/health":
-                return httpx.Response(200, json=HEALTHY_BODY, request=r)
             return httpx.Response(200, json=READY_BODY, request=r)
 
         client, _ = _pooled_client(handler)
         targets = [
             _scheduler_target("http://scheduler/ready"),
             _flow_target("http://flow/ready"),
-            _ros_target("http://ros/health"),
+            _ros_target("http://ros/ready"),
         ]
-        result = await probe_required_upstreams(client, targets, _timeout(), _WALL_CLOCK)
+        result = await probe_required_upstreams(
+            client, targets, _timeout(), _WALL_CLOCK
+        )
         assert result.ready is False
         assert result.checks["scheduler"] == "unhealthy"
         # the other upstreams are still probed independently and stay ok
@@ -224,17 +241,17 @@ class TestProbeRequiredUpstreams:
         def handler(r):
             if r.url.host == "flow":
                 raise httpx.ReadTimeout("timed out", request=r)
-            if r.url.path == "/health":
-                return httpx.Response(200, json=HEALTHY_BODY, request=r)
             return httpx.Response(200, json=READY_BODY, request=r)
 
         client, _ = _pooled_client(handler)
         targets = [
             _scheduler_target("http://scheduler/ready"),
             _flow_target("http://flow/ready"),
-            _ros_target("http://ros/health"),
+            _ros_target("http://ros/ready"),
         ]
-        result = await probe_required_upstreams(client, targets, _timeout(), _WALL_CLOCK)
+        result = await probe_required_upstreams(
+            client, targets, _timeout(), _WALL_CLOCK
+        )
         assert result.ready is False
         assert result.checks["flow_monitoring"] == "timeout"
         assert result.checks["scheduler"] == "ok"
@@ -262,26 +279,61 @@ class TestProbeRequiredUpstreams:
 
         client, _ = _pooled_client(handler)
         targets = [_scheduler_target("http://10.9.9.9:3021/ready")]
-        result = await probe_required_upstreams(client, targets, _timeout(), _WALL_CLOCK)
+        result = await probe_required_upstreams(
+            client, targets, _timeout(), _WALL_CLOCK
+        )
         blob = repr(result.checks)
         assert "10.9.9.9" not in blob
         assert result.checks == {"scheduler": "unreachable"}
+
+    @pytest.mark.asyncio
+    async def test_ros_failure_then_recovery_uses_same_pooled_client(self):
+        state = {"ready": False}
+
+        def handler(request):
+            if not state["ready"]:
+                return httpx.Response(
+                    503, json={"status": "not ready"}, request=request
+                )
+            return httpx.Response(200, json=READY_BODY, request=request)
+
+        client, captured = _pooled_client(handler)
+        targets = [_ros_target("http://ros/ready")]
+
+        failed = await probe_required_upstreams(
+            client, targets, _timeout(), _WALL_CLOCK
+        )
+        state["ready"] = True
+        recovered = await probe_required_upstreams(
+            client, targets, _timeout(), _WALL_CLOCK
+        )
+
+        assert failed == ReadinessResult(False, {"ros": "unhealthy"})
+        assert recovered == ReadinessResult(True, {"ros": "ok"})
+        assert [request.url.path for request in captured] == ["/ready", "/ready"]
 
     # FIX 4 (MEDIUM): a missing/closed pooled client fails closed (503), never a
     # RuntimeError out through gather, and leaks nothing.
     @pytest.mark.asyncio
     async def test_missing_pooled_client_is_not_ready(self):
-        targets = [_scheduler_target("http://scheduler/ready"), _ros_target("http://ros/health")]
+        targets = [
+            _scheduler_target("http://scheduler/ready"),
+            _ros_target("http://ros/ready"),
+        ]
         result = await probe_required_upstreams(None, targets, _timeout(), _WALL_CLOCK)
         assert result.ready is False
         assert result.checks == {"scheduler": "unreachable", "ros": "unreachable"}
 
     @pytest.mark.asyncio
     async def test_closed_pooled_client_is_not_ready(self):
-        client, _ = _pooled_client(lambda r: httpx.Response(200, json=READY_BODY, request=r))
+        client, _ = _pooled_client(
+            lambda r: httpx.Response(200, json=READY_BODY, request=r)
+        )
         await client.aclose()  # closed pooled client (shutdown race / never-built)
         targets = [_scheduler_target("http://scheduler/ready")]
-        result = await probe_required_upstreams(client, targets, _timeout(), _WALL_CLOCK)
+        result = await probe_required_upstreams(
+            client, targets, _timeout(), _WALL_CLOCK
+        )
         assert result.ready is False
         assert result.checks == {"scheduler": "unreachable"}
 
@@ -297,7 +349,8 @@ class TestReadyEndpoint:
 
         slow = _slow_client(delay=5.0)
         monkeypatch.setattr(
-            rs, "build_required_targets",
+            rs,
+            "build_required_targets",
             lambda s: [_scheduler_target("http://scheduler/ready")],
         )
         monkeypatch.setattr(rs, "build_probe_timeout", lambda s: _generous_timeout())
@@ -316,13 +369,50 @@ class TestReadyEndpoint:
         from services import readiness_service as rs
 
         monkeypatch.setattr(
-            rs, "build_required_targets",
+            rs,
+            "build_required_targets",
             lambda s: [_scheduler_target("http://scheduler/ready")],
         )
         request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
         response = await main.readiness_check(request)
         assert isinstance(response, JSONResponse)
         assert response.status_code == 503
+
+    @pytest.mark.asyncio
+    async def test_ready_endpoint_recovers_with_same_ros_client_without_restart(
+        self, monkeypatch
+    ):
+        import main
+        from services import readiness_service as rs
+
+        state = {"ready": False}
+
+        def handler(request):
+            if not state["ready"]:
+                return httpx.Response(
+                    503, json={"status": "not ready"}, request=request
+                )
+            return httpx.Response(200, json=READY_BODY, request=request)
+
+        pooled, captured = _pooled_client(handler)
+        monkeypatch.setattr(
+            rs,
+            "build_required_targets",
+            lambda s: [_ros_target("http://ros/ready")],
+        )
+        request = SimpleNamespace(
+            app=SimpleNamespace(state=SimpleNamespace(http_client=pooled))
+        )
+
+        failed = await main.readiness_check(request)
+        state["ready"] = True
+        recovered = await main.readiness_check(request)
+        await pooled.aclose()
+
+        assert isinstance(failed, JSONResponse)
+        assert failed.status_code == 503
+        assert recovered == {"status": "ready", "checks": {"ros": "ok"}}
+        assert [request.url.path for request in captured] == ["/ready", "/ready"]
 
 
 # --- timeout + target builders ----------------------------------------------
@@ -332,9 +422,7 @@ class TestBuilders:
         assert timeout.connect == app_settings.upstream_probe_connect_timeout_seconds
         assert timeout.read == app_settings.upstream_probe_read_timeout_seconds
         # every phase is finite (bounded), never None
-        assert all(
-            v is not None for v in (timeout.connect, timeout.read, timeout.pool)
-        )
+        assert all(v is not None for v in (timeout.connect, timeout.read, timeout.pool))
 
     def test_probe_wall_clock_is_the_total_timeout_setting(self):
         assert (
@@ -342,14 +430,14 @@ class TestBuilders:
             == app_settings.upstream_probe_total_timeout_seconds
         )
 
-    def test_required_targets_use_ready_and_health_surfaces_with_exact_status(self):
+    def test_required_targets_use_ready_surfaces_with_exact_status(self):
         targets = {t.name: t for t in build_required_targets(app_settings)}
         assert targets["scheduler"].url.endswith("/ready")
         assert targets["scheduler"].expected_status == "ready"
         assert targets["flow_monitoring"].url.endswith("/ready")
         assert targets["flow_monitoring"].expected_status == "ready"
-        assert targets["ros"].url.endswith("/health")
-        assert targets["ros"].expected_status == "healthy"
+        assert targets["ros"].url.endswith("/ready")
+        assert targets["ros"].expected_status == "ready"
 
 
 # --- pooled client wiring ----------------------------------------------------
