@@ -109,9 +109,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       'SCADA_SITE_CANONICAL_GATE_ID is required when ALLOW_MACHINE_COMMANDS=true',
     );
   }
-  if (allowMachineCommands && !env.SCADA_APPROVED_LINEAGE_ANCHOR_PATH?.trim()) {
+  if (allowMachineCommands && !env.SCADA_APPROVED_FIELD_BUNDLE_PATH?.trim()) {
     throw new ConfigError(
-      'SCADA_APPROVED_LINEAGE_ANCHOR_PATH is required when ALLOW_MACHINE_COMMANDS=true',
+      'SCADA_APPROVED_FIELD_BUNDLE_PATH is required when ALLOW_MACHINE_COMMANDS=true',
     );
   }
 

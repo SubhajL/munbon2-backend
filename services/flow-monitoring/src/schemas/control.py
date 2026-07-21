@@ -6,9 +6,11 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    StrictBool,
     StrictInt,
     StringConstraints,
     field_validator,
+    model_validator,
 )
 
 from schemas.demand import AwareUtc
@@ -252,9 +254,7 @@ class ModelSnapshotRoutingElement(_StrictModelSnapshotSchema):
     element_id: str
     upstream_node_id: str
     downstream_node_id: str
-    role: Literal[
-        "boundary", "transport", "branch_structure", "withdrawal_structure"
-    ]
+    role: Literal["boundary", "transport", "branch_structure", "withdrawal_structure"]
     canonical_edges: list[list[str]]
     canal: str | None
     span_m: float | None
@@ -292,8 +292,8 @@ class ModelSnapshotActionModel(_StrictModelSnapshotSchema):
     flow_unit: Literal["m3/s"]
     allowed_node_ids: list[Literal["S"]]
     requires_explicit_branch_allocations: Literal[True]
-    commandable: Literal[False]
-    actuation_approved: bool
+    commandable: StrictBool
+    actuation_approved: StrictBool
     config_sha256: ModelSnapshotActionConfigSha256
     operating_envelope: ModelSnapshotOperatingEnvelope | None
 
@@ -341,7 +341,7 @@ class ModelSnapshotResponseModel(_StrictModelSnapshotSchema):
     release_id: str
     generated_at: AwareUtc
     evidence_class: Literal["engineering_prior"]
-    commandable: Literal[False]
+    commandable: StrictBool
     content_hash: Sha256Hex
     lineage: ModelSnapshotLineage
     reach_parameters: list[ModelSnapshotReachParameters]
@@ -367,14 +367,54 @@ class ModelSnapshotPredictionEngine(_StrictModelSnapshotSchema):
     content_hash: Sha256Hex
 
 
+class ModelSnapshotApprovalRelease(_StrictModelSnapshotSchema):
+    release_id: str
+    content_hash: Sha256Hex
+
+
+class ModelSnapshotApprovalEngine(_StrictModelSnapshotSchema):
+    content_hash: Sha256Hex
+
+
+class ModelSnapshotApprovalCapability(_StrictModelSnapshotSchema):
+    capability_release_id: str
+    capability_hash: Sha256Hex
+    approved_gate_ids: list[str]
+
+
+class ModelSnapshotApprovalEvidence(_StrictModelSnapshotSchema):
+    kind: str
+    reference: str
+    sha256: Sha256Hex
+
+
+class ModelSnapshotApprovalAttestation(_StrictModelSnapshotSchema):
+    approved_by_role: str
+    approved_at: AwareUtc
+    approval_reference: str
+    evidence: list[ModelSnapshotApprovalEvidence]
+
+
+class ModelSnapshotCommandabilityApproval(_StrictModelSnapshotSchema):
+    schema_version: Literal[1]
+    approval_state: Literal["approved"]
+    base_model_release: ModelSnapshotApprovalRelease
+    prediction_engine: ModelSnapshotApprovalEngine
+    model_config_sha256: dict[str, Sha256Hex]
+    operating_envelope: ModelSnapshotOperatingEnvelope
+    device_capability: ModelSnapshotApprovalCapability
+    approval: ModelSnapshotApprovalAttestation
+    content_hash: Sha256Hex
+
+
 class ModelSnapshotResponse(_StrictModelSnapshotSchema):
-    schema_version: Literal[3]
+    schema_version: Literal[3, 4]
     snapshot_id: Sha256Hex
     data_status: Literal["complete", "partial", "unavailable"]
     mode: Literal["open_loop_prediction"]
     open_loop: Literal[True]
     actual_state_known: Literal[False]
-    commandable: Literal[False]
+    commandable: StrictBool
     prediction_engine: ModelSnapshotPredictionEngine
     scada_graph: ModelSnapshotScadaGraph
     routing_topology: ModelSnapshotRoutingTopology
@@ -382,6 +422,57 @@ class ModelSnapshotResponse(_StrictModelSnapshotSchema):
     response_model: ModelSnapshotResponseModel | None
     transport_response_coverage: ModelSnapshotCoverage
     unavailable_transport_reaches: list[ModelSnapshotUnavailableReach]
+    commandability_approval: ModelSnapshotCommandabilityApproval | None = None
+
+    @model_validator(mode="after")
+    def _validate_commandability_version(self):
+        response_commandable = (
+            False if self.response_model is None else self.response_model.commandable
+        )
+        gates = (
+            self.commandable,
+            response_commandable,
+            self.action_model.commandable,
+            self.action_model.actuation_approved,
+        )
+        if self.schema_version == 3:
+            if any(gates) or self.commandability_approval is not None:
+                raise ValueError("snapshot v3 must remain dark without an approval")
+            return self
+        if (
+            not all(gates)
+            or self.commandability_approval is None
+            or self.response_model is None
+        ):
+            raise ValueError(
+                "snapshot v4 requires every commandability gate and approval"
+            )
+        approval = self.commandability_approval
+        if (
+            approval.base_model_release.release_id != self.response_model.release_id
+            or approval.base_model_release.content_hash
+            != self.response_model.content_hash
+            or approval.prediction_engine.content_hash
+            != self.prediction_engine.content_hash
+            or approval.model_config_sha256.get("network")
+            != self.scada_graph.config_sha256
+            or approval.model_config_sha256.get("routing_topology")
+            != self.routing_topology.config_sha256
+            or {
+                key: approval.model_config_sha256.get(key)
+                for key in (
+                    "canal_geometry",
+                    "gate_calibrations",
+                    "geometry_coverage",
+                )
+            }
+            != self.action_model.config_sha256.model_dump()
+            or approval.operating_envelope != self.action_model.operating_envelope
+        ):
+            raise ValueError(
+                "snapshot v4 approval does not cross-bind its runtime model"
+            )
+        return self
 
 
 class LevelValue(BaseModel):

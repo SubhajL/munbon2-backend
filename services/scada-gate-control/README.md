@@ -69,7 +69,9 @@ hook). Set these in your `.env`:
 | `ALLOW_IN_MEMORY_AUDIT`                       | `false`                         | \*dev-only: allow a non-persistent audit sink with no `DATABASE_URL` |
 | `ALLOW_MACHINE_COMMANDS`                      | `false`                         | exact `true` enables the SCADA execution service; requires Postgres  |
 | `SCADA_SITE_CANONICAL_GATE_ID`                | unset                           | required with machine commands; binds this controller to one gate    |
-| `SCADA_APPROVED_LINEAGE_ANCHOR_PATH`          | unset                           | required with machine commands; pins approved model/engine lineage   |
+| `SCADA_APPROVED_FIELD_BUNDLE_PATH`            | unset                           | required with machine commands; rich approved D6 single source       |
+| `SCADA_DEVICE_REGISTRY_PATH`                  | unset                           | legacy dark-only split registry; forbidden beside the rich bundle    |
+| `SCADA_APPROVED_LINEAGE_ANCHOR_PATH`          | unset                           | legacy dark-only split anchor; forbidden beside the rich bundle      |
 | `SCHEDULER_SERVICE_JWT_SECRET`                | unset                           | dedicated Scheduler service-token secret; unset keeps routes dark    |
 | `SCHEDULER_SERVICE_JWT_ISSUER`                | `munbon-scheduler`              | expected service-token issuer                                        |
 | `SCHEDULER_SERVICE_JWT_AUDIENCE`              | `munbon-scada-machine-boundary` | expected service-token audience                                      |
@@ -83,7 +85,10 @@ SCADA `ALLOW_MACHINE_COMMANDS=true`. The tracked PM2 and service configuration
 keep both keys off. Scheduler also needs `SCHEDULER_SCADA_BASE_URL` and the same
 dedicated service-token secret configured on both services.
 Enabling SCADA execution also requires the local canonical gate ID and a valid
-approved-lineage anchor; missing either fails startup. Every request and token
+rich D6 bundle. Startup validates the exact pilot gate scope, distinct command/readback
+registers, monotone bijective quantizers, unambiguous readback round trips, then derives
+the capability snapshot and lineage anchor from that one file. The committed example is
+explicitly rejected as runtime evidence. Every request and token
 binds the grant ID and authority deadline, which is rechecked under the
 controller lock immediately before the first write.
 

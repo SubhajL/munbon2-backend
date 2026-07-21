@@ -81,8 +81,7 @@ def normalize_prediction_request_identity_v2(
     return {
         **normalized_request,
         PREDICTION_ENGINE_REQUEST_KEY: {
-            field: engine_descriptor[field]
-            for field in _ENGINE_DESCRIPTOR_EMBED_FIELDS
+            field: engine_descriptor[field] for field in _ENGINE_DESCRIPTOR_EMBED_FIELDS
         },
     }
 
@@ -217,9 +216,7 @@ class ControlPredictionService:
     def __post_init__(self) -> None:
         if self.prediction_engine_descriptor is not None:
             try:
-                validate_prediction_engine_descriptor(
-                    self.prediction_engine_descriptor
-                )
+                validate_prediction_engine_descriptor(self.prediction_engine_descriptor)
             except PredictionEngineError as exc:
                 raise NetworkTransientError(
                     f"prediction_engine_descriptor is invalid: {exc}"
@@ -264,15 +261,11 @@ class ControlPredictionService:
         # re-serialize and re-hash the whole model every POST.
         object.__setattr__(self, "_snapshot_id_cache", {})
 
-    def member_responses(
-        self, member: ResponseMember
-    ) -> tuple[ReachResponse, ...]:
+    def member_responses(self, member: ResponseMember) -> tuple[ReachResponse, ...]:
         """THE single member-selection rule; orchestration and the engine
         seam must never encode it twice."""
         return tuple(
-            response
-            for response in self.reach_responses
-            if response.member is member
+            response for response in self.reach_responses if response.member is member
         )
 
     def predict_member(
@@ -342,9 +335,7 @@ class ControlPredictionService:
         )
         snapshot_id = self._snapshot_id_cache.get(cache_key)
         if snapshot_id is None:
-            snapshot = self.model_snapshot(
-                release, config_sha256, actuation_approved
-            )
+            snapshot = self.model_snapshot(release, config_sha256, actuation_approved)
             snapshot_id = snapshot["snapshot_id"]
             self._snapshot_id_cache[cache_key] = snapshot_id
         pinned = (
@@ -400,9 +391,7 @@ class ControlPredictionService:
             if event.flow_m3s == 0.0:
                 continue
             if not (
-                envelope.minimum_flow_m3s
-                <= event.flow_m3s
-                <= envelope.maximum_flow_m3s
+                envelope.minimum_flow_m3s <= event.flow_m3s <= envelope.maximum_flow_m3s
             ):
                 raise NetworkTransientError(
                     f"source flow {event.flow_m3s} m3/s is outside the model "
@@ -442,8 +431,7 @@ class ControlPredictionService:
         )
         transports = set(self.routing_topology.transport_reach_ids())
         reason_by_reach = {
-            reach.reach_id: reach.reason
-            for reach in release.unavailable_reaches
+            reach.reach_id: reach.reason for reach in release.unavailable_reaches
         }
         members = []
         covered_order: tuple[str, ...] = ()
@@ -523,9 +511,7 @@ class ControlPredictionService:
         return ControlPredictionOutcome(
             snapshot_id=snapshot_id,
             covered_transport_reach_ids=covered_order,
-            excluded_transport_reaches=tuple(
-                sorted(reason_by_reach.items())
-            ),
+            excluded_transport_reaches=tuple(sorted(reason_by_reach.items())),
             members=tuple(members),
         )
 
@@ -553,6 +539,7 @@ class ControlPredictionService:
         release: HydraulicModelRelease | None,
         config_sha256: Mapping[str, str],
         actuation_approved: bool,
+        commandability_approval: Mapping | None = None,
     ) -> dict:
         expected_horizon = (
             None
@@ -575,6 +562,7 @@ class ControlPredictionService:
             config_sha256,
             actuation_approved,
             self.prediction_engine_descriptor,
+            commandability_approval,
         )
 
 
@@ -603,8 +591,7 @@ def collect_prediction_violations(
                     required_volume_m3=requirement.required_volume_m3,
                     predicted_delivered_m3=state.predicted_delivered_m3,
                     shortfall_m3=(
-                        requirement.required_volume_m3
-                        - state.predicted_delivered_m3
+                        requirement.required_volume_m3 - state.predicted_delivered_m3
                     ),
                 )
             )
@@ -624,9 +611,9 @@ def collect_prediction_violations(
             planned_m3[structure_id] = planned_m3.get(structure_id, 0.0) + (
                 point.planned_flow_m3s * timeline.timestep_seconds
             )
-            predicted_m3[structure_id] = predicted_m3.get(
-                structure_id, 0.0
-            ) + (point.predicted_withdrawal_m3s * timeline.timestep_seconds)
+            predicted_m3[structure_id] = predicted_m3.get(structure_id, 0.0) + (
+                point.predicted_withdrawal_m3s * timeline.timestep_seconds
+            )
             if point.shortfall_m3s > _FLOW_TOLERANCE_M3S:
                 shortfall_steps.setdefault(structure_id, []).append(step)
             if (
@@ -637,8 +624,7 @@ def collect_prediction_violations(
                     (step, point.planned_flow_m3s)
                 )
             if (
-                point.capacity_check_status
-                is WithdrawalCapacityCheckStatus.UNAVAILABLE
+                point.capacity_check_status is WithdrawalCapacityCheckStatus.UNAVAILABLE
                 and point.planned_flow_m3s > 0.0
             ):
                 unavailable_steps.setdefault(structure_id, []).append(
@@ -663,9 +649,7 @@ def collect_prediction_violations(
                 structure_id=structure_id,
                 first_at=offending[0][0].starts_at,
                 steps=len(offending),
-                maximum_planned_flow_m3s=max(
-                    planned for _, planned in offending
-                ),
+                maximum_planned_flow_m3s=max(planned for _, planned in offending),
                 structure_max_flow_m3s=structure_max_flow_m3s[structure_id],
             )
         )
@@ -675,9 +659,7 @@ def collect_prediction_violations(
                 structure_id=structure_id,
                 first_at=offending[0][0].starts_at,
                 steps=len(offending),
-                maximum_planned_flow_m3s=max(
-                    planned for _, planned in offending
-                ),
+                maximum_planned_flow_m3s=max(planned for _, planned in offending),
             )
         )
     return tuple(

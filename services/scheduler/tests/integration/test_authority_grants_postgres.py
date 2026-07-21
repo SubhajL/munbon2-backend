@@ -47,22 +47,25 @@ def test_rollback_locks_parent_before_child():
 
 def _candidate(plan_id, plan_version):
     from core.authority_grant import AuthorityGrantCandidate
+    from tests.control_plan_test_support import (
+        authority_commandability_evidence,
+        authority_model_snapshot,
+    )
 
     sha_a, sha_b, sha_c = "a" * 64, "b" * 64, "c" * 64
+    approval_snapshot = authority_model_snapshot(
+        model_release_id="hydraulic-model-2026.06",
+        model_release_content_hash=sha_a,
+        engine_descriptor_content_hash=sha_b,
+        approved_gate_ids=("G1",),
+    )
     return AuthorityGrantCandidate(
         plan_id=plan_id,
         plan_version=plan_version,
         model_release_id="hydraulic-model-2026.06",
         model_release_content_hash=sha_a,
         engine_descriptor_content_hash=sha_b,
-        commandability_evidence={
-            "schema_version": 1,
-            "model_release_id": "hydraulic-model-2026.06",
-            "model_release_content_hash": sha_a,
-            "engine_descriptor_content_hash": sha_b,
-            "commandable": True,
-            "approval_refs": ["RID-approval-2026-118"],
-        },
+        commandability_evidence=authority_commandability_evidence(approval_snapshot),
         capability_release_id="field-registry-2026.06",
         capability_hash=sha_c,
         scope={

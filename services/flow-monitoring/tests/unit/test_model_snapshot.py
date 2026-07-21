@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from core.commandability_approval import commandability_approval_content_hash
 from core.demand_contract import content_hash
 from core.prediction_engine import (
     build_prediction_engine_descriptor,
@@ -41,6 +42,48 @@ CONFIG_SHA256 = {
 OPERATING_ENVELOPE = OperatingEnvelope(0.0, 4.0, 60.0, 300.0, 604800.0)
 SERVICE_ROOT = Path(__file__).resolve().parents[2]
 ENGINE_DESCRIPTOR = build_prediction_engine_descriptor(SERVICE_ROOT)
+
+
+def _commandability_approval(release: HydraulicModelRelease, *, approved: bool) -> dict:
+    payload = {
+        "schema_version": 1,
+        "approval_state": "approved" if approved else "not_approved",
+        "base_model_release": {
+            "release_id": release.release_id,
+            "content_hash": release.content_hash,
+        },
+        "prediction_engine": {"content_hash": ENGINE_DESCRIPTOR["content_hash"]},
+        "model_config_sha256": dict(CONFIG_SHA256),
+        "operating_envelope": {
+            "minimum_flow_m3s": OPERATING_ENVELOPE.minimum_flow_m3s,
+            "maximum_flow_m3s": OPERATING_ENVELOPE.maximum_flow_m3s,
+            "minimum_timestep_seconds": OPERATING_ENVELOPE.minimum_timestep_seconds,
+            "maximum_timestep_seconds": OPERATING_ENVELOPE.maximum_timestep_seconds,
+            "maximum_horizon_seconds": OPERATING_ENVELOPE.maximum_horizon_seconds,
+        },
+        "device_capability": {
+            "capability_release_id": "d6-pilot-v1",
+            "capability_hash": "9" * 64,
+            "approved_gate_ids": ["A"],
+        },
+        "approval": (
+            {
+                "approved_by_role": "RID hydraulic model authority",
+                "approved_at": "2026-07-21T08:00:00Z",
+                "approval_reference": "RID-COMMISSIONING-2026-001",
+                "evidence": [
+                    {
+                        "kind": "signed-assessment",
+                        "reference": "doc://rid/commissioning/2026-001",
+                        "sha256": "8" * 64,
+                    }
+                ],
+            }
+            if approved
+            else None
+        ),
+    }
+    return {**payload, "content_hash": commandability_approval_content_hash(payload)}
 
 
 def _transport_element(upstream: str, downstream: str) -> RoutingElement:
@@ -124,6 +167,90 @@ def _release(
 
 
 class TestBuildModelSnapshot:
+    def test_unset_or_nonapproved_approval_preserves_snapshot_v3_dark(self):
+        release = _release()
+        args = (
+            TOPOLOGY,
+            reach_responses_from_model_release(release),
+            release,
+            CONFIG_SHA256,
+            False,
+            ENGINE_DESCRIPTOR,
+        )
+
+        unset = build_model_snapshot(*args)
+        nonapproved = build_model_snapshot(
+            *args, _commandability_approval(release, approved=False)
+        )
+
+        assert nonapproved == unset
+        assert {
+            "schema_version": nonapproved["schema_version"],
+            "commandable": nonapproved["commandable"],
+            "response_commandable": nonapproved["response_model"]["commandable"],
+            "action_commandable": nonapproved["action_model"]["commandable"],
+            "actuation_approved": nonapproved["action_model"]["actuation_approved"],
+            "approval_present": "commandability_approval" in nonapproved,
+        } == {
+            "schema_version": 3,
+            "commandable": False,
+            "response_commandable": False,
+            "action_commandable": False,
+            "actuation_approved": False,
+            "approval_present": False,
+        }
+
+    def test_exact_approved_binding_emits_content_addressed_snapshot_v4(self):
+        release = _release()
+        approval = _commandability_approval(release, approved=True)
+
+        snapshot = build_model_snapshot(
+            TOPOLOGY,
+            reach_responses_from_model_release(release),
+            release,
+            CONFIG_SHA256,
+            False,
+            ENGINE_DESCRIPTOR,
+            approval,
+        )
+
+        assert {
+            "schema_version": snapshot["schema_version"],
+            "commandable": snapshot["commandable"],
+            "response_commandable": snapshot["response_model"]["commandable"],
+            "action_commandable": snapshot["action_model"]["commandable"],
+            "actuation_approved": snapshot["action_model"]["actuation_approved"],
+            "approval": snapshot["commandability_approval"],
+        } == {
+            "schema_version": 4,
+            "commandable": True,
+            "response_commandable": True,
+            "action_commandable": True,
+            "actuation_approved": True,
+            "approval": approval,
+        }
+        payload = {
+            key: value for key, value in snapshot.items() if key != "snapshot_id"
+        }
+        assert snapshot["snapshot_id"] == content_hash(payload)
+
+    def test_approved_document_with_runtime_drift_cannot_emit_v4(self):
+        release = _release()
+        approval = _commandability_approval(release, approved=True)
+        approval["prediction_engine"]["content_hash"] = "7" * 64
+        approval["content_hash"] = commandability_approval_content_hash(approval)
+
+        with pytest.raises(ModelSnapshotError, match="does not match runtime"):
+            build_model_snapshot(
+                TOPOLOGY,
+                reach_responses_from_model_release(release),
+                release,
+                CONFIG_SHA256,
+                False,
+                ENGINE_DESCRIPTOR,
+                approval,
+            )
+
     def test_model_snapshot_v3_separates_scada_graph_from_transport_coverage(self):
         release = _release()
         snapshot = build_model_snapshot(
@@ -146,12 +273,8 @@ class TestBuildModelSnapshot:
             "scada_graph": snapshot["scada_graph"],
             "routing_topology": snapshot["routing_topology"],
             "action_model": snapshot["action_model"],
-            "transport_response_coverage": snapshot[
-                "transport_response_coverage"
-            ],
-            "unavailable_transport_reaches": snapshot[
-                "unavailable_transport_reaches"
-            ],
+            "transport_response_coverage": snapshot["transport_response_coverage"],
+            "unavailable_transport_reaches": snapshot["unavailable_transport_reaches"],
         } == {
             "schema_version": 3,
             "data_status": "partial",
@@ -252,7 +375,11 @@ class TestBuildModelSnapshot:
         responses = reach_responses_from_model_release(release)
         with pytest.raises(ModelSnapshotError, match="prediction engine descriptor"):
             build_model_snapshot(
-                TOPOLOGY, responses, release, CONFIG_SHA256, False,
+                TOPOLOGY,
+                responses,
+                release,
+                CONFIG_SHA256,
+                False,
                 {"schema_version": 1, "engine_id": "x"},
             )
 
@@ -327,8 +454,7 @@ class TestBuildModelSnapshot:
         )
 
         first = build_model_snapshot(
-            TOPOLOGY, responses, release, CONFIG_SHA256, False,
-            ENGINE_DESCRIPTOR
+            TOPOLOGY, responses, release, CONFIG_SHA256, False, ENGINE_DESCRIPTOR
         )
         reordered = build_model_snapshot(
             TOPOLOGY,
@@ -351,16 +477,13 @@ class TestBuildModelSnapshot:
         )
 
         snapshot = build_model_snapshot(
-            TOPOLOGY, (), release, CONFIG_SHA256, False,
-            ENGINE_DESCRIPTOR
+            TOPOLOGY, (), release, CONFIG_SHA256, False, ENGINE_DESCRIPTOR
         )
 
         assert (
             snapshot["data_status"],
             snapshot["response_model"]["release_id"],
-            snapshot["transport_response_coverage"][
-                "available_transport_reaches"
-            ],
+            snapshot["transport_response_coverage"]["available_transport_reaches"],
         ) == ("unavailable", release.release_id, 0)
 
     def test_runtime_response_drift_is_rejected(self):
@@ -427,12 +550,7 @@ def test_committed_release_snapshot_reports_partial_41_available_1_unavailable()
         str(config_dir / "canal_geometry.json"),
     )
     release = load_configured_hydraulic_model_release(
-        str(
-            service_root
-            / "data"
-            / "model-releases"
-            / "engineering-prior-v3-v1.json"
-        ),
+        str(service_root / "data" / "model-releases" / "engineering-prior-v3-v1.json"),
         topology.transport_reach_ids(),
     )
     config_sha256 = {

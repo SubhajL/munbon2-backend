@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
+from core.commandability_approval import commandability_approval_content_hash
 from core.demand_contract import content_hash
 from core.model_release import (
     EvidenceClass,
@@ -32,16 +33,12 @@ SERVICE_ROOT = Path(__file__).resolve().parents[2]
 NETWORK = str(SERVICE_ROOT / "src" / "config" / "network.json")
 GEOMETRY = str(SERVICE_ROOT / "src" / "config" / "canal_geometry.json")
 CALIBRATIONS = str(SERVICE_ROOT / "src" / "config" / "gate_calibrations.json")
-GEOMETRY_COVERAGE = str(
-    SERVICE_ROOT / "src" / "config" / "geometry_coverage.json"
-)
+GEOMETRY_COVERAGE = str(SERVICE_ROOT / "src" / "config" / "geometry_coverage.json")
 ROUTING_TOPOLOGY = str(SERVICE_ROOT / "src" / "config" / "routing_topology.json")
 CONTROL_PY = SERVICE_ROOT / "src" / "api" / "control.py"
 ENGINE_DESCRIPTOR = build_prediction_engine_descriptor(SERVICE_ROOT)
 
-TOPOLOGY = load_routing_topology(
-    ROUTING_TOPOLOGY, NETWORK, GEOMETRY_COVERAGE, GEOMETRY
-)
+TOPOLOGY = load_routing_topology(ROUTING_TOPOLOGY, NETWORK, GEOMETRY_COVERAGE, GEOMETRY)
 
 
 def _load_control():
@@ -109,6 +106,7 @@ def _app(
     control,
     controller: NetworkFlowController,
     release: HydraulicModelRelease | None,
+    approval: dict | None = None,
 ) -> FastAPI:
     responses = () if release is None else reach_responses_from_model_release(release)
     maximum_horizon_seconds = (
@@ -117,6 +115,7 @@ def _app(
     control.flow_controller = controller
     app = FastAPI()
     app.state.hydraulic_model_release = release
+    app.state.commandability_approval = approval
     app.state.control_prediction_service = ControlPredictionService(
         TOPOLOGY,
         responses,
@@ -127,6 +126,47 @@ def _app(
     app.state.model_config_sha256 = _config_sha256(controller)
     app.include_router(control.router, prefix="/api/v1/control")
     return app
+
+
+def _approval(
+    controller: NetworkFlowController, release: HydraulicModelRelease
+) -> dict:
+    envelope = release.operating_envelope
+    payload = {
+        "schema_version": 1,
+        "approval_state": "approved",
+        "base_model_release": {
+            "release_id": release.release_id,
+            "content_hash": release.content_hash,
+        },
+        "prediction_engine": {"content_hash": ENGINE_DESCRIPTOR["content_hash"]},
+        "model_config_sha256": _config_sha256(controller),
+        "operating_envelope": {
+            "minimum_flow_m3s": envelope.minimum_flow_m3s,
+            "maximum_flow_m3s": envelope.maximum_flow_m3s,
+            "minimum_timestep_seconds": envelope.minimum_timestep_seconds,
+            "maximum_timestep_seconds": envelope.maximum_timestep_seconds,
+            "maximum_horizon_seconds": envelope.maximum_horizon_seconds,
+        },
+        "device_capability": {
+            "capability_release_id": "d6-pilot-v1",
+            "capability_hash": "a" * 64,
+            "approved_gate_ids": ["M(0,0)"],
+        },
+        "approval": {
+            "approved_by_role": "RID hydraulic model authority",
+            "approved_at": "2026-07-21T08:00:00Z",
+            "approval_reference": "RID-COMMISSIONING-2026-001",
+            "evidence": [
+                {
+                    "kind": "signed-assessment",
+                    "reference": "doc://rid/commissioning/2026-001",
+                    "sha256": "b" * 64,
+                }
+            ],
+        },
+    }
+    return {**payload, "content_hash": commandability_approval_content_hash(payload)}
 
 
 def _withdrawal_capacity() -> tuple:
@@ -152,6 +192,35 @@ def _config_sha256(controller: NetworkFlowController) -> dict:
 
 
 class TestModelSnapshotEndpoint:
+    def test_returns_strict_v4_only_for_the_loaded_approved_runtime_binding(self):
+        control = _load_control()
+        controller = _controller()
+        release = _model_release(controller)
+        approval = _approval(controller, release)
+
+        response = TestClient(_app(control, controller, release, approval)).post(
+            "/api/v1/control/model-snapshots"
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert {
+            "schema_version": body["schema_version"],
+            "commandable": body["commandable"],
+            "response_commandable": body["response_model"]["commandable"],
+            "action_commandable": body["action_model"]["commandable"],
+            "actuation_approved": body["action_model"]["actuation_approved"],
+            "approval": body["commandability_approval"],
+        } == {
+            "schema_version": 4,
+            "commandable": True,
+            "response_commandable": True,
+            "action_commandable": True,
+            "actuation_approved": True,
+            "approval": approval,
+        }
+        ModelSnapshotResponse.model_validate(body)
+
     def test_returns_explicit_unavailable_state_without_configured_release(self):
         control = _load_control()
         controller = _controller()
@@ -197,9 +266,9 @@ class TestModelSnapshotEndpoint:
             "withdrawal_structure": 3,
         }
         assert len(body["unavailable_transport_reaches"]) == 42
-        assert {
-            item["reason"] for item in body["unavailable_transport_reaches"]
-        } == {"hydraulic model release is not configured"}
+        assert {item["reason"] for item in body["unavailable_transport_reaches"]} == {
+            "hydraulic model release is not configured"
+        }
 
     def test_returns_configured_release_and_exact_action_lineage(self):
         control = _load_control()
@@ -234,9 +303,7 @@ class TestModelSnapshotEndpoint:
             {
                 "canal_geometry": controller.config_sha256["canal_geometry"],
                 "gate_calibrations": controller.config_sha256["gate_calibrations"],
-                "geometry_coverage": _config_sha256(controller)[
-                    "geometry_coverage"
-                ],
+                "geometry_coverage": _config_sha256(controller)["geometry_coverage"],
             },
             ["S"],
             True,

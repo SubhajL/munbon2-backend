@@ -30,6 +30,7 @@ from services.clients.auth_step_up_client import StepUpUnavailableError
 from tests.control_plan_test_support import (
     FakeRepository,
     _transition_chain,
+    authority_commandability_evidence,
     authority_model_snapshot,
     authority_outbox_rows,
 )
@@ -213,20 +214,18 @@ def _build_app(
 
 
 def _grant_body(**overrides):
+    approval_snapshot = authority_model_snapshot(
+        model_release_id=RELEASE_ID,
+        model_release_content_hash=SHA_A,
+        engine_descriptor_content_hash=SHA_B,
+    )
     body = {
         "plan_id": str(PLAN_ID),
         "plan_version": 3,
         "model_release_id": RELEASE_ID,
         "model_release_content_hash": SHA_A,
         "engine_descriptor_content_hash": SHA_B,
-        "commandability_evidence": {
-            "schema_version": 1,
-            "model_release_id": RELEASE_ID,
-            "model_release_content_hash": SHA_A,
-            "engine_descriptor_content_hash": SHA_B,
-            "commandable": True,
-            "approval_refs": ["RID-approval-2026-118"],
-        },
+        "commandability_evidence": authority_commandability_evidence(approval_snapshot),
         "capability_release_id": CAPABILITY_RELEASE_ID,
         "capability_hash": SHA_C,
         "scope": {

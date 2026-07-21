@@ -12,10 +12,10 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Annotated, Any, Literal, Optional
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, ValidationError
 
 from .control_client_errors import (
     FlowLineageConflictError,
@@ -38,6 +38,7 @@ FLOW_PREDICTION_IDENTITY_VERSION_V2 = 2
 # descriptor VERBATIM, so a served prediction's engine headers can be tied back
 # to the exact engine the snapshot was taken over.
 SNAPSHOT_SCHEMA_VERSION_V3 = 3
+SNAPSHOT_SCHEMA_VERSION_V4 = 4
 
 _H_IDENTITY = "X-Prediction-Identity-Version"
 _H_ARTIFACT_SHA = "X-Prediction-Artifact-SHA256"
@@ -122,6 +123,7 @@ class _RoutingElementMirror(_Mirror):
 
 
 class _RoutingTopologyMirror(_Mirror):
+    config_sha256: str
     elements: list[_RoutingElementMirror]
 
 
@@ -134,6 +136,9 @@ class _OperatingEnvelopeMirror(_Mirror):
 
 
 class _ActionModelMirror(_Mirror):
+    commandable: StrictBool
+    actuation_approved: StrictBool
+    config_sha256: dict[str, str]
     operating_envelope: Optional[_OperatingEnvelopeMirror]
 
 
@@ -148,6 +153,7 @@ class _ResponseMemberMirror(_Mirror):
 class _ReleaseMirror(_Mirror):
     release_id: str
     content_hash: str
+    commandable: StrictBool
     response_members: list[_ResponseMemberMirror]
 
 
@@ -167,17 +173,79 @@ class _PredictionEngineMirror(_Mirror):
     content_hash: str
 
 
+_Sha256 = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+
+
+class _StrictApprovalMirror(BaseModel):
+    model_config = ConfigDict(extra="forbid", protected_namespaces=())
+
+
+class _ApprovalReleaseMirror(_StrictApprovalMirror):
+    release_id: str
+    content_hash: _Sha256
+
+
+class _ApprovalEngineMirror(_StrictApprovalMirror):
+    content_hash: _Sha256
+
+
+class _ApprovalConfigMirror(_StrictApprovalMirror):
+    network: _Sha256
+    canal_geometry: _Sha256
+    gate_calibrations: _Sha256
+    geometry_coverage: _Sha256
+    routing_topology: _Sha256
+
+
+class _ApprovalCapabilityMirror(_StrictApprovalMirror):
+    capability_release_id: str
+    capability_hash: _Sha256
+    approved_gate_ids: list[str] = Field(min_length=1)
+
+
+class _ApprovalEvidenceMirror(_StrictApprovalMirror):
+    kind: str
+    reference: str
+    sha256: _Sha256
+
+
+class _ApprovalAttestationMirror(_StrictApprovalMirror):
+    approved_by_role: str
+    approved_at: str
+    approval_reference: str
+    evidence: list[_ApprovalEvidenceMirror] = Field(min_length=1)
+
+
+class _CommandabilityApprovalMirror(_StrictApprovalMirror):
+    schema_version: Literal[1]
+    approval_state: Literal["approved"]
+    base_model_release: _ApprovalReleaseMirror
+    prediction_engine: _ApprovalEngineMirror
+    model_config_sha256: _ApprovalConfigMirror
+    operating_envelope: _OperatingEnvelopeMirror
+    device_capability: _ApprovalCapabilityMirror
+    approval: _ApprovalAttestationMirror
+    content_hash: _Sha256
+
+
+class _ScadaGraphMirror(_Mirror):
+    config_sha256: str
+
+
 class _SnapshotMirror(_Mirror):
     schema_version: int
     snapshot_id: str
     data_status: str
+    commandable: StrictBool
     prediction_engine: _PredictionEngineMirror
+    scada_graph: Optional[_ScadaGraphMirror] = None
     routing_topology: _RoutingTopologyMirror
     action_model: _ActionModelMirror
     response_model_release: Optional[_ReleaseMirror] = Field(
         alias="response_model", default=None
     )
     unavailable_transport_reaches: list[_UnavailableReachMirror]
+    commandability_approval: Optional[_CommandabilityApprovalMirror] = None
 
 
 class ControlFlowClient:
@@ -203,8 +271,7 @@ class ControlFlowClient:
             ) from error
         if response.status_code == 503:
             raise UpstreamUnavailableError(
-                f"flow-monitoring model snapshot unavailable: "
-                f"{response.text[:500]}"
+                f"flow-monitoring model snapshot unavailable: " f"{response.text[:500]}"
             )
         if response.status_code != 200:
             raise UpstreamContractViolation(
@@ -227,16 +294,63 @@ class ControlFlowClient:
             raise UpstreamContractViolation(
                 f"model-snapshot response violates its contract: {error}"
             ) from error
-        if mirror.schema_version != SNAPSHOT_SCHEMA_VERSION_V3:
+        if mirror.schema_version not in (
+            SNAPSHOT_SCHEMA_VERSION_V3,
+            SNAPSHOT_SCHEMA_VERSION_V4,
+        ):
             raise UpstreamContractViolation(
                 f"model snapshot schema_version {mirror.schema_version} is not "
-                f"{SNAPSHOT_SCHEMA_VERSION_V3}; the embedded prediction engine "
-                "contract is not satisfied"
+                f"{SNAPSHOT_SCHEMA_VERSION_V3} or {SNAPSHOT_SCHEMA_VERSION_V4}; "
+                "the embedded prediction engine contract is not satisfied"
             )
+        response_commandable = bool(
+            mirror.response_model_release and mirror.response_model_release.commandable
+        )
+        gates = (
+            mirror.commandable,
+            response_commandable,
+            mirror.action_model.commandable,
+            mirror.action_model.actuation_approved,
+        )
+        if mirror.schema_version == SNAPSHOT_SCHEMA_VERSION_V3:
+            if any(gates) or mirror.commandability_approval is not None:
+                raise UpstreamContractViolation(
+                    "model snapshot v3 must remain dark without commandability approval"
+                )
+        else:
+            approval = mirror.commandability_approval
+            response_model = mirror.response_model_release
+            if not all(gates) or approval is None or response_model is None:
+                raise UpstreamContractViolation(
+                    "model snapshot v4 requires every commandability gate and approval"
+                )
+            approved_gate_ids = approval.device_capability.approved_gate_ids
+            if approved_gate_ids != sorted(set(approved_gate_ids)):
+                raise UpstreamContractViolation(
+                    "model snapshot v4 approval gate ids are not sorted and unique"
+                )
+            expected_action_config = approval.model_config_sha256.model_dump(
+                exclude={"network", "routing_topology"}
+            )
+            if (
+                mirror.scada_graph is None
+                or approval.base_model_release.release_id != response_model.release_id
+                or approval.base_model_release.content_hash
+                != response_model.content_hash
+                or approval.prediction_engine.content_hash
+                != mirror.prediction_engine.content_hash
+                or approval.model_config_sha256.network
+                != mirror.scada_graph.config_sha256
+                or approval.model_config_sha256.routing_topology
+                != mirror.routing_topology.config_sha256
+                or expected_action_config != mirror.action_model.config_sha256
+                or approval.operating_envelope != mirror.action_model.operating_envelope
+            ):
+                raise UpstreamContractViolation(
+                    "model snapshot v4 approval does not cross-bind its runtime model"
+                )
         if _SHA256_HEX.fullmatch(mirror.snapshot_id) is None:
-            raise UpstreamContractViolation(
-                "model snapshot_id is not a sha256 digest"
-            )
+            raise UpstreamContractViolation("model snapshot_id is not a sha256 digest")
         return response.text, mirror.model_dump()
 
     async def create_prediction(
@@ -298,8 +412,7 @@ class ControlFlowClient:
         ):
             if parsed.get(pin) != request_document[pin]:
                 raise UpstreamContractViolation(
-                    f"prediction response pin {pin} does not echo the "
-                    "submitted pin"
+                    f"prediction response pin {pin} does not echo the " "submitted pin"
                 )
         _validate_prediction_members(parsed.get("members"))
         return self._verified_artifact_reference(response, run_id, parsed)
@@ -319,15 +432,11 @@ class ControlFlowClient:
         declared_size = _require_int_header(headers, _H_ARTIFACT_SIZE)
         media_type = _require_header(headers, _H_ARTIFACT_MEDIA)
         encoding = _require_header(headers, _H_ARTIFACT_ENCODING)
-        encoding_version = _require_int_header(
-            headers, _H_ARTIFACT_ENCODING_VERSION
-        )
+        encoding_version = _require_int_header(headers, _H_ARTIFACT_ENCODING_VERSION)
         engine_id = _require_header(headers, _H_ENGINE_ID)
         semantic_contract_version = _require_int_header(headers, _H_SEMANTIC)
         build_digest = _require_sha256_header(headers, _H_BUILD_DIGEST)
-        engine_content_hash = _require_sha256_header(
-            headers, _H_ENGINE_CONTENT_HASH
-        )
+        engine_content_hash = _require_sha256_header(headers, _H_ENGINE_CONTENT_HASH)
         # Recompute over the EXACT returned bytes and reject any drift from the
         # upstream-declared headers before the reference is trusted.
         body_bytes = response.content

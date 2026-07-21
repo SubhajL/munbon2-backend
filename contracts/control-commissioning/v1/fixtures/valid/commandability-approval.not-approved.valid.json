@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "approval_state": "not_approved",
+  "base_model_release": {
+    "release_id": "DO-NOT-DEPLOY-NOT-APPROVED",
+    "content_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "prediction_engine": {
+    "content_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "model_config_sha256": {
+    "network": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "canal_geometry": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "gate_calibrations": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "geometry_coverage": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "routing_topology": "1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "operating_envelope": {
+    "minimum_flow_m3s": 0.0,
+    "maximum_flow_m3s": 8.0,
+    "minimum_timestep_seconds": 60.0,
+    "maximum_timestep_seconds": 300.0,
+    "maximum_horizon_seconds": 604800.0
+  },
+  "device_capability": {
+    "capability_release_id": "DO-NOT-DEPLOY-D6-EXAMPLE",
+    "capability_hash": "2222222222222222222222222222222222222222222222222222222222222222",
+    "approved_gate_ids": [
+      "DO-NOT-DEPLOY-GATE"
+    ]
+  },
+  "approval": null,
+  "content_hash": "2b4bb2d62e4f0e5314c09e25c06714d22449f8072ab6cd1e109c3616dafa06df"
+}

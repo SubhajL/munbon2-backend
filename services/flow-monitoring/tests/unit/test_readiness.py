@@ -20,13 +20,16 @@ from core.model_release import EvidenceClass
 from core.readiness import (
     ReadinessResult,
     check_flow_readiness,
+    evaluate_commandability_approval,
     evaluate_migrations,
     evaluate_release,
 )
 
 
 def _real_tracked() -> dict[str, str]:
-    return {mid: migrate.migration_checksum(mid) for mid in migrate.discover_migration_ids()}
+    return {
+        mid: migrate.migration_checksum(mid) for mid in migrate.discover_migration_ids()
+    }
 
 
 def _release(*, commandable=False, evidence=EvidenceClass.ENGINEERING_PRIOR):
@@ -53,7 +56,9 @@ class _FakeConn:
         if "prediction_runs" in sql:
             return "flow_monitoring.prediction_runs" if self._tables_present else None
         if "prediction_artifacts" in sql:
-            return "flow_monitoring.prediction_artifacts" if self._tables_present else None
+            return (
+                "flow_monitoring.prediction_artifacts" if self._tables_present else None
+            )
         if "schema_migrations" in sql:
             return "flow_monitoring.schema_migrations" if self._registry else None
         return None
@@ -88,7 +93,12 @@ def _db_manager(
             await asyncio.sleep(30)
         if health_raises:
             raise OSError("db manager unreachable")
-        return {"postgres": postgres_ok, "redis": True, "timescale": True, "influxdb": True}
+        return {
+            "postgres": postgres_ok,
+            "redis": True,
+            "timescale": True,
+            "influxdb": True,
+        }
 
     async def ping():
         if ping_hangs:
@@ -112,10 +122,11 @@ def _healthy_conn():
     )
 
 
-def _app(*, release=None, service=object()):
+def _app(*, release=None, service=object(), approval=None):
     state = SimpleNamespace(
         hydraulic_model_release=release,
         control_prediction_service=service,
+        commandability_approval=approval,
     )
     return SimpleNamespace(state=state)
 
@@ -135,6 +146,23 @@ class TestEvaluateRelease:
         assert evaluate_release(_release(evidence="observed")) == "wrong_evidence"
 
 
+class TestEvaluateCommandabilityApproval:
+    @pytest.mark.parametrize(
+        ("approval", "expected"),
+        [
+            (None, "unconfigured"),
+            ({"approval_state": "not_approved", "approval": None}, "not_approved"),
+            (
+                {"approval_state": "approved", "approval": {"approved_by_role": "RID"}},
+                "approved",
+            ),
+            ({"approval_state": "approved", "approval": None}, "invalid"),
+        ],
+    )
+    def test_reports_only_safe_bounded_status(self, approval, expected):
+        assert evaluate_commandability_approval(approval) == expected
+
+
 # --- readiness orchestration ------------------------------------------------
 class TestCheckFlowReadiness:
     @pytest.mark.asyncio
@@ -148,9 +176,23 @@ class TestCheckFlowReadiness:
         assert result.checks == {
             "database": "ok",
             "model_release": "ok",
+            "commandability_approval": "unconfigured",
             "prediction_service": "ok",
             "prediction_persistence": "ok",
         }
+
+    @pytest.mark.asyncio
+    async def test_invalid_approval_state_fails_readiness_closed(self):
+        result = await check_flow_readiness(
+            _app(
+                release=_release(),
+                approval={"approval_state": "approved", "approval": None},
+            ),
+            _db_manager(pool_conn=_healthy_conn()),
+        )
+
+        assert result.ready is False
+        assert result.checks["commandability_approval"] == "invalid"
 
     @pytest.mark.asyncio
     async def test_not_ready_without_a_loaded_release(self):

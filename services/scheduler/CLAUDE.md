@@ -106,10 +106,13 @@ authority — always qualify. Current status is NEVER stored: fold via
 expiry`, matching 5.2 deadline semantics; renewal must strictly extend and is
 REFUSED at/after expiry — no resurrection; a lapsed grant needs a NEW grant).
 Grant-time `validate_authority_evidence` binds: v2-provenance release triple
-(v1 plans are NEVER grantable), commandability evidence that must itself
-declare `commandable=true` AND bind the same triple (request evidence cannot
-promote — Flow currently pins `commandable=false`, so no positive path exists),
-the CURRENTLY CONFIGURED capability pair, EXACT physical scope equality
+(v1 plans are NEVER grantable) and a stored Flow snapshot v4 whose embedded,
+content-addressed commandability approval exactly binds the release/engine,
+five config hashes, operating envelope, D6 capability pair, pilot gate scope,
+attestation, and request evidence projection. Snapshot v3 and true booleans
+without that proof remain noncommandable; malformed or altered v4 proof is
+stored-evidence corruption. It also binds the CURRENTLY CONFIGURED capability
+pair, EXACT physical scope equality
 (requirements' (section, gate, path)), the flow envelope over
 `gate_plan_events.source_flow_m3s` in `(lower, upper]`, longest-continuous-open
 vs policy (an unclosed gate counts to `horizon_end`), trims ≥ the plan's own

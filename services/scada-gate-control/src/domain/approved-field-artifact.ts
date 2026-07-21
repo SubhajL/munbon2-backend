@@ -273,6 +273,24 @@ function assertReadbackSeparable(
   }
 }
 
+function assertReadbackRoundTrip(
+  gateId: string,
+  targets: readonly ApprovedFieldTarget[],
+  toleranceM: number,
+): void {
+  for (const commanded of targets) {
+    const matches = targets.filter(
+      (candidate) =>
+        Math.abs(candidate.target_position_m - commanded.target_position_m) <= toleranceM,
+    );
+    if (matches.length !== 1 || matches[0]?.target_level !== commanded.target_level) {
+      throw new ApprovedFieldArtifactError(
+        `quantizer for gate '${gateId}' does not round-trip readback to one target level`,
+      );
+    }
+  }
+}
+
 /**
  * Fail-closed coverage validator for an approved artifact against the EXACT expected
  * approved-gate scope (supplied by the operator/test — never a committed constant, since D6
@@ -298,8 +316,18 @@ export function validateApprovedRegistryCoverage(
     );
   }
   for (const gate of approved.gates) {
+    if (gate.register.command_register === gate.register.readback_register) {
+      throw new ApprovedFieldArtifactError(
+        `gate '${gate.canonical_gate_id}' must use distinct command and readback registers`,
+      );
+    }
     assertQuantizerMonotone(gate.canonical_gate_id, gate.quantizer.targets);
     assertReadbackSeparable(
+      gate.canonical_gate_id,
+      gate.quantizer.targets,
+      gate.readback.tolerance_m,
+    );
+    assertReadbackRoundTrip(
       gate.canonical_gate_id,
       gate.quantizer.targets,
       gate.readback.tolerance_m,

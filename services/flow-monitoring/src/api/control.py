@@ -208,6 +208,16 @@ def get_hydraulic_model_release(
     return release
 
 
+def get_commandability_approval(request: Request) -> dict | None:
+    approval = getattr(request.app.state, "commandability_approval", None)
+    if approval is not None and not isinstance(approval, dict):
+        raise HTTPException(
+            status_code=503,
+            detail="Commandability approval state is invalid",
+        )
+    return approval
+
+
 def _build_plan_response(
     request: PlanRequest, controller: NetworkFlowController
 ) -> PlanResponse:
@@ -416,18 +426,24 @@ async def design_profile(
     return DesignProfileResponse(**result)
 
 
-@router.post("/model-snapshots", response_model=ModelSnapshotResponse)
+@router.post(
+    "/model-snapshots",
+    response_model=ModelSnapshotResponse,
+    response_model_exclude_unset=True,
+)
 async def model_snapshot(
     controller: NetworkFlowController = Depends(get_flow_controller),
     service: ControlPredictionService = Depends(get_control_prediction_service),
     release: HydraulicModelRelease | None = Depends(get_hydraulic_model_release),
     config_sha256: dict = Depends(get_model_config_sha256),
+    commandability_approval: dict | None = Depends(get_commandability_approval),
 ) -> ModelSnapshotResponse:
     try:
         result = service.model_snapshot(
             release,
             config_sha256,
             controller.actuation_approved,
+            commandability_approval,
         )
     except ModelSnapshotError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -697,30 +713,25 @@ def map_prediction_timeline(timeline, covered_order) -> PredictionTimelineOut:
     for index, reach_id in enumerate(covered_order):
         if any(step.reaches[index].reach_id != reach_id for step in steps):
             raise ValueError(
-                f"timeline reach order drifted at index {index} "
-                f"({reach_id!r})"
+                f"timeline reach order drifted at index {index} " f"({reach_id!r})"
             )
         reaches.append(
             PredictionReachSeriesOut(
                 reach_id=reach_id,
                 inflow_m3s=[step.reaches[index].inflow_m3s for step in steps],
-                outflow_m3s=[
-                    step.reaches[index].outflow_m3s for step in steps
-                ],
+                outflow_m3s=[step.reaches[index].outflow_m3s for step in steps],
                 in_transit_volume_m3=[
                     step.reaches[index].in_transit_volume_m3 for step in steps
                 ],
                 cumulative_declared_loss_m3=[
-                    step.reaches[index].cumulative_declared_loss_m3
-                    for step in steps
+                    step.reaches[index].cumulative_declared_loss_m3 for step in steps
                 ],
             )
         )
     withdrawals = []
     for index, point in enumerate(steps[0].withdrawals if steps else ()):
         if any(
-            step.withdrawals[index].structure_id != point.structure_id
-            for step in steps
+            step.withdrawals[index].structure_id != point.structure_id for step in steps
         ):
             raise ValueError(
                 f"timeline withdrawal order drifted at index {index} "
@@ -737,12 +748,9 @@ def map_prediction_timeline(timeline, covered_order) -> PredictionTimelineOut:
                     for step in steps
                 ],
                 predicted_withdrawal_m3s=[
-                    step.withdrawals[index].predicted_withdrawal_m3s
-                    for step in steps
+                    step.withdrawals[index].predicted_withdrawal_m3s for step in steps
                 ],
-                shortfall_m3s=[
-                    step.withdrawals[index].shortfall_m3s for step in steps
-                ],
+                shortfall_m3s=[step.withdrawals[index].shortfall_m3s for step in steps],
                 capacity_check_status=[
                     step.withdrawals[index].capacity_check_status.value
                     for step in steps
@@ -763,12 +771,9 @@ def map_prediction_timeline(timeline, covered_order) -> PredictionTimelineOut:
             PredictionRequirementSeriesOut(
                 requirement_id=state.requirement_id,
                 predicted_delivered_m3=[
-                    step.fulfillment[index].predicted_delivered_m3
-                    for step in steps
+                    step.fulfillment[index].predicted_delivered_m3 for step in steps
                 ],
-                status=[
-                    step.fulfillment[index].status.value for step in steps
-                ],
+                status=[step.fulfillment[index].status.value for step in steps],
             )
         )
     return PredictionTimelineOut(
@@ -777,9 +782,7 @@ def map_prediction_timeline(timeline, covered_order) -> PredictionTimelineOut:
         withdrawals=withdrawals,
         requirements=requirement_series,
         terminal_outflow_m3=[step.terminal_outflow_m3 for step in steps],
-        mass_balance=PredictionMassBalanceOut(
-            **asdict(timeline.mass_balance)
-        ),
+        mass_balance=PredictionMassBalanceOut(**asdict(timeline.mass_balance)),
         final_fulfillment=[
             PredictionFinalFulfillmentOut(
                 requirement_id=state.requirement_id,
@@ -818,8 +821,7 @@ def _map_prediction_member(entry, covered_order) -> PredictionMemberOut:
         status="completed",
         infeasibility=None,
         violations=[
-            map_prediction_violation(violation)
-            for violation in entry.violations
+            map_prediction_violation(violation) for violation in entry.violations
         ],
         predicted_delivered_total_m3=entry.predicted_delivered_total_m3,
         timeline=map_prediction_timeline(entry.timeline, covered_order),
@@ -833,9 +835,7 @@ async def get_prediction_repository(request: Request):
     healthy request restores availability without a restart."""
     repository = getattr(request.app.state, "prediction_repository", None)
     if repository is None:
-        probe = getattr(
-            request.app.state, "prediction_repository_probe", None
-        )
+        probe = getattr(request.app.state, "prediction_repository_probe", None)
         if probe is not None:
             repository = await probe()
             if repository is not None:
@@ -877,7 +877,9 @@ def get_prediction_identity_rollout_mode(request: Request) -> str:
     return mode
 
 
-def _require_explicit_engine_pin(http_request: Request, descriptor: dict | None) -> None:
+def _require_explicit_engine_pin(
+    http_request: Request, descriptor: dict | None
+) -> None:
     """require-v2 gate: the caller MUST explicitly pin the current engine.
 
     Without the descriptor loaded, the mode cannot run at all (503). Otherwise
@@ -915,9 +917,7 @@ def _prediction_response_headers(record: PredictionRunRecord) -> dict:
         "X-Prediction-Artifact-SHA256": record.artifact.artifact_sha256,
         "X-Prediction-Artifact-Media-Type": record.artifact.media_type,
         "X-Prediction-Artifact-Encoding": record.artifact.encoding,
-        "X-Prediction-Artifact-Encoding-Version": str(
-            record.artifact.encoding_version
-        ),
+        "X-Prediction-Artifact-Encoding-Version": str(record.artifact.encoding_version),
         "X-Prediction-Artifact-Uncompressed-Size": str(
             record.artifact.uncompressed_size_bytes
         ),
@@ -1046,9 +1046,7 @@ def _compute_control_prediction_response(
         ends_at=request.ends_at,
         timestep_seconds=request.timestep_seconds,
         coverage=PredictionCoverageOut(
-            modeled_transport_reach_ids=list(
-                outcome.covered_transport_reach_ids
-            ),
+            modeled_transport_reach_ids=list(outcome.covered_transport_reach_ids),
             excluded_transport_reaches=[
                 ExcludedTransportReachOut(reach_id=reach_id, reason=reason)
                 for reach_id, reason in outcome.excluded_transport_reaches
@@ -1092,9 +1090,7 @@ def _build_prediction_record(
         engine_id=engine_fields["engine_id"],
         semantic_contract_version=engine_fields["semantic_contract_version"],
         build_digest=engine_fields["build_digest"],
-        engine_descriptor_content_hash=engine_fields[
-            "engine_descriptor_content_hash"
-        ],
+        engine_descriptor_content_hash=engine_fields["engine_descriptor_content_hash"],
     )
 
 
@@ -1113,12 +1109,8 @@ async def control_predictions(
     request: ControlPredictionRequest,
     http_request: Request,
     controller: NetworkFlowController = Depends(get_flow_controller),
-    service: ControlPredictionService = Depends(
-        get_control_prediction_service
-    ),
-    release: HydraulicModelRelease | None = Depends(
-        get_hydraulic_model_release
-    ),
+    service: ControlPredictionService = Depends(get_control_prediction_service),
+    release: HydraulicModelRelease | None = Depends(get_hydraulic_model_release),
     config_sha256: dict = Depends(get_model_config_sha256),
     repository=Depends(get_prediction_repository),
     rollout_mode: str = Depends(get_prediction_identity_rollout_mode),
@@ -1203,8 +1195,12 @@ async def control_predictions(
             v2_run_id,
         )
         record = await run_in_threadpool(
-            _build_prediction_record, request, v2_payload,
-            response_model, v2_run_id, descriptor,
+            _build_prediction_record,
+            request,
+            v2_payload,
+            response_model,
+            v2_run_id,
+            descriptor,
         )
         stored_record, _ = await repository.persist_prediction_run(record)
         return await _serve_stored_prediction(stored_record, v2_run_id)

@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     hydraulic_model_release_path: Optional[str] = Field(
         default=None, env="HYDRAULIC_MODEL_RELEASE_PATH"
     )
+    commandability_approval_path: Optional[str] = Field(
+        default=None, env="HYDRAULIC_COMMANDABILITY_APPROVAL_PATH"
+    )
     # PR 4.4b-1: the committed prediction-engine descriptor. When unset, main.py
     # resolves the tracked data/prediction-engine/prediction-engine-v1.json.
     prediction_engine_descriptor_path: Optional[str] = Field(

@@ -51,9 +51,7 @@ class ReadinessResult:
     checks: dict[str, str]
 
 
-def evaluate_migrations(
-    tracked: Mapping[str, str], applied: Mapping[str, str]
-) -> str:
+def evaluate_migrations(tracked: Mapping[str, str], applied: Mapping[str, str]) -> str:
     """Compare code-owned migration checksums against the DB registry.
 
     An applied migration the code no longer tracks is "drift" (as dangerous as an
@@ -80,6 +78,20 @@ def evaluate_release(release) -> str:
     if getattr(release, "evidence_class", None) is not EvidenceClass.ENGINEERING_PRIOR:
         return "wrong_evidence"
     return "ok"
+
+
+def evaluate_commandability_approval(approval) -> str:
+    if approval is None:
+        return "unconfigured"
+    if not isinstance(approval, Mapping):
+        return "invalid"
+    state = approval.get("approval_state")
+    attestation = approval.get("approval")
+    if state == "not_approved" and attestation is None:
+        return "not_approved"
+    if state == "approved" and isinstance(attestation, Mapping):
+        return "approved"
+    return "invalid"
 
 
 def _tracked_flow_migrations() -> dict[str, str]:
@@ -110,8 +122,7 @@ async def _check_prediction_persistence(pool) -> str:
             applied: dict[str, str] = {}
             if registry is not None:
                 rows = await conn.fetch(
-                    "SELECT migration_id, checksum "
-                    f"FROM {SCHEMA}.schema_migrations"
+                    "SELECT migration_id, checksum " f"FROM {SCHEMA}.schema_migrations"
                 )
                 applied = {r["migration_id"]: r["checksum"] for r in rows}
     except Exception:
@@ -154,7 +165,12 @@ async def check_flow_readiness(
     """Fail-closed dependency truth for flow-monitoring's `/ready` endpoint."""
     postgres_ok = await _probe_postgres(db_manager, postgres_probe_timeout_seconds)
 
-    release_status = evaluate_release(getattr(app.state, "hydraulic_model_release", None))
+    release_status = evaluate_release(
+        getattr(app.state, "hydraulic_model_release", None)
+    )
+    approval_status = evaluate_commandability_approval(
+        getattr(app.state, "commandability_approval", None)
+    )
     service = getattr(app.state, "control_prediction_service", None)
     service_status = "ok" if service is not None else "uninitialized"
 
@@ -167,12 +183,14 @@ async def check_flow_readiness(
     checks = {
         "database": "ok" if postgres_ok else "unhealthy",
         "model_release": release_status,
+        "commandability_approval": approval_status,
         "prediction_service": service_status,
         "prediction_persistence": persistence_status,
     }
     ready = (
         postgres_ok
         and release_status == "ok"
+        and approval_status != "invalid"
         and service_status == "ok"
         and persistence_status == "ok"
     )

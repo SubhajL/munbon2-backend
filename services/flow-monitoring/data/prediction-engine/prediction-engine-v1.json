@@ -1,6 +1,6 @@
 {
-  "build_digest": "f767283061085966b0ec56964eaed54080b62e13f572e89dd936e9d7ab9da469",
-  "content_hash": "156379d0537255b96f9a349ba597eea7d32ffff56b9a4ab0c1f0811a31bf8f77",
+  "build_digest": "f724fe8142982393b50d85a3fce76b30b7606f071ec1f9c86c84a27d7826fcc9",
+  "content_hash": "62dbb06766b62a269a0c2e46f24f1f82a8422d2286ece6fad7053f93bb5c7592",
   "engine_id": "munbon.flow-monitoring.network-transient",
   "schema_version": 1,
   "semantic_contract_version": 1

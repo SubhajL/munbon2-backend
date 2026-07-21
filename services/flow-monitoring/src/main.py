@@ -20,6 +20,11 @@ from core.config_loader import (
     load_gate_calibrations_config,
     load_routing_topology,
 )
+from core.commandability_approval import (
+    is_commandability_approved,
+    load_commandability_approval,
+    verify_commandability_approval,
+)
 from core.model_release import load_configured_hydraulic_model_release
 from core.network_flow_controller import NetworkFlowController
 from core.prediction_engine import (
@@ -155,9 +160,7 @@ async def lifespan(app: FastAPI):
         logger.info(
             "Routing topology loaded",
             elements=len(app.state.routing_topology.elements),
-            transport_reaches=len(
-                app.state.routing_topology.transport_reach_ids()
-            ),
+            transport_reaches=len(app.state.routing_topology.transport_reach_ids()),
             content_hash=app.state.routing_topology.content_hash,
         )
         app.state.model_config_sha256 = {
@@ -193,6 +196,28 @@ async def lifespan(app: FastAPI):
         )
         app.state.prediction_engine_descriptor = _load_prediction_engine_descriptor(
             descriptor_path, service_root
+        )
+        app.state.commandability_approval = load_commandability_approval(
+            settings.commandability_approval_path
+        )
+        if app.state.commandability_approval is not None:
+            verify_commandability_approval(
+                app.state.commandability_approval,
+                app.state.hydraulic_model_release,
+                app.state.prediction_engine_descriptor,
+                app.state.model_config_sha256,
+            )
+        logger.info(
+            "Hydraulic commandability approval evaluated",
+            state=(
+                "approved"
+                if is_commandability_approved(app.state.commandability_approval)
+                else (
+                    "not_approved"
+                    if app.state.commandability_approval is not None
+                    else "unconfigured"
+                )
+            ),
         )
         app.state.prediction_identity_rollout_mode = (
             settings.prediction_identity_rollout_mode
@@ -250,14 +275,10 @@ async def lifespan(app: FastAPI):
         # Lazy re-probe: a transient DB blip at boot (or a migration applied
         # after boot) must not leave the routes 503 until a restart.
         app.state.prediction_repository_probe = (
-            lambda: create_prediction_repository_if_migrated(
-                db_manager.postgres.pool
-            )
+            lambda: create_prediction_repository_if_migrated(db_manager.postgres.pool)
         )
         app.state.prediction_repository = (
-            await create_prediction_repository_if_migrated(
-                db_manager.postgres.pool
-            )
+            await create_prediction_repository_if_migrated(db_manager.postgres.pool)
         )
         if app.state.prediction_repository is None:
             logger.warning(
