@@ -15,6 +15,31 @@ def _token(claims: dict) -> str:
     return f"{encode({'alg': 'HS256'})}.{encode(claims)}.signature"
 
 
+@pytest.mark.parametrize("audience", [None, "", "   "])
+def test_config_requires_explicit_expected_audience(monkeypatch, audience):
+    monkeypatch.setenv("MUNBON_OPERATOR_EMAIL", "operator@example.invalid")
+    monkeypatch.setenv("MUNBON_OPERATOR_PASSWORD", "runtime-only-password")
+    if audience is None:
+        monkeypatch.delenv("MUNBON_EXPECTED_JWT_AUDIENCE", raising=False)
+    else:
+        monkeypatch.setenv("MUNBON_EXPECTED_JWT_AUDIENCE", audience)
+
+    with pytest.raises(
+        verify_bearer.VerificationError, match="expected_audience_missing"
+    ):
+        verify_bearer.Config.from_environment()
+
+
+def test_config_uses_explicit_expected_audience(monkeypatch):
+    monkeypatch.setenv("MUNBON_OPERATOR_EMAIL", "operator@example.invalid")
+    monkeypatch.setenv("MUNBON_OPERATOR_PASSWORD", "runtime-only-password")
+    monkeypatch.setenv("MUNBON_EXPECTED_JWT_AUDIENCE", "munbon-services")
+
+    config = verify_bearer.Config.from_environment()
+
+    assert config.audience == "munbon-services"
+
+
 def test_decode_claims_and_validate_required_operator_identity():
     claims = {
         "iss": "munbon-auth",

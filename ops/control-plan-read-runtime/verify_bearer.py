@@ -12,7 +12,6 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPCookieProcessor, Request, build_opener
 
-
 MISSING_PLAN_ID = "00000000-0000-0000-0000-000000000000"
 
 
@@ -31,11 +30,11 @@ class HttpResult:
 class Config:
     email: str
     password: str
+    audience: str
     auth_url: str = "http://127.0.0.1:3005"
     scheduler_url: str = "http://127.0.0.1:3021"
     bff_url: str = "http://127.0.0.1:3022"
     issuer: str = "munbon-auth"
-    audience: str = "munbon-api"
     role: str = "operator"
 
     @classmethod
@@ -44,16 +43,19 @@ class Config:
         password = os.environ.get("MUNBON_OPERATOR_PASSWORD", "")
         if not email or not password:
             raise VerificationError("operator_credentials_missing")
+        audience = os.environ.get("MUNBON_EXPECTED_JWT_AUDIENCE", "").strip()
+        if not audience:
+            raise VerificationError("expected_audience_missing")
         return cls(
             email=email,
             password=password,
+            audience=audience,
             auth_url=os.environ.get("MUNBON_AUTH_URL", cls.auth_url).rstrip("/"),
             scheduler_url=os.environ.get(
                 "MUNBON_SCHEDULER_URL", cls.scheduler_url
             ).rstrip("/"),
             bff_url=os.environ.get("MUNBON_BFF_URL", cls.bff_url).rstrip("/"),
             issuer=os.environ.get("MUNBON_EXPECTED_JWT_ISSUER", cls.issuer),
-            audience=os.environ.get("MUNBON_EXPECTED_JWT_AUDIENCE", cls.audience),
             role=os.environ.get("MUNBON_EXPECTED_ROLE", cls.role),
         )
 

@@ -3,7 +3,6 @@ import re
 import subprocess
 from pathlib import Path
 
-
 RUNTIME_DIR = Path(__file__).resolve().parents[1]
 WRAPPERS = [
     RUNTIME_DIR / "run-flow.sh",
@@ -114,5 +113,6 @@ def test_readme_names_capacity_backout_env_permissions_and_bearer_proof():
         "pm2 stop flow-monitoring scheduler ros-gis-integration bff-water-planning",
         "POSTGRES_URL",
         "REQUIREMENT_SOURCE_POSTGRES_URL",
+        "MUNBON_EXPECTED_JWT_AUDIENCE='munbon-services'",
     ):
         assert required in body
