@@ -90,15 +90,12 @@ class AuthController {
 
   async logout(req: Request, res: Response, next: NextFunction) {
     try {
-      const userId = req.user?.id;
-      const refreshToken = req.body.refreshToken || req.cookies.refreshToken;
-
-      if (userId) {
-        await authService.logout(userId, refreshToken);
-      }
-
-      // Clear refresh token cookie
+      const refreshToken = req.body.refreshToken || req.cookies?.refreshToken;
       res.clearCookie('refreshToken');
+
+      if (refreshToken) {
+        await authService.logout(refreshToken);
+      }
 
       res.json({
         success: true,
