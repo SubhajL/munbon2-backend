@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from core import get_logger
 from config import settings
 from .models import Base
+from .postgres_dsn import parse_postgres_dsn
 from .repository import (
     SectionRepository,
     DemandRepository,
@@ -34,34 +35,14 @@ class DatabaseManager:
     async def initialize(self):
         """Initialize database connections"""
         try:
-            # URL-encode the password if needed
-            from urllib.parse import urlparse, urlunparse, quote
-
-            parsed = urlparse(settings.postgres_url)
-
-            # Encode the password if it contains special characters
-            if parsed.password:
-                encoded_password = quote(parsed.password, safe="")
-                netloc = f"{parsed.username}:{encoded_password}@{parsed.hostname}"
-                if parsed.port:
-                    netloc += f":{parsed.port}"
-
-                encoded_postgres_url = urlunparse(
-                    (
-                        parsed.scheme,
-                        netloc,
-                        parsed.path,
-                        parsed.params,
-                        parsed.query,
-                        parsed.fragment,
-                    )
-                )
-            else:
-                encoded_postgres_url = settings.postgres_url
+            postgres_dsn = parse_postgres_dsn(settings.postgres_url)
 
             # PostgreSQL connection pool for raw queries
             self._pg_pool = await asyncpg.create_pool(
-                encoded_postgres_url, min_size=5, max_size=20, command_timeout=60
+                **postgres_dsn.asyncpg_connect_args(),
+                min_size=5,
+                max_size=20,
+                command_timeout=60,
             )
 
             if settings.daily_requirement_enabled:
@@ -70,28 +51,11 @@ class DatabaseManager:
                         "REQUIREMENT_SOURCE_POSTGRES_URL is required when "
                         "DAILY_REQUIREMENT_ENABLED=true"
                     )
-                source_url = settings.requirement_source_postgres_url
-                source_parsed = urlparse(source_url)
-                if source_parsed.password:
-                    source_password = quote(source_parsed.password, safe="")
-                    source_netloc = (
-                        f"{source_parsed.username}:{source_password}@"
-                        f"{source_parsed.hostname}"
-                    )
-                    if source_parsed.port:
-                        source_netloc += f":{source_parsed.port}"
-                    source_url = urlunparse(
-                        (
-                            source_parsed.scheme,
-                            source_netloc,
-                            source_parsed.path,
-                            source_parsed.params,
-                            source_parsed.query,
-                            source_parsed.fragment,
-                        )
-                    )
+                source_dsn = parse_postgres_dsn(
+                    settings.requirement_source_postgres_url
+                )
                 self._requirement_source_pool = await asyncpg.create_pool(
-                    source_url,
+                    **source_dsn.asyncpg_connect_args(),
                     min_size=1,
                     max_size=5,
                     command_timeout=60,
@@ -100,10 +64,11 @@ class DatabaseManager:
             # SQLAlchemy async engine for ORM
             # Note: When using NullPool, we can't specify pool_size or max_overflow
             self.engine = create_async_engine(
-                encoded_postgres_url.replace("postgresql://", "postgresql+asyncpg://"),
+                postgres_dsn.sqlalchemy_url(),
                 echo=settings.environment == "development",
                 pool_pre_ping=True,
                 poolclass=NullPool,
+                connect_args=postgres_dsn.sqlalchemy_connect_args(),
             )
 
             # Create async session factory

@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from core import get_logger
 from config import settings
 from .models import Base
+from .postgres_dsn import parse_postgres_dsn
 from .repository import (
     SectionRepository, DemandRepository, PerformanceRepository,
     GateMappingRepository, GateDemandRepository
@@ -31,48 +32,37 @@ class DatabaseManager:
     async def initialize(self):
         """Initialize database connections"""
         try:
-            # URL-encode the password if needed
-            from urllib.parse import urlparse, urlunparse, quote
-            parsed = urlparse(settings.postgres_url)
-            
-            # Encode the password if it contains special characters
-            if parsed.password:
-                encoded_password = quote(parsed.password, safe='')
-                netloc = f"{parsed.username}:{encoded_password}@{parsed.hostname}"
-                if parsed.port:
-                    netloc += f":{parsed.port}"
-                
-                encoded_postgres_url = urlunparse((
-                    parsed.scheme,
-                    netloc,
-                    parsed.path,
-                    parsed.params,
-                    parsed.query,
-                    parsed.fragment
-                ))
-            else:
-                encoded_postgres_url = settings.postgres_url
-            
+            postgres_dsn = parse_postgres_dsn(settings.postgres_url)
+            pool_connect_args = postgres_dsn.asyncpg_connect_args()
+            pool_server_settings = {
+                "application_name": "bff-water-planning",
+                "idle_in_transaction_session_timeout": "300000",
+                "statement_timeout": "60000",
+                **pool_connect_args.pop("server_settings", {}),
+            }
+
             # PostgreSQL connection pool for raw queries (asyncpg)
             self._pg_pool = await asyncpg.create_pool(
-                encoded_postgres_url,
+                **pool_connect_args,
                 min_size=settings.db_pool_min_size,
                 max_size=settings.db_pool_max_size,
                 max_queries=settings.db_pool_max_queries,
                 max_inactive_connection_lifetime=settings.db_pool_max_inactive_connection_lifetime,
                 timeout=60,
                 command_timeout=60,
-                server_settings={
-                    "application_name": "bff-water-planning",
-                    "idle_in_transaction_session_timeout": "300000",
-                    "statement_timeout": "60000"
-                }
+                server_settings=pool_server_settings,
             )
-            
+
+            engine_connect_args = postgres_dsn.sqlalchemy_connect_args()
+            engine_server_settings = {
+                "idle_in_transaction_session_timeout": "300000",
+                "statement_timeout": "60000",
+                **engine_connect_args.pop("server_settings", {}),
+            }
             # SQLAlchemy async engine with proper pooling and connection recycling
             # Using QueuePool instead of NullPool for better connection management
             self.engine = create_async_engine(
-                encoded_postgres_url.replace('postgresql://', 'postgresql+asyncpg://'),
+                postgres_dsn.sqlalchemy_url(),
                 echo=settings.environment == "development",
                 pool_pre_ping=True,
                 poolclass=QueuePool,
@@ -81,15 +71,13 @@ class DatabaseManager:
                 pool_timeout=30,
                 pool_recycle=3600,  # Recycle connections after 1 hour
                 connect_args={
+                    **engine_connect_args,
                     "timeout": 60,
                     "command_timeout": 60,
-                    "server_settings": {
-                        "idle_in_transaction_session_timeout": "300000",  # 5 minutes
-                        "statement_timeout": "60000",  # 60 seconds
-                    },
+                    "server_settings": engine_server_settings,
                 },
             )
-            
+
             # Create async session factory
             self.async_session = async_sessionmaker(
                 self.engine,
