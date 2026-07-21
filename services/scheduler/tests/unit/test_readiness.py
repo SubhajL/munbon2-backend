@@ -28,7 +28,9 @@ _NOW = datetime(2026, 7, 20, 3, 0, 0, tzinfo=timezone.utc)
 
 
 def _real_tracked() -> dict[str, str]:
-    return {mid: migrate.migration_checksum(mid) for mid in migrate.discover_migration_ids()}
+    return {
+        mid: migrate.migration_checksum(mid) for mid in migrate.discover_migration_ids()
+    }
 
 
 # --- fake engine / redis ----------------------------------------------------
@@ -131,16 +133,19 @@ class TestEvaluateMigrations:
 
 class TestEvaluateControlTables:
     def test_all_present_is_ok(self):
-        assert evaluate_control_tables({t: True for t in EXPECTED_CONTROL_TABLES}) == "ok"
+        assert (
+            evaluate_control_tables({t: True for t in EXPECTED_CONTROL_TABLES}) == "ok"
+        )
 
     def test_any_missing_is_missing(self):
         present = {t: True for t in EXPECTED_CONTROL_TABLES}
         present[EXPECTED_CONTROL_TABLES[0]] = False
         assert evaluate_control_tables(present) == "missing"
 
-    def test_expected_tables_are_the_six_control_tables(self):
-        # PR 4.4b-4 adds the campaign-identity mapping as a source-of-truth table:
-        # readiness must prove it exists, or every draft read fails closed.
+    def test_expected_tables_are_every_migration_owned_control_table(self):
+        # PR 7.1a: readiness proves EVERY migration-owned table (0001-0012) —
+        # a dropped execution/receipt/readback/authority ledger must not leave
+        # /ready green while the control plane is broken.
         assert set(EXPECTED_CONTROL_TABLES) == {
             "control_plan_runs",
             "control_plan_requirements",
@@ -148,7 +153,35 @@ class TestEvaluateControlTables:
             "control_state_transitions",
             "section_delivery_ledger",
             "control_plan_campaign_versions",
+            "control_command_outbox",
+            "control_active_gate_authority",
+            "control_command_execution_events",
+            "control_command_validation_receipts",
+            "control_gate_readback_observations",
+            "control_authority_grants",
+            "control_authority_grant_events",
         }
+
+    def test_required_baseline_contains_every_migration_through_0012(self):
+        # A partially packaged deployment (SQL pairs missing) must fail closed.
+        from core.readiness import REQUIRED_BASELINE_MIGRATION_IDS
+
+        assert REQUIRED_BASELINE_MIGRATION_IDS == frozenset(
+            {
+                "0001_control_plan_drafts",
+                "0002_predicted_delivery_ledger",
+                "0003_control_plan_review_lifecycle",
+                "0004_control_plan_list_indexes",
+                "0005_control_plan_provenance_v2",
+                "0006_control_plan_campaign_identity",
+                "0007_control_plan_shadow_activation",
+                "0008_control_plan_active_supersede",
+                "0009_open_loop_execution",
+                "0010_shadow_dispatch_receipts",
+                "0011_gate_readback_observations",
+                "0012_authority_grants",
+            }
+        )
 
 
 # --- I/O path (fake engine + redis) -----------------------------------------
@@ -188,7 +221,9 @@ class TestCheckSchedulerReadiness:
         present = {t: True for t in EXPECTED_CONTROL_TABLES}
         present["section_delivery_ledger"] = False
         engine = _FakeEngine(
-            _FakeConn(registry=True, present=present, applied_rows=list(tracked.items()))
+            _FakeConn(
+                registry=True, present=present, applied_rows=list(tracked.items())
+            )
         )
         result = await check_scheduler_readiness(engine, _FakeRedis(_FakeRedisClient()))
         assert result.ready is False
@@ -202,7 +237,9 @@ class TestCheckSchedulerReadiness:
         present = {t: True for t in EXPECTED_CONTROL_TABLES}
         present["control_plan_campaign_versions"] = False
         engine = _FakeEngine(
-            _FakeConn(registry=True, present=present, applied_rows=list(tracked.items()))
+            _FakeConn(
+                registry=True, present=present, applied_rows=list(tracked.items())
+            )
         )
         result = await check_scheduler_readiness(engine, _FakeRedis(_FakeRedisClient()))
         assert result.ready is False
@@ -368,7 +405,9 @@ class TestReadinessWorkerGate:
             now=_NOW,
         )
         assert result.ready is True  # reads still served
-        assert result.checks["dispatch_worker"] == "stale"  # but the staleness is visible
+        assert (
+            result.checks["dispatch_worker"] == "stale"
+        )  # but the staleness is visible
 
     @pytest.mark.asyncio
     async def test_gated_readiness_fails_when_armed_and_worker_heartbeat_missing(self):

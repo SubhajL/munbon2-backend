@@ -22,6 +22,7 @@ from typing import Mapping, Sequence, get_args
 from prometheus_client import CONTENT_TYPE_LATEST, CollectorRegistry, generate_latest
 from prometheus_client.core import CounterMetricFamily, GaugeMetricFamily, Metric
 
+from core.authority_grant import EVENT_TYPES as AUTHORITY_GRANT_EVENT_TYPES
 from core.worker_heartbeat import DISPATCH_WORKER_NAME
 from schemas.machine_boundary import ValidationRejectionReason, ValidationStatus
 
@@ -57,13 +58,18 @@ class ControlPlaneMetricSnapshot:
     validations_by_status: Mapping[str, int] = field(default_factory=dict)
     rejections_by_reason: Mapping[str, int] = field(default_factory=dict)
     readback_mismatch_by_gate: Mapping[str, int] = field(default_factory=dict)
+    authority_grant_events_by_type: Mapping[str, int] = field(default_factory=dict)
     dispatch_pending_count: int = 0
     dispatch_lag_seconds: float = 0.0
     worker_heartbeat: WorkerHeartbeat = WorkerHeartbeat(present=False, age_seconds=None)
 
 
 def _counter_over_vocab(
-    name: str, help_text: str, label: str, vocab: Sequence[str], counts: Mapping[str, int]
+    name: str,
+    help_text: str,
+    label: str,
+    vocab: Sequence[str],
+    counts: Mapping[str, int],
 ) -> CounterMetricFamily:
     """A counter with one series PER vocab value, zero-filled — the cardinality guarantee."""
     family = CounterMetricFamily(name, help_text, labels=[label])
@@ -106,6 +112,15 @@ def build_control_plane_metric_families(
             REJECTION_REASONS,
             snapshot.rejections_by_reason,
         ),
+        _counter_over_vocab(
+            "control_authority_grant_events_total",
+            "Execution-authority grant lifecycle events (PR 7.1a), by event type. "
+            "OBSERVATIONAL ONLY — authority status comes solely from the pure "
+            "ledger fold, never from these counters.",
+            "event_type",
+            AUTHORITY_GRANT_EVENT_TYPES,
+            snapshot.authority_grant_events_by_type,
+        ),
     ]
 
     # gate_readback_mismatch_total{gate}: the ONLY data-driven label. Cardinality is bounded by
@@ -143,7 +158,9 @@ def build_control_plane_metric_families(
         "1 if a fresh shadow-dispatch worker heartbeat exists in Redis, else 0.",
         labels=["worker"],
     )
-    present.add_metric([DISPATCH_WORKER_LABEL], 1.0 if snapshot.worker_heartbeat.present else 0.0)
+    present.add_metric(
+        [DISPATCH_WORKER_LABEL], 1.0 if snapshot.worker_heartbeat.present else 0.0
+    )
     families.append(present)
 
     if snapshot.worker_heartbeat.age_seconds is not None:
@@ -152,7 +169,9 @@ def build_control_plane_metric_families(
             "Seconds since the last shadow-dispatch worker heartbeat (absent when no heartbeat).",
             labels=["worker"],
         )
-        age.add_metric([DISPATCH_WORKER_LABEL], float(snapshot.worker_heartbeat.age_seconds))
+        age.add_metric(
+            [DISPATCH_WORKER_LABEL], float(snapshot.worker_heartbeat.age_seconds)
+        )
         families.append(age)
 
     return families

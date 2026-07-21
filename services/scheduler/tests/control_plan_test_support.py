@@ -8,10 +8,12 @@ signatures match the production classes exactly.
 import hashlib
 import json
 from dataclasses import dataclass, field, replace
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
+from core.canonical_json import canonicalize
+from core.command_intent import command_intent_content_hash
 from core.control_plan import canonical_json_text
 from services.clients.control_flow_client import (
     FlowArtifactReference,
@@ -29,11 +31,19 @@ from repositories.control_plan_projection_repository import (
     build_readback_observations,
 )
 from repositories.control_plan_repository import (
+    AuthorityEvidenceCounts,
+    AuthorityGrantConflictError,
+    AuthorityRevocationConflictError,
+    OutboxRow,
     PlanContentConflictError,
+    PlanNotShadowActiveForAuthorityError,
+    PostgresControlPlanRepository,
     ScopeConflictError,
     TransitionConflictError,
     TransitionRecord,
     UnknownCampaignError,
+    verify_stored_grant,
+    verify_stored_grant_event,
 )
 from schemas.control_plan import (
     PROJECTION_SCHEMA_VERSION,
@@ -41,9 +51,151 @@ from schemas.control_plan import (
     ControlPlanListPage,
     ControlPlanSummaryOut,
 )
+from schemas.machine_boundary import CommandIntent
 
 RUN_ID = UUID("8e0b0e6a-6c1e-5f5e-9d5c-2f6a8b1c2d3e")
 REQ_ID = "7c8a4c62-4b0e-5efd-9c3a-111111111111"
+
+
+def authority_model_snapshot(
+    *,
+    model_release_id: str,
+    model_release_content_hash: str,
+    engine_descriptor_content_hash: str,
+    commandable: bool = True,
+    response_commandable: Optional[bool] = None,
+    action_commandable: Optional[bool] = None,
+    actuation_approved: Optional[bool] = None,
+) -> dict:
+    """A minimal content-addressed v3 snapshot for authority tests."""
+    response_commandable = (
+        commandable if response_commandable is None else response_commandable
+    )
+    action_commandable = (
+        commandable if action_commandable is None else action_commandable
+    )
+    actuation_approved = (
+        commandable if actuation_approved is None else actuation_approved
+    )
+    payload = {
+        "schema_version": 3,
+        # Flow's snapshot hash serializer preserves 2.0 as JSON 2.0, unlike JCS.
+        # This pin keeps authority tests honest about the producer algorithm.
+        "test_numeric_pin": 2.0,
+        "commandable": commandable,
+        "prediction_engine": {"content_hash": engine_descriptor_content_hash},
+        "response_model": {
+            "release_id": model_release_id,
+            "content_hash": model_release_content_hash,
+            "commandable": response_commandable,
+        },
+        "action_model": {
+            "commandable": action_commandable,
+            "actuation_approved": actuation_approved,
+        },
+    }
+    return {
+        "snapshot_id": hashlib.sha256(
+            json.dumps(
+                payload,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+                default=str,
+            ).encode("utf-8")
+        ).hexdigest(),
+        **payload,
+    }
+
+
+def authority_outbox_rows(
+    *,
+    plan_id: UUID,
+    plan_version: int,
+    model_release_id: str,
+    model_release_content_hash: str,
+    engine_descriptor_content_hash: str,
+    capability_release_id: str,
+    capability_hash: str,
+    canonical_gate_id: str,
+    now: datetime,
+):
+    """Two deterministic, fully verified outbox rows for authority tests."""
+    lineage = {
+        "campaign_id": str(uuid5(NAMESPACE_URL, f"test-campaign:{plan_id}")),
+        "plan_id": str(plan_id),
+        "plan_version": plan_version,
+        "input_content_hash": "1" * 64,
+        "draft_content_hash": "2" * 64,
+        "requirement_run_id": str(uuid5(NAMESPACE_URL, f"test-requirement:{plan_id}")),
+        "requirement_version": 1,
+        "requirement_set_sha256": "3" * 64,
+        "model_snapshot_id": "4" * 64,
+        "model_release_id": model_release_id,
+        "model_release_content_hash": model_release_content_hash,
+        "prediction_run_id": "5" * 64,
+        "prediction_identity_version": 2,
+        "engine_descriptor_content_hash": engine_descriptor_content_hash,
+        "artifact_sha256": "6" * 64,
+    }
+    rows = []
+    for sequence, event_kind, target_position_m, target_level in (
+        (1, "open", 0.5, 1),
+        (2, "close", 0.0, 0),
+    ):
+        intent_id = uuid5(NAMESPACE_URL, f"test-intent:{plan_id}:{sequence}")
+        correlation_id = uuid5(NAMESPACE_URL, f"test-correlation:{plan_id}")
+        request_id = f"req-{plan_id}"
+        idempotency_key = f"cmd.{plan_id}.{plan_version}.{sequence}"
+        not_before = now + sequence * timedelta(hours=1)
+        deadline = now + timedelta(hours=10)
+        intent = CommandIntent(
+            schema_version=1,
+            intent_id=str(intent_id),
+            correlation_id=str(correlation_id),
+            request_id=request_id,
+            idempotency_key=idempotency_key,
+            canonical_gate_id=canonical_gate_id,
+            event_kind=event_kind,
+            event_sequence=sequence,
+            gate_event_sequence=sequence,
+            device_id="device-1",
+            adapter_gate_id="adapter-1",
+            capability_release_id=capability_release_id,
+            capability_hash=capability_hash,
+            target_position_m=target_position_m,
+            target_level=target_level,
+            not_before=not_before.isoformat().replace("+00:00", "Z"),
+            deadline=deadline.isoformat().replace("+00:00", "Z"),
+            mode="shadow",
+            lineage=lineage,
+        )
+        document_text = canonicalize(intent.model_dump())
+        rows.append(
+            OutboxRow(
+                intent_id=intent_id,
+                correlation_id=correlation_id,
+                request_id=request_id,
+                idempotency_key=idempotency_key,
+                canonical_gate_id=canonical_gate_id,
+                event_kind=event_kind,
+                event_sequence=sequence,
+                gate_event_sequence=sequence,
+                device_id="device-1",
+                adapter_gate_id="adapter-1",
+                capability_release_id=capability_release_id,
+                capability_hash=capability_hash,
+                target_position_m=target_position_m,
+                target_level=target_level,
+                not_before=not_before,
+                deadline=deadline,
+                mode="shadow",
+                intent_document_text=document_text,
+                intent_content_hash=command_intent_content_hash(intent),
+                activation_transition_sequence=4,
+            )
+        )
+    return tuple(rows)
 
 
 def requirement_item(volume=6000.0, run_id=None, requirement_id=None, version=3):
@@ -194,10 +346,8 @@ def draft_payload(**overrides):
         ],
         "operator_withdrawals": [],
         "branch_allocations": [
-            {"upstream_node_id": "N1", "downstream_node_id": "N2",
-             "fraction": 0.6},
-            {"upstream_node_id": "N1", "downstream_node_id": "N3",
-             "fraction": 0.4},
+            {"upstream_node_id": "N1", "downstream_node_id": "N2", "fraction": 0.6},
+            {"upstream_node_id": "N1", "downstream_node_id": "N3", "fraction": 0.4},
         ],
     }
     payload.update(overrides)
@@ -251,14 +401,15 @@ def _build_member_timeline(request_document, member_name):
         required = float(section["required_volume_m3"])
         total += required
         delivered = [
-            required * min(1.0, (i + 1) / max(1, count - 1))
-            for i in range(count)
+            required * min(1.0, (i + 1) / max(1, count - 1)) for i in range(count)
         ]
         delivered[-1] = required
         status = [
-            "pending" if i == 0
-            else ("predicted_fulfilled" if i == count - 1
-                  else "delivery_predicted_active")
+            "pending"
+            if i == 0
+            else (
+                "predicted_fulfilled" if i == count - 1 else "delivery_predicted_active"
+            )
             for i in range(count)
         ]
         requirements.append(
@@ -393,9 +544,7 @@ class FakeControlFlowClient:
             engine_id=self.engine_id,
             semantic_contract_version=self.semantic_contract_version,
             build_digest=self.build_digest,
-            engine_descriptor_content_hash=(
-                self.engine_descriptor_content_hash
-            ),
+            engine_descriptor_content_hash=(self.engine_descriptor_content_hash),
             artifact=FlowArtifactReference(
                 artifact_sha256=hashlib.sha256(response_bytes).hexdigest(),
                 uncompressed_size_bytes=len(response_bytes),
@@ -421,6 +570,11 @@ class FakeRepository:
         self.active_scopes = {}  # (section_id, gate_id) -> (plan_id, plan_version)
         self.outbox = {}  # (plan_id, plan_version) -> list[OutboxRow]
         self.scope_rows = {}  # (plan_id, plan_version) -> list[ScopeRow]
+        # PR 7.1a execution-authority grants: twins of the 0012 tables.
+        self.authority_grants = {}  # grant_id -> AuthorityGrantRow
+        self.authority_grant_events = {}  # grant_id -> list[AuthorityGrantEventRow]
+        # (plan_id, plan_version) -> AuthorityEvidenceCounts (tests seed coverage)
+        self.authority_evidence_counts = {}
 
     async def allocate_campaign_version(self, session, campaign_id):
         # Interface-pinned twin of the Postgres advisory-lock allocator: absent ->
@@ -430,9 +584,7 @@ class FakeRepository:
             return uuid4(), 1, uuid4()
         max_version = self.campaign_versions.get(campaign_id)
         if max_version is None:
-            raise UnknownCampaignError(
-                f"campaign {campaign_id} does not exist"
-            )
+            raise UnknownCampaignError(f"campaign {campaign_id} does not exist")
         return campaign_id, max_version + 1, uuid4()
 
     async def find_by_input_hash(self, session, input_content_hash):
@@ -458,17 +610,13 @@ class FakeRepository:
         self.by_key[(record.plan_id, record.plan_version)] = record
         # A version is consumed ONLY when the run commits (monotonic per campaign).
         current = self.campaign_versions.get(record.campaign_id, 0)
-        self.campaign_versions[record.campaign_id] = max(
-            current, record.plan_version
-        )
+        self.campaign_versions[record.campaign_id] = max(current, record.plan_version)
         return record, False
 
     async def load_draft_plan(self, session, plan_id, plan_version):
         return self.by_key.get((plan_id, plan_version))
 
-    async def append_state_transition(
-        self, session, plan_id, plan_version, transition
-    ):
+    async def append_state_transition(self, session, plan_id, plan_version, transition):
         record = self.by_key.get((plan_id, plan_version))
         if record is None:
             raise KeyError((plan_id, plan_version))
@@ -481,9 +629,7 @@ class FakeRepository:
             raise TransitionConflictError(
                 "a concurrent lifecycle action already advanced this plan"
             )
-        updated = replace(
-            record, transitions=record.transitions + (transition,)
-        )
+        updated = replace(record, transitions=record.transitions + (transition,))
         self.by_key[(plan_id, plan_version)] = updated
         self.by_input_hash[record.input_content_hash] = updated
 
@@ -536,6 +682,101 @@ class FakeRepository:
 
     async def load_active_scopes(self, session, plan_id, plan_version):
         return list(self.scope_rows.get((plan_id, plan_version), []))
+
+    # --- PR 7.1a execution-authority grant twins (interface-pinned) ---------
+    # The twins run the REAL load/write-time verifiers (verify_stored_grant,
+    # verify_stored_grant_event, the grant<->birth cross-bind) and the REAL
+    # under-lock lifecycle re-derivation, so a service document-assembly drift
+    # or a lifecycle race fails the unit suites too — never only the env-gated
+    # Postgres suite.
+
+    def _grant_for_plan(self, plan_id, plan_version):
+        for grant in self.authority_grants.values():
+            if grant.plan_id == plan_id and grant.plan_version == plan_version:
+                return grant
+        return None
+
+    def _require_shadow_active(self, plan_id, plan_version):
+        from core.control_plan_lifecycle import derive_control_plan_state
+
+        record = self.by_key.get((plan_id, plan_version))
+        state = (
+            derive_control_plan_state(record.transitions)
+            if record is not None
+            else "absent"
+        )
+        if state != "shadow_active":
+            raise PlanNotShadowActiveForAuthorityError(
+                f"plan {plan_id} v{plan_version} is {state!r}, not "
+                "shadow_active, under the authority lock"
+            )
+
+    async def insert_authority_grant(self, session, grant, build_granted_event):
+        self._require_shadow_active(grant.plan_id, grant.plan_version)
+        existing = self._grant_for_plan(grant.plan_id, grant.plan_version)
+        if existing is not None:
+            if existing.grant_content_sha256 != grant.grant_content_sha256:
+                raise AuthorityGrantConflictError(
+                    f"plan {grant.plan_id} v{grant.plan_version} already holds "
+                    "a different authority grant"
+                )
+            return existing, False
+        granted_event = build_granted_event()
+        verify_stored_grant(grant)
+        verify_stored_grant_event(granted_event)
+        self.authority_grants[grant.grant_id] = grant
+        self.authority_grant_events[grant.grant_id] = [granted_event]
+        return grant, True
+
+    async def append_authority_grant_event(
+        self, session, grant_id, build_event, *, require_shadow_active_plan=None
+    ):
+        if require_shadow_active_plan is not None:
+            self._require_shadow_active(*require_shadow_active_plan)
+        existing = tuple(self.authority_grant_events.get(grant_id, []))
+        next_sequence = (
+            max(event.event_sequence for event in existing) if existing else 0
+        ) + 1
+        event = build_event(next_sequence, existing)
+        if event.event_type == "revoked" and any(
+            prior.event_type == "revoked" for prior in existing
+        ):
+            raise AuthorityRevocationConflictError(
+                f"grant {grant_id} is already terminally revoked"
+            )
+        verify_stored_grant_event(event)
+        self.authority_grant_events.setdefault(grant_id, []).append(event)
+        return event
+
+    def _verified_grant_view(self, grant):
+        events = tuple(self.authority_grant_events.get(grant.grant_id, []))
+        verify_stored_grant(grant)
+        for event in events:
+            verify_stored_grant_event(event)
+        PostgresControlPlanRepository._cross_bind_grant_and_birth(grant, events)
+        return grant, events
+
+    async def load_authority_grant(self, session, grant_id):
+        grant = self.authority_grants.get(grant_id)
+        if grant is None:
+            return None
+        return self._verified_grant_view(grant)
+
+    async def load_authority_grant_for_plan(self, session, plan_id, plan_version):
+        grant = self._grant_for_plan(plan_id, plan_version)
+        if grant is None:
+            return None
+        return self._verified_grant_view(grant)
+
+    async def load_authority_evidence_counts(self, session, plan_id, plan_version):
+        return self.authority_evidence_counts.get(
+            (plan_id, plan_version),
+            AuthorityEvidenceCounts(
+                outbox_intent_count=0,
+                accepted_receipt_intent_count=0,
+                matching_receipt_intent_count=0,
+            ),
+        )
 
 
 # --- Bounded list-projection fixtures + fake (PR 4.4a-3) --------------------
@@ -679,8 +920,7 @@ def projection_record(
         # Default to a legacy singleton (campaign_id == plan_id) unless overridden.
         campaign_id=campaign_id if campaign_id is not None else plan_id,
         created_at=created_at,
-        horizon_start=horizon_start
-        or datetime(2026, 7, 20, tzinfo=timezone.utc),
+        horizon_start=horizon_start or datetime(2026, 7, 20, tzinfo=timezone.utc),
         horizon_end=horizon_end or datetime(2026, 7, 21, tzinfo=timezone.utc),
         requirement_run_id=requirement_run_id,
         requirement_version=requirement_version,
@@ -867,7 +1107,9 @@ class FakeReadProjectionRepository:
             else build_intent_timeline(plan_id, plan_version, [], [], [])
         )
 
-    async def load_readback_observations_projection(self, session, plan_id, plan_version):
+    async def load_readback_observations_projection(
+        self, session, plan_id, plan_version
+    ):
         record = self._record(plan_id, plan_version)
         return (
             None
@@ -878,7 +1120,5 @@ class FakeReadProjectionRepository:
     async def load_execution_state_projection(self, session, plan_id, plan_version):
         record = self._record(plan_id, plan_version)
         return (
-            None
-            if record is None
-            else build_execution_state(plan_id, plan_version, [])
+            None if record is None else build_execution_state(plan_id, plan_version, [])
         )

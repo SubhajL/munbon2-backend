@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 from .endpoints import (
     adaptation,
+    authority_grants,
     control_plans,
     monitoring,
     operations,
@@ -18,4 +19,9 @@ api_router.include_router(monitoring.router, prefix="/monitoring", tags=["monito
 api_router.include_router(adaptation.router, prefix="/adaptation", tags=["adaptation"])
 api_router.include_router(
     control_plans.router, prefix="/control-plans", tags=["control-plans"]
+)
+api_router.include_router(
+    authority_grants.router,
+    prefix="/authority-grants",
+    tags=["authority-grants"],
 )

@@ -25,10 +25,10 @@ from sqlalchemy import text
 from core.worker_heartbeat import heartbeat_age_seconds, read_dispatch_heartbeat
 
 # The control-plane tables are migration-owned (ControlBase, never create_all).
-# Readiness proves all six exist before claiming the plane is serviceable.
-# ``control_plan_campaign_versions`` (0006) is the source of truth for campaign
-# identity: without it every draft read fails closed on a missing mapping, so a
-# deployment that lost the mapping table must not report ready.
+# Readiness proves EVERY migration-owned table exists before claiming the plane
+# is serviceable — including the 0007-0012 execution/receipt/readback/authority
+# ledgers (PR 7.1a closes the gap where a dropped execution table could leave
+# /ready green while dispatch, metrics, readback, or authority reads fail).
 EXPECTED_CONTROL_TABLES: tuple[str, ...] = (
     "control_plan_runs",
     "control_plan_requirements",
@@ -36,20 +36,35 @@ EXPECTED_CONTROL_TABLES: tuple[str, ...] = (
     "control_state_transitions",
     "section_delivery_ledger",
     "control_plan_campaign_versions",
+    "control_command_outbox",
+    "control_active_gate_authority",
+    "control_command_execution_events",
+    "control_command_validation_receipts",
+    "control_gate_readback_observations",
+    "control_authority_grants",
+    "control_authority_grant_events",
 )
 
 CONTROL_SCHEMA = "scheduler"
 
-# The tracked migration manifest MUST contain at least these baseline pairs. An
-# empty or partial migration package (SQL files omitted from a deployment) would
-# otherwise let readiness compare empty==empty and pass — so a missing baseline id
-# fails closed, never "ok".
+# The tracked migration manifest MUST contain EVERY applied pair. An empty or
+# partial migration package (SQL files omitted from a deployment) would
+# otherwise let readiness compare empty==empty and pass — so a missing id fails
+# closed, never "ok". A partially packaged execution ledger must not be ready.
 REQUIRED_BASELINE_MIGRATION_IDS: frozenset[str] = frozenset(
     {
         "0001_control_plan_drafts",
         "0002_predicted_delivery_ledger",
         "0003_control_plan_review_lifecycle",
+        "0004_control_plan_list_indexes",
+        "0005_control_plan_provenance_v2",
         "0006_control_plan_campaign_identity",
+        "0007_control_plan_shadow_activation",
+        "0008_control_plan_active_supersede",
+        "0009_open_loop_execution",
+        "0010_shadow_dispatch_receipts",
+        "0011_gate_readback_observations",
+        "0012_authority_grants",
     }
 )
 
@@ -62,9 +77,7 @@ class ReadinessResult:
     checks: dict[str, str]
 
 
-def evaluate_migrations(
-    tracked: Mapping[str, str], applied: Mapping[str, str]
-) -> str:
+def evaluate_migrations(tracked: Mapping[str, str], applied: Mapping[str, str]) -> str:
     """Compare tracked (code-owned) migration checksums against what the DB has.
 
     "drift" also covers an APPLIED migration the code no longer tracks — an
@@ -125,7 +138,10 @@ async def _read_scheduler_db_state(engine):
     exists). Returns (registry_present, present_by_table, applied_by_id)."""
     regclass_columns = ", ".join(
         [f"to_regclass('{CONTROL_SCHEMA}.schema_migrations')"]
-        + [f"to_regclass('{CONTROL_SCHEMA}.{table}')" for table in EXPECTED_CONTROL_TABLES]
+        + [
+            f"to_regclass('{CONTROL_SCHEMA}.{table}')"
+            for table in EXPECTED_CONTROL_TABLES
+        ]
     )
     async with engine.connect() as conn:
         row = (await conn.execute(text(f"SELECT {regclass_columns}"))).first()
@@ -157,7 +173,8 @@ def evaluate_worker_health(
     "disabled" and never blocks). When armed (execution mode shadow + a SCADA base URL, i.e. the
     tick is EXPECTED to run), a missing/unparseable/stale heartbeat fails closed — but note the
     caller only lets this block `/ready` when armed, so a dead worker in dark deployments can
-    never black out the read-only dashboard that operators need to SEE that dispatch is stuck."""
+    never black out the read-only dashboard that operators need to SEE that dispatch is stuck.
+    """
     if not armed:
         return "disabled"
     if heartbeat_iso is None:
@@ -233,12 +250,17 @@ async def check_scheduler_readiness(
         if heartbeat_stale_seconds is None:
             heartbeat_stale_seconds = settings.control_worker_heartbeat_stale_seconds
         if worker_health_gates_readiness is None:
-            worker_health_gates_readiness = settings.control_worker_health_gates_readiness
+            worker_health_gates_readiness = (
+                settings.control_worker_health_gates_readiness
+            )
 
     if worker_armed:
         heartbeat_iso = await read_dispatch_heartbeat(redis)
         worker_status = evaluate_worker_health(
-            True, heartbeat_iso, now or datetime.now(timezone.utc), heartbeat_stale_seconds
+            True,
+            heartbeat_iso,
+            now or datetime.now(timezone.utc),
+            heartbeat_stale_seconds,
         )
         checks["dispatch_worker"] = worker_status
         if worker_health_gates_readiness:

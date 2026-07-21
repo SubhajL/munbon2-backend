@@ -88,6 +88,44 @@ history and is no longer accepted by the runtime response model. Scheduler and
 BFF must update their strict mirrors and fixture suites atomically on any future
 version bump.
 
+## Execution-authority grants (PR 7.1a) — represent authority, execute NOTHING
+
+Migration `0012_authority_grants`: an IMMUTABLE per-plan-version
+`control_authority_grants` row (UNIQUE(plan_id, plan_version); UNIQUE
+grant_content_sha256 = replay idempotency; CHECK model_release_commandable IS
+TRUE) + append-only `control_authority_grant_events` (granted seq-1 exactly
+once → renewed* → revoked terminal, ONE revocation via a partial unique index).
+Down REFUSES once any grant exists. TERMINOLOGY:
+`control_active_gate_authority` is the SHADOW scope mutex; 0012 is EXECUTION
+authority — always qualify. Current status is NEVER stored: fold via
+`core.authority_grant.derive_authority_grant_status` (expired iff `now >=
+expiry`, matching 5.2 deadline semantics; renewal must strictly extend and is
+REFUSED at/after expiry — no resurrection; a lapsed grant needs a NEW grant).
+Grant-time `validate_authority_evidence` binds: v2-provenance release triple
+(v1 plans are NEVER grantable), commandability evidence that must itself
+declare `commandable=true` AND bind the same triple (request evidence cannot
+promote — Flow currently pins `commandable=false`, so no positive path exists),
+the CURRENTLY CONFIGURED capability pair, EXACT physical scope equality
+(requirements' (section, gate, path)), the flow envelope over
+`gate_plan_events.source_flow_m3s` in `(lower, upper]`, longest-continuous-open
+vs policy (an unclosed gate counts to `horizon_end`), trims ≥ the plan's own
+setting, initialization exactly `{"kind":"dry"}` (wet-state ranges need a
+future versioned contract), COMPLETE 0010 receipt coverage (every outbox
+intent has an accepted receipt), and a strictly-future expiry capped by
+`control_authority_lease_hours` (24 = the roadmap's lease checkpoint).
+`verify_execution_authority` is the 7.2-consumable WHOLE-BATCH predicate
+(partial actuation prevention); in 7.1a its only callers are grant preflight +
+`POST /authority-grants/reviews` — it is NOT imported by the worker/dispatcher.
+AUTHZ safety valence: review/grant/renew = supervisor + STRICT policy (503 in
+compat → issuance impossible in every tracked deployment; the empty capability
+snapshot is a second independent gate); revoke = supervisor WITHOUT the strict
+gate (idempotent safety brake, mirrors the 5.2b hold precedent) and also works
+on an expired grant (audit). Readiness now requires ALL 0001–0012 tables +
+migration ids. Metrics: `control_authority_grant_events_total{event_type}` is
+OBSERVATIONAL ONLY — never an authorization source. 7.2 obligation
+(documented): a safe-close after expiry/revocation needs its own separately
+authorized fail-safe path — do NOT bolt a bypass onto the grant predicate.
+
 ## Gotchas / Watch-outs (PR 4.2 audit — foundation repaired, features NOT)
 - **Removed as generation-drifted (2026-07-17)**: unit suites for MixedIntegerOptimizer +
   RealTimeAdapter (tested nonexistent APIs) and the 3 integration API suites (fake bearer
