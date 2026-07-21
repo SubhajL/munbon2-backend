@@ -23,6 +23,8 @@ export interface PM2ProcessConfig {
   log_date_format: string;
   merge_logs: boolean;
   time: boolean;
+  cron_restart?: string;
+  restart_delay?: number;
 }
 
 const REPO_ROOT = path.resolve(__dirname, '../../..');
@@ -34,7 +36,9 @@ const LOGS_DIR = path.join(REPO_ROOT, 'logs');
 function requiredEnv(name: string): string {
   const value = process.env[name];
   if (!value) {
-    throw new Error(`${name} must be set in the environment to build the irrigation PM2 config (hardcoded default removed)`);
+    throw new Error(
+      `${name} must be set in the environment to build the irrigation PM2 config (hardcoded default removed)`,
+    );
   }
   return value;
 }
@@ -130,6 +134,8 @@ export function getIrrigationProcesses(): PM2ProcessConfig[] {
         JWT_ACCESS_TOKEN_TYPE: 'access',
         JWT_CLAIM_POLICY_MODE: requiredEnv('JWT_CLAIM_POLICY_MODE'),
         CORS_ORIGINS: 'http://localhost:3000,http://localhost:3001',
+        // PR 7.2: independent Scheduler execution gate. Tracked deploy stays dark.
+        CONTROL_EXECUTION_MODE: 'disabled',
       },
     },
     {
@@ -257,5 +263,25 @@ export function getIrrigationProcesses(): PM2ProcessConfig[] {
     },
   ];
 
-  return serviceSpecs.map(buildProcessConfig);
+  const processes = serviceSpecs.map(buildProcessConfig);
+  const scheduler = processes.find(process => process.name === 'scheduler');
+  if (!scheduler) throw new Error('scheduler process missing');
+  processes.push({
+    ...scheduler,
+    name: 'scheduler-control-dispatch',
+    script: './venv/bin/python',
+    args: '-m jobs.shadow_dispatch_once',
+    interpreter: 'none',
+    // The command is a bounded one-shot. PM2 waits after its clean exit and then
+    // launches a fresh process; cron_restart cannot schedule a process once stopped.
+    autorestart: true,
+    restart_delay: 60_000,
+    env: {
+      ...(scheduler.env ?? {}),
+      PYTHONPATH: path.join(scheduler.cwd, 'src'),
+    },
+    error_file: path.join(LOGS_DIR, 'scheduler-control-dispatch-error.log'),
+    out_file: path.join(LOGS_DIR, 'scheduler-control-dispatch-out.log'),
+  });
+  return processes;
 }

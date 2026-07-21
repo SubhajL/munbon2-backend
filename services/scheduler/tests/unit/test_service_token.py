@@ -79,6 +79,42 @@ class TestMintSchedulerServiceToken:
         with pytest.raises(jwt.InvalidAudienceError):
             _decode(token)
 
+    def test_execute_token_binds_scope_purpose_intent_and_both_hashes(self):
+        payload = _decode(
+            _mint(
+                scope="command_intents.execute",
+                jti="execute-1",
+                grant_id="77777777-7777-4777-8777-777777777777",
+                authority_not_after="2026-07-20T03:05:00.000Z",
+                intent_id="11111111-1111-1111-1111-111111111111",
+                original_intent_content_hash="a" * 64,
+                execution_intent_content_hash="b" * 64,
+                purpose="operator_approved",
+            )
+        )
+        assert {
+            key: payload[key]
+            for key in (
+                "scope",
+                "jti",
+                "grant_id",
+                "authority_not_after",
+                "intent_id",
+                "original_intent_content_hash",
+                "execution_intent_content_hash",
+                "purpose",
+            )
+        } == {
+            "scope": "command_intents.execute",
+            "jti": "execute-1",
+            "grant_id": "77777777-7777-4777-8777-777777777777",
+            "authority_not_after": "2026-07-20T03:05:00.000Z",
+            "intent_id": "11111111-1111-1111-1111-111111111111",
+            "original_intent_content_hash": "a" * 64,
+            "execution_intent_content_hash": "b" * 64,
+            "purpose": "operator_approved",
+        }
+
     def test_expired_token_fails_decode(self):
         # Mint with an iat far in the past so exp has already passed against the real
         # wall clock — proves exp is actually set and short-lived (SCADA also enforces it).

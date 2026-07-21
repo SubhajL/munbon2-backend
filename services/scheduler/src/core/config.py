@@ -101,9 +101,9 @@ class Settings(BaseSettings):
     schedule_horizon_days: int = 7
     control_model_step_seconds: int = Field(default=300, gt=0)
     control_max_intermediate_trims: int = Field(default=1, ge=0, le=2)
-    # PR 5.2b open-loop execution: the worker only claims intents in "shadow" mode;
-    # "disabled" is dark (no claiming); "operator_approved" is DEFINED but REFUSED in
-    # 5.2 (execute path is 7.x). Nothing here dispatches or actuates.
+    # Open-loop execution modes: disabled is dark; shadow validates without actuation;
+    # operator_approved_open_loop enables the Scheduler half of the PR 7.2 dual-key path.
+    # SCADA's independent ALLOW_MACHINE_COMMANDS=true key is still required to actuate.
     control_execution_mode: str = "disabled"
     control_authority_lease_hours: int = Field(default=24, gt=0)
     control_premove_validation_seconds: int = Field(default=300, ge=0)
@@ -133,7 +133,7 @@ class Settings(BaseSettings):
 
     # PR 6.4 — staleness threshold (seconds) for the shadow-dispatch worker heartbeat. Readiness
     # marks the worker "stale" once the last heartbeat is older than this. Only consulted when
-    # armed (shadow execution mode + SCADA base URL + service secret — the dispatcher's dark-gate).
+    # an execution mode is armed with a SCADA base URL and service secret.
     control_worker_heartbeat_stale_seconds: int = Field(default=180, ge=1)
     # PR 6.4 — whether a stale/missing worker heartbeat makes /ready return NOT-ready. Default
     # False: worker health is REPORTED in /ready checks (and via metrics) but does NOT flip the
@@ -214,6 +214,16 @@ class Settings(BaseSettings):
         if v not in ("off", "observe", "enforce"):
             raise ValueError(
                 "control_readback_reconciliation_mode must be 'off', 'observe', or 'enforce'"
+            )
+        return v
+
+    @field_validator("control_execution_mode")
+    @classmethod
+    def require_known_execution_mode(cls, v: str) -> str:
+        if v not in ("disabled", "shadow", "operator_approved_open_loop"):
+            raise ValueError(
+                "control_execution_mode must be 'disabled', 'shadow', or "
+                "'operator_approved_open_loop'"
             )
         return v
 

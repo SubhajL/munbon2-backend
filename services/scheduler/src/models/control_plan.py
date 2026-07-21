@@ -447,6 +447,57 @@ class ControlCommandValidationReceipt(ControlBase):
     )
 
 
+class ControlCommandExecutionReceipt(ControlBase):
+    """Immutable Scheduler copy of a SCADA physical execution outcome (PR 7.2)."""
+
+    __tablename__ = "control_command_execution_receipts"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["plan_id", "plan_version"],
+            [
+                f"{SCHEMA}.control_plan_runs.plan_id",
+                f"{SCHEMA}.control_plan_runs.plan_version",
+            ],
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["grant_id"],
+            [f"{SCHEMA}.control_authority_grants.grant_id"],
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "idempotency_key", name="control_command_execution_receipts_idem"
+        ),
+        {"schema": SCHEMA},
+    )
+
+    intent_id = Column(UUID(as_uuid=True), primary_key=True)
+    plan_id = Column(UUID(as_uuid=True), nullable=False)
+    plan_version = Column(Integer, nullable=False)
+    grant_id = Column(UUID(as_uuid=True), nullable=False)
+    authority_not_after = Column(DateTime(timezone=True), nullable=False)
+    receipt_id = Column(UUID(as_uuid=True), nullable=False)
+    idempotency_key = Column(Text, nullable=False)
+    original_intent_content_hash = Column(CHAR(64), nullable=False)
+    execution_intent_content_hash = Column(CHAR(64), nullable=False)
+    capability_hash = Column(CHAR(64), nullable=False)
+    purpose = Column(Text, nullable=False)
+    status = Column(Text, nullable=False)
+    reason_code = Column(Text, nullable=True)
+    target_level = Column(Integer, nullable=False)
+    observed_level = Column(Integer, nullable=True)
+    readback_quality = Column(Text, nullable=False)
+    writes_document_text = Column(Text, nullable=False)
+    executed_at = Column(DateTime(timezone=True), nullable=False)
+    receipt_document_text = Column(Text, nullable=False)
+    receipt_content_sha256 = Column(CHAR(64), nullable=False)
+    dispatch_worker_id = Column(Text, nullable=False)
+    dispatched_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class ControlGateReadbackObservation(ControlBase):
     """Append-only shadow readback-reconciliation audit (PR 6.3b).
 

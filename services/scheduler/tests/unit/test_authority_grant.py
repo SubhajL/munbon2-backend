@@ -38,6 +38,7 @@ from core.authority_grant import (
     intent_set_sha256,
     parse_scope_document,
     validate_authority_evidence,
+    verify_fail_safe_close_authority,
     verify_execution_authority,
 )
 from core.canonical_json import canonicalize
@@ -821,9 +822,7 @@ class TestIntentSetBinding:
 
     def test_verified_outbox_batch_is_authorized(self):
         context = _execution_context()
-        verify_execution_authority(
-            _grant_row(), [_granted()], context, now=NOW
-        )  # must not raise
+        verify_execution_authority(_grant_row(), [_granted()], context, now=NOW)
 
     def test_reordered_intents_block_the_batch(self):
         context = _execution_context()
@@ -849,3 +848,47 @@ class TestIntentSetBinding:
                 now=NOW,
             )
         assert excinfo.value.reason_code == "intent_evidence_corrupt"
+
+
+class TestFailSafeCloseAuthority:
+    def test_revoked_held_grant_authorizes_only_the_granted_close_at_zero(self):
+        context = _execution_context()
+        close = next(
+            row
+            for row in context.intents
+            if json.loads(row.intent_document_text)["event_kind"] == "close"
+        )
+        verify_fail_safe_close_authority(
+            _grant_row(),
+            [_granted(), _event(2, EVENT_REVOKED)],
+            context,
+            selected_intent_id=close.intent_id,
+            is_held=True,
+            now=NOW,
+        )
+
+    def test_fail_safe_close_never_authorizes_open_or_an_unheld_plan(self):
+        context = _execution_context()
+        opened = next(
+            row
+            for row in context.intents
+            if json.loads(row.intent_document_text)["event_kind"] == "open"
+        )
+        with pytest.raises(ExecutionAuthorityError, match="close-at-zero"):
+            verify_fail_safe_close_authority(
+                _grant_row(),
+                [_granted(NOW)],
+                context,
+                selected_intent_id=opened.intent_id,
+                is_held=True,
+                now=NOW,
+            )
+        with pytest.raises(ExecutionAuthorityError, match="operator-held"):
+            verify_fail_safe_close_authority(
+                _grant_row(),
+                [_granted(NOW)],
+                context,
+                selected_intent_id=opened.intent_id,
+                is_held=False,
+                now=NOW,
+            )

@@ -51,23 +51,50 @@ npm run dev         # ts-node src/index.ts
 `.env.example` is intentionally omitted (blocked by a local secret-protection
 hook). Set these in your `.env`:
 
-| Var                                           | Default                      | Meaning                                                              |
-| --------------------------------------------- | ---------------------------- | -------------------------------------------------------------------- |
-| `LOG_LEVEL`                                   | `info`                       | pino log level                                                       |
-| `TZ`                                          | `Asia/Bangkok`               | timezone                                                             |
-| `PORT`                                        | `3030`                       | HTTP API port (Slice 3)                                              |
-| `MODBUS_HOST`                                 | **required**                 | PLC address (no default — fails fast if unset; see note below)       |
-| `MODBUS_PORT`                                 | `502`                        | Modbus TCP port                                                      |
-| `MODBUS_UNIT_ID`                              | `1`                          | Modbus unit id (unconfirmed — vendor to confirm)                     |
-| `MODBUS_POLL_INTERVAL_MS`                     | `3000`                       | poll cadence; must be `2000`–`5000` (spec: 2–5s)                     |
-| `MODBUS_TIMEOUT_MS`                           | `2000`                       | connect + request timeout (unreachable → offline within this)        |
-| `MODBUS_STALE_AFTER_MS`                       | `10000`                      | reading age -> `stale`                                               |
-| `MODBUS_OFFLINE_AFTER_MS`                     | `20000`                      | reading age -> `offline`                                             |
-| `JWT_SECRET`                                  | **required**                 | shared HS256 secret to verify `services/auth` access tokens          |
-| `JWT_ISSUER` / `JWT_AUDIENCE`                 | `munbon-auth` / `munbon-api` | expected token issuer/audience                                       |
-| `DATABASE_URL`                                | **required**\*               | Postgres for the durable audit log                                   |
-| `ALLOW_IN_MEMORY_AUDIT`                       | `false`                      | \*dev-only: allow a non-persistent audit sink with no `DATABASE_URL` |
-| `COMMAND_RATE_MAX` / `COMMAND_RATE_WINDOW_MS` | `30` / `60000`               | per-user+gate command rate limit                                     |
+| Var                                           | Default                         | Meaning                                                              |
+| --------------------------------------------- | ------------------------------- | -------------------------------------------------------------------- |
+| `LOG_LEVEL`                                   | `info`                          | pino log level                                                       |
+| `TZ`                                          | `Asia/Bangkok`                  | timezone                                                             |
+| `PORT`                                        | `3030`                          | HTTP API port (Slice 3)                                              |
+| `MODBUS_HOST`                                 | **required**                    | PLC address (no default — fails fast if unset; see note below)       |
+| `MODBUS_PORT`                                 | `502`                           | Modbus TCP port                                                      |
+| `MODBUS_UNIT_ID`                              | `1`                             | Modbus unit id (unconfirmed — vendor to confirm)                     |
+| `MODBUS_POLL_INTERVAL_MS`                     | `3000`                          | poll cadence; must be `2000`–`5000` (spec: 2–5s)                     |
+| `MODBUS_TIMEOUT_MS`                           | `2000`                          | connect + request timeout (unreachable → offline within this)        |
+| `MODBUS_STALE_AFTER_MS`                       | `10000`                         | reading age -> `stale`                                               |
+| `MODBUS_OFFLINE_AFTER_MS`                     | `20000`                         | reading age -> `offline`                                             |
+| `JWT_SECRET`                                  | **required**                    | shared HS256 secret to verify `services/auth` access tokens          |
+| `JWT_ISSUER` / `JWT_AUDIENCE`                 | `munbon-auth` / `munbon-api`    | expected token issuer/audience                                       |
+| `DATABASE_URL`                                | **required**\*                  | Postgres for the durable audit log                                   |
+| `ALLOW_IN_MEMORY_AUDIT`                       | `false`                         | \*dev-only: allow a non-persistent audit sink with no `DATABASE_URL` |
+| `ALLOW_MACHINE_COMMANDS`                      | `false`                         | exact `true` enables the SCADA execution service; requires Postgres  |
+| `SCADA_SITE_CANONICAL_GATE_ID`                | unset                           | required with machine commands; binds this controller to one gate    |
+| `SCADA_APPROVED_LINEAGE_ANCHOR_PATH`          | unset                           | required with machine commands; pins approved model/engine lineage   |
+| `SCHEDULER_SERVICE_JWT_SECRET`                | unset                           | dedicated Scheduler service-token secret; unset keeps routes dark    |
+| `SCHEDULER_SERVICE_JWT_ISSUER`                | `munbon-scheduler`              | expected service-token issuer                                        |
+| `SCHEDULER_SERVICE_JWT_AUDIENCE`              | `munbon-scada-machine-boundary` | expected service-token audience                                      |
+| `COMMAND_RATE_MAX` / `COMMAND_RATE_WINDOW_MS` | `30` / `60000`                  | per-user+gate command rate limit                                     |
+
+### Operator-approved execution safety gates
+
+Physical Scheduler-driven execution is armed only when both independent keys
+are enabled: Scheduler `CONTROL_EXECUTION_MODE=operator_approved_open_loop` and
+SCADA `ALLOW_MACHINE_COMMANDS=true`. The tracked PM2 and service configuration
+keep both keys off. Scheduler also needs `SCHEDULER_SCADA_BASE_URL` and the same
+dedicated service-token secret configured on both services.
+Enabling SCADA execution also requires the local canonical gate ID and a valid
+approved-lineage anchor; missing either fails startup. Every request and token
+binds the grant ID and authority deadline, which is rechecked under the
+controller lock immediately before the first write.
+
+SCADA reserves an idempotency key in Postgres before the first Modbus write and
+persists the terminal receipt afterward. A retry that finds a reservation but
+no terminal receipt returns `execution_in_doubt`; it never repeats physical
+actuation. Recovery is an operator investigation and hold, not an automatic
+retry. A post-write readback that is not fresh is also in-doubt even when its
+cached raw level equals the target. Expired or revoked authority can authorize only the separate held-plan
+fail-safe close path, and only for the exact pre-granted zero-position close
+intent.
 
 ## Device connectivity
 

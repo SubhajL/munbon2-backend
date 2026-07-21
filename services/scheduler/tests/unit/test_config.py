@@ -13,7 +13,9 @@ def _seed_required_env(monkeypatch):
     monkeypatch.setenv("AUTH_SERVICE_URL", "http://localhost:3001")
     # PR 4.4a-1: the JWT secret must be strong and the claim policy explicit, or
     # Settings construction fails closed.
-    monkeypatch.setenv("JWT_SECRET_KEY", "strong-enough-jwt-secret-for-tests-0123456789")
+    monkeypatch.setenv(
+        "JWT_SECRET_KEY", "strong-enough-jwt-secret-for-tests-0123456789"
+    )
     monkeypatch.setenv("JWT_ISSUER", "munbon-auth-test")
     monkeypatch.setenv("JWT_AUDIENCE", "munbon-scheduler-test")
     monkeypatch.setenv("JWT_CLAIM_POLICY_MODE", "compat")
@@ -26,7 +28,9 @@ def test_database_url_normalized_to_asyncpg(monkeypatch):
     # environment so the developer .env (which carries a POSTGRES_URL) can't leak
     # in and mask the fallback path being asserted.
     monkeypatch.delenv("POSTGRES_URL", raising=False)
-    monkeypatch.setenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/postgres")
+    monkeypatch.setenv(
+        "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/postgres"
+    )
 
     s = Settings(_env_file=None)
     assert s.database_url.startswith("postgresql+asyncpg://")
@@ -41,11 +45,18 @@ def test_database_url_prefers_canonical_postgres_url_over_database_url(monkeypat
     # (the DB migrate.py + PM2 target) — never DATABASE_URL — so the service can
     # never serve a different database than migrations were applied to.
     _seed_required_env(monkeypatch)
-    monkeypatch.setenv("POSTGRES_URL", "postgresql://canon:canon@canonical-host:5432/canon_db")
-    monkeypatch.setenv("DATABASE_URL", "postgresql://other:other@stale-host:5432/stale_db")
+    monkeypatch.setenv(
+        "POSTGRES_URL", "postgresql://canon:canon@canonical-host:5432/canon_db"
+    )
+    monkeypatch.setenv(
+        "DATABASE_URL", "postgresql://other:other@stale-host:5432/stale_db"
+    )
 
     s = Settings(_env_file=None)
-    assert s.database_url == "postgresql+asyncpg://canon:canon@canonical-host:5432/canon_db"
+    assert (
+        s.database_url
+        == "postgresql+asyncpg://canon:canon@canonical-host:5432/canon_db"
+    )
     assert "stale-host" not in s.database_url
 
 
@@ -68,11 +79,25 @@ def test_shadow_dispatcher_settings_are_dark_by_default(monkeypatch):
     assert s.scheduler_service_jwt_max_age_seconds == 300
 
 
+def test_execution_mode_accepts_only_the_three_deliberate_modes(monkeypatch):
+    import pytest
+
+    _seed_required_env(monkeypatch)
+    _seed_db(monkeypatch)
+    for mode in ("disabled", "shadow", "operator_approved_open_loop"):
+        monkeypatch.setenv("CONTROL_EXECUTION_MODE", mode)
+        assert Settings(_env_file=None).control_execution_mode == mode
+    monkeypatch.setenv("CONTROL_EXECUTION_MODE", "operator_approved")
+    with pytest.raises(ValueError, match="control_execution_mode"):
+        Settings(_env_file=None)
+
+
 def test_a_strong_service_secret_is_accepted(monkeypatch):
     _seed_required_env(monkeypatch)
     _seed_db(monkeypatch)
     monkeypatch.setenv(
-        "SCHEDULER_SERVICE_JWT_SECRET", "a-strong-dedicated-service-secret-0123456789xyz"
+        "SCHEDULER_SERVICE_JWT_SECRET",
+        "a-strong-dedicated-service-secret-0123456789xyz",
     )
     s = Settings(_env_file=None)
     assert s.scheduler_service_jwt_secret.startswith("a-strong-dedicated")

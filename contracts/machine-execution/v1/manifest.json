@@ -1,0 +1,21 @@
+{
+  "manifest_version": 1,
+  "contract_family": "machine-execution",
+  "contract_version": 1,
+  "json_schema_dialect": "https://json-schema.org/draft/2020-12/schema",
+  "contract_set_sha256": "9ffba759ad08d592f714fe9203e3182f3a7c600c17668fea86a91d235a0bc3b1",
+  "schemas": [
+    {
+      "relative_path": "execution-receipt.schema.json",
+      "sha256": "6555ba37d5e7b637e539627b843da64ab806c37f90ef128dd5e84203a35fd490"
+    }
+  ],
+  "fixtures": [
+    {
+      "relative_path": "execution-receipt.example.json",
+      "schema": "execution-receipt.schema.json",
+      "expected_valid": true,
+      "sha256": "3d2d94f166d361189cc8631d3d9c01de9d134d07e8e1e034add238d8cc64a82e"
+    }
+  ]
+}

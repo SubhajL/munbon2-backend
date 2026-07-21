@@ -11,6 +11,7 @@ real-DB assertion lives in the env-gated integration suite.
 """
 
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 
@@ -160,9 +161,10 @@ class TestEvaluateControlTables:
             "control_gate_readback_observations",
             "control_authority_grants",
             "control_authority_grant_events",
+            "control_command_execution_receipts",
         }
 
-    def test_required_baseline_contains_every_migration_through_0012(self):
+    def test_required_baseline_contains_every_migration_through_0013(self):
         # A partially packaged deployment (SQL pairs missing) must fail closed.
         from core.readiness import REQUIRED_BASELINE_MIGRATION_IDS
 
@@ -180,6 +182,7 @@ class TestEvaluateControlTables:
                 "0010_shadow_dispatch_receipts",
                 "0011_gate_readback_observations",
                 "0012_authority_grants",
+                "0013_operator_approved_execution",
             }
         )
 
@@ -374,6 +377,33 @@ class TestEvaluateWorkerHealth:
 
 
 class TestReadinessWorkerGate:
+    @pytest.mark.asyncio
+    async def test_operator_approved_mode_arms_the_shared_dispatch_heartbeat(
+        self, monkeypatch
+    ):
+        import core.config
+
+        monkeypatch.setattr(
+            core.config,
+            "settings",
+            SimpleNamespace(
+                control_execution_mode="operator_approved_open_loop",
+                scheduler_scada_base_url="http://scada.local",
+                scheduler_service_jwt_secret="dedicated-secret",
+                control_worker_heartbeat_stale_seconds=180,
+                control_worker_health_gates_readiness=False,
+            ),
+        )
+        fresh = (_NOW - timedelta(seconds=5)).isoformat()
+
+        result = await check_scheduler_readiness(
+            _healthy_engine(),
+            _FakeRedis(_FakeRedisClient(pong=True), heartbeat=fresh),
+            now=_NOW,
+        )
+
+        assert result.checks["dispatch_worker"] == "ok"
+
     @pytest.mark.asyncio
     async def test_readiness_fails_when_migration_or_worker_unhealthy(self):
         # With the OPT-IN gate enabled (separate dispatch/read deployments), armed + a stale

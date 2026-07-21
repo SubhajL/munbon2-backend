@@ -43,6 +43,7 @@ EXPECTED_CONTROL_TABLES: tuple[str, ...] = (
     "control_gate_readback_observations",
     "control_authority_grants",
     "control_authority_grant_events",
+    "control_command_execution_receipts",
 )
 
 CONTROL_SCHEMA = "scheduler"
@@ -65,6 +66,7 @@ REQUIRED_BASELINE_MIGRATION_IDS: frozenset[str] = frozenset(
         "0010_shadow_dispatch_receipts",
         "0011_gate_readback_observations",
         "0012_authority_grants",
+        "0013_operator_approved_execution",
     }
 )
 
@@ -240,10 +242,12 @@ async def check_scheduler_readiness(
         from core.config import settings
 
         if worker_armed is None:
-            # Mirror the dispatcher's dark-gate EXACTLY (build_scada_validation_client): base URL
-            # alone is not "armed" — without the service secret nothing can be dispatched.
+            # Both shadow validation and operator-approved execution share the bounded
+            # dispatch tick and heartbeat. Base URL alone is not armed: without the
+            # dedicated service secret neither path can cross the SCADA boundary.
             worker_armed = (
-                settings.control_execution_mode == "shadow"
+                settings.control_execution_mode
+                in ("shadow", "operator_approved_open_loop")
                 and bool(settings.scheduler_scada_base_url)
                 and bool(settings.scheduler_service_jwt_secret)
             )
