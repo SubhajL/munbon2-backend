@@ -42,10 +42,11 @@ Keep provisioned operator credentials only in the calling process environment, t
 ```bash
 MUNBON_OPERATOR_EMAIL='operator@example.invalid' \
 MUNBON_OPERATOR_PASSWORD='replace-at-runtime' \
+MUNBON_EXPECTED_JWT_AUDIENCE='munbon-services' \
 python3 ops/control-plan-read-runtime/verify_bearer.py
 ```
 
-`verify_bearer.py` prints fixed PASS/FAIL codes only. It proves missing and malformed bearer rejection, central login, issuer/audience/type/subject/JTI/operator claims, real Scheduler and BFF v2 list reads, preserved missing-detail 404s, BFF `Cache-Control: no-store`, logout, and rejected refresh-token reuse. It never prints tokens, cookies, passwords, URLs from failures, or response bodies.
+`MUNBON_EXPECTED_JWT_AUDIENCE` is required and must exactly match the non-secret `JWT_AUDIENCE` configured for central auth and Scheduler; `munbon-services` is the current deployment contract. The verifier fails closed instead of guessing a deployment-specific audience. `verify_bearer.py` prints fixed PASS/FAIL codes only. It proves missing and malformed bearer rejection, central login, issuer/audience/type/subject/JTI/operator claims, real Scheduler and BFF v2 list reads, preserved missing-detail 404s, BFF `Cache-Control: no-store`, logout, and rejected refresh-token reuse. It never prints tokens, cookies, passwords, URLs from failures, or response bodies.
 
 ## Backout and diagnostics
 
