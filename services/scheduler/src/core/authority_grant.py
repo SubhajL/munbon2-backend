@@ -22,6 +22,7 @@ mutex; this module is EXECUTION authority.
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -360,6 +361,22 @@ def _plan_scope(record: Any) -> dict:
     return scope
 
 
+def plan_scope_document(record: Any) -> dict:
+    """Project the immutable plan requirements into the grant scope contract."""
+    scope = _plan_scope(record)
+    return {
+        "schema_version": 1,
+        "gate_paths": [
+            {
+                "section_id": section_id,
+                "canonical_gate_id": gate_id,
+                "path_reach_ids": list(path_reach_ids),
+            }
+            for (section_id, gate_id), path_reach_ids in sorted(scope.items())
+        ],
+    }
+
+
 def _max_continuous_open_seconds(record: Any) -> float:
     """The longest interval any gate stays open in the plan's schedule.
 
@@ -385,6 +402,24 @@ def _max_continuous_open_seconds(record: Any) -> float:
         if opened_at is not None:
             longest = max(longest, (record.horizon_end - opened_at).total_seconds())
     return longest
+
+
+def required_authority_envelope(record: Any) -> dict:
+    """Return the smallest dry envelope that contains the stored plan."""
+    positive_flows = [
+        float(event.source_flow_m3s)
+        for event in record.events
+        if event.source_flow_m3s > 0
+    ]
+    return {
+        "flow_lower_exclusive_m3s": 0.0,
+        "flow_upper_inclusive_m3s": max(positive_flows, default=0.0),
+        "initialization": dict(DRY_INITIALIZATION),
+        "maximum_continuous_open_seconds": max(
+            1, int(math.ceil(_max_continuous_open_seconds(record)))
+        ),
+        "maximum_intermediate_trims": record.max_intermediate_trims,
+    }
 
 
 def validate_evidence_set(
@@ -545,6 +580,17 @@ def _validate_stored_commandable_release(record: Any) -> None:
             "noncommandable_release",
             "the stored model snapshot does not authorize command execution",
         )
+
+
+def stored_release_is_commandable(record: Any) -> bool:
+    """Return false for an honest dark release; propagate stored corruption."""
+    try:
+        _validate_stored_commandable_release(record)
+    except AuthorityEvidenceError as error:
+        if error.reason == "noncommandable_release":
+            return False
+        raise
+    return True
 
 
 def validate_authority_evidence(

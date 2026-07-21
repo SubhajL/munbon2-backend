@@ -126,6 +126,24 @@ OBSERVATIONAL ONLY — never an authorization source. 7.2 obligation
 (documented): a safe-close after expiry/revocation needs its own separately
 authorized fail-safe path — do NOT bolt a bypass onto the grant predicate.
 
+## Operator authority controls (PR 7.1b)
+
+The Scheduler is the resource-server enforcement boundary for every operator
+mutation. `approve-for-shadow`, `activate`, `hold`, `resume`, grant, renew, and
+revoke require the byte-exact phrase from `core.operator_confirmation` in
+`X-Operator-Confirmation`. Positive actions additionally verify
+`X-Operator-Step-Up-Code` directly with Auth and atomically consume that
+subject/code pair in Redis for 120 seconds; the same TOTP cannot authorize a
+second action in its validity window. Replay-store failure is fail-closed.
+`activate`, `resume`, grant, and renew also require live SCADA health plus an exact device-capability
+release/hash match with Scheduler startup configuration. Hold and revoke never
+call Auth or SCADA after confirmation, preserving the safety brake during an
+outage. `/authority-grants/applicability` is a read-only stored-truth
+projection; it accepts no evidence from the caller and integrity-checks the
+stored command-intent batch before reporting grantability. No 7.1b route writes a
+machine command, and tracked noncommandable/empty-capability configuration
+keeps authority dark.
+
 ## Gotchas / Watch-outs (PR 4.2 audit — foundation repaired, features NOT)
 - **Removed as generation-drifted (2026-07-17)**: unit suites for MixedIntegerOptimizer +
   RealTimeAdapter (tested nonexistent APIs) and the 3 integration API suites (fake bearer

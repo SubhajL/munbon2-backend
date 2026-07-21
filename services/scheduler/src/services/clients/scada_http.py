@@ -13,21 +13,28 @@ import httpx
 SCADA_TIMEOUT = httpx.Timeout(30.0, connect=5.0)
 
 
-def require_hostonly_base_url(base_url: str) -> str:
-    """Reject a base URL that carries any path/query/fragment/userinfo — defense-in-depth so a
-    misconfigured base can never smuggle an operator/execute path into ``{base}{path}``, nor ship
-    the bearer SERVICE TOKEN to a userinfo-decoded host."""
+def require_hostonly_http_base_url(base_url: str, service_name: str) -> str:
+    """Return an absolute host-only HTTP URL for a fixed-path service client."""
     trimmed = base_url.rstrip("/")
     parsed = urlparse(trimmed)
-    if not parsed.scheme or not parsed.netloc:
-        raise ValueError(f"SCADA base URL must be an absolute http(s) URL: {base_url!r}")
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError(
+            f"{service_name} base URL must be an absolute http(s) URL: {base_url!r}"
+        )
     if parsed.path not in ("", "/"):
         raise ValueError(
-            f"SCADA base URL must carry no path (got path {parsed.path!r}); the client "
+            f"{service_name} base URL must carry no path (got path {parsed.path!r}); the client "
             "appends only its fixed endpoint path"
         )
     if parsed.query or parsed.fragment:
-        raise ValueError("SCADA base URL must carry no query or fragment")
+        raise ValueError(f"{service_name} base URL must carry no query or fragment")
     if parsed.username or parsed.password:
-        raise ValueError("SCADA base URL must not embed userinfo (credentials)")
+        raise ValueError(
+            f"{service_name} base URL must not embed userinfo (credentials)"
+        )
     return trimmed
+
+
+def require_hostonly_base_url(base_url: str) -> str:
+    """Backwards-compatible SCADA-specific name used by machine clients."""
+    return require_hostonly_http_base_url(base_url, "SCADA")

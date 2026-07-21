@@ -25,6 +25,7 @@ from core.authority_grant import (
     EVENT_RENEWED,
     EVENT_REVOKED,
     STATUS_ACTIVE,
+    AuthorityEvidenceCorruptError,
     AuthorityEvidenceError,
     AuthorityGrantCandidate,
     AuthorityHistoryCorruptError,
@@ -33,8 +34,12 @@ from core.authority_grant import (
     derive_authority_grant_status,
     grant_content_sha256,
     intent_set_sha256,
+    plan_scope_document,
+    required_authority_envelope,
+    stored_release_is_commandable,
     validate_authority_evidence,
     validate_evidence_set,
+    verify_command_intent_row,
     verify_execution_authority,
 )
 from core.canonical_json import canonicalize, sha256_hex
@@ -206,6 +211,97 @@ class AuthorityGrantService:
             intents=context.outbox_intents,
         )
         verify_execution_authority(grant_stub, [birth], execution_context, now=now)
+
+    async def get_authority_applicability(
+        self, session, plan_id: UUID, plan_version: int
+    ) -> dict:
+        """Project all server-owned evidence that determines grant readiness."""
+        context = await self._load_context(session, plan_id, plan_version)
+        record = context.record
+        snapshot = context.snapshot
+        try:
+            verified_intents = tuple(
+                verify_command_intent_row(row) for row in context.outbox_intents
+            )
+            sequences = [intent.event_sequence for intent in verified_intents]
+            if sequences != sorted(sequences) or len(sequences) != len(set(sequences)):
+                raise ValueError("intent event sequences are not strictly ordered")
+            for intent in verified_intents:
+                lineage = intent.lineage
+                if (
+                    lineage.plan_id != str(record.plan_id)
+                    or lineage.plan_version != record.plan_version
+                    or lineage.model_release_id != record.model_release_id
+                    or lineage.model_release_content_hash
+                    != record.model_release_content_hash
+                    or lineage.engine_descriptor_content_hash
+                    != record.engine_descriptor_content_hash
+                ):
+                    raise ValueError("intent lineage does not match its plan")
+        except (AttributeError, TypeError, ValueError) as error:
+            raise AuthorityEvidenceCorruptError(
+                "stored command-intent evidence is corrupt"
+            ) from error
+        commandable = stored_release_is_commandable(record)
+        capability_configured = bool(snapshot.capabilities)
+        capability_matches_outbox = bool(verified_intents) and all(
+            intent.capability_release_id == snapshot.capability_release_id
+            and intent.capability_hash == snapshot.capability_hash
+            for intent in verified_intents
+        )
+        scope = plan_scope_document(record)
+        scope_gates = {entry["canonical_gate_id"] for entry in scope["gate_paths"]}
+        receipt_coverage_complete = context.outbox_intent_count > 0 and (
+            context.accepted_receipt_intent_count == context.outbox_intent_count
+            and context.matching_receipt_intent_count == context.outbox_intent_count
+        )
+        existing = await self.get_authority_grant_for_plan(
+            session, plan_id, plan_version
+        )
+        blockers = []
+        if context.derived_lifecycle_state != "shadow_active":
+            blockers.append("plan_not_shadow_active")
+        if not commandable:
+            blockers.append("noncommandable_release")
+        if not capability_configured:
+            blockers.append("capability_unconfigured")
+        if not capability_matches_outbox:
+            blockers.append("capability_stale")
+        if not scope_gates or not scope_gates.issubset(snapshot.capabilities):
+            blockers.append("scope_unapproved_gate")
+        if not receipt_coverage_complete:
+            blockers.append("receipt_coverage_incomplete")
+        envelope = required_authority_envelope(record)
+        if envelope["flow_upper_inclusive_m3s"] <= 0:
+            blockers.append("plan_envelope_empty")
+        if existing is not None:
+            blockers.append("grant_already_exists")
+        return {
+            "plan_id": record.plan_id,
+            "plan_version": record.plan_version,
+            "evaluated_at": self._clock(),
+            "lifecycle_state": context.derived_lifecycle_state,
+            "model_release_id": record.model_release_id,
+            "model_release_content_hash": record.model_release_content_hash,
+            "engine_descriptor_content_hash": record.engine_descriptor_content_hash,
+            "model_release_commandable": commandable,
+            "capability_release_id": snapshot.capability_release_id,
+            "capability_hash": snapshot.capability_hash,
+            "capability_configured": capability_configured,
+            "capability_matches_outbox": capability_matches_outbox,
+            "scope": scope,
+            **envelope,
+            "outbox_intent_count": context.outbox_intent_count,
+            "accepted_receipt_intent_count": (context.accepted_receipt_intent_count),
+            "matching_receipt_intent_count": context.matching_receipt_intent_count,
+            "receipt_coverage_complete": receipt_coverage_complete,
+            "existing_grant_status": None if existing is None else existing.status,
+            "existing_grant_id": (
+                None if existing is None else existing.grant.grant_id
+            ),
+            "blockers": tuple(blockers),
+            "can_grant": not blockers,
+        }
 
     async def review_authority_grant(
         self, session, candidate: AuthorityGrantCandidate

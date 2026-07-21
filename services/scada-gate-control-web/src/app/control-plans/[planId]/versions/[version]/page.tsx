@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { usePolling } from "@/hooks/usePolling";
 import { useAuth } from "@/components/AuthProvider";
@@ -9,9 +9,25 @@ import {
   ControlPlanDetail,
   type ControlPlanDetailData,
 } from "@/components/ControlPlanDetail";
-import { createControlPlansClient } from "@/lib/control-plans-api";
+import {
+  ControlAuthorityPanel,
+} from "@/components/ControlAuthorityPanel";
+import type { AuthorityActionSubmission } from "@/components/AuthorityActionDialog";
+import {
+  createControlAuthorityClient,
+} from "@/lib/control-authority-api";
+import type { ControlAuthorityDashboard } from "@/lib/control-authority-proxy";
+import {
+  createControlPlansClient,
+  type ExecutionState,
+} from "@/lib/control-plans-api";
 
 const POLL_MS = 5000;
+type PlanProjectionData = Omit<ControlPlanDetailData, "executionState">;
+type AuthorityProjectionData = {
+  authority: ControlAuthorityDashboard;
+  executionState: ExecutionState;
+};
 
 export default function ControlPlanDetailPage() {
   const params = useParams<{ planId: string; version: string }>();
@@ -26,21 +42,24 @@ export default function ControlPlanDetailPage() {
 }
 
 function DetailContent({ planId, version }: { planId: string; version: number }) {
-  const { getToken, refresh } = useAuth();
+  const { getToken, refresh, session } = useAuth();
+  const [mutationPending, setMutationPending] = useState(false);
+  const [mutationError, setMutationError] = useState<string | null>(null);
   const client = useMemo(
     () => createControlPlansClient({ getToken, onUnauthorized: refresh }),
     [getToken, refresh],
   );
+  const authorityClient = useMemo(
+    () => createControlAuthorityClient({ getToken, onUnauthorized: refresh }),
+    [getToken, refresh],
+  );
 
-  const poll = usePolling<ControlPlanDetailData>(async () => {
-    // All five reads key on the same plan-existence check, so they succeed or 404 TOGETHER —
-    // a single-read 404 for an existing plan is unreachable, so Promise.all is correct here.
-    const [history, coverage, timeline, observations, executionState] = await Promise.all([
+  const planPoll = usePolling<PlanProjectionData>(async () => {
+    const [history, coverage, timeline, observations] = await Promise.all([
       client.getLifecycleHistory(planId, version),
       client.getPredictionCoverage(planId, version),
       client.getIntentTimeline(planId, version),
       client.getReadbackObservations(planId, version),
-      client.getExecutionState(planId, version),
     ]);
     return {
       planId,
@@ -49,9 +68,33 @@ function DetailContent({ planId, version }: { planId: string; version: number })
       coverage,
       timeline,
       observations,
-      executionState,
     };
   }, POLL_MS, Number.isFinite(version));
+  const authorityPoll = usePolling<AuthorityProjectionData>(async () => {
+    const [authority, executionState] = await Promise.all([
+      authorityClient.read(planId, version),
+      client.getExecutionState(planId, version),
+    ]);
+    return { authority, executionState };
+  }, POLL_MS, Number.isFinite(version));
+
+  const handleAction = async (submission: AuthorityActionSubmission): Promise<void> => {
+    setMutationPending(true);
+    setMutationError(null);
+    try {
+      await authorityClient.mutate(
+        submission.mutation,
+        submission.confirmation,
+        submission.stepUpCode,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Authority action failed";
+      setMutationError(message);
+      throw error;
+    } finally {
+      setMutationPending(false);
+    }
+  };
 
   return (
     <main className="p-4">
@@ -61,21 +104,49 @@ function DetailContent({ planId, version }: { planId: string; version: number })
           Invalid plan version.
         </p>
       )}
-      {poll.error && (
+      {planPoll.error && (
         <p role="alert" className="mt-1 text-sm" style={{ color: "var(--color-offline)" }}>
-          {poll.data
+          {planPoll.data
             ? "Last refresh failed — the figures below may be STALE."
-            : `Failed to load shadow plan: ${poll.error.message}`}
+            : `Failed to load shadow plan: ${planPoll.error.message}`}
         </p>
       )}
-      {poll.loading && !poll.data && (
+      {authorityPoll.error && !authorityPoll.data && (
+        <p role="alert" className="mt-1 text-sm" style={{ color: "var(--color-offline)" }}>
+          Failed to load execution authority: {authorityPoll.error.message}
+        </p>
+      )}
+      {planPoll.loading && !planPoll.data && (
         <p role="status" className="mt-1 text-sm text-fg-muted">
           Loading shadow plan…
         </p>
       )}
-      {poll.data && (
-        <div className="mt-3" aria-busy={poll.error ? true : undefined} data-stale={poll.error ? "true" : undefined}>
-          <ControlPlanDetail data={poll.data} stale={poll.error !== null} />
+      {planPoll.data && authorityPoll.data && (
+        <div
+          className="mt-3"
+          aria-busy={planPoll.error || authorityPoll.error ? true : undefined}
+          data-stale={planPoll.error || authorityPoll.error ? "true" : undefined}
+        >
+          <ControlPlanDetail
+            data={{
+              ...planPoll.data,
+              executionState: authorityPoll.data.executionState,
+            }}
+            stale={planPoll.error !== null || authorityPoll.error !== null}
+          />
+        </div>
+      )}
+      {authorityPoll.data && (
+        <div className="mt-4">
+          <ControlAuthorityPanel
+            dashboard={authorityPoll.data.authority}
+            role={session?.user.role ?? "viewer"}
+            isHeld={authorityPoll.data.executionState.is_held}
+            stale={authorityPoll.error !== null}
+            pending={mutationPending}
+            error={mutationError}
+            onAction={handleAction}
+          />
         </div>
       )}
     </main>

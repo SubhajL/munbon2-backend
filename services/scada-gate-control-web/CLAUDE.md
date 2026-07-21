@@ -28,6 +28,14 @@ Vitest (`npm test`). Add colocated tests alongside components/routes.
 
 ## Integration
 - Talks to `scada-gate-control` REST API (`/api/gates/:id/status`, `/command-level`, `/horn`) and `services/auth` (login → JWT used against the backend).
+- The plan authority panel talks only to the same-origin `/api/control-authority`
+  route. That server route reads Scheduler applicability/grants and SCADA
+  health/capability evidence via fixed paths. It never calls a SCADA command
+  endpoint. Scheduler, not the web proxy, re-enforces confirmation, TOTP, RBAC,
+  lifecycle state, and live capability matching.
+- `SCHEDULER_URL` and `SCADA_GATE_CONTROL_URL` are server-only host origins.
+  Grant/renew/activate/resume fail closed on SCADA evidence; hold/revoke do not
+  depend on Auth step-up or SCADA after exact confirmation.
 
 ## Gotchas / Watch-outs
 - Next.js 16 + React 19 — **verify APIs against `node_modules/next/dist/docs/`**, don't assume older-Next behavior (async params, caching defaults, etc.).

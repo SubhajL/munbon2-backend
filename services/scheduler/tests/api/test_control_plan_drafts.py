@@ -2,6 +2,7 @@
 
 import json
 from functools import partial
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 from fastapi import FastAPI
@@ -12,12 +13,17 @@ from algorithms.hydraulic_schedule_optimizer import (
 )
 from api.middleware.request_id import RequestIDMiddleware
 from api.v1.endpoints import control_plans
+from api.v1.operator_controls import (
+    get_auth_step_up_client,
+    get_scada_operator_client,
+)
 from core import deps
-from core.deps import get_current_user, get_db
+from core.deps import get_current_user, get_db, get_redis
 from services.clients.control_client_errors import (
     UpstreamContractViolation,
     UpstreamUnavailableError,
 )
+from services.clients.auth_step_up_client import StepUpUnavailableError
 from services.control_plan_service import ControlPlanDraftService
 from services.control_plan_lifecycle_service import (
     ControlPlanLifecycleService,
@@ -45,8 +51,57 @@ _SUPERVISOR = {
 _APPROVAL_BODY = {"reason": "coverage verified", "evidence_refs": ["ticket-77"]}
 
 
-def _build_app(flow=None, repository=None, user=None):
+class _StepUpClient:
+    def __init__(self, error=None):
+        self.error = error
+        self.calls = []
+
+    async def verify_step_up(self, access_token, code):
+        self.calls.append((access_token, code))
+        if self.error is not None:
+            raise self.error
+
+
+class _ScadaClient:
+    def __init__(self, snapshot, error=None):
+        self.snapshot = snapshot
+        self.error = error
+        self.calls = []
+
+    async def is_healthy(self):
+        self.calls.append("health")
+        if self.error is not None:
+            raise self.error
+        return True
+
+    async def get_device_capabilities(self, access_token):
+        self.calls.append(("capabilities", access_token))
+        if self.error is not None:
+            raise self.error
+        return self.snapshot
+
+
+class _ReplayStore:
+    def __init__(self):
+        self.keys = set()
+
+    async def set_if_absent(self, key, value, *, expire):
+        if key in self.keys:
+            return False
+        self.keys.add(key)
+        return True
+
+
+def _build_app(
+    flow=None,
+    repository=None,
+    user=None,
+    *,
+    step_up_client=None,
+    scada_client=None,
+):
     app = FastAPI()
+    replay_store = _ReplayStore()
     app.add_middleware(RequestIDMiddleware)
     app.include_router(control_plans.router, prefix="/api/v1/control-plans")
     app.state.optimize_limited_adjustment_plan = partial(
@@ -55,10 +110,9 @@ def _build_app(flow=None, repository=None, user=None):
         max_intermediate_trims=1,
         solver_timeout_seconds=60,
     )
+    app.state.device_capability_snapshot = None
     repository = repository if repository is not None else FakeRepository()
-    flow = flow if flow is not None else FakeControlFlowClient(
-        snapshot_mirror()
-    )
+    flow = flow if flow is not None else FakeControlFlowClient(snapshot_mirror())
 
     async def run_blocking(func, *args, **kwargs):
         return func(*args, **kwargs)
@@ -81,18 +135,19 @@ def _build_app(flow=None, repository=None, user=None):
     def override_lifecycle():
         return ControlPlanLifecycleService(repository=repository)
 
-    app.dependency_overrides[
-        control_plans.get_control_plan_service
-    ] = override_service
-    app.dependency_overrides[
-        control_plans.get_lifecycle_service
-    ] = override_lifecycle
+    app.dependency_overrides[control_plans.get_control_plan_service] = override_service
+    app.dependency_overrides[control_plans.get_lifecycle_service] = override_lifecycle
     # The bounded ledger/coverage/history reads go through the projection
     # repository; back it with the SAME in-memory records the draft POST stores.
     app.dependency_overrides[
         control_plans.get_control_plan_projection_repository
     ] = lambda: FakeReadProjectionRepository(repository)
     app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_redis] = lambda: replay_store
+    app.dependency_overrides[get_auth_step_up_client] = lambda: (
+        step_up_client or _StepUpClient()
+    )
+    app.dependency_overrides[get_scada_operator_client] = lambda: scada_client
     app.dependency_overrides[get_current_user] = lambda: (
         user
         if user is not None
@@ -101,6 +156,14 @@ def _build_app(flow=None, repository=None, user=None):
         else {"sub": "operator-1", "roles": ["admin"]}
     )
     return app, repository
+
+
+def _positive_headers(action, identity, version):
+    return {
+        "Authorization": "Bearer operator-access-token",
+        "X-Operator-Confirmation": f"{action.upper()} {identity} v{version}",
+        "X-Operator-Step-Up-Code": "123456",
+    }
 
 
 def _as_user(app, user):
@@ -112,13 +175,9 @@ class TestAuth:
         app, _ = _build_app()
         del app.dependency_overrides[get_current_user]
         client = TestClient(app)
-        response = client.post(
-            "/api/v1/control-plans/drafts", json=draft_payload()
-        )
+        response = client.post("/api/v1/control-plans/drafts", json=draft_payload())
         assert response.status_code == 403  # HTTPBearer: no credentials
-        response = client.get(
-            f"/api/v1/control-plans/{uuid4()}/versions/1"
-        )
+        response = client.get(f"/api/v1/control-plans/{uuid4()}/versions/1")
         assert response.status_code == 403
 
     def test_token_without_subject_is_401(self):
@@ -127,9 +186,7 @@ class TestAuth:
         # _actor_subject check must still reject it as 401.
         app.dependency_overrides[get_current_user] = lambda: {"roles": ["admin"]}
         client = TestClient(app)
-        response = client.post(
-            "/api/v1/control-plans/drafts", json=draft_payload()
-        )
+        response = client.post("/api/v1/control-plans/drafts", json=draft_payload())
         assert response.status_code == 401
 
 
@@ -138,9 +195,7 @@ class TestDraftRoundtrip:
         app, _ = _build_app()
         client = TestClient(app)
 
-        created = client.post(
-            "/api/v1/control-plans/drafts", json=draft_payload()
-        )
+        created = client.post("/api/v1/control-plans/drafts", json=draft_payload())
         assert created.status_code == 201, created.text
         assert created.headers["Idempotent-Replay"] == "false"
         body = created.json()
@@ -152,25 +207,19 @@ class TestDraftRoundtrip:
         assert body["requirements"][0]["planning_disposition"] == "scheduled"
         assert body["events"], "feasible draft must expose gate events"
 
-        replayed = client.post(
-            "/api/v1/control-plans/drafts", json=draft_payload()
-        )
+        replayed = client.post("/api/v1/control-plans/drafts", json=draft_payload())
         assert replayed.status_code == 200
         assert replayed.headers["Idempotent-Replay"] == "true"
         assert replayed.json()["plan_id"] == body["plan_id"]
 
-        fetched = client.get(
-            f"/api/v1/control-plans/{body['plan_id']}/versions/1"
-        )
+        fetched = client.get(f"/api/v1/control-plans/{body['plan_id']}/versions/1")
         assert fetched.status_code == 200
         assert fetched.json() == body
 
     def test_unknown_plan_version_is_404(self):
         app, _ = _build_app()
         client = TestClient(app)
-        response = client.get(
-            f"/api/v1/control-plans/{uuid4()}/versions/1"
-        )
+        response = client.get(f"/api/v1/control-plans/{uuid4()}/versions/1")
         assert response.status_code == 404
 
     def test_unknown_request_field_is_422(self):
@@ -189,9 +238,7 @@ class TestDraftRoundtrip:
         )
         app, repository = _build_app(flow=flow)
         client = TestClient(app)
-        response = client.post(
-            "/api/v1/control-plans/drafts", json=draft_payload()
-        )
+        response = client.post("/api/v1/control-plans/drafts", json=draft_payload())
         assert response.status_code == 503
         assert repository.by_input_hash == {}
 
@@ -200,9 +247,7 @@ class TestDraftRoundtrip:
         client = TestClient(app)
         payload = draft_payload()
         payload["section_bindings"] = []
-        response = client.post(
-            "/api/v1/control-plans/drafts", json=payload
-        )
+        response = client.post("/api/v1/control-plans/drafts", json=payload)
         assert response.status_code == 422
         assert "binding" in response.json()["detail"]
 
@@ -213,9 +258,7 @@ class TestDraftRoundtrip:
         )
         app, repository = _build_app(flow=flow)
         client = TestClient(app)
-        response = client.post(
-            "/api/v1/control-plans/drafts", json=draft_payload()
-        )
+        response = client.post("/api/v1/control-plans/drafts", json=draft_payload())
         assert response.status_code == 502
         assert repository.by_input_hash == {}
 
@@ -224,9 +267,7 @@ class TestDraftRoundtrip:
         client = TestClient(app)
         payload = draft_payload()
         payload["branch_allocations"] = []
-        response = client.post(
-            "/api/v1/control-plans/drafts", json=payload
-        )
+        response = client.post("/api/v1/control-plans/drafts", json=payload)
         assert response.status_code == 422
 
 
@@ -234,15 +275,11 @@ class TestLedgerEndpoint:
     def test_ledger_returns_entries_bounds_and_lineage(self):
         app, _ = _build_app()
         client = TestClient(app)
-        created = client.post(
-            "/api/v1/control-plans/drafts", json=draft_payload()
-        )
+        created = client.post("/api/v1/control-plans/drafts", json=draft_payload())
         assert created.status_code == 201, created.text
         plan_id = created.json()["plan_id"]
 
-        ledger = client.get(
-            f"/api/v1/control-plans/{plan_id}/versions/1/ledger"
-        )
+        ledger = client.get(f"/api/v1/control-plans/{plan_id}/versions/1/ledger")
         assert ledger.status_code == 200, ledger.text
         body = ledger.json()
         assert body["plan_id"] == plan_id
@@ -266,25 +303,19 @@ class TestLedgerEndpoint:
         app, _ = _build_app()
         del app.dependency_overrides[get_current_user]
         client = TestClient(app)
-        response = client.get(
-            f"/api/v1/control-plans/{uuid4()}/versions/1/ledger"
-        )
+        response = client.get(f"/api/v1/control-plans/{uuid4()}/versions/1/ledger")
         assert response.status_code == 403
 
     def test_ledger_unknown_plan_is_404(self):
         app, _ = _build_app()
         client = TestClient(app)
-        response = client.get(
-            f"/api/v1/control-plans/{uuid4()}/versions/1/ledger"
-        )
+        response = client.get(f"/api/v1/control-plans/{uuid4()}/versions/1/ledger")
         assert response.status_code == 404
 
 
 class TestLifecycleEndpoints:
     def _create(self, client):
-        created = client.post(
-            "/api/v1/control-plans/drafts", json=draft_payload()
-        )
+        created = client.post("/api/v1/control-plans/drafts", json=draft_payload())
         assert created.status_code == 201, created.text
         return created.json()["plan_id"]
 
@@ -299,7 +330,11 @@ class TestLifecycleEndpoints:
         assert review.status_code == 200, review.text
         assert review.json()["lifecycle_state"] == "under_review"
 
-        approve = client.post(f"{base}/approve-for-shadow", json=_APPROVAL_BODY)
+        approve = client.post(
+            f"{base}/approve-for-shadow",
+            json=_APPROVAL_BODY,
+            headers=_positive_headers("approve-shadow", plan_id, 1),
+        )
         assert approve.status_code == 200, approve.text
         body = approve.json()
         assert body["lifecycle_state"] == "approved_for_shadow"
@@ -310,9 +345,7 @@ class TestLifecycleEndpoints:
         )
         assert document["schema_version"] == 2
         assert document["lineage_freeze"]["machine_authority_granted"] is False
-        assert document["authorization_evidence"]["claim_policy_mode"] == (
-            "strict"
-        )
+        assert document["authorization_evidence"]["claim_policy_mode"] == ("strict")
 
     def test_approve_without_review_is_409(self, monkeypatch):
         monkeypatch.setattr(deps.settings, "jwt_claim_policy_mode", "strict")
@@ -322,6 +355,7 @@ class TestLifecycleEndpoints:
         response = client.post(
             f"/api/v1/control-plans/{plan_id}/versions/1/approve-for-shadow",
             json=_APPROVAL_BODY,
+            headers=_positive_headers("approve-shadow", plan_id, 1),
         )
         assert response.status_code == 409
 
@@ -342,15 +376,17 @@ class TestLifecycleEndpoints:
 
     def test_coverage_rejection_maps_to_409(self, monkeypatch):
         monkeypatch.setattr(deps.settings, "jwt_claim_policy_mode", "strict")
-        flow = FakeControlFlowClient(
-            snapshot_mirror(), infeasible_members={"lower"}
-        )
+        flow = FakeControlFlowClient(snapshot_mirror(), infeasible_members={"lower"})
         app, _ = _build_app(flow=flow, user=_SUPERVISOR)
         client = TestClient(app)
         plan_id = self._create(client)
         base = f"/api/v1/control-plans/{plan_id}/versions/1"
         assert client.post(f"{base}/review", json={}).status_code == 200
-        approve = client.post(f"{base}/approve-for-shadow", json=_APPROVAL_BODY)
+        approve = client.post(
+            f"{base}/approve-for-shadow",
+            json=_APPROVAL_BODY,
+            headers=_positive_headers("approve-shadow", plan_id, 1),
+        )
         assert approve.status_code == 409
 
     def test_lifecycle_routes_require_auth(self):
@@ -367,10 +403,77 @@ class TestLifecycleEndpoints:
     def test_unknown_plan_is_404(self):
         app, _ = _build_app()
         client = TestClient(app)
-        r = client.post(
-            f"/api/v1/control-plans/{uuid4()}/versions/1/review", json={}
-        )
+        r = client.post(f"/api/v1/control-plans/{uuid4()}/versions/1/review", json={})
         assert r.status_code == 404
+
+
+class TestHoldAndResumeGuards:
+    class _OpenLoop:
+        def __init__(self):
+            self.calls = []
+
+        async def hold_control_plan(self, db, plan_id, plan_version, actor, reason):
+            self.calls.append(("hold", plan_id, plan_version, actor, reason))
+
+        async def resume_control_plan(self, db, plan_id, plan_version, actor, reason):
+            self.calls.append(("resume", plan_id, plan_version, actor, reason))
+
+    def test_hold_is_confirmation_only_and_remains_available(self):
+        app, _ = _build_app(user=_SUPERVISOR)
+        service = self._OpenLoop()
+        app.dependency_overrides[control_plans.get_open_loop_service] = lambda: service
+        client = TestClient(app)
+        plan_id = uuid4()
+        url = f"/api/v1/control-plans/{plan_id}/versions/2/hold"
+
+        missing = client.post(url, json={"reason": "safety stop"})
+        held = client.post(
+            url,
+            json={"reason": "safety stop"},
+            headers={"X-Operator-Confirmation": f"HOLD {plan_id} v2"},
+        )
+
+        assert missing.status_code == 400
+        assert held.status_code == 200
+        assert service.calls == [
+            ("hold", plan_id, 2, _SUPERVISOR["sub"], "safety stop")
+        ]
+
+    def test_resume_requires_totp_and_matching_live_scada(self):
+        snapshot = SimpleNamespace(
+            capability_release_id="release-1",
+            capability_hash="c" * 64,
+            capabilities={"G1": object()},
+        )
+        step_up = _StepUpClient()
+        scada = _ScadaClient(snapshot)
+        app, _ = _build_app(
+            user=_SUPERVISOR,
+            step_up_client=step_up,
+            scada_client=scada,
+        )
+        app.state.device_capability_snapshot = snapshot
+        service = self._OpenLoop()
+        app.dependency_overrides[control_plans.get_open_loop_service] = lambda: service
+        client = TestClient(app)
+        plan_id = uuid4()
+        url = f"/api/v1/control-plans/{plan_id}/versions/2/resume"
+
+        resumed = client.post(
+            url,
+            json={"reason": "checks restored"},
+            headers=_positive_headers("resume", plan_id, 2),
+        )
+
+        assert resumed.status_code == 200
+        assert step_up.calls == [("operator-access-token", "123456")]
+        assert scada.calls == [
+            "health",
+            ("capabilities", "operator-access-token"),
+        ]
+        assert service.calls == [
+            ("resume", plan_id, 2, _SUPERVISOR["sub"], "checks restored")
+        ]
 
 
 class TestRbacMatrix:
@@ -378,9 +481,7 @@ class TestRbacMatrix:
     a present-but-insufficient role is 403; role-less is 403)."""
 
     def _draft(self, client):
-        created = client.post(
-            "/api/v1/control-plans/drafts", json=draft_payload()
-        )
+        created = client.post("/api/v1/control-plans/drafts", json=draft_payload())
         assert created.status_code == 201, created.text
         return created.json()["plan_id"]
 
@@ -396,20 +497,24 @@ class TestRbacMatrix:
         # ... but an operator cannot drive any supervisor-gated action.
         _as_user(app, _OPERATOR)
         assert client.post(f"{base}/review", json={}).status_code == 403
-        assert client.post(
-            f"{base}/approve-for-shadow", json=_APPROVAL_BODY
-        ).status_code == 403
-        assert client.post(
-            f"{base}/invalidate", json={"reason": "x"}
-        ).status_code == 403
-        assert client.post(
-            f"{base}/supersede",
-            json={
-                "successor_plan_id": str(uuid4()),
-                "successor_plan_version": 1,
-                "reason": "roll",
-            },
-        ).status_code == 403
+        assert (
+            client.post(f"{base}/approve-for-shadow", json=_APPROVAL_BODY).status_code
+            == 403
+        )
+        assert (
+            client.post(f"{base}/invalidate", json={"reason": "x"}).status_code == 403
+        )
+        assert (
+            client.post(
+                f"{base}/supersede",
+                json={
+                    "successor_plan_id": str(uuid4()),
+                    "successor_plan_version": 1,
+                    "reason": "roll",
+                },
+            ).status_code
+            == 403
+        )
 
         # A field_team token (present but too low) cannot even read a draft.
         _as_user(app, {"sub": "ft-1", "roles": ["field_team"]})
@@ -426,25 +531,59 @@ class TestRbacMatrix:
         plan_id = self._draft(client)
         base = f"/api/v1/control-plans/{plan_id}/versions/1"
         # invalidate is supervisor-gated: an operator is 403.
-        assert client.post(
-            f"{base}/invalidate", json={"reason": "x"}
-        ).status_code == 403
+        assert (
+            client.post(f"{base}/invalidate", json={"reason": "x"}).status_code == 403
+        )
         # cancel is operator-gated (per the RBAC matrix): an operator succeeds.
-        assert client.post(
-            f"{base}/cancel", json={"reason": "withdraw"}
-        ).status_code == 200
+        assert (
+            client.post(f"{base}/cancel", json={"reason": "withdraw"}).status_code
+            == 200
+        )
 
 
 class TestApproveForShadowStrictPolicy:
     def _reviewed_plan(self, client):
-        created = client.post(
-            "/api/v1/control-plans/drafts", json=draft_payload()
-        )
+        created = client.post("/api/v1/control-plans/drafts", json=draft_payload())
         assert created.status_code == 201, created.text
         plan_id = created.json()["plan_id"]
         base = f"/api/v1/control-plans/{plan_id}/versions/1"
         assert client.post(f"{base}/review", json={}).status_code == 200
         return base
+
+    def test_scheduler_enforces_exact_confirmation_and_totp(self, monkeypatch):
+        monkeypatch.setattr(deps.settings, "jwt_claim_policy_mode", "strict")
+        step_up = _StepUpClient()
+        app, _ = _build_app(user=_SUPERVISOR, step_up_client=step_up)
+        client = TestClient(app)
+        base = self._reviewed_plan(client)
+        plan_id = base.split("/")[-3]
+
+        missing = client.post(f"{base}/approve-for-shadow", json=_APPROVAL_BODY)
+        approved = client.post(
+            f"{base}/approve-for-shadow",
+            json=_APPROVAL_BODY,
+            headers=_positive_headers("approve-shadow", plan_id, 1),
+        )
+
+        assert missing.status_code == 400
+        assert approved.status_code == 200
+        assert step_up.calls == [("operator-access-token", "123456")]
+
+    def test_scheduler_fails_closed_when_totp_is_unavailable(self, monkeypatch):
+        monkeypatch.setattr(deps.settings, "jwt_claim_policy_mode", "strict")
+        step_up = _StepUpClient(StepUpUnavailableError("auth down"))
+        app, _ = _build_app(user=_SUPERVISOR, step_up_client=step_up)
+        client = TestClient(app)
+        base = self._reviewed_plan(client)
+        plan_id = base.split("/")[-3]
+
+        response = client.post(
+            f"{base}/approve-for-shadow",
+            json=_APPROVAL_BODY,
+            headers=_positive_headers("approve-shadow", plan_id, 1),
+        )
+
+        assert response.status_code == 503
 
     def test_approve_for_shadow_requires_strict_policy(self, monkeypatch):
         app, _ = _build_app(user=_SUPERVISOR)
@@ -459,13 +598,16 @@ class TestApproveForShadowStrictPolicy:
 
         # Strict: the guard opens and the approval proceeds.
         monkeypatch.setattr(deps.settings, "jwt_claim_policy_mode", "strict")
-        strict = client.post(f"{base}/approve-for-shadow", json=_APPROVAL_BODY)
+        plan_id = base.split("/")[-3]
+        strict = client.post(
+            f"{base}/approve-for-shadow",
+            json=_APPROVAL_BODY,
+            headers=_positive_headers("approve-shadow", plan_id, 1),
+        )
         assert strict.status_code == 200, strict.text
         assert strict.json()["lifecycle_state"] == "approved_for_shadow"
 
-    def test_approve_for_shadow_requires_reason_and_evidence_refs(
-        self, monkeypatch
-    ):
+    def test_approve_for_shadow_requires_reason_and_evidence_refs(self, monkeypatch):
         monkeypatch.setattr(deps.settings, "jwt_claim_policy_mode", "strict")
         app, _ = _build_app(user=_SUPERVISOR)
         client = TestClient(app)
@@ -486,9 +628,7 @@ class TestApproveForShadowStrictPolicy:
         )
         assert blank_ref.status_code == 422
 
-    def test_approve_for_shadow_caps_reason_and_evidence_ref_length(
-        self, monkeypatch
-    ):
+    def test_approve_for_shadow_caps_reason_and_evidence_ref_length(self, monkeypatch):
         # The bounded list projection later loads this shadow-approval document per
         # row, so its inputs are length-capped AT THE SOURCE: an over-long reason
         # (>2000) or evidence ref (>200) is a 422, never a giant persisted document.
@@ -512,6 +652,7 @@ class TestApproveForShadowStrictPolicy:
         at_cap = client.post(
             f"{base}/approve-for-shadow",
             json={"reason": "ok", "evidence_refs": ["z" * 200]},
+            headers=_positive_headers("approve-shadow", base.split("/")[-3], 1),
         )
         assert at_cap.status_code == 200, at_cap.text
 
@@ -522,14 +663,16 @@ class TestApproveForShadowStrictPolicy:
         base = self._reviewed_plan(client)
         plan_id = base.split("/")[-3]
 
-        approve = client.post(f"{base}/approve-for-shadow", json=_APPROVAL_BODY)
+        approve = client.post(
+            f"{base}/approve-for-shadow",
+            json=_APPROVAL_BODY,
+            headers=_positive_headers("approve-shadow", plan_id, 1),
+        )
         assert approve.status_code == 200, approve.text
 
         record = repository.by_key[(UUID(plan_id), 1)]
         approval = next(
-            t
-            for t in record.transitions
-            if t.transition_type == "shadow_approved"
+            t for t in record.transitions if t.transition_type == "shadow_approved"
         )
         document = json.loads(approval.transition_document_text)
         assert document["schema_version"] == 2

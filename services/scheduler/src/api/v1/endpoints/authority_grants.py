@@ -8,10 +8,10 @@ precedent); reads are operator. Fail-closed taxonomy: corruption → 503, never
 a best-effort body.
 """
 
-from typing import Dict
+from typing import Dict, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,10 +31,12 @@ from core.control_plan_lifecycle import LifecycleHistoryCorruptError
 from core.deps import (
     get_current_user,
     get_db,
+    get_redis,
     require_operator,
     require_strict_approval_policy,
     require_supervisor,
 )
+from core.redis import RedisClient
 from core.device_capabilities import empty_device_capability_snapshot
 from core.logger import get_logger
 from repositories.control_plan_repository import (
@@ -46,6 +48,7 @@ from repositories.control_plan_repository import (
     PostgresControlPlanRepository,
 )
 from schemas.authority_grant import (
+    AuthorityApplicabilityResponse,
     AuthorityGrantRenewalRequest,
     AuthorityGrantRequest,
     AuthorityGrantResponse,
@@ -58,6 +61,12 @@ from services.authority_grant_service import (
     RenewalNotAllowedError,
     UnknownAuthorityGrantError,
     UnknownPlanForGrantError,
+)
+from api.v1.operator_controls import (
+    get_auth_step_up_client,
+    get_scada_operator_client,
+    require_operator_confirmation,
+    require_positive_operator_action,
 )
 
 router = APIRouter()
@@ -179,10 +188,32 @@ async def review_authority_grant(
 async def grant_execution_authority(
     body: AuthorityGrantRequest,
     request: Request,
+    operator_confirmation: Optional[str] = Header(
+        default=None, alias="X-Operator-Confirmation"
+    ),
+    operator_step_up_code: Optional[str] = Header(
+        default=None, alias="X-Operator-Step-Up-Code"
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: Dict = Depends(get_current_user),
     service: AuthorityGrantService = Depends(get_authority_grant_service),
+    step_up_client=Depends(get_auth_step_up_client),
+    scada_client=Depends(get_scada_operator_client),
+    replay_store: RedisClient = Depends(get_redis),
 ):
+    await require_positive_operator_action(
+        request=request,
+        action="grant",
+        identity=str(body.plan_id),
+        version=body.plan_version,
+        confirmation=operator_confirmation,
+        step_up_code=operator_step_up_code,
+        step_up_client=step_up_client,
+        replay_store=replay_store,
+        actor_subject=_actor_subject(current_user),
+        scada_client=scada_client,
+        require_live_scada=True,
+    )
     view = await _run(
         lambda: service.grant_execution_authority(
             db,
@@ -209,10 +240,32 @@ async def renew_authority_grant(
     grant_id: UUID,
     body: AuthorityGrantRenewalRequest,
     request: Request,
+    operator_confirmation: Optional[str] = Header(
+        default=None, alias="X-Operator-Confirmation"
+    ),
+    operator_step_up_code: Optional[str] = Header(
+        default=None, alias="X-Operator-Step-Up-Code"
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: Dict = Depends(get_current_user),
     service: AuthorityGrantService = Depends(get_authority_grant_service),
+    step_up_client=Depends(get_auth_step_up_client),
+    scada_client=Depends(get_scada_operator_client),
+    replay_store: RedisClient = Depends(get_redis),
 ):
+    await require_positive_operator_action(
+        request=request,
+        action="renew",
+        identity=str(grant_id),
+        version=None,
+        confirmation=operator_confirmation,
+        step_up_code=operator_step_up_code,
+        step_up_client=step_up_client,
+        replay_store=replay_store,
+        actor_subject=_actor_subject(current_user),
+        scada_client=scada_client,
+        require_live_scada=True,
+    )
     view = await _run(
         lambda: service.renew_authority_grant(
             db,
@@ -241,11 +294,15 @@ async def revoke_authority_grant(
     grant_id: UUID,
     body: AuthorityGrantRevocationRequest,
     request: Request,
+    operator_confirmation: Optional[str] = Header(
+        default=None, alias="X-Operator-Confirmation"
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: Dict = Depends(get_current_user),
     service: AuthorityGrantService = Depends(get_authority_grant_service),
 ):
     """Terminal + idempotent; NO strict-policy gate (safety brake in compat)."""
+    require_operator_confirmation(operator_confirmation, "revoke", str(grant_id), None)
     view = await _run(
         lambda: service.revoke_authority_grant(
             db,
@@ -256,6 +313,31 @@ async def revoke_authority_grant(
         )
     )
     return build_grant_response(view)
+
+
+@router.get(
+    "/applicability",
+    response_model=AuthorityApplicabilityResponse,
+    dependencies=[Depends(require_operator)],
+)
+async def get_authority_applicability(
+    response: Response,
+    plan_id: UUID,
+    plan_version: int,
+    db: AsyncSession = Depends(get_db),
+    service: AuthorityGrantService = Depends(get_authority_grant_service),
+):
+    """Return server-derived readiness without accepting caller evidence."""
+    if plan_version <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="plan_version must be positive",
+        )
+    result = await _run(
+        lambda: service.get_authority_applicability(db, plan_id, plan_version)
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return AuthorityApplicabilityResponse.model_validate(result)
 
 
 @router.get(

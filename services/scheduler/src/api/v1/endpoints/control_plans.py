@@ -8,11 +8,18 @@ from uuid import UUID
 from fastapi import (
     APIRouter,
     Depends,
+    Header,
     HTTPException,
     Query,
     Request,
     Response,
     status,
+)
+from api.v1.operator_controls import (
+    get_auth_step_up_client,
+    get_scada_operator_client,
+    require_operator_confirmation,
+    require_positive_operator_action,
 )
 from fastapi.concurrency import run_in_threadpool
 from pydantic import ValidationError
@@ -38,10 +45,12 @@ from core.auth import (
 from core.deps import (
     get_current_user,
     get_db,
+    get_redis,
     require_operator,
     require_strict_approval_policy,
     require_supervisor,
 )
+from core.redis import RedisClient
 from core.logger import get_logger
 from repositories.control_plan_repository import (
     DraftPlanRecord,
@@ -157,9 +166,7 @@ def get_lifecycle_service(request: Request) -> ControlPlanLifecycleService:
     )
 
 
-def get_control_plan_projection_repository() -> (
-    PostgresControlPlanProjectionRepository
-):
+def get_control_plan_projection_repository() -> PostgresControlPlanProjectionRepository:
     return PostgresControlPlanProjectionRepository()
 
 
@@ -319,9 +326,7 @@ async def post_draft_control_plan(
     except UnknownCampaignError as error:
         # A present campaign_id that references no existing campaign: fail closed
         # (never auto-create a campaign under a caller-chosen id).
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(error)
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error))
     except DraftInputError as error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -333,9 +338,7 @@ async def post_draft_control_plan(
             detail={"reason": error.reason, **error.detail},
         )
     except (PlanContentConflictError, FlowLineageConflictError) as error:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=str(error)
-        )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error))
     except (
         UpstreamUnavailableError,
         ModelIncompleteError,
@@ -350,9 +353,7 @@ async def post_draft_control_plan(
         UpstreamContractError,
         LedgerProjectionError,
     ) as error:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY, detail=str(error)
-        )
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(error))
     except SQLAlchemyError as error:
         logger.error("draft persistence failed", error=str(error))
         raise HTTPException(
@@ -369,9 +370,7 @@ async def post_draft_control_plan(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="draft composition failed on an internal invariant",
         )
-    response.status_code = (
-        status.HTTP_200_OK if replayed else status.HTTP_201_CREATED
-    )
+    response.status_code = status.HTTP_200_OK if replayed else status.HTTP_201_CREATED
     response.headers["Idempotent-Replay"] = "true" if replayed else "false"
     return _build_or_503(_response_from_record, record)
 
@@ -464,9 +463,7 @@ async def get_control_plan_version(
     try:
         record = await service.get_draft(db, plan_id, plan_version)
     except PlanNotFoundError as error:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(error)
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error))
     except DraftStoreCorruptError as error:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -530,9 +527,7 @@ async def get_control_plan_prediction_coverage(
     returns the same coverage data as projecting from the full detail."""
     _actor_subject(current_user)
     try:
-        coverage = await repository.load_prediction_coverage(
-            db, plan_id, plan_version
-        )
+        coverage = await repository.load_prediction_coverage(db, plan_id, plan_version)
     except Exception as error:  # noqa: BLE001 — remapped to a typed HTTP status
         raise _map_projection_errors(error, "prediction-coverage")
     return _projection_or_error(coverage, plan_id, plan_version)
@@ -557,9 +552,7 @@ async def get_control_plan_lifecycle_history(
     without loading the run's large documents."""
     _actor_subject(current_user)
     try:
-        history = await repository.load_lifecycle_history(
-            db, plan_id, plan_version
-        )
+        history = await repository.load_lifecycle_history(db, plan_id, plan_version)
     except Exception as error:  # noqa: BLE001 — remapped to a typed HTTP status
         raise _map_projection_errors(error, "lifecycle-history")
     return _projection_or_error(history, plan_id, plan_version)
@@ -584,9 +577,7 @@ async def get_control_plan_ledger(
     ledger/requirement/event rows — never the run's large documents."""
     _actor_subject(current_user)
     try:
-        ledger = await repository.load_ledger_projection(
-            db, plan_id, plan_version
-        )
+        ledger = await repository.load_ledger_projection(db, plan_id, plan_version)
     except Exception as error:  # noqa: BLE001 — remapped to a typed HTTP status
         raise _map_projection_errors(error, "ledger")
     return _projection_or_error(ledger, plan_id, plan_version)
@@ -634,7 +625,8 @@ async def get_control_plan_readback_observations(
     ),
 ):
     """Bounded shadow readback observations (require_operator): the durable evidence
-    behind any drift hold. `unavailable`/null observed level is explicit — never masked."""
+    behind any drift hold. `unavailable`/null observed level is explicit — never masked.
+    """
     _actor_subject(current_user)
     try:
         observations = await repository.load_readback_observations_projection(
@@ -660,7 +652,8 @@ async def get_control_plan_execution_state(
     ),
 ):
     """Bounded plan-level execution posture (require_operator): the DERIVED hold state
-    + the ordered held/resumed history. A hold pauses claiming without releasing authority."""
+    + the ordered held/resumed history. A hold pauses claiming without releasing authority.
+    """
     _actor_subject(current_user)
     try:
         state = await repository.load_execution_state_projection(
@@ -707,9 +700,7 @@ def _map_lifecycle_errors(error: Exception) -> HTTPException:
             ProjectionCorruptError,
         ),
     ):
-        return HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)
-        )
+        return HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error))
     if isinstance(error, SQLAlchemyError):
         # loguru positional (the `error=` kwarg was silently dropped — no cause was logged).
         logger.error("lifecycle store failed: {}", str(error))
@@ -763,10 +754,31 @@ async def approve_shadow_plan(
     plan_version: int,
     body: ShadowApprovalRequest,
     request: Request,
+    operator_confirmation: Optional[str] = Header(
+        default=None, alias="X-Operator-Confirmation"
+    ),
+    operator_step_up_code: Optional[str] = Header(
+        default=None, alias="X-Operator-Step-Up-Code"
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: Dict = Depends(get_current_user),
     service: ControlPlanLifecycleService = Depends(get_lifecycle_service),
+    step_up_client=Depends(get_auth_step_up_client),
+    replay_store: RedisClient = Depends(get_redis),
 ):
+    await require_positive_operator_action(
+        request=request,
+        action="approve-shadow",
+        identity=str(plan_id),
+        version=plan_version,
+        confirmation=operator_confirmation,
+        step_up_code=operator_step_up_code,
+        step_up_client=step_up_client,
+        replay_store=replay_store,
+        actor_subject=_actor_subject(current_user),
+        scada_client=None,
+        require_live_scada=False,
+    )
     actor = _actor_subject(current_user)
     policy = policy_from_settings(settings)
     authorization_evidence = build_authorization_evidence(
@@ -801,15 +813,37 @@ async def activate_shadow_plan(
     plan_version: int,
     body: ActivateRequest,
     request: Request,
+    operator_confirmation: Optional[str] = Header(
+        default=None, alias="X-Operator-Confirmation"
+    ),
+    operator_step_up_code: Optional[str] = Header(
+        default=None, alias="X-Operator-Step-Up-Code"
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: Dict = Depends(get_current_user),
     service: ControlPlanLifecycleService = Depends(get_lifecycle_service),
+    step_up_client=Depends(get_auth_step_up_client),
+    scada_client=Depends(get_scada_operator_client),
+    replay_store: RedisClient = Depends(get_redis),
 ):
     """Activate a strict-TRUSTED approved v2 plan: compile its command intents into
     the append-only outbox, take the one-per-scope authority mutex, and grant machine
     authority (shadow mode — nothing dispatches). Dark by default: unreachable in the
     compat claim policy (route + document trust gates) and fails closed on a
     non-member position or an occupied scope."""
+    await require_positive_operator_action(
+        request=request,
+        action="activate",
+        identity=str(plan_id),
+        version=plan_version,
+        confirmation=operator_confirmation,
+        step_up_code=operator_step_up_code,
+        step_up_client=step_up_client,
+        replay_store=replay_store,
+        actor_subject=_actor_subject(current_user),
+        scada_client=scada_client,
+        require_live_scada=True,
+    )
     actor = _actor_subject(current_user)
     policy = policy_from_settings(settings)
     authorization_evidence = build_authorization_evidence(
@@ -907,6 +941,9 @@ async def hold_control_plan(
     plan_id: UUID,
     plan_version: int,
     body: ReasonedActionRequest,
+    operator_confirmation: Optional[str] = Header(
+        default=None, alias="X-Operator-Confirmation"
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: Dict = Depends(get_current_user),
     service: OpenLoopExecutionService = Depends(get_open_loop_service),
@@ -914,6 +951,9 @@ async def hold_control_plan(
     """PR 5.2b: place a shadow_active plan on operator hold — pauses local claiming
     WITHOUT a lifecycle transition (the plan keeps its authority mutex). Nothing
     dispatches or actuates."""
+    require_operator_confirmation(
+        operator_confirmation, "hold", str(plan_id), plan_version
+    )
     actor = _actor_subject(current_user)
     try:
         await service.hold_control_plan(db, plan_id, plan_version, actor, body.reason)
@@ -940,12 +980,35 @@ async def resume_control_plan(
     plan_id: UUID,
     plan_version: int,
     body: ReasonedActionRequest,
+    request: Request,
+    operator_confirmation: Optional[str] = Header(
+        default=None, alias="X-Operator-Confirmation"
+    ),
+    operator_step_up_code: Optional[str] = Header(
+        default=None, alias="X-Operator-Step-Up-Code"
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: Dict = Depends(get_current_user),
     service: OpenLoopExecutionService = Depends(get_open_loop_service),
+    step_up_client=Depends(get_auth_step_up_client),
+    scada_client=Depends(get_scada_operator_client),
+    replay_store: RedisClient = Depends(get_redis),
 ):
     """PR 5.2b: lift an operator hold so local claiming can proceed again. Symmetric
     with hold; also not a lifecycle transition."""
+    await require_positive_operator_action(
+        request=request,
+        action="resume",
+        identity=str(plan_id),
+        version=plan_version,
+        confirmation=operator_confirmation,
+        step_up_code=operator_step_up_code,
+        step_up_client=step_up_client,
+        replay_store=replay_store,
+        actor_subject=_actor_subject(current_user),
+        scada_client=scada_client,
+        require_live_scada=True,
+    )
     actor = _actor_subject(current_user)
     try:
         await service.resume_control_plan(db, plan_id, plan_version, actor, body.reason)

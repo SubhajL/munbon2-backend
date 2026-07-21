@@ -7,6 +7,7 @@ the fake<->Postgres signature pin. Nothing here executes anything.
 
 import inspect
 import json
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from uuid import uuid4
@@ -218,6 +219,125 @@ async def _grant(service, repository, **overrides):
         reason="pilot authority",
         authorization_evidence=_strict_evidence(),
     )
+
+
+class TestAuthorityApplicability:
+    @pytest.mark.asyncio
+    async def test_ready_plan_projects_exact_server_derived_grant_inputs(self):
+        repository = _seeded_repository()
+        result = await _service(repository).get_authority_applicability(
+            None, PLAN_ID, 3
+        )
+
+        assert result == {
+            "plan_id": PLAN_ID,
+            "plan_version": 3,
+            "evaluated_at": NOW,
+            "lifecycle_state": "shadow_active",
+            "model_release_id": RELEASE_ID,
+            "model_release_content_hash": SHA_A,
+            "engine_descriptor_content_hash": SHA_B,
+            "model_release_commandable": True,
+            "capability_release_id": CAPABILITY_RELEASE_ID,
+            "capability_hash": SHA_C,
+            "capability_configured": True,
+            "capability_matches_outbox": True,
+            "scope": {
+                "schema_version": 1,
+                "gate_paths": [
+                    {
+                        "section_id": SECTION,
+                        "canonical_gate_id": GATE,
+                        "path_reach_ids": PATH,
+                    }
+                ],
+            },
+            "flow_lower_exclusive_m3s": 0.0,
+            "flow_upper_inclusive_m3s": 5.0,
+            "initialization": {"kind": "dry"},
+            "maximum_continuous_open_seconds": 10800,
+            "maximum_intermediate_trims": 1,
+            "outbox_intent_count": 2,
+            "accepted_receipt_intent_count": 2,
+            "matching_receipt_intent_count": 2,
+            "receipt_coverage_complete": True,
+            "existing_grant_status": None,
+            "existing_grant_id": None,
+            "blockers": (),
+            "can_grant": True,
+        }
+
+    @pytest.mark.asyncio
+    async def test_ineligible_plan_reports_all_stored_truth_blockers_in_order(self):
+        repository = _seeded_repository()
+        record = repository.by_key[(PLAN_ID, 3)]
+        snapshot = authority_model_snapshot(
+            model_release_id=RELEASE_ID,
+            model_release_content_hash=SHA_A,
+            engine_descriptor_content_hash=SHA_B,
+            commandable=False,
+        )
+        repository.by_key[(PLAN_ID, 3)] = SimpleNamespace(
+            **{
+                **record.__dict__,
+                "model_snapshot_id": snapshot["snapshot_id"],
+                "model_snapshot_document_text": json.dumps(snapshot),
+                "transitions": _transition_chain("invalidated", None),
+            }
+        )
+        repository.authority_evidence_counts[(PLAN_ID, 3)] = AuthorityEvidenceCounts(
+            outbox_intent_count=2,
+            accepted_receipt_intent_count=1,
+            matching_receipt_intent_count=1,
+        )
+        empty_snapshot = SimpleNamespace(
+            capability_release_id="__empty__",
+            capability_hash=SHA_F,
+            capabilities={},
+        )
+
+        result = await _service(
+            repository, snapshot=empty_snapshot
+        ).get_authority_applicability(None, PLAN_ID, 3)
+
+        assert result["model_release_commandable"] is False
+        assert result["capability_configured"] is False
+        assert result["receipt_coverage_complete"] is False
+        assert result["blockers"] == (
+            "plan_not_shadow_active",
+            "noncommandable_release",
+            "capability_unconfigured",
+            "capability_stale",
+            "scope_unapproved_gate",
+            "receipt_coverage_incomplete",
+        )
+        assert result["can_grant"] is False
+
+    @pytest.mark.asyncio
+    async def test_existing_grant_status_blocks_second_grant(self):
+        repository = _seeded_repository()
+        service = _service(repository)
+        issued = await _grant(service, repository)
+
+        result = await service.get_authority_applicability(None, PLAN_ID, 3)
+
+        assert result["existing_grant_status"] == STATUS_ACTIVE
+        assert result["existing_grant_id"] == issued.grant.grant_id
+        assert result["blockers"] == ("grant_already_exists",)
+        assert result["can_grant"] is False
+
+    @pytest.mark.asyncio
+    async def test_stored_snapshot_identity_corruption_propagates(self):
+        repository = _seeded_repository()
+        record = repository.by_key[(PLAN_ID, 3)]
+        repository.by_key[(PLAN_ID, 3)] = SimpleNamespace(
+            **{**record.__dict__, "model_snapshot_id": SHA_F}
+        )
+
+        from core.authority_grant import AuthorityEvidenceCorruptError
+
+        with pytest.raises(AuthorityEvidenceCorruptError):
+            await _service(repository).get_authority_applicability(None, PLAN_ID, 3)
 
 
 class TestGrantExecutionAuthority:
@@ -706,8 +826,6 @@ class TestUnderLockRechecks:
 
     @pytest.mark.asyncio
     async def test_tampered_event_typed_column_is_corruption(self):
-        from dataclasses import replace
-
         from repositories.control_plan_repository import (
             AuthorityGrantCorruptError,
         )
@@ -725,8 +843,6 @@ class TestUnderLockRechecks:
 
     @pytest.mark.asyncio
     async def test_self_consistent_false_commandability_evidence_is_corruption(self):
-        from dataclasses import replace
-
         from core.canonical_json import canonicalize, sha256_hex
         from repositories.control_plan_repository import AuthorityGrantCorruptError
 
@@ -749,8 +865,6 @@ class TestUnderLockRechecks:
 
     @pytest.mark.asyncio
     async def test_self_consistent_event_actor_evidence_mismatch_is_corruption(self):
-        from dataclasses import replace
-
         from core.canonical_json import canonicalize, sha256_hex
         from repositories.control_plan_repository import AuthorityGrantCorruptError
 
@@ -825,8 +939,6 @@ class TestUnderLockRechecks:
     async def test_non_object_unsupported_or_noncanonical_grant_is_corruption(
         self, document_text
     ):
-        from dataclasses import replace
-
         from core.canonical_json import sha256_hex
         from repositories.control_plan_repository import AuthorityGrantCorruptError
 
@@ -876,8 +988,6 @@ class TestUnderLockRechecks:
     async def test_grant_creator_and_request_must_match_birth_authorization(
         self, grant_overrides
     ):
-        from dataclasses import replace
-
         from repositories.control_plan_repository import AuthorityGrantCorruptError
 
         repository = _seeded_repository()

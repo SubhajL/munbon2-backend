@@ -21,20 +21,28 @@ export type LifecycleState =
 export type ControlPlanSummary = {
   plan_id: string;
   plan_version: number;
+  campaign_id: string;
   lifecycle_state: LifecycleState;
   approval_trust: boolean;
+  horizon_start: string;
+  horizon_end: string;
+  requirement_run_id: string;
+  requirement_version: number;
+  input_content_hash: string;
+  model_snapshot_id: string;
+  model_release_content_hash: string;
   optimizer_status: "feasible" | "infeasible";
   prediction_status: "not_requested" | "completed" | "infeasible";
   prediction_run_id: string | null;
-  horizon_start: string;
-  horizon_end: string;
+  prediction_response_sha256: string | null;
+  created_by_subject: string;
   created_at: string;
 };
 
 export type ControlPlanListPage = {
   items: ControlPlanSummary[];
   next_cursor: string | null;
-  projection_schema_version: 1;
+  projection_schema_version: 2;
 };
 
 export type PredictionMemberStatus = {
