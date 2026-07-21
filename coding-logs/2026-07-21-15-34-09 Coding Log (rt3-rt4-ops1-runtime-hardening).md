@@ -575,3 +575,15 @@ LOW
 | `MUNBON_EXPECTED_JWT_AUDIENCE` | `Config.from_environment()` | required, trimmed, non-empty | parameterized fail-closed tests |
 | `Config.audience` | `run_verification()` -> `claim_errors()` | exact scalar or list membership | unit claim tests plus live success |
 | README command | operator CLI | current explicit `munbon-services` value | artifact assertion plus live invocation |
+
+## Bearer follow-up merge and completion (2026-07-21 16:42:18 +07)
+
+- PR: `#114` (`https://github.com/SubhajL/munbon2-backend/pull/114`).
+- Both GitHub Actions secret-scan jobs again had zero steps and the exact annotation `The job was not started because your account is locked due to a billing issue.` Local test, review, scan, and live evidence were posted on the PR. `main` had no branch protection or rulesets, so the normal squash-merge path was used.
+- Remote merge commit: `80f3060f3bce0de721d20c9e1408fe9305502d32`.
+- `gh pr merge --squash --delete-branch` completed the GitHub merge but could not update the checkout because local `main` was already in the primary worktree. The remote result was verified directly; no reset or force-update was used.
+- The primary local `main` was clean and already contained four separate 7.3a/7.3b commits. Merging `origin/main` preserved them and landed the OPS correction at local merge commit `efbdf5cfdc06f6e82e9560af40af5a49d9f54915`; local `main` is now five commits ahead and zero behind `origin/main`.
+- Exact post-merge local-main validation: 33 OPS tests passed and Black check passed.
+- The first post-merge live-verifier attempt hit a stale SSH tunnel whose diagnostic was `Broken pipe`. A fresh loopback-only tunnel returned 200 readiness for auth, Scheduler, and BFF; the verifier loaded from exact `origin/main` then passed all six fixed-code steps.
+- The replacement tunnel was stopped after proof and local ports 33005, 33021, and 33022 were verified free.
+- Deployment/activation was not attempted because the live host remains below the mandatory 512 MiB available-memory floor. This is the intended fail-closed OPS-1 result; the five-minute stability window begins only after capacity and startup readiness pass.
