@@ -14,6 +14,9 @@ python src/main.py            # dev (reload when environment=development)
 pytest                        # unit + integration (DB contract skips without its URL)
 ```
 No Dockerfile, README, pyproject, or Makefile in this service.
+The runtime manifest owns `networkx==3.2.1`, which
+`services/delivery_optimizer.py` imports for graph construction and routing; do not
+replace it with a host-level package overlay.
 
 ## Structure (`src/`)
 `main.py` (REST + scheduled-job lifecycle), `config/settings.py`, `api/graphql_schema.py` + `api/routes/admin.py`, `services/` (`daily_requirement_producer.py`, `daily_requirement_job.py`, `requirement_source_loader.py`, `flow_monitoring_publisher.py`, legacy sync/calculation services), `clients/` (`ros_client.py`, `gis_client.py`, both mock-capable), `db/database_manager.py` (local/source asyncpg + SQLAlchemy async + redis), `db/water_requirement_repository.py` and `db/daily_requirement_run_store.py` (append-only canonical requirement runs), `schemas/`.
