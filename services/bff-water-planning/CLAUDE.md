@@ -24,6 +24,10 @@ psql ... -f migrations/00X_*.sql                       # raw-SQL migrations (001
 
 ## Tests
 pytest + pytest-asyncio + pytest-cov. Real tests in `tests/` (`unit/`; `integration/` is empty) and `src/tests/`. Many ad-hoc `test_*.py`/`verify_*.py` at root are integration scripts, **not** the unit suite. Run `pytest tests/unit/` — the gate since 2.6a; `tests/conftest.py` provides the src path + the dummy `CORS_ORIGINS` that import-time `Settings()` requires (never depend on a developer `.env`).
+The runtime manifest pins `strawberry-graphql[fastapi]==0.322.2` with its
+compatible `python-multipart==0.0.32` dependency; the boot suite imports the
+complete schema and constructs its real router, and bare `pytest` is required
+for any future Strawberry pin or GraphQL annotation change.
 
 ## Config / Ports / Env
 - ⚠️ **Port is inconsistent**: `settings.py` default 4002, `.env.example` 3022, docker/README 3002, `start.sh` 3022 — **confirm the intended port before relying on it**.
