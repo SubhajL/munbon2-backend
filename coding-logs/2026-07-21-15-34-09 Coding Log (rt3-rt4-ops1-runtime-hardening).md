@@ -511,3 +511,67 @@ LOW
 - Removed clean worktree `/Users/subhajlimanond/dev/munbon2-backend-control-plan-runtime-20260721` and deleted its obsolete local `ops/control-plan-read-runtime-20260721` branch. Its material remains recoverable from the verified archive branch.
 - Concurrent/unrelated feature worktrees and branches were not switched, edited, cleaned, or removed. The primary checkout remains owned by concurrent work on `feat/7-3b-dark-deployment-observability`.
 - The temporary RT-3/RT-4/OPS-1 worktree will be removed only after this archive branch is pushed and its remote commit/content are verified; that final filesystem audit is reported in the session handoff.
+
+## Live-host recovery and bearer-audience correction (2026-07-21)
+
+- Recovered the current authorized host from the same-day central-auth operator log after the old `AWS-Lab01` alias timed out. Direct SSH to the current host succeeded without changing host state.
+- Live capacity was `MemAvailable=262064 kB`, below the required 512 MiB floor. The exact merged `runtime_gate.py` returned `FAIL capacity: mem_available_below_512_mib`, so activation and its five-minute window were correctly not started.
+- The live PM2 projection still showed the four pre-OPS runtime services online; restart counts were 1 (BFF), 1 (flow-monitoring), 43 (ROS), and 16 (Scheduler). BFF, flow-monitoring, and Scheduler readiness returned 200; the old ROS runtime returned 200 on `/health` and 404 on `/ready`, confirming that the new runtime manifest is not live.
+- A loopback SSH tunnel allowed the exact merged bearer verifier to exercise central auth, Scheduler, and BFF without exposing credentials. Missing and malformed bearer checks passed, then strict access-claim validation failed only on `audience`.
+- Safe claim-key/type inspection and the same-day auth deployment record established the live non-secret contract as issuer `munbon-auth`, audience `munbon-services`, and role `operator`. The verifier's hidden `munbon-api` audience default was therefore a real OPS-1 defect.
+- Follow-up branch: `fix/ops1-bearer-audience-contract`; commit `d3262cbf7eea9bdcac81f739044b2e7986f4c916`.
+
+### Follow-up TDD and validation
+
+- RED: a parameterized test for missing, empty, and whitespace-only `MUNBON_EXPECTED_JWT_AUDIENCE` failed because `Config` silently supplied the wrong default.
+- GREEN: the verifier now requires and trims an explicit audience, raising the fixed safe code `expected_audience_missing` when absent.
+- RED: the runtime-artifact test failed while the README used a placeholder audience that was not directly runnable.
+- GREEN: the README now gives `MUNBON_EXPECTED_JWT_AUDIENCE='munbon-services'` and states that the value must match central auth and Scheduler `JWT_AUDIENCE`.
+- Final OPS suite: 33 passed; the preceding reliability gate also passed the same 33 tests on each of three consecutive runs.
+- Black check, staged whitespace check, and bounded secret/host scan passed.
+- Live corrected verifier passed all six fixed-code steps: missing bearer rejection, malformed bearer rejection, central login plus strict claims, operator Scheduler/BFF list reads, preserved missing-detail 404s, and logout plus rejected refresh-token reuse.
+- Auggie semantic search was skipped after its bounded calls repeatedly timed out earlier in the item; exact-file and exact-string inspection was used as the documented fallback.
+
+## Review (2026-07-21 16:38:00 +07) - commit `d3262cbf`
+
+### Reviewed
+
+- Repo: `/Users/subhajlimanond/dev/munbon2-backend-ops1-bearer-fix-20260721`.
+- Scope: four-file OPS verifier contract correction in commit `d3262cbf`.
+- Commands Run: full diff inspection; call-site search; 33 focused tests; Black check; staged whitespace check; secret/host scan; live tunnel verification against central auth, Scheduler, and BFF.
+
+### Findings
+
+CRITICAL
+
+- No findings.
+
+HIGH
+
+- Fixed before formal review: the hidden `munbon-api` default made a correctly configured live deployment fail strict verification. The expected audience is now mandatory and deployment-owned.
+
+MEDIUM
+
+- Fixed before formal review: the first README correction used a placeholder instead of an exact runnable value. An artifact test now pins the current `munbon-services` command.
+
+LOW
+
+- No findings.
+
+### Open Questions / Assumptions
+
+- `munbon-services` is the current deployment contract, not a universal product default; future environments must pass their own exact configured value.
+- Activation remains intentionally blocked until the live host satisfies `MemAvailable >= 512 MiB`; no capacity bypass is authorized.
+
+### Recommended Tests / Validation
+
+- Re-run the bearer verifier from the exact merged commit with the explicit live audience after merge.
+- Re-run the capacity gate before any future activation attempt and start the 300-second stability window only after the gate passes.
+
+### Wiring verification
+
+| Source | Consumer | Contract | Evidence |
+| --- | --- | --- | --- |
+| `MUNBON_EXPECTED_JWT_AUDIENCE` | `Config.from_environment()` | required, trimmed, non-empty | parameterized fail-closed tests |
+| `Config.audience` | `run_verification()` -> `claim_errors()` | exact scalar or list membership | unit claim tests plus live success |
+| README command | operator CLI | current explicit `munbon-services` value | artifact assertion plus live invocation |
