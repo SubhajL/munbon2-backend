@@ -1,0 +1,78 @@
+groups:
+  - name: munbon-control-plane
+    rules:
+      - alert: ControlPlaneReadinessFailed
+        expr: probe_success{job="control-plane-readiness"} != 1
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Control-plane readiness probe is failing
+
+      - alert: ControlPlaneMetricsTargetDown
+        expr: up{job=~"scheduler-control-plane|scada-gate-control"} != 1
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Control-plane metrics target is down
+
+      - alert: SchedulerDispatchWorkerHeartbeatMissing
+        expr: absent(scheduler_dispatch_worker_heartbeat_present{worker="shadow-dispatch"}) or scheduler_dispatch_worker_heartbeat_present{worker="shadow-dispatch"} != 1
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Bounded Scheduler dispatch worker heartbeat is missing
+
+      - alert: SchedulerMetricsScrapeFailed
+        expr: scheduler_metrics_scrape_error != 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Scheduler metrics cannot read durable control state
+
+      - alert: SchedulerExecutionMetricsMissing
+        expr: absent(control_command_executions_total)
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Deployed Scheduler is missing current execution metrics
+
+      - alert: ScadaExecutionMetricsMissing
+        expr: absent(machine_execution_outcomes_total)
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Deployed SCADA boundary is missing current execution metrics
+
+      - alert: CommandIntentRejectionsDetected
+        expr: sum(increase(command_intent_rejections_total[5m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Machine-boundary command intent was rejected
+
+      - alert: GateReadbackMismatchDetected
+        expr: sum(increase(gate_readback_mismatch_total[5m])) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: Gate readback differs from the approved target
+
+      - alert: MachineExecutionInDoubt
+        expr: sum(increase(machine_execution_outcomes_total{status="execution_in_doubt"}[5m])) > 0 or sum(increase(control_command_executions_total{status="execution_in_doubt"}[5m])) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: Machine execution outcome is in doubt and needs manual handoff
+
+      - alert: ShadowWriteInvariantBreached
+        expr: increase(machine_modbus_writes_total{mode="shadow"}[5m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: Shadow mode issued a physical Modbus write

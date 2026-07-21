@@ -108,9 +108,13 @@ describe('build-irrigation-config', () => {
       const processes = getIrrigationProcesses();
 
       const pythonServices = processes.filter(p =>
-        ['flow-monitoring', 'scheduler', 'bff-water-planning', 'ros-gis-integration', 'water-accounting'].includes(
-          p.name,
-        ),
+        [
+          'flow-monitoring',
+          'scheduler',
+          'bff-water-planning',
+          'ros-gis-integration',
+          'water-accounting',
+        ].includes(p.name),
       );
 
       pythonServices.forEach(service => {
@@ -241,6 +245,48 @@ describe('build-irrigation-config', () => {
       expect(worker?.env?.PYTHONPATH).toBe(`${scheduler?.cwd}/src`);
     });
 
+    it('keeps trust artifacts and service auth optional while dark but passes host values through', () => {
+      const names = [
+        'HYDRAULIC_COMMANDABILITY_APPROVAL_PATH',
+        'SCHEDULER_SCADA_BASE_URL',
+        'SCHEDULER_SERVICE_JWT_SECRET',
+      ];
+      const previous = Object.fromEntries(names.map(name => [name, process.env[name]]));
+      try {
+        for (const name of names) delete process.env[name];
+        const dark = getIrrigationProcesses();
+        expect(dark.find(item => item.name === 'flow-monitoring')?.env).not.toHaveProperty(
+          'HYDRAULIC_COMMANDABILITY_APPROVAL_PATH',
+        );
+        expect(dark.find(item => item.name === 'scheduler')?.env).toMatchObject({
+          CONTROL_EXECUTION_MODE: 'disabled',
+          CONTROL_READBACK_RECONCILIATION_MODE: 'off',
+          CONTROL_WORKER_HEALTH_GATES_READINESS: 'false',
+        });
+        expect(dark.find(item => item.name === 'scheduler')?.env).not.toHaveProperty(
+          'SCHEDULER_SERVICE_JWT_SECRET',
+        );
+
+        process.env.HYDRAULIC_COMMANDABILITY_APPROVAL_PATH = '/run/approvals/model.json';
+        process.env.SCHEDULER_SCADA_BASE_URL = 'http://field-host:3030';
+        process.env.SCHEDULER_SERVICE_JWT_SECRET = 'host-service-secret';
+        const configured = getIrrigationProcesses();
+        expect(configured.find(item => item.name === 'flow-monitoring')?.env).toMatchObject({
+          HYDRAULIC_COMMANDABILITY_APPROVAL_PATH: '/run/approvals/model.json',
+        });
+        expect(configured.find(item => item.name === 'scheduler')?.env).toMatchObject({
+          SCHEDULER_SCADA_BASE_URL: 'http://field-host:3030',
+          SCHEDULER_SERVICE_JWT_SECRET: 'host-service-secret',
+          CONTROL_EXECUTION_MODE: 'disabled',
+        });
+      } finally {
+        for (const name of names) {
+          if (previous[name] === undefined) delete process.env[name];
+          else process.env[name] = previous[name];
+        }
+      }
+    });
+
     // PR 4.4a-2: canonical scheduler runtime port is 3021 everywhere. start.sh
     // honors $PORT (default 3021); PM2 must set PORT=3021 and the spec port to
     // 3021, and every consumer URL (BFF, ros-gis) must point at 3021.
@@ -262,7 +308,10 @@ describe('build-irrigation-config', () => {
     it('retires the hardcoded 3012 scheduler spec port from the config source', () => {
       // The ServiceSpec.port is not surfaced on PM2ProcessConfig, so lock the
       // source: the scheduler spec must declare port 3021 and 3012 is gone.
-      const source = fs.readFileSync(path.join(REPO_ROOT, 'infra', 'pm2', 'build-irrigation-config.ts'), 'utf-8');
+      const source = fs.readFileSync(
+        path.join(REPO_ROOT, 'infra', 'pm2', 'build-irrigation-config.ts'),
+        'utf-8',
+      );
       expect(source).toContain('port: 3021');
       expect(source).not.toContain('3012');
     });

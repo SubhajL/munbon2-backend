@@ -27,20 +27,29 @@ export interface PM2ProcessConfig {
   restart_delay?: number;
 }
 
-const REPO_ROOT = path.resolve(__dirname, '../../..');
+const REPO_ROOT = path.resolve(
+  __dirname,
+  path.basename(__dirname) === 'dist' ? '../../..' : '../..',
+);
 const LOGS_DIR = path.join(REPO_ROOT, 'logs');
 
 // Credentials are NEVER defaulted here (SEC remediation: the previous hardcoded
 // password leaked and must be rotated). Export the real values on the PM2 host
 // before building this config; a missing value fails the build, loudly.
-function requiredEnv(name: string): string {
+export function requiredEnv(name: string): string {
   const value = process.env[name];
   if (!value) {
     throw new Error(
-      `${name} must be set in the environment to build the irrigation PM2 config (hardcoded default removed)`,
+      `${name} must be set in the environment to build the PM2 config (hardcoded default removed)`,
     );
   }
   return value;
+}
+
+function optionalHostEnv(names: readonly string[]): Record<string, string> {
+  return Object.fromEntries(
+    names.flatMap(name => (process.env[name] ? [[name, process.env[name]]] : [])),
+  ) as Record<string, string>;
 }
 
 export function buildProcessConfig(spec: ServiceSpec): PM2ProcessConfig {
@@ -99,6 +108,7 @@ export function getIrrigationProcesses(): PM2ProcessConfig[] {
         // release (service-root-relative; the loader/validator are proven by the
         // flow suite). Never a commandable release — this plane is non-commanding.
         HYDRAULIC_MODEL_RELEASE_PATH: 'data/model-releases/engineering-prior-v3-v1.json',
+        ...optionalHostEnv(['HYDRAULIC_COMMANDABILITY_APPROVAL_PATH']),
       },
     },
     {
@@ -136,6 +146,16 @@ export function getIrrigationProcesses(): PM2ProcessConfig[] {
         CORS_ORIGINS: 'http://localhost:3000,http://localhost:3001',
         // PR 7.2: independent Scheduler execution gate. Tracked deploy stays dark.
         CONTROL_EXECUTION_MODE: 'disabled',
+        CONTROL_READBACK_RECONCILIATION_MODE: 'off',
+        CONTROL_WORKER_HEALTH_GATES_READINESS: 'false',
+        ...optionalHostEnv([
+          'SCHEDULER_SCADA_BASE_URL',
+          'SCHEDULER_SERVICE_JWT_SECRET',
+          'SCHEDULER_SERVICE_JWT_ISSUER',
+          'SCHEDULER_SERVICE_JWT_AUDIENCE',
+          'SCHEDULER_SERVICE_JWT_SUBJECT',
+          'SCHEDULER_SERVICE_JWT_MAX_AGE_SECONDS',
+        ]),
       },
     },
     {

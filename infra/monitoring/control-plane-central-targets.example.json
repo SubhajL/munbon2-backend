@@ -1,0 +1,6 @@
+[
+  {
+    "targets": ["central-host.example.invalid:3021"],
+    "labels": { "service": "scheduler", "environment": "replace-before-deploy" }
+  }
+]

@@ -1,0 +1,6 @@
+[
+  {
+    "targets": ["field-host.example.invalid:3030"],
+    "labels": { "service": "scada-gate-control", "environment": "replace-before-deploy" }
+  }
+]
