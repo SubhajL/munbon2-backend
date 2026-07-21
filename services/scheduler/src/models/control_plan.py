@@ -12,6 +12,7 @@ current-authority index that is INSERTed on activation and DELETEd on exit.
 from sqlalchemy import (
     CHAR,
     BigInteger,
+    Boolean,
     Column,
     Date,
     DateTime,
@@ -95,8 +96,10 @@ class ControlPlanRequirement(ControlBase):
     __table_args__ = (
         ForeignKeyConstraint(
             ["plan_id", "plan_version"],
-            [f"{SCHEMA}.control_plan_runs.plan_id",
-             f"{SCHEMA}.control_plan_runs.plan_version"],
+            [
+                f"{SCHEMA}.control_plan_runs.plan_id",
+                f"{SCHEMA}.control_plan_runs.plan_version",
+            ],
             ondelete="RESTRICT",
         ),
         UniqueConstraint("plan_id", "plan_version", "service_date", "section_id"),
@@ -136,12 +139,13 @@ class GatePlanEventRow(ControlBase):
     __table_args__ = (
         ForeignKeyConstraint(
             ["plan_id", "plan_version"],
-            [f"{SCHEMA}.control_plan_runs.plan_id",
-             f"{SCHEMA}.control_plan_runs.plan_version"],
+            [
+                f"{SCHEMA}.control_plan_runs.plan_id",
+                f"{SCHEMA}.control_plan_runs.plan_version",
+            ],
             ondelete="RESTRICT",
         ),
-        UniqueConstraint("plan_id", "plan_version", "gate_id",
-                         "gate_event_sequence"),
+        UniqueConstraint("plan_id", "plan_version", "gate_id", "gate_event_sequence"),
         UniqueConstraint("plan_id", "plan_version", "gate_id", "planned_at"),
         {"schema": SCHEMA},
     )
@@ -163,8 +167,10 @@ class ControlStateTransition(ControlBase):
     __table_args__ = (
         ForeignKeyConstraint(
             ["plan_id", "plan_version"],
-            [f"{SCHEMA}.control_plan_runs.plan_id",
-             f"{SCHEMA}.control_plan_runs.plan_version"],
+            [
+                f"{SCHEMA}.control_plan_runs.plan_id",
+                f"{SCHEMA}.control_plan_runs.plan_version",
+            ],
             ondelete="RESTRICT",
         ),
         {"schema": SCHEMA},
@@ -198,8 +204,10 @@ class ControlPlanCampaignVersion(ControlBase):
     __table_args__ = (
         ForeignKeyConstraint(
             ["plan_id", "plan_version"],
-            [f"{SCHEMA}.control_plan_runs.plan_id",
-             f"{SCHEMA}.control_plan_runs.plan_version"],
+            [
+                f"{SCHEMA}.control_plan_runs.plan_id",
+                f"{SCHEMA}.control_plan_runs.plan_version",
+            ],
             deferrable=True,
             initially="DEFERRED",
         ),
@@ -219,13 +227,14 @@ class SectionDeliveryLedgerEntry(ControlBase):
     __table_args__ = (
         ForeignKeyConstraint(
             ["plan_id", "plan_version", "requirement_id"],
-            [f"{SCHEMA}.control_plan_requirements.plan_id",
-             f"{SCHEMA}.control_plan_requirements.plan_version",
-             f"{SCHEMA}.control_plan_requirements.requirement_id"],
+            [
+                f"{SCHEMA}.control_plan_requirements.plan_id",
+                f"{SCHEMA}.control_plan_requirements.plan_version",
+                f"{SCHEMA}.control_plan_requirements.requirement_id",
+            ],
             ondelete="RESTRICT",
         ),
-        UniqueConstraint("plan_id", "plan_version", "requirement_id",
-                         "checkpoint_at"),
+        UniqueConstraint("plan_id", "plan_version", "requirement_id", "checkpoint_at"),
         UniqueConstraint("plan_id", "plan_version", "projection_sha256"),
         {"schema": SCHEMA},
     )
@@ -268,8 +277,10 @@ class ControlCommandOutboxRow(ControlBase):
     __table_args__ = (
         ForeignKeyConstraint(
             ["plan_id", "plan_version"],
-            [f"{SCHEMA}.control_plan_runs.plan_id",
-             f"{SCHEMA}.control_plan_runs.plan_version"],
+            [
+                f"{SCHEMA}.control_plan_runs.plan_id",
+                f"{SCHEMA}.control_plan_runs.plan_version",
+            ],
             ondelete="RESTRICT",
         ),
         UniqueConstraint("idempotency_key"),
@@ -318,8 +329,10 @@ class ControlActiveGateAuthority(ControlBase):
     __table_args__ = (
         ForeignKeyConstraint(
             ["plan_id", "plan_version"],
-            [f"{SCHEMA}.control_plan_runs.plan_id",
-             f"{SCHEMA}.control_plan_runs.plan_version"],
+            [
+                f"{SCHEMA}.control_plan_runs.plan_id",
+                f"{SCHEMA}.control_plan_runs.plan_version",
+            ],
             ondelete="RESTRICT",
         ),
         {"schema": SCHEMA},
@@ -349,8 +362,10 @@ class ControlCommandExecutionEvent(ControlBase):
     __table_args__ = (
         ForeignKeyConstraint(
             ["plan_id", "plan_version"],
-            [f"{SCHEMA}.control_plan_runs.plan_id",
-             f"{SCHEMA}.control_plan_runs.plan_version"],
+            [
+                f"{SCHEMA}.control_plan_runs.plan_id",
+                f"{SCHEMA}.control_plan_runs.plan_version",
+            ],
             ondelete="RESTRICT",
         ),
         # No FK on intent_id to control_command_outbox: kept additively independent
@@ -362,9 +377,7 @@ class ControlCommandExecutionEvent(ControlBase):
             "control_command_execution_events_one_terminal_per_intent",
             "intent_id",
             unique=True,
-            postgresql_where=text(
-                "event_type IN ('claimed', 'missed', 'invalidated')"
-            ),
+            postgresql_where=text("event_type IN ('claimed', 'missed', 'invalidated')"),
         ),
         {"schema": SCHEMA},
     )
@@ -398,8 +411,10 @@ class ControlCommandValidationReceipt(ControlBase):
     __table_args__ = (
         ForeignKeyConstraint(
             ["plan_id", "plan_version"],
-            [f"{SCHEMA}.control_plan_runs.plan_id",
-             f"{SCHEMA}.control_plan_runs.plan_version"],
+            [
+                f"{SCHEMA}.control_plan_runs.plan_id",
+                f"{SCHEMA}.control_plan_runs.plan_version",
+            ],
             ondelete="RESTRICT",
         ),
         # Second exactly-once backstop mirroring the 0007 outbox + the SCADA receipt
@@ -445,8 +460,10 @@ class ControlGateReadbackObservation(ControlBase):
     __table_args__ = (
         ForeignKeyConstraint(
             ["plan_id", "plan_version"],
-            [f"{SCHEMA}.control_plan_runs.plan_id",
-             f"{SCHEMA}.control_plan_runs.plan_version"],
+            [
+                f"{SCHEMA}.control_plan_runs.plan_id",
+                f"{SCHEMA}.control_plan_runs.plan_version",
+            ],
             ondelete="RESTRICT",
         ),
         {"schema": SCHEMA},
@@ -462,6 +479,116 @@ class ControlGateReadbackObservation(ControlBase):
     verdict = Column(Text, nullable=False)
     reconciliation_mode = Column(Text, nullable=False)
     observed_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class ControlAuthorityGrant(ControlBase):
+    """Immutable per-plan-version execution-authority grant (PR 7.1a).
+
+    Binds the approved release identity triple, the commandability evidence, the
+    exact capability release/hash, the plan's physical gate/path scope, and the
+    approved operating envelope. One grant per immutable plan version; the
+    current authority STATUS lives in the append-only events ledger, never here.
+    NOT the shadow scope mutex (``control_active_gate_authority``) — this is
+    EXECUTION authority. Nothing consuming this table can actuate in 7.1a.
+    """
+
+    __tablename__ = "control_authority_grants"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["plan_id", "plan_version"],
+            [
+                f"{SCHEMA}.control_plan_runs.plan_id",
+                f"{SCHEMA}.control_plan_runs.plan_version",
+            ],
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "plan_id",
+            "plan_version",
+            name="control_authority_grants_one_per_plan",
+        ),
+        UniqueConstraint(
+            "grant_content_sha256",
+            name="control_authority_grants_content",
+        ),
+        {"schema": SCHEMA},
+    )
+
+    grant_id = Column(UUID(as_uuid=True), primary_key=True)
+    authority_schema_version = Column(SmallInteger, nullable=False)
+    plan_id = Column(UUID(as_uuid=True), nullable=False)
+    plan_version = Column(Integer, nullable=False)
+    model_release_id = Column(Text, nullable=False)
+    model_release_content_hash = Column(CHAR(64), nullable=False)
+    engine_descriptor_content_hash = Column(CHAR(64), nullable=False)
+    model_release_commandable = Column(Boolean, nullable=False)
+    commandability_evidence_document_text = Column(Text, nullable=False)
+    commandability_evidence_sha256 = Column(CHAR(64), nullable=False)
+    capability_release_id = Column(Text, nullable=False)
+    capability_hash = Column(CHAR(64), nullable=False)
+    scope_document_text = Column(Text, nullable=False)
+    scope_sha256 = Column(CHAR(64), nullable=False)
+    intent_set_sha256 = Column(CHAR(64), nullable=False)
+    flow_lower_exclusive_m3s = Column(Float, nullable=False)
+    flow_upper_inclusive_m3s = Column(Float, nullable=False)
+    initialization_document_text = Column(Text, nullable=False)
+    initialization_sha256 = Column(CHAR(64), nullable=False)
+    maximum_continuous_open_seconds = Column(Integer, nullable=False)
+    maximum_intermediate_trims = Column(SmallInteger, nullable=False)
+    grant_document_text = Column(Text, nullable=False)
+    grant_content_sha256 = Column(CHAR(64), nullable=False)
+    created_by_subject = Column(Text, nullable=False)
+    request_id = Column(Text, nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class ControlAuthorityGrantEvent(ControlBase):
+    """Append-only execution-authority lifecycle ledger (PR 7.1a).
+
+    granted (sequence 1, exactly once) -> renewed* -> revoked (terminal, at most
+    one — partial unique index). The fold over this history is the ONLY source
+    of current authority status; granted/renewed events carry a COMPLETE
+    refreshed evidence set (a renewal re-proves, never just extends a
+    timestamp). Rows are immutable (DB trigger).
+    """
+
+    __tablename__ = "control_authority_grant_events"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["grant_id"],
+            [f"{SCHEMA}.control_authority_grants.grant_id"],
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "grant_id",
+            "event_sequence",
+            name="control_authority_grant_events_sequence",
+        ),
+        {"schema": SCHEMA},
+    )
+
+    event_id = Column(UUID(as_uuid=True), primary_key=True)
+    grant_id = Column(UUID(as_uuid=True), nullable=False)
+    event_sequence = Column(Integer, nullable=False)
+    event_type = Column(Text, nullable=False)
+    effective_expires_at = Column(DateTime(timezone=True), nullable=True)
+    shadow_evidence_sha256 = Column(CHAR(64), nullable=True)
+    hold_drill_evidence_sha256 = Column(CHAR(64), nullable=True)
+    rollback_drill_evidence_sha256 = Column(CHAR(64), nullable=True)
+    evidence_manifest_document_text = Column(Text, nullable=True)
+    evidence_manifest_sha256 = Column(CHAR(64), nullable=True)
+    actor_subject = Column(Text, nullable=False)
+    reason = Column(Text, nullable=False)
+    authorization_evidence_document_text = Column(Text, nullable=False)
+    authorization_evidence_sha256 = Column(CHAR(64), nullable=False)
+    event_document_text = Column(Text, nullable=False)
+    event_content_sha256 = Column(CHAR(64), nullable=False)
+    occurred_at = Column(DateTime(timezone=True), nullable=False)
     created_at = Column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

@@ -16,7 +16,9 @@ from core.control_metrics import (
 
 
 def _render(snapshot: ControlPlaneMetricSnapshot) -> str:
-    return render_metric_families(build_control_plane_metric_families(snapshot)).decode()
+    return render_metric_families(
+        build_control_plane_metric_families(snapshot)
+    ).decode()
 
 
 def _series_value(body: str, series: str) -> float | None:
@@ -29,14 +31,25 @@ def _series_value(body: str, series: str) -> float | None:
 def test_empty_snapshot_pre_registers_every_enum_series_at_zero():
     body = _render(ControlPlaneMetricSnapshot())
     for status in OPTIMIZER_STATUSES:
-        assert _series_value(body, f'control_plan_runs_total{{status="{status}"}}') == 0.0
+        assert (
+            _series_value(body, f'control_plan_runs_total{{status="{status}"}}') == 0.0
+        )
     for status in PREDICTION_STATUSES:
-        assert _series_value(body, f'control_prediction_runs_total{{status="{status}"}}') == 0.0
+        assert (
+            _series_value(body, f'control_prediction_runs_total{{status="{status}"}}')
+            == 0.0
+        )
     for status in VALIDATION_STATUSES:
-        assert _series_value(body, f'control_intent_validations_total{{status="{status}"}}') == 0.0
+        assert (
+            _series_value(
+                body, f'control_intent_validations_total{{status="{status}"}}'
+            )
+            == 0.0
+        )
     for reason in REJECTION_REASONS:
         assert (
-            _series_value(body, f'command_intent_rejections_total{{reason="{reason}"}}') == 0.0
+            _series_value(body, f'command_intent_rejections_total{{reason="{reason}"}}')
+            == 0.0
         )
 
 
@@ -50,12 +63,35 @@ def test_counts_are_reflected_per_bounded_label():
     body = _render(snapshot)
     assert _series_value(body, 'control_plan_runs_total{status="feasible"}') == 7.0
     assert _series_value(body, 'control_plan_runs_total{status="infeasible"}') == 2.0
-    assert _series_value(body, 'control_prediction_runs_total{status="not_requested"}') == 3.0
-    assert _series_value(body, 'control_intent_validations_total{status="validation_rejected"}') == 6.0
-    assert _series_value(body, 'command_intent_rejections_total{reason="freshness_failed"}') == 4.0
-    assert _series_value(body, 'command_intent_rejections_total{reason="deadline_expired"}') == 2.0
+    assert (
+        _series_value(body, 'control_prediction_runs_total{status="not_requested"}')
+        == 3.0
+    )
+    assert (
+        _series_value(
+            body, 'control_intent_validations_total{status="validation_rejected"}'
+        )
+        == 6.0
+    )
+    assert (
+        _series_value(
+            body, 'command_intent_rejections_total{reason="freshness_failed"}'
+        )
+        == 4.0
+    )
+    assert (
+        _series_value(
+            body, 'command_intent_rejections_total{reason="deadline_expired"}'
+        )
+        == 2.0
+    )
     # a reason that did not occur is still present, at 0 (present, not absent).
-    assert _series_value(body, 'command_intent_rejections_total{reason="lineage_mismatch"}') == 0.0
+    assert (
+        _series_value(
+            body, 'command_intent_rejections_total{reason="lineage_mismatch"}'
+        )
+        == 0.0
+    )
 
 
 def test_enum_labels_are_bounded_to_the_known_vocab():
@@ -66,7 +102,9 @@ def test_enum_labels_are_bounded_to_the_known_vocab():
     body = _render(snapshot)
     assert "totally_unknown_reason" not in body
     rejection_series = [
-        line for line in body.splitlines() if line.startswith("command_intent_rejections_total{")
+        line
+        for line in body.splitlines()
+        if line.startswith("command_intent_rejections_total{")
     ]
     # Exactly one series per known reason, no more.
     assert len(rejection_series) == len(REJECTION_REASONS)
@@ -91,25 +129,36 @@ def test_dispatch_lag_and_pending_gauges():
 
 def test_worker_heartbeat_present_and_age():
     dead = _render(
-        ControlPlaneMetricSnapshot(worker_heartbeat=WorkerHeartbeat(present=False, age_seconds=None))
+        ControlPlaneMetricSnapshot(
+            worker_heartbeat=WorkerHeartbeat(present=False, age_seconds=None)
+        )
     )
     assert (
-        _series_value(dead, 'scheduler_dispatch_worker_heartbeat_present{worker="shadow_dispatch"}')
+        _series_value(
+            dead,
+            'scheduler_dispatch_worker_heartbeat_present{worker="shadow_dispatch"}',
+        )
         == 0.0
     )
     # No age series when there is no heartbeat.
     assert "scheduler_dispatch_worker_heartbeat_age_seconds{" not in dead
 
     alive = _render(
-        ControlPlaneMetricSnapshot(worker_heartbeat=WorkerHeartbeat(present=True, age_seconds=12.0))
+        ControlPlaneMetricSnapshot(
+            worker_heartbeat=WorkerHeartbeat(present=True, age_seconds=12.0)
+        )
     )
     assert (
-        _series_value(alive, 'scheduler_dispatch_worker_heartbeat_present{worker="shadow_dispatch"}')
+        _series_value(
+            alive,
+            'scheduler_dispatch_worker_heartbeat_present{worker="shadow_dispatch"}',
+        )
         == 1.0
     )
     assert (
         _series_value(
-            alive, 'scheduler_dispatch_worker_heartbeat_age_seconds{worker="shadow_dispatch"}'
+            alive,
+            'scheduler_dispatch_worker_heartbeat_age_seconds{worker="shadow_dispatch"}',
         )
         == 12.0
     )
@@ -120,3 +169,40 @@ def test_scrape_error_family_renders_zero_or_one():
     err = render_metric_families([scrape_error_family(True)]).decode()
     assert _series_value(ok, "scheduler_metrics_scrape_error") == 0.0
     assert _series_value(err, "scheduler_metrics_scrape_error") == 1.0
+
+
+def test_authority_grant_event_metrics_zero_fill_bounded_vocab():
+    """PR 7.1a: the grant-event counter pre-registers granted/renewed/revoked at
+    0 and reflects append-only counts; OBSERVATIONAL only (never authorization)."""
+    empty = _render(ControlPlaneMetricSnapshot())
+    for event_type in ("granted", "renewed", "revoked"):
+        assert (
+            _series_value(
+                empty,
+                f'control_authority_grant_events_total{{event_type="{event_type}"}}',
+            )
+            == 0.0
+        )
+    body = _render(
+        ControlPlaneMetricSnapshot(
+            authority_grant_events_by_type={"granted": 2, "revoked": 1}
+        )
+    )
+    assert (
+        _series_value(
+            body, 'control_authority_grant_events_total{event_type="granted"}'
+        )
+        == 2.0
+    )
+    assert (
+        _series_value(
+            body, 'control_authority_grant_events_total{event_type="renewed"}'
+        )
+        == 0.0
+    )
+    assert (
+        _series_value(
+            body, 'control_authority_grant_events_total{event_type="revoked"}'
+        )
+        == 1.0
+    )

@@ -17,6 +17,8 @@ CONTROL_TABLES = {
     "scheduler.control_command_execution_events",
     "scheduler.control_command_validation_receipts",
     "scheduler.control_gate_readback_observations",
+    "scheduler.control_authority_grants",
+    "scheduler.control_authority_grant_events",
 }
 
 LEGACY_TABLES = {

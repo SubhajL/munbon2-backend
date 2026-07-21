@@ -99,9 +99,10 @@ class TestStrongSecretValidator:
             _settings(jwt_secret_key=weak)
         # Fail-closed: it must be the SECRET that is rejected, not some other
         # unrelated field.
-        assert "jwt_secret_key" in str(info.value).lower() or "secret" in str(
-            info.value
-        ).lower()
+        assert (
+            "jwt_secret_key" in str(info.value).lower()
+            or "secret" in str(info.value).lower()
+        )
 
     def test_settings_accepts_a_strong_secret(self):
         settings = _settings(jwt_secret_key=_STRONG_SECRET)
@@ -173,19 +174,13 @@ class TestValidateAccessTokenClaims:
         policy = _compat_policy()
         # A present-but-WRONG issuer is rejected even in compat.
         with pytest.raises(InvalidClaimsError):
-            validate_access_token_claims(
-                {"sub": "user-1", "iss": "evil"}, policy
-            )
+            validate_access_token_claims({"sub": "user-1", "iss": "evil"}, policy)
         # A present-but-blank jti is rejected even in compat.
         with pytest.raises(InvalidClaimsError):
-            validate_access_token_claims(
-                {"sub": "user-1", "jti": "  "}, policy
-            )
+            validate_access_token_claims({"sub": "user-1", "jti": "  "}, policy)
         # Present roles that are not a list of strings are rejected.
         with pytest.raises(InvalidClaimsError):
-            validate_access_token_claims(
-                {"sub": "user-1", "roles": ["ok", 3]}, policy
-            )
+            validate_access_token_claims({"sub": "user-1", "roles": ["ok", 3]}, policy)
 
     def test_compat_accepts_present_valid_claims_and_normalizes(self):
         principal = validate_access_token_claims(
@@ -299,16 +294,12 @@ class TestIsTrustedShadowApproval:
         assert is_trusted_shadow_approval(self._v2_doc(compat)) is False
         # A forged one-field strict evidence must NOT read as trusted.
         assert (
-            is_trusted_shadow_approval(
-                self._v2_doc({"claim_policy_mode": "strict"})
-            )
+            is_trusted_shadow_approval(self._v2_doc({"claim_policy_mode": "strict"}))
             is False
         )
         # A complete strict evidence IS trusted.
         assert (
-            is_trusted_shadow_approval(
-                self._v2_doc(self._complete_strict_evidence())
-            )
+            is_trusted_shadow_approval(self._v2_doc(self._complete_strict_evidence()))
             is True
         )
 
@@ -323,9 +314,9 @@ class TestIsTrustedShadowApproval:
         ):
             evidence = self._complete_strict_evidence()
             del evidence[missing]
-            assert is_trusted_shadow_approval(self._v2_doc(evidence)) is False, (
-                f"missing {missing} must not be trusted"
-            )
+            assert (
+                is_trusted_shadow_approval(self._v2_doc(evidence)) is False
+            ), f"missing {missing} must not be trusted"
         # A non-supervisor approver role is not a valid approval evidence.
         operator_only = {**self._complete_strict_evidence(), "roles": ["operator"]}
         assert is_trusted_shadow_approval(self._v2_doc(operator_only)) is False
@@ -344,3 +335,51 @@ class TestIsTrustedShadowApproval:
             "authorization_evidence": self._complete_strict_evidence(),
         }
         assert is_trusted_shadow_approval(bool_version) is False
+
+
+class TestIsTrustedAuthorizationEvidence:
+    """PR 7.1a: the strict-evidence completeness check, extracted so authority
+    grants and shadow approvals validate the SAME contract (no fork)."""
+
+    @staticmethod
+    def _evidence(**overrides) -> dict:
+        base = {
+            "authorization_policy_version": "control-plan-rbac-v1",
+            "claim_policy_mode": "strict",
+            "subject": "supervisor-1",
+            "roles": ["supervisor"],
+            "token_identity_sha256": "a" * 64,
+            "request_id": "req-1",
+            "evidence_refs": ["ticket-123"],
+        }
+        base.update(overrides)
+        return base
+
+    def test_complete_strict_evidence_is_trusted(self):
+        from core.auth import is_trusted_authorization_evidence
+
+        assert is_trusted_authorization_evidence(self._evidence()) is True
+
+    @pytest.mark.parametrize(
+        "overrides",
+        [
+            {"claim_policy_mode": "compat"},
+            {"subject": " "},
+            {"roles": ["operator"]},
+            {"roles": "supervisor"},
+            {"authorization_policy_version": ""},
+            {"token_identity_sha256": "xyz"},
+            {"request_id": None},
+            {"evidence_refs": []},
+            {"evidence_refs": ["ok", "  "]},
+        ],
+    )
+    def test_incomplete_or_weak_evidence_is_untrusted(self, overrides):
+        from core.auth import is_trusted_authorization_evidence
+
+        assert is_trusted_authorization_evidence(self._evidence(**overrides)) is False
+
+    def test_non_mapping_is_untrusted(self):
+        from core.auth import is_trusted_authorization_evidence
+
+        assert is_trusted_authorization_evidence(None) is False

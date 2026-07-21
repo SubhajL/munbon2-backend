@@ -43,7 +43,7 @@ def _declared_columns(qualified: str, table) -> set:
         match.group(1)
         for match in re.finditer(
             r"^\s{4}(\w+) (?:UUID|INTEGER|SMALLINT|BIGINT|TEXT|CHAR|DATE|"
-            r"TIMESTAMPTZ|DOUBLE)",
+            r"TIMESTAMPTZ|DOUBLE|BOOLEAN)",
             body,
             re.MULTILINE,
         )
@@ -71,9 +71,7 @@ class TestMigrationPairShape:
 
     def test_migrations_create_no_extra_tables(self):
         created = set(re.findall(r"CREATE TABLE scheduler\.(\w+)", ALL_UP))
-        orm_tables = {
-            name.split(".", 1)[1] for name in ControlBase.metadata.tables
-        }
+        orm_tables = {name.split(".", 1)[1] for name in ControlBase.metadata.tables}
         assert created == orm_tables
 
     def test_every_orm_column_appears_in_its_table_ddl(self):
@@ -125,7 +123,8 @@ class TestMigrationPairShape:
 
 def test_migration_0010_reason_vocab_matches_the_frozen_contract():
     """L6: the DB reason_code CHECK vocabulary must equal the Python ValidationRejectionReason
-    Literal, so a future edit to one is caught by a test, not a runtime INSERT failure."""
+    Literal, so a future edit to one is caught by a test, not a runtime INSERT failure.
+    """
     from typing import get_args
 
     from schemas.machine_boundary import ValidationRejectionReason
@@ -153,6 +152,11 @@ def test_migration_0011_verdict_and_mode_vocab_match_the_constants():
     mode = re.search(r"reconciliation_mode IN \(([^)]*)\)", sql)
     assert verdict and mode
     assert set(re.findall(r"'([a-z_]+)'", verdict.group(1))) == {
-        VERDICT_OK, VERDICT_MISMATCH, VERDICT_UNAVAILABLE,
+        VERDICT_OK,
+        VERDICT_MISMATCH,
+        VERDICT_UNAVAILABLE,
     }
-    assert set(re.findall(r"'([a-z_]+)'", mode.group(1))) == {MODE_OBSERVE, MODE_ENFORCE}
+    assert set(re.findall(r"'([a-z_]+)'", mode.group(1))) == {
+        MODE_OBSERVE,
+        MODE_ENFORCE,
+    }

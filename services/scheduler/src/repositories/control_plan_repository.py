@@ -12,20 +12,29 @@ import hashlib
 import json
 from dataclasses import dataclass, replace
 from datetime import date, datetime
-from typing import Optional
+from typing import Any, Mapping, Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy import delete, func, select, text, tuple_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from pydantic import ValidationError
 
+from core.auth import is_trusted_authorization_evidence
+from core.authority_grant import (
+    AUTHORITY_GRANT_SCHEMA_VERSION,
+    AuthorityEvidenceError,
+    intent_set_sha256,
+    validate_commandability_evidence,
+)
+from core.canonical_json import canonicalize
 from core.control_plan import (
     canonical_json_text,
     control_plan_draft_hash,
     control_plan_input_hash,
 )
-from core.control_plan_lifecycle import TERMINAL_STATES
+from core.control_plan_lifecycle import TERMINAL_STATES, derive_control_plan_state
 from core.open_loop_execution import (
     ACTIVATION_TRANSITION_TYPE,
     ExpectedScope,
@@ -40,6 +49,8 @@ from core.predicted_delivery_ledger import (
 )
 from models.control_plan import (
     ControlActiveGateAuthority,
+    ControlAuthorityGrant,
+    ControlAuthorityGrantEvent,
     ControlCommandExecutionEvent,
     ControlCommandOutboxRow,
     ControlCommandValidationReceipt,
@@ -54,6 +65,7 @@ from models.control_plan import (
 from services.clients.control_flow_client import (
     FLOW_PREDICTION_IDENTITY_VERSION_V2,
 )
+from schemas.machine_boundary import ValidationReceipt
 
 
 class ControlPlanRepositoryError(Exception):
@@ -192,9 +204,11 @@ class OpenLoopContext:
 
 @dataclass(frozen=True)
 class DispatchableIntent:
-    """A CLAIMED, not-yet-receipted outbox intent the shadow dispatcher should validate
-    (PR 6.3a). ``intent_document_text`` is the full canonical-JSON CommandIntent to POST;
-    ``intent_content_hash`` is the parity pin the returned receipt must echo."""
+    """One CLAIMED, not-yet-receipted shadow-dispatch intent.
+
+    ``intent_document_text`` is the canonical CommandIntent to POST;
+    ``intent_content_hash`` is the parity pin the receipt must echo.
+    """
 
     intent_id: UUID
     plan_id: UUID
@@ -208,7 +222,7 @@ class DispatchableIntent:
 
 @dataclass(frozen=True)
 class ValidationReceiptRow:
-    """One durable SCADA ValidationReceipt to persist (PR 6.3a), keyed one-per-intent."""
+    """One durable SCADA receipt, keyed one-per-intent (PR 6.3a)."""
 
     intent_id: UUID
     plan_id: UUID
@@ -244,8 +258,99 @@ class ReadbackObservationRow:
     observed_at: datetime
 
 
+@dataclass(frozen=True)
+class AuthorityGrantRow:
+    """One immutable execution-authority grant (PR 7.1a) — the 0012 grant row.
+
+    EXECUTION authority, not the shadow scope mutex
+    (``control_active_gate_authority``). Status is never stored here; it is
+    folded from the grant's append-only event rows."""
+
+    grant_id: UUID
+    authority_schema_version: int
+    plan_id: UUID
+    plan_version: int
+    model_release_id: str
+    model_release_content_hash: str
+    engine_descriptor_content_hash: str
+    model_release_commandable: bool
+    commandability_evidence_document_text: str
+    commandability_evidence_sha256: str
+    capability_release_id: str
+    capability_hash: str
+    scope_document_text: str
+    scope_sha256: str
+    intent_set_sha256: str
+    flow_lower_exclusive_m3s: float
+    flow_upper_inclusive_m3s: float
+    initialization_document_text: str
+    initialization_sha256: str
+    maximum_continuous_open_seconds: int
+    maximum_intermediate_trims: int
+    grant_document_text: str
+    grant_content_sha256: str
+    created_by_subject: str
+    request_id: str
+
+
+@dataclass(frozen=True)
+class AuthorityGrantEventRow:
+    """One append-only authority-grant lifecycle event (PR 7.1a) — 0012 events."""
+
+    event_id: UUID
+    grant_id: UUID
+    event_sequence: int
+    event_type: str
+    effective_expires_at: Optional[datetime]
+    shadow_evidence_sha256: Optional[str]
+    hold_drill_evidence_sha256: Optional[str]
+    rollback_drill_evidence_sha256: Optional[str]
+    evidence_manifest_document_text: Optional[str]
+    evidence_manifest_sha256: Optional[str]
+    actor_subject: str
+    reason: str
+    authorization_evidence_document_text: str
+    authorization_evidence_sha256: str
+    event_document_text: str
+    event_content_sha256: str
+    occurred_at: datetime
+
+
+@dataclass(frozen=True)
+class AuthorityEvidenceCounts:
+    """The plan's 0010 receipt coverage: shadow proof a grant must verify."""
+
+    outbox_intent_count: int
+    accepted_receipt_intent_count: int
+    matching_receipt_intent_count: int
+
+
 class ScopeConflictError(Exception):
     """Another active plan already holds one of the requested (section, gate) scopes."""
+
+
+class AuthorityGrantConflictError(Exception):
+    """The plan version already holds a grant with DIFFERENT content."""
+
+
+class AuthorityRevocationConflictError(Exception):
+    """Lost the one-revocation race — the grant is already terminally revoked."""
+
+
+class AuthorityGrantCorruptError(Exception):
+    """A stored grant/event row fails its own content hash — fail closed."""
+
+
+class AuthorityEvidenceStoreCorruptError(Exception):
+    """Stored receipt/outbox authority evidence is inconsistent — fail closed."""
+
+
+class PlanNotShadowActiveForAuthorityError(Exception):
+    """The plan is not (or no longer) shadow_active under the authority lock.
+
+    Raised INSIDE the RECOVERY_LOCK_ID-guarded transaction, so a supersede or
+    invalidate that lands after the service's unlocked validation can never be
+    granted (or renewed) over."""
 
 
 def _violated_constraint(error: IntegrityError):
@@ -321,6 +426,51 @@ def text_sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def verify_stored_validation_receipt(row: Any) -> None:
+    """Bind every receipt replica to the hashed machine-boundary document."""
+    document_text = getattr(row, "receipt_document_text", None)
+    if not isinstance(document_text, str) or text_sha256(document_text) != getattr(
+        row, "receipt_content_sha256", None
+    ):
+        raise AuthorityEvidenceStoreCorruptError(
+            "validation receipt document does not match its stored hash"
+        )
+    try:
+        receipt = ValidationReceipt.model_validate(json.loads(document_text))
+        validated_at = datetime.fromisoformat(
+            receipt.validated_at.removesuffix("Z") + "+00:00"
+        )
+    except (ValueError, TypeError, ValidationError) as error:
+        raise AuthorityEvidenceStoreCorruptError(
+            "validation receipt document violates its contract"
+        ) from error
+    replicas = {
+        "receipt_id": str(row.receipt_id),
+        "intent_id": str(row.intent_id),
+        "correlation_id": str(row.correlation_id),
+        "request_id": row.request_id,
+        "idempotency_key": row.idempotency_key,
+        "intent_content_hash": row.intent_content_hash,
+        "capability_hash": row.capability_hash,
+        "status": row.status,
+        "reason_code": row.reason_code,
+    }
+    if any(getattr(receipt, field) != value for field, value in replicas.items()):
+        raise AuthorityEvidenceStoreCorruptError(
+            "validation receipt typed replicas disagree with its document"
+        )
+    stored_validated_at = getattr(row, "validated_at", None)
+    if (
+        not isinstance(stored_validated_at, datetime)
+        or stored_validated_at.tzinfo is None
+        or stored_validated_at.tzinfo.utcoffset(stored_validated_at) is None
+        or validated_at != stored_validated_at
+    ):
+        raise AuthorityEvidenceStoreCorruptError(
+            "validation receipt timestamp disagrees with its document"
+        )
+
+
 def _campaign_advisory_lock_key(campaign_id: UUID) -> int:
     """A stable SIGNED 64-bit advisory-lock key for a campaign uuid.
 
@@ -330,6 +480,239 @@ def _campaign_advisory_lock_key(campaign_id: UUID) -> int:
     single campaign's own version allocations."""
     digest = hashlib.sha256(str(campaign_id).encode("utf-8")).digest()[:8]
     return int.from_bytes(digest, "big", signed=True)
+
+
+def _authority_grant_advisory_lock_key(grant_id: UUID) -> int:
+    """A stable SIGNED 64-bit advisory-lock key for a grant uuid (PR 7.1a).
+
+    Serializes event-sequence allocation per grant (same collision reasoning as
+    the campaign key: a collision only serializes two distinct grants, never
+    mis-sequences one grant's own ledger). Domain-prefixed so a grant uuid and
+    a campaign uuid can never share a key by value coincidence."""
+    digest = hashlib.sha256(
+        ("authority-grant:" + str(grant_id)).encode("utf-8")
+    ).digest()[:8]
+    return int.from_bytes(digest, "big", signed=True)
+
+
+def verify_stored_grant(row: AuthorityGrantRow) -> None:
+    """Fail-closed integrity of a loaded grant row (mirrors verify_stored_draft).
+
+    The canonical grant document is the truth; every typed replica column must
+    agree with it and every stored hash must recompute. Any disagreement is
+    corruption -> AuthorityGrantCorruptError (the API maps it to 503)."""
+    if text_sha256(row.grant_document_text) != row.grant_content_sha256:
+        raise AuthorityGrantCorruptError(
+            f"grant {row.grant_id}: document does not match grant_content_sha256"
+        )
+    try:
+        document = json.loads(row.grant_document_text)
+    except ValueError as error:
+        raise AuthorityGrantCorruptError(
+            f"grant {row.grant_id}: document is not valid JSON"
+        ) from error
+    from core.canonical_json import canonicalize
+
+    if (
+        not isinstance(document, Mapping)
+        or canonicalize(document) != row.grant_document_text
+        or document.get("schema_version") != AUTHORITY_GRANT_SCHEMA_VERSION
+        or row.authority_schema_version != AUTHORITY_GRANT_SCHEMA_VERSION
+    ):
+        raise AuthorityGrantCorruptError(
+            f"grant {row.grant_id}: document is noncanonical or its schema "
+            "is unsupported"
+        )
+
+    plan = document.get("plan", {})
+    release = document.get("release", {})
+    capability = document.get("capability", {})
+    envelope = document.get("envelope", {})
+    intents = document.get("intents", {})
+    intent_hashes = intents.get("intent_content_hashes")
+    try:
+        commandability_evidence = json.loads(row.commandability_evidence_document_text)
+        validate_commandability_evidence(
+            commandability_evidence,
+            model_release_id=row.model_release_id,
+            model_release_content_hash=row.model_release_content_hash,
+            engine_descriptor_content_hash=row.engine_descriptor_content_hash,
+        )
+    except (TypeError, ValueError, AuthorityEvidenceError) as error:
+        raise AuthorityGrantCorruptError(
+            f"grant {row.grant_id}: commandability evidence is invalid"
+        ) from error
+
+    def _numbers_equal(doc_value, column_value) -> bool:
+        # Strict: only a real JSON number (never bool, never a numeric string)
+        # may replicate a float column.
+        return (
+            isinstance(doc_value, (int, float))
+            and not isinstance(doc_value, bool)
+            and float(doc_value) == column_value
+        )
+
+    mismatches = [
+        plan.get("plan_id") != str(row.plan_id),
+        plan.get("plan_version") != row.plan_version,
+        release.get("model_release_id") != row.model_release_id,
+        release.get("model_release_content_hash") != row.model_release_content_hash,
+        release.get("engine_descriptor_content_hash")
+        != row.engine_descriptor_content_hash,
+        capability.get("capability_release_id") != row.capability_release_id,
+        capability.get("capability_hash") != row.capability_hash,
+        canonicalize(document.get("scope", {})) != row.scope_document_text,
+        text_sha256(row.scope_document_text) != row.scope_sha256,
+        not isinstance(intent_hashes, list),
+        isinstance(intent_hashes, list)
+        and (
+            not intent_hashes
+            or intents.get("count") != len(intent_hashes)
+            or any(not isinstance(value, str) for value in intent_hashes)
+            or intent_set_sha256(intent_hashes) != row.intent_set_sha256
+        ),
+        intents.get("intent_set_sha256") != row.intent_set_sha256,
+        canonicalize(document.get("commandability_evidence", {}))
+        != row.commandability_evidence_document_text,
+        text_sha256(row.commandability_evidence_document_text)
+        != row.commandability_evidence_sha256,
+        canonicalize(envelope.get("initialization", {}))
+        != row.initialization_document_text,
+        text_sha256(row.initialization_document_text) != row.initialization_sha256,
+        not _numbers_equal(
+            envelope.get("flow_lower_exclusive_m3s"), row.flow_lower_exclusive_m3s
+        ),
+        not _numbers_equal(
+            envelope.get("flow_upper_inclusive_m3s"), row.flow_upper_inclusive_m3s
+        ),
+        envelope.get("maximum_continuous_open_seconds")
+        != row.maximum_continuous_open_seconds,
+        envelope.get("maximum_intermediate_trims") != row.maximum_intermediate_trims,
+        row.model_release_commandable is not True,
+    ]
+    if any(mismatches):
+        raise AuthorityGrantCorruptError(
+            f"grant {row.grant_id}: a typed replica disagrees with the document"
+        )
+
+
+def verify_stored_grant_event(row: AuthorityGrantEventRow) -> None:
+    """Fail-closed integrity of a loaded grant event row.
+
+    The status fold consumes ONLY the typed columns, so every typed replica
+    must be bound to the canonical event document — a tampered expiry/type/
+    sequence column that leaves the document untouched must raise, exactly as
+    verify_stored_grant does for the grant row."""
+    if text_sha256(row.event_document_text) != row.event_content_sha256:
+        raise AuthorityGrantCorruptError(
+            f"grant event {row.event_id}: document does not match its hash"
+        )
+    if (
+        text_sha256(row.authorization_evidence_document_text)
+        != row.authorization_evidence_sha256
+    ):
+        raise AuthorityGrantCorruptError(
+            f"grant event {row.event_id}: authorization evidence does not "
+            "match its hash"
+        )
+    try:
+        document = json.loads(row.event_document_text)
+    except ValueError as error:
+        raise AuthorityGrantCorruptError(
+            f"grant event {row.event_id}: document is not valid JSON"
+        ) from error
+    if not isinstance(document, dict):
+        raise AuthorityGrantCorruptError(
+            f"grant event {row.event_id}: document is not an object"
+        )
+    from core.canonical_json import canonicalize
+
+    try:
+        authorization_evidence = json.loads(row.authorization_evidence_document_text)
+    except ValueError as error:
+        raise AuthorityGrantCorruptError(
+            f"grant event {row.event_id}: authorization evidence is not valid JSON"
+        ) from error
+    if (
+        canonicalize(document) != row.event_document_text
+        or document.get("schema_version") != AUTHORITY_GRANT_SCHEMA_VERSION
+        or not isinstance(authorization_evidence, Mapping)
+        or canonicalize(authorization_evidence)
+        != row.authorization_evidence_document_text
+    ):
+        raise AuthorityGrantCorruptError(
+            f"grant event {row.event_id}: a document is noncanonical or unsupported"
+        )
+    doc_expiry = document.get("effective_expires_at")
+    expiry_matches = (
+        doc_expiry is None
+        if row.effective_expires_at is None
+        else (
+            isinstance(doc_expiry, str)
+            and _parse_grant_instant(doc_expiry) == row.effective_expires_at
+        )
+    )
+    evidence = document.get("evidence")
+    if row.event_type == "revoked":
+        evidence_matches = evidence is None and all(
+            value is None
+            for value in (
+                row.shadow_evidence_sha256,
+                row.hold_drill_evidence_sha256,
+                row.rollback_drill_evidence_sha256,
+                row.evidence_manifest_document_text,
+                row.evidence_manifest_sha256,
+            )
+        )
+    else:
+        try:
+            manifest = json.loads(row.evidence_manifest_document_text or "null")
+        except ValueError:
+            manifest = None
+        evidence_matches = (
+            isinstance(evidence, dict)
+            and evidence.get("shadow_evidence_sha256") == row.shadow_evidence_sha256
+            and evidence.get("hold_drill_evidence_sha256")
+            == row.hold_drill_evidence_sha256
+            and evidence.get("rollback_drill_evidence_sha256")
+            == row.rollback_drill_evidence_sha256
+            and evidence.get("evidence_manifest_sha256") == row.evidence_manifest_sha256
+            and row.evidence_manifest_document_text is not None
+            and isinstance(manifest, Mapping)
+            and canonicalize(manifest) == row.evidence_manifest_document_text
+            and text_sha256(row.evidence_manifest_document_text)
+            == row.evidence_manifest_sha256
+        )
+    occurred = document.get("occurred_at")
+    mismatches = [
+        document.get("grant_id") != str(row.grant_id),
+        document.get("event_sequence") != row.event_sequence,
+        document.get("event_type") != row.event_type,
+        not expiry_matches,
+        not evidence_matches,
+        document.get("actor_subject") != row.actor_subject,
+        authorization_evidence.get("subject") != row.actor_subject,
+        document.get("reason") != row.reason,
+        document.get("authorization_evidence_sha256")
+        != row.authorization_evidence_sha256,
+        not isinstance(occurred, str)
+        or _parse_grant_instant(occurred) != row.occurred_at,
+    ]
+    if any(mismatches):
+        raise AuthorityGrantCorruptError(
+            f"grant event {row.event_id}: a typed replica disagrees with the document"
+        )
+
+
+def _parse_grant_instant(value: str):
+    """Parse a stored ISO instant; unparseable/naive -> corruption (None)."""
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None or parsed.tzinfo.utcoffset(parsed) is None:
+        return None
+    return parsed
 
 
 # A fixed SIGNED 64-bit key that serializes restart authority-recovery across pods
@@ -385,9 +768,7 @@ def build_provenance_reference_document(
             "encoding_version": artifact_encoding_version,
         },
         "summaries": {
-            "prediction_member_summaries_sha256": (
-                prediction_member_summaries_sha256
-            ),
+            "prediction_member_summaries_sha256": (prediction_member_summaries_sha256),
             "coverage_summary_sha256": coverage_summary_sha256,
         },
         "predicted_delivery_ledger_sha256": predicted_delivery_ledger_sha256,
@@ -459,14 +840,15 @@ def _verify_input_and_optimizer(record: DraftPlanRecord) -> dict:
         )
     # Tie the queryable header pin columns back to the hash-covered input
     # document, so a header pin edited independently of the document is caught.
-    pins = input_document.get("snapshot_pins") if isinstance(
-        input_document, dict
-    ) else None
+    pins = (
+        input_document.get("snapshot_pins")
+        if isinstance(input_document, dict)
+        else None
+    )
     if not isinstance(pins, dict) or (
         pins.get("model_snapshot_id") != record.model_snapshot_id
         or pins.get("model_release_id") != record.model_release_id
-        or pins.get("model_release_content_hash")
-        != record.model_release_content_hash
+        or pins.get("model_release_content_hash") != record.model_release_content_hash
     ):
         raise DraftStoreCorruptError(
             "stored model pins do not match the hashed input document"
@@ -474,9 +856,7 @@ def _verify_input_and_optimizer(record: DraftPlanRecord) -> dict:
     if text_sha256(record.optimizer_result_document_text) != (
         record.optimizer_result_sha256
     ):
-        raise DraftStoreCorruptError(
-            "stored optimizer result does not match its hash"
-        )
+        raise DraftStoreCorruptError("stored optimizer result does not match its hash")
     return input_document
 
 
@@ -487,9 +867,7 @@ def _draft_hash_over(
 ) -> None:
     draft_document = {
         "input_document": input_document,
-        "optimizer_result_document": json.loads(
-            record.optimizer_result_document_text
-        ),
+        "optimizer_result_document": json.loads(record.optimizer_result_document_text),
         "prediction_request_document": (
             None
             if record.prediction_request_document_text is None
@@ -514,9 +892,11 @@ def _verify_ledger_columns(record: DraftPlanRecord) -> None:
 def _verify_stored_draft_v1(record: DraftPlanRecord) -> None:
     input_document = _verify_input_and_optimizer(record)
     if record.prediction_response_document_text is not None:
-        if record.prediction_response_sha256 is None or text_sha256(
-            record.prediction_response_document_text
-        ) != record.prediction_response_sha256:
+        if (
+            record.prediction_response_sha256 is None
+            or text_sha256(record.prediction_response_document_text)
+            != record.prediction_response_sha256
+        ):
             raise DraftStoreCorruptError(
                 "stored prediction response does not match its hash"
             )
@@ -539,9 +919,7 @@ def _verify_engine_matches_snapshot(record: DraftPlanRecord) -> None:
         raise DraftStoreCorruptError(
             f"stored model snapshot document is not valid JSON: {error}"
         ) from error
-    engine = snapshot.get("prediction_engine") if isinstance(
-        snapshot, dict
-    ) else None
+    engine = snapshot.get("prediction_engine") if isinstance(snapshot, dict) else None
     if not isinstance(engine, dict):
         raise DraftStoreCorruptError(
             "stored v2 draft's model snapshot carries no embedded "
@@ -579,24 +957,18 @@ def _verify_stored_draft_v2(record: DraftPlanRecord) -> None:
         "prediction_run_id": record.prediction_run_id,
         "prediction_identity_version": record.prediction_identity_version,
         "engine_id": record.engine_id,
-        "engine_semantic_contract_version": (
-            record.engine_semantic_contract_version
-        ),
+        "engine_semantic_contract_version": (record.engine_semantic_contract_version),
         "engine_build_digest": record.engine_build_digest,
         "engine_descriptor_content_hash": record.engine_descriptor_content_hash,
         "artifact_sha256": record.artifact_sha256,
-        "artifact_uncompressed_size_bytes": (
-            record.artifact_uncompressed_size_bytes
-        ),
+        "artifact_uncompressed_size_bytes": (record.artifact_uncompressed_size_bytes),
         "artifact_media_type": record.artifact_media_type,
         "artifact_encoding": record.artifact_encoding,
         "artifact_encoding_version": record.artifact_encoding_version,
         "prediction_member_summaries": record.prediction_member_summaries,
         "coverage_summary_document_text": record.coverage_summary_document_text,
         "coverage_summary_sha256": record.coverage_summary_sha256,
-        "predicted_delivery_ledger_sha256": (
-            record.predicted_delivery_ledger_sha256
-        ),
+        "predicted_delivery_ledger_sha256": (record.predicted_delivery_ledger_sha256),
     }
     missing = [name for name, value in required.items() if value is None]
     if missing:
@@ -614,12 +986,8 @@ def _verify_stored_draft_v2(record: DraftPlanRecord) -> None:
     if text_sha256(record.coverage_summary_document_text) != (
         record.coverage_summary_sha256
     ):
-        raise DraftStoreCorruptError(
-            "stored coverage summary does not match its hash"
-        )
-    recomputed_ledger_sha = predicted_delivery_ledger_sha256(
-        record.ledger_entries
-    )
+        raise DraftStoreCorruptError("stored coverage summary does not match its hash")
+    recomputed_ledger_sha = predicted_delivery_ledger_sha256(record.ledger_entries)
     if recomputed_ledger_sha != record.predicted_delivery_ledger_sha256:
         raise DraftStoreCorruptError(
             "stored predicted-delivery ledger hash does not match its rows"
@@ -747,13 +1115,9 @@ class PostgresControlPlanRepository:
             "horizon_end": record.horizon_end,
             "model_step_seconds": record.model_step_seconds,
             "max_intermediate_trims": record.max_intermediate_trims,
-            "canonical_input_document_text": (
-                record.canonical_input_document_text
-            ),
+            "canonical_input_document_text": (record.canonical_input_document_text),
             "model_snapshot_document_text": record.model_snapshot_document_text,
-            "optimizer_result_document_text": (
-                record.optimizer_result_document_text
-            ),
+            "optimizer_result_document_text": (record.optimizer_result_document_text),
             "optimizer_result_sha256": record.optimizer_result_sha256,
             "prediction_request_document_text": (
                 record.prediction_request_document_text
@@ -769,9 +1133,7 @@ class PostgresControlPlanRepository:
                 record.engine_semantic_contract_version
             ),
             "engine_build_digest": record.engine_build_digest,
-            "engine_descriptor_content_hash": (
-                record.engine_descriptor_content_hash
-            ),
+            "engine_descriptor_content_hash": (record.engine_descriptor_content_hash),
             "artifact_sha256": record.artifact_sha256,
             "artifact_uncompressed_size_bytes": (
                 record.artifact_uncompressed_size_bytes
@@ -779,9 +1141,7 @@ class PostgresControlPlanRepository:
             "artifact_media_type": record.artifact_media_type,
             "artifact_encoding": record.artifact_encoding,
             "artifact_encoding_version": record.artifact_encoding_version,
-            "coverage_summary_document_text": (
-                record.coverage_summary_document_text
-            ),
+            "coverage_summary_document_text": (record.coverage_summary_document_text),
             "coverage_summary_sha256": record.coverage_summary_sha256,
             "predicted_delivery_ledger_sha256": (
                 record.predicted_delivery_ledger_sha256
@@ -797,9 +1157,7 @@ class PostgresControlPlanRepository:
         # session.begin() so header and children still land atomically.
         try:
             insert_result = await session.execute(
-                pg_insert(ControlPlanRun)
-                .values(**header)
-                .on_conflict_do_nothing()
+                pg_insert(ControlPlanRun).values(**header).on_conflict_do_nothing()
             )
             if insert_result.rowcount == 1:
                 for requirement in record.requirements:
@@ -852,9 +1210,7 @@ class PostgresControlPlanRepository:
             # re-reading, so a post-commit read failure can never turn a
             # committed draft into a spurious error.
             return record, False
-        winner = await self.find_by_input_hash(
-            session, record.input_content_hash
-        )
+        winner = await self.find_by_input_hash(session, record.input_content_hash)
         if winner is None:
             raise PlanContentConflictError(
                 "insert conflicted but no row carries this input hash; a "
@@ -1085,8 +1441,7 @@ class PostgresControlPlanRepository:
                     ControlStateTransition.plan_version,
                 )
                 .where(
-                    ControlStateTransition.transition_type
-                    == ACTIVATION_TRANSITION_TYPE
+                    ControlStateTransition.transition_type == ACTIVATION_TRANSITION_TYPE
                 )
                 .distinct()
             )
@@ -1132,9 +1487,9 @@ class PostgresControlPlanRepository:
         )
         transitions_by_key: dict = {}
         for row in transition_rows:
-            transitions_by_key.setdefault(
-                (row.plan_id, row.plan_version), []
-            ).append(row)
+            transitions_by_key.setdefault((row.plan_id, row.plan_version), []).append(
+                row
+            )
         requirement_key_tuple = tuple_(
             ControlPlanRequirement.plan_id, ControlPlanRequirement.plan_version
         )
@@ -1182,9 +1537,7 @@ class PostgresControlPlanRepository:
         live ``shadow_active`` row); the (section, gate) PK makes each pair identify
         exactly one row. Idempotent — a no-op when the mutex already matches."""
         try:
-            current = list(
-                await session.scalars(select(ControlActiveGateAuthority))
-            )
+            current = list(await session.scalars(select(ControlActiveGateAuthority)))
             orphan_pairs = [
                 (row.section_id, row.gate_id)
                 for row in current
@@ -1201,13 +1554,11 @@ class PostgresControlPlanRepository:
                     )
                 )
                 deleted = result.rowcount or 0
-            occupied = {
-                (row.section_id, row.gate_id) for row in current
-            } - set(orphan_pairs)
+            occupied = {(row.section_id, row.gate_id) for row in current} - set(
+                orphan_pairs
+            )
             inserted = 0
-            for scope in sorted(
-                expected, key=lambda s: (s.section_id, s.gate_id)
-            ):
+            for scope in sorted(expected, key=lambda s: (s.section_id, s.gate_id)):
                 if (scope.section_id, scope.gate_id) in occupied:
                     continue
                 result = await session.execute(
@@ -1221,9 +1572,7 @@ class PostgresControlPlanRepository:
                             scope.activation_transition_sequence
                         ),
                     )
-                    .on_conflict_do_nothing(
-                        index_elements=["section_id", "gate_id"]
-                    )
+                    .on_conflict_do_nothing(index_elements=["section_id", "gate_id"])
                 )
                 inserted += result.rowcount or 0
             await session.commit()
@@ -1350,10 +1699,11 @@ class PostgresControlPlanRepository:
     async def load_dispatchable_intents(
         self, session: AsyncSession, plan_id: UUID, plan_version: int
     ) -> "list[DispatchableIntent]":
-        """The plan's CLAIMED, not-yet-receipted outbox intents, in event_sequence order
-        (PR 6.3a). ``claimed`` implies not missed/invalidated (the 0009 one-terminal-per-intent
-        index makes those mutually exclusive), so this is exactly the set the dispatcher owes
-        a validation round-trip. Bounds retries: once an intent has a receipt it drops out."""
+        """The CLAIMED, not-yet-receipted intents in event-sequence order.
+
+        Claimed implies not missed/invalidated because the 0009 terminal index
+        makes those states exclusive. A receipt removes an intent from retries.
+        """
         outbox = ControlCommandOutboxRow
         event = ControlCommandExecutionEvent
         receipt = ControlCommandValidationReceipt
@@ -1405,10 +1755,11 @@ class PostgresControlPlanRepository:
     async def record_validation_receipt(
         self, session: AsyncSession, row: "ValidationReceiptRow"
     ) -> bool:
-        """Persist a ValidationReceipt exactly once (PR 6.3a): INSERT ... ON CONFLICT
-        (intent_id) DO NOTHING. Returns True iff THIS call inserted the row; a retry (or a
-        concurrent tick) that lost the race returns False and never mutates the stored
-        receipt. The row is immutable (DB trigger)."""
+        """Persist a ValidationReceipt exactly once (PR 6.3a).
+
+        INSERT ON CONFLICT (intent_id) DO NOTHING returns true only to the
+        winner; retries never mutate the trigger-protected stored receipt.
+        """
         statement = (
             pg_insert(ControlCommandValidationReceipt)
             .values(**row.__dict__)
@@ -1439,15 +1790,330 @@ class PostgresControlPlanRepository:
     async def load_active_shadow_plan_keys(
         self, session: AsyncSession
     ) -> "list[tuple[UUID, int]]":
-        """Every (plan_id, plan_version) currently holding machine authority (PR 6.3a) —
-        the shadow-active plans the dispatch loop should tick. Sourced from the
-        control_active_gate_authority mutex (a plan holds >=1 scope while shadow_active)."""
+        """Every plan version currently holding shadow machine authority.
+
+        Sourced from the control_active_gate_authority mutex: a shadow-active
+        plan holds at least one scope (PR 6.3a).
+        """
         authority = ControlActiveGateAuthority
-        statement = select(
-            authority.plan_id, authority.plan_version
-        ).distinct().order_by(authority.plan_id, authority.plan_version)
+        statement = (
+            select(authority.plan_id, authority.plan_version)
+            .distinct()
+            .order_by(authority.plan_id, authority.plan_version)
+        )
         rows = (await session.execute(statement)).all()
         return [(row.plan_id, row.plan_version) for row in rows]
+
+    async def _derived_plan_state(
+        self, session: AsyncSession, plan_id: UUID, plan_version: int
+    ) -> str:
+        transitions = (
+            await session.scalars(
+                select(ControlStateTransition)
+                .where(
+                    ControlStateTransition.plan_id == plan_id,
+                    ControlStateTransition.plan_version == plan_version,
+                )
+                .order_by(ControlStateTransition.transition_sequence)
+            )
+        ).all()
+        return derive_control_plan_state(transitions)
+
+    async def insert_authority_grant(
+        self,
+        session: AsyncSession,
+        grant: "AuthorityGrantRow",
+        build_granted_event,
+    ) -> "tuple[AuthorityGrantRow, bool]":
+        """Atomically insert the immutable grant row + its sequence-1 granted event.
+
+        Takes RECOVERY_LOCK_ID — the SAME advisory lock every lifecycle/mutex
+        writer holds — and re-derives the plan's lifecycle state INSIDE the
+        locked transaction, so a supersede/invalidate that lands after the
+        service's unlocked validation can never end up under an active grant
+        (raises PlanNotShadowActiveForAuthorityError instead).
+
+        Replay-idempotent: a byte-identical request (same grant_content_sha256)
+        returns the EXISTING grant with inserted=False and appends nothing. A
+        request for a plan version that already holds a DIFFERENT grant raises
+        AuthorityGrantConflictError. Returns (stored_row, inserted)."""
+        statement = (
+            pg_insert(ControlAuthorityGrant)
+            .values(**grant.__dict__)
+            .on_conflict_do_nothing()
+            .returning(ControlAuthorityGrant.grant_id)
+        )
+        try:
+            await session.execute(
+                text("SELECT pg_advisory_xact_lock(:key)"),
+                {"key": RECOVERY_LOCK_ID},
+            )
+            state = await self._derived_plan_state(
+                session, grant.plan_id, grant.plan_version
+            )
+            if state != "shadow_active":
+                raise PlanNotShadowActiveForAuthorityError(
+                    f"plan {grant.plan_id} v{grant.plan_version} is {state!r}, "
+                    "not shadow_active, under the authority lock"
+                )
+            inserted = (
+                await session.execute(statement)
+            ).scalar_one_or_none() is not None
+            if inserted:
+                granted_event: AuthorityGrantEventRow = build_granted_event()
+                await session.execute(
+                    pg_insert(ControlAuthorityGrantEvent).values(
+                        **granted_event.__dict__
+                    )
+                )
+                await session.commit()
+                return grant, True
+            existing = await self._load_grant_row(
+                session, plan_id=grant.plan_id, plan_version=grant.plan_version
+            )
+            await session.rollback()
+        except BaseException:
+            await session.rollback()
+            raise
+        if (
+            existing is None
+            or existing.grant_content_sha256 != grant.grant_content_sha256
+        ):
+            raise AuthorityGrantConflictError(
+                f"plan {grant.plan_id} v{grant.plan_version} already holds a "
+                "different authority grant"
+            )
+        return existing, False
+
+    async def append_authority_grant_event(
+        self,
+        session: AsyncSession,
+        grant_id: UUID,
+        build_event,
+        *,
+        require_shadow_active_plan: "Optional[tuple[UUID, int]]" = None,
+    ) -> "AuthorityGrantEventRow":
+        """Append ONE lifecycle event with a serialized sequence (PR 7.1a).
+
+        Lock order (deadlock-safe, matches insert): RECOVERY_LOCK_ID first,
+        then the grant-scoped advisory lock. When
+        ``require_shadow_active_plan`` names a plan (renewals), the plan's
+        lifecycle state is re-derived UNDER the shared lifecycle lock — a
+        concurrent supersede/invalidate can never be renewed over. The ledger
+        the callback sees is AS OF the locked transaction, so a service-level
+        status re-check cannot race a concurrent revocation; the callback
+        raising aborts the append. The partial one-revocation index is the
+        LAST backstop: losing that race raises
+        AuthorityRevocationConflictError (the service reloads the winner)."""
+        try:
+            await session.execute(
+                text("SELECT pg_advisory_xact_lock(:key)"),
+                {"key": RECOVERY_LOCK_ID},
+            )
+            if require_shadow_active_plan is not None:
+                plan_id, plan_version = require_shadow_active_plan
+                state = await self._derived_plan_state(session, plan_id, plan_version)
+                if state != "shadow_active":
+                    raise PlanNotShadowActiveForAuthorityError(
+                        f"plan {plan_id} v{plan_version} is {state!r}, "
+                        "not shadow_active, under the authority lock"
+                    )
+            await session.execute(
+                text("SELECT pg_advisory_xact_lock(:key)"),
+                {"key": _authority_grant_advisory_lock_key(grant_id)},
+            )
+            existing = await self._load_grant_events(session, grant_id)
+            next_sequence = (
+                max(event.event_sequence for event in existing) if existing else 0
+            ) + 1
+            event: AuthorityGrantEventRow = build_event(next_sequence, existing)
+            await session.execute(
+                pg_insert(ControlAuthorityGrantEvent).values(**event.__dict__)
+            )
+            await session.commit()
+            return event
+        except IntegrityError as error:
+            await session.rollback()
+            if (
+                _violated_constraint(error)
+                == "control_authority_grant_events_one_revocation"
+            ):
+                raise AuthorityRevocationConflictError(
+                    f"grant {grant_id} is already terminally revoked"
+                ) from error
+            raise
+        except BaseException:
+            await session.rollback()
+            raise
+
+    async def _load_grant_row(
+        self,
+        session: AsyncSession,
+        *,
+        grant_id: Optional[UUID] = None,
+        plan_id: Optional[UUID] = None,
+        plan_version: Optional[int] = None,
+    ) -> "Optional[AuthorityGrantRow]":
+        statement = select(ControlAuthorityGrant)
+        if grant_id is not None:
+            statement = statement.where(ControlAuthorityGrant.grant_id == grant_id)
+        else:
+            statement = statement.where(
+                ControlAuthorityGrant.plan_id == plan_id,
+                ControlAuthorityGrant.plan_version == plan_version,
+            )
+        row = (await session.scalars(statement)).one_or_none()
+        if row is None:
+            return None
+        return AuthorityGrantRow(
+            **{
+                field: getattr(row, field)
+                for field in AuthorityGrantRow.__dataclass_fields__
+            }
+        )
+
+    async def _load_grant_events(
+        self, session: AsyncSession, grant_id: UUID
+    ) -> "tuple[AuthorityGrantEventRow, ...]":
+        rows = (
+            await session.scalars(
+                select(ControlAuthorityGrantEvent)
+                .where(ControlAuthorityGrantEvent.grant_id == grant_id)
+                .order_by(ControlAuthorityGrantEvent.event_sequence)
+            )
+        ).all()
+        events = tuple(
+            AuthorityGrantEventRow(
+                **{
+                    field: getattr(row, field)
+                    for field in AuthorityGrantEventRow.__dataclass_fields__
+                }
+            )
+            for row in rows
+        )
+        for event in events:
+            verify_stored_grant_event(event)
+        return events
+
+    @staticmethod
+    def _cross_bind_grant_and_birth(
+        grant: "AuthorityGrantRow",
+        events: "tuple[AuthorityGrantEventRow, ...]",
+    ) -> None:
+        """The grant document's expiry must equal the sequence-1 birth event's
+        typed expiry — otherwise a tampered/mismatched pair could present a
+        different lease to the fold than the grant evidence records."""
+        birth = next((e for e in events if e.event_sequence == 1), None)
+        if birth is None:
+            return  # the status fold fails closed on a birth-less ledger
+        try:
+            document = json.loads(grant.grant_document_text)
+            authorization_evidence = json.loads(
+                birth.authorization_evidence_document_text
+            )
+            doc_expiry = document.get("expires_at")
+            evidence = document.get("evidence")
+            manifest = (
+                evidence.get("evidence_manifest")
+                if isinstance(evidence, Mapping)
+                else None
+            )
+            manifest_text = canonicalize(manifest) if manifest is not None else None
+        except (AttributeError, TypeError, ValueError) as error:
+            raise AuthorityGrantCorruptError(
+                f"grant {grant.grant_id}: document evidence is malformed"
+            ) from error
+        if (
+            birth.event_type != "granted"
+            or not isinstance(doc_expiry, str)
+            or _parse_grant_instant(doc_expiry) != birth.effective_expires_at
+            or not isinstance(evidence, Mapping)
+            or evidence.get("shadow_evidence_sha256") != birth.shadow_evidence_sha256
+            or evidence.get("hold_drill_evidence_sha256")
+            != birth.hold_drill_evidence_sha256
+            or evidence.get("rollback_drill_evidence_sha256")
+            != birth.rollback_drill_evidence_sha256
+            or manifest_text != birth.evidence_manifest_document_text
+            or text_sha256(manifest_text or "") != birth.evidence_manifest_sha256
+            or not is_trusted_authorization_evidence(authorization_evidence)
+            or grant.created_by_subject != birth.actor_subject
+            or grant.created_by_subject != authorization_evidence.get("subject")
+            or grant.request_id != authorization_evidence.get("request_id")
+        ):
+            raise AuthorityGrantCorruptError(
+                f"grant {grant.grant_id}: document expiry disagrees with the "
+                "birth event"
+            )
+
+    async def load_authority_grant(
+        self, session: AsyncSession, grant_id: UUID
+    ) -> "Optional[tuple[AuthorityGrantRow, tuple[AuthorityGrantEventRow, ...]]]":
+        """The grant row + its ordered event ledger, integrity-verified on load."""
+        grant = await self._load_grant_row(session, grant_id=grant_id)
+        if grant is None:
+            return None
+        verify_stored_grant(grant)
+        events = await self._load_grant_events(session, grant.grant_id)
+        self._cross_bind_grant_and_birth(grant, events)
+        return grant, events
+
+    async def load_authority_grant_for_plan(
+        self, session: AsyncSession, plan_id: UUID, plan_version: int
+    ) -> "Optional[tuple[AuthorityGrantRow, tuple[AuthorityGrantEventRow, ...]]]":
+        """The plan version's grant (one at most) + ledger, integrity-verified."""
+        grant = await self._load_grant_row(
+            session, plan_id=plan_id, plan_version=plan_version
+        )
+        if grant is None:
+            return None
+        verify_stored_grant(grant)
+        events = await self._load_grant_events(session, grant.grant_id)
+        self._cross_bind_grant_and_birth(grant, events)
+        return grant, events
+
+    async def load_authority_evidence_counts(
+        self, session: AsyncSession, plan_id: UUID, plan_version: int
+    ) -> "AuthorityEvidenceCounts":
+        """The plan's 0010 receipt coverage: total outbox intents vs intents
+        holding an ACCEPTED validation receipt. Grant validation requires the
+        two counts to be equal and positive (complete shadow proof)."""
+        outbox = ControlCommandOutboxRow
+        receipt = ControlCommandValidationReceipt
+        rows = (
+            await session.execute(
+                select(outbox, receipt)
+                .outerjoin(receipt, receipt.intent_id == outbox.intent_id)
+                .where(
+                    outbox.plan_id == plan_id,
+                    outbox.plan_version == plan_version,
+                )
+                .order_by(outbox.event_sequence)
+            )
+        ).all()
+        accepted = 0
+        matching = 0
+        for outbox_row, receipt_row in rows:
+            if receipt_row is None:
+                continue
+            verify_stored_validation_receipt(receipt_row)
+            if receipt_row.status != "validation_accepted":
+                continue
+            accepted += 1
+            if (
+                receipt_row.plan_id == outbox_row.plan_id
+                and receipt_row.plan_version == outbox_row.plan_version
+                and receipt_row.correlation_id == outbox_row.correlation_id
+                and receipt_row.request_id == outbox_row.request_id
+                and receipt_row.idempotency_key == outbox_row.idempotency_key
+                and receipt_row.intent_content_hash == outbox_row.intent_content_hash
+                and receipt_row.capability_hash == outbox_row.capability_hash
+            ):
+                matching += 1
+        return AuthorityEvidenceCounts(
+            outbox_intent_count=len(rows),
+            accepted_receipt_intent_count=accepted,
+            matching_receipt_intent_count=matching,
+        )
 
     async def _assemble(
         self, session: AsyncSession, run: ControlPlanRun
@@ -1532,37 +2198,25 @@ class PostgresControlPlanRepository:
             max_intermediate_trims=run.max_intermediate_trims,
             canonical_input_document_text=run.canonical_input_document_text,
             model_snapshot_document_text=run.model_snapshot_document_text,
-            optimizer_result_document_text=(
-                run.optimizer_result_document_text
-            ),
+            optimizer_result_document_text=(run.optimizer_result_document_text),
             optimizer_result_sha256=run.optimizer_result_sha256,
-            prediction_request_document_text=(
-                run.prediction_request_document_text
-            ),
-            prediction_response_document_text=(
-                run.prediction_response_document_text
-            ),
+            prediction_request_document_text=(run.prediction_request_document_text),
+            prediction_response_document_text=(run.prediction_response_document_text),
             prediction_response_sha256=run.prediction_response_sha256,
             provenance_version=run.provenance_version,
             prediction_identity_version=run.prediction_identity_version,
             engine_id=run.engine_id,
-            engine_semantic_contract_version=(
-                run.engine_semantic_contract_version
-            ),
+            engine_semantic_contract_version=(run.engine_semantic_contract_version),
             engine_build_digest=run.engine_build_digest,
             engine_descriptor_content_hash=run.engine_descriptor_content_hash,
             artifact_sha256=run.artifact_sha256,
-            artifact_uncompressed_size_bytes=(
-                run.artifact_uncompressed_size_bytes
-            ),
+            artifact_uncompressed_size_bytes=(run.artifact_uncompressed_size_bytes),
             artifact_media_type=run.artifact_media_type,
             artifact_encoding=run.artifact_encoding,
             artifact_encoding_version=run.artifact_encoding_version,
             coverage_summary_document_text=run.coverage_summary_document_text,
             coverage_summary_sha256=run.coverage_summary_sha256,
-            predicted_delivery_ledger_sha256=(
-                run.predicted_delivery_ledger_sha256
-            ),
+            predicted_delivery_ledger_sha256=(run.predicted_delivery_ledger_sha256),
             created_by_subject=run.created_by_subject,
             requirements=tuple(
                 RequirementRecord(
@@ -1587,12 +2241,8 @@ class PostgresControlPlanRepository:
                     travel_delay_seconds=row.travel_delay_seconds,
                     minimum_delivery_fraction=row.minimum_delivery_fraction,
                     maximum_delivery_fraction=row.maximum_delivery_fraction,
-                    path_reach_ids_document_text=(
-                        row.path_reach_ids_document_text
-                    ),
-                    rotation_windows_document_text=(
-                        row.rotation_windows_document_text
-                    ),
+                    path_reach_ids_document_text=(row.path_reach_ids_document_text),
+                    rotation_windows_document_text=(row.rotation_windows_document_text),
                     requirement_document_text=row.requirement_document_text,
                 )
                 for row in requirement_rows
@@ -1654,9 +2304,7 @@ class PostgresControlPlanRepository:
         return record
 
 
-def _ledger_row_values(
-    record: DraftPlanRecord, entry: LedgerEntry
-) -> dict:
+def _ledger_row_values(record: DraftPlanRecord, entry: LedgerEntry) -> dict:
     return {
         "plan_id": record.plan_id,
         "plan_version": record.plan_version,
@@ -1687,7 +2335,5 @@ def _ledger_row_values(
     }
 
 
-def with_created_at(
-    record: DraftPlanRecord, created_at: datetime
-) -> DraftPlanRecord:
+def with_created_at(record: DraftPlanRecord, created_at: datetime) -> DraftPlanRecord:
     return replace(record, created_at=created_at)

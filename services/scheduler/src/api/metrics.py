@@ -8,7 +8,8 @@ OMITTED (not zero-filled): zero-filling a counter mid-history reads as a counter
 corrupt ``rate()``/``increase()`` far worse than a one-scrape gap — Prometheus rides a transient
 gap out via ``for:``/staleness, and ``scheduler_metrics_scrape_error`` says why. Read-only; a
 per-scrape ``statement_timeout`` bounds a slow scan so ``/metrics`` can never starve the operator
-read pool. Four small grouped queries (control_plan_runs, receipts, observations, pending/lag).
+read pool. Five small grouped queries (control_plan_runs, receipts, observations,
+authority grant events, pending/lag).
 """
 
 from __future__ import annotations
@@ -38,7 +39,9 @@ async def _group_counts(conn, sql: str, params: dict | None = None) -> dict[str,
     return {row[0]: int(row[1]) for row in rows if row[0] is not None}
 
 
-async def collect_metric_snapshot(conn, redis, now: datetime) -> ControlPlaneMetricSnapshot:
+async def collect_metric_snapshot(
+    conn, redis, now: datetime
+) -> ControlPlaneMetricSnapshot:
     """Read the durable tables + the Redis heartbeat into a scrape snapshot. Read-only."""
     # One scan of control_plan_runs feeds BOTH the optimizer-status and prediction-status series.
     plan_runs: dict[str, int] = {}
@@ -74,6 +77,11 @@ async def collect_metric_snapshot(conn, redis, now: datetime) -> ControlPlaneMet
         conn,
         f"SELECT canonical_gate_id, count(*) FROM {SCHEMA}.control_gate_readback_observations "
         "WHERE verdict = 'mismatch' GROUP BY canonical_gate_id",
+    )
+    authority_events = await _group_counts(
+        conn,
+        f"SELECT event_type, count(*) FROM {SCHEMA}.control_authority_grant_events "
+        "GROUP BY event_type",
     )
     # Dispatch pending + lag: outbox intents with a 'claimed' event (0009) and NO receipt (0010),
     # SCOPED to plans that STILL HOLD AUTHORITY (control_active_gate_authority — the dispatcher's
@@ -117,6 +125,7 @@ async def collect_metric_snapshot(conn, redis, now: datetime) -> ControlPlaneMet
         validations_by_status=validations,
         rejections_by_reason=rejections,
         readback_mismatch_by_gate=readback_mismatch,
+        authority_grant_events_by_type=authority_events,
         dispatch_pending_count=pending_count,
         dispatch_lag_seconds=lag_seconds,
         worker_heartbeat=heartbeat,
@@ -130,13 +139,19 @@ async def render_metrics(engine, redis, *, now: datetime | None = None) -> bytes
         # A transaction so SET LOCAL statement_timeout is scoped to this scrape and reset on
         # commit (never leaked back to the pooled connection). Read-only queries only.
         async with engine.begin() as conn:
-            await conn.execute(text(f"SET LOCAL statement_timeout = {_STATEMENT_TIMEOUT_MS}"))
+            await conn.execute(
+                text(f"SET LOCAL statement_timeout = {_STATEMENT_TIMEOUT_MS}")
+            )
             snapshot = await collect_metric_snapshot(conn, redis, now)
-    except Exception as error:  # noqa: BLE001 - a scrape must never 500; report scrape_error
+    except (
+        Exception
+    ) as error:  # noqa: BLE001 - a scrape must never 500; report scrape_error
         # Log the exception CLASS (never the message — it can carry host/creds) so the one place
         # a scrape can fail is diagnosable. Counters are omitted (not zero-filled) — see module
         # docstring: zero-filling a counter reads as a reset and corrupts rate().
-        logger.error("metrics scrape failed to read the database: {}", type(error).__name__)
+        logger.error(
+            "metrics scrape failed to read the database: {}", type(error).__name__
+        )
         return render_metric_families([scrape_error_family(True)])
 
     families = build_control_plane_metric_families(snapshot)

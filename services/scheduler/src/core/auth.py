@@ -91,29 +91,19 @@ def validate_access_token_claims(payload: Mapping, policy: ClaimPolicy) -> dict:
         if not _audience_matches(audience, policy.audience):
             raise InvalidClaimsError("audience does not match the strict policy")
         if token_type != policy.access_token_type:
-            raise InvalidClaimsError(
-                "token type does not match the strict policy"
-            )
+            raise InvalidClaimsError("token type does not match the strict policy")
         if not _non_blank_str(jti):
             raise InvalidClaimsError("strict tokens require a non-blank jti")
         roles = _validate_roles(payload.get("roles"))
         if not roles:
-            raise InvalidClaimsError(
-                "strict tokens require a non-empty roles list"
-            )
+            raise InvalidClaimsError("strict tokens require a non-empty roles list")
     elif policy.mode == "compat":
         if issuer is not None and issuer != policy.issuer:
             raise InvalidClaimsError("present issuer does not match the policy")
-        if audience is not None and not _audience_matches(
-            audience, policy.audience
-        ):
-            raise InvalidClaimsError(
-                "present audience does not match the policy"
-            )
+        if audience is not None and not _audience_matches(audience, policy.audience):
+            raise InvalidClaimsError("present audience does not match the policy")
         if token_type is not None and token_type != policy.access_token_type:
-            raise InvalidClaimsError(
-                "present token type does not match the policy"
-            )
+            raise InvalidClaimsError("present token type does not match the policy")
         if jti is not None and not _non_blank_str(jti):
             raise InvalidClaimsError("present jti must be non-blank")
         roles = _validate_roles(payload.get("roles")) if "roles" in payload else []
@@ -132,9 +122,7 @@ def validate_access_token_claims(payload: Mapping, policy: ClaimPolicy) -> dict:
 
 def _jti_identity_digest(jti: str, issuer) -> str:
     issuer_part = issuer if isinstance(issuer, str) else ""
-    return hashlib.sha256(
-        (issuer_part + "\x00" + jti).encode("utf-8")
-    ).hexdigest()
+    return hashlib.sha256((issuer_part + "\x00" + jti).encode("utf-8")).hexdigest()
 
 
 def token_revocation_key(raw_token: str, payload: Mapping) -> str:
@@ -146,12 +134,11 @@ def token_revocation_key(raw_token: str, payload: Mapping) -> str:
     """
     jti = payload.get("jti")
     if _non_blank_str(jti):
-        return "token:blacklist:jti:" + _jti_identity_digest(
-            jti, payload.get("iss")
-        )
-    return "token:blacklist:sha256:" + hashlib.sha256(
-        raw_token.encode("utf-8")
-    ).hexdigest()
+        return "token:blacklist:jti:" + _jti_identity_digest(jti, payload.get("iss"))
+    return (
+        "token:blacklist:sha256:"
+        + hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+    )
 
 
 def principal_from_user(current_user: Mapping) -> dict:
@@ -209,23 +196,15 @@ def build_authorization_evidence(
     }
 
 
-def is_trusted_shadow_approval(document: Mapping) -> bool:
-    """True iff the approval is a v2 document with a COMPLETE strict-mode evidence.
+def is_trusted_authorization_evidence(evidence) -> bool:
+    """True iff ``evidence`` is a COMPLETE strict-mode authorization evidence.
 
-    Legacy v1 freezes and compat-approved v2 documents are not trusted, and a
-    forged one-field ``{"claim_policy_mode":"strict"}`` is rejected: the full
-    evidence contract that ``build_authorization_evidence`` produces must be
-    present and well-formed (a strict-mode approval by a supervisor-effective
-    principal, hashed token identity, request id, and non-empty evidence refs).
-    Only such a document may back a supersede.
+    The full contract that ``build_authorization_evidence`` produces must be
+    present and well-formed: a strict-mode action by a supervisor-effective
+    principal, hashed token identity, request id, and non-empty evidence refs.
+    Shadow approvals (supersede trust) and authority grants (PR 7.1a) validate
+    this SAME contract — extracted here so neither forks it.
     """
-    if not isinstance(document, Mapping):
-        return False
-    # schema_version must be EXACTLY int 2 (reject bool True, which == 1).
-    schema_version = document.get("schema_version")
-    if isinstance(schema_version, bool) or schema_version != 2:
-        return False
-    evidence = document.get("authorization_evidence")
     if not isinstance(evidence, Mapping):
         return False
     if evidence.get("claim_policy_mode") != "strict":
@@ -250,3 +229,22 @@ def is_trusted_shadow_approval(document: Mapping) -> bool:
     if not all(_non_blank_str(ref) for ref in refs):
         return False
     return True
+
+
+def is_trusted_shadow_approval(document: Mapping) -> bool:
+    """True iff the approval is a v2 document with a COMPLETE strict-mode evidence.
+
+    Legacy v1 freezes and compat-approved v2 documents are not trusted, and a
+    forged one-field ``{"claim_policy_mode":"strict"}`` is rejected: the full
+    evidence contract that ``build_authorization_evidence`` produces must be
+    present and well-formed (a strict-mode approval by a supervisor-effective
+    principal, hashed token identity, request id, and non-empty evidence refs).
+    Only such a document may back a supersede.
+    """
+    if not isinstance(document, Mapping):
+        return False
+    # schema_version must be EXACTLY int 2 (reject bool True, which == 1).
+    schema_version = document.get("schema_version")
+    if isinstance(schema_version, bool) or schema_version != 2:
+        return False
+    return is_trusted_authorization_evidence(document.get("authorization_evidence"))
