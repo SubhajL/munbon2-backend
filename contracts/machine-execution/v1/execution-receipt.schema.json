@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://munbon.internal/contracts/machine-execution/v1/execution-receipt.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "receipt_id", "intent_id", "idempotency_key", "grant_id", "authority_not_after", "original_intent_content_hash", "execution_intent_content_hash", "capability_hash", "purpose", "status", "reason_code", "target_level", "observed_level", "readback_quality", "writes", "executed_at"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "receipt_id": { "$ref": "#/$defs/uuid" },
+    "intent_id": { "$ref": "#/$defs/uuid" },
+    "idempotency_key": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[!-~]+$" },
+    "grant_id": { "$ref": "#/$defs/uuid" },
+    "authority_not_after": { "$ref": "#/$defs/utc_instant" },
+    "original_intent_content_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "execution_intent_content_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "capability_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "purpose": { "enum": ["operator_approved", "fail_safe_close"] },
+    "status": { "enum": ["execution_succeeded", "execution_rejected", "execution_failed", "readback_mismatch", "execution_in_doubt"] },
+    "reason_code": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/reason_code" }
+      ]
+    },
+    "target_level": { "type": "integer", "minimum": 0, "maximum": 65535 },
+    "observed_level": { "type": ["integer", "null"], "minimum": 0, "maximum": 65535 },
+    "readback_quality": { "enum": ["ok", "stale", "offline", "decode_error", "modbus_exception", "unavailable"] },
+    "writes": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "point", "address", "value"],
+        "properties": {
+          "kind": { "enum": ["writeHoldingRegister", "writeCoil"] },
+          "point": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "address": { "type": "integer", "minimum": 0, "maximum": 65535 },
+          "value": { "type": "integer", "minimum": 0, "maximum": 65535 }
+        }
+      }
+    },
+    "executed_at": { "$ref": "#/$defs/utc_instant" }
+  },
+  "allOf": [
+    { "if": { "properties": { "status": { "const": "execution_succeeded" } } }, "then": { "properties": { "reason_code": { "type": "null" }, "readback_quality": { "const": "ok" }, "observed_level": { "type": "integer" } } }, "else": { "properties": { "reason_code": { "type": "string", "minLength": 1 } } } }
+  ],
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "minLength": 36,
+      "maxLength": 36,
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "utc_instant": {
+      "type": "string",
+      "minLength": 20,
+      "maxLength": 27,
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]{1,6})?Z$"
+    },
+    "reason_code": {
+      "enum": ["machine_commands_disabled", "authority_binding_mismatch", "idempotency_conflict", "capability_mismatch", "target_invalid", "lineage_mismatch", "not_yet_due", "deadline_expired", "freshness_failed", "write_failed", "readback_mismatch", "readback_unavailable", "prior_attempt_in_doubt"]
+    }
+  }
+}

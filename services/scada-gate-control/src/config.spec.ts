@@ -29,6 +29,57 @@ describe('loadConfig', () => {
     const cfg = loadConfig(withHost());
     expect(cfg.rateLimit).toEqual({ windowMs: 60_000, max: 30 });
     expect(cfg.allowInMemoryAudit).toBe(false);
+    expect(cfg.allowMachineCommands).toBe(false);
+  });
+
+  test('ALLOW_MACHINE_COMMANDS accepts only explicit true or false', () => {
+    expect(
+      loadConfig(
+        withHost({
+          ALLOW_MACHINE_COMMANDS: 'true',
+          DATABASE_URL: 'postgresql://scada:secret@127.0.0.1/scada',
+          SCADA_SITE_CANONICAL_GATE_ID: 'M(0,0;1,0)',
+          SCADA_APPROVED_LINEAGE_ANCHOR_PATH: '/approved/lineage.json',
+        }),
+      ).allowMachineCommands,
+    ).toBe(true);
+    expect(loadConfig(withHost({ ALLOW_MACHINE_COMMANDS: 'false' })).allowMachineCommands).toBe(
+      false,
+    );
+    expect(() => loadConfig(withHost({ ALLOW_MACHINE_COMMANDS: '1' }))).toThrow(ConfigError);
+    expect(() => loadConfig(withHost({ ALLOW_MACHINE_COMMANDS: 'TRUE' }))).toThrow(ConfigError);
+  });
+
+  test('machine commands require the durable Postgres reservation store', () => {
+    expect(() =>
+      loadConfig(
+        withHost({
+          ALLOW_MACHINE_COMMANDS: 'true',
+          ALLOW_IN_MEMORY_AUDIT: 'true',
+        }),
+      ),
+    ).toThrow(/DATABASE_URL is required when ALLOW_MACHINE_COMMANDS=true/);
+    expect(
+      loadConfig(
+        withHost({
+          ALLOW_MACHINE_COMMANDS: 'true',
+          DATABASE_URL: 'postgresql://scada:secret@127.0.0.1/scada',
+          SCADA_SITE_CANONICAL_GATE_ID: 'M(0,0;1,0)',
+          SCADA_APPROVED_LINEAGE_ANCHOR_PATH: '/approved/lineage.json',
+        }),
+      ).allowMachineCommands,
+    ).toBe(true);
+  });
+
+  test('machine commands require the local canonical gate and approved lineage anchor', () => {
+    const durable = {
+      ALLOW_MACHINE_COMMANDS: 'true',
+      DATABASE_URL: 'postgresql://scada:secret@127.0.0.1/scada',
+    };
+    expect(() => loadConfig(withHost(durable))).toThrow(/SCADA_SITE_CANONICAL_GATE_ID/);
+    expect(() =>
+      loadConfig(withHost({ ...durable, SCADA_SITE_CANONICAL_GATE_ID: 'M(0,0;1,0)' })),
+    ).toThrow(/SCADA_APPROVED_LINEAGE_ANCHOR_PATH/);
   });
 
   test('ALLOW_IN_MEMORY_AUDIT=true enables the in-memory sink flag', () => {

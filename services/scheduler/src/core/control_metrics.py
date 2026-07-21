@@ -25,6 +25,7 @@ from prometheus_client.core import CounterMetricFamily, GaugeMetricFamily, Metri
 from core.authority_grant import EVENT_TYPES as AUTHORITY_GRANT_EVENT_TYPES
 from core.worker_heartbeat import DISPATCH_WORKER_NAME
 from schemas.machine_boundary import ValidationRejectionReason, ValidationStatus
+from schemas.machine_execution import ExecutionStatus
 
 METRICS_CONTENT_TYPE = CONTENT_TYPE_LATEST
 
@@ -36,6 +37,7 @@ PREDICTION_STATUSES: tuple[str, ...] = ("not_requested", "completed", "infeasibl
 # they can never drift from the receipt contract the 0010 CHECK also mirrors.
 VALIDATION_STATUSES: tuple[str, ...] = tuple(get_args(ValidationStatus))
 REJECTION_REASONS: tuple[str, ...] = tuple(get_args(ValidationRejectionReason))
+EXECUTION_STATUSES: tuple[str, ...] = tuple(get_args(ExecutionStatus))
 
 # Single source of truth for the worker label (shared with the heartbeat producer/reader).
 DISPATCH_WORKER_LABEL = DISPATCH_WORKER_NAME
@@ -59,6 +61,7 @@ class ControlPlaneMetricSnapshot:
     rejections_by_reason: Mapping[str, int] = field(default_factory=dict)
     readback_mismatch_by_gate: Mapping[str, int] = field(default_factory=dict)
     authority_grant_events_by_type: Mapping[str, int] = field(default_factory=dict)
+    execution_receipts_by_status: Mapping[str, int] = field(default_factory=dict)
     dispatch_pending_count: int = 0
     dispatch_lag_seconds: float = 0.0
     worker_heartbeat: WorkerHeartbeat = WorkerHeartbeat(present=False, age_seconds=None)
@@ -120,6 +123,13 @@ def build_control_plane_metric_families(
             "event_type",
             AUTHORITY_GRANT_EVENT_TYPES,
             snapshot.authority_grant_events_by_type,
+        ),
+        _counter_over_vocab(
+            "control_command_executions_total",
+            "Durable operator-approved machine execution receipts, by terminal status.",
+            "status",
+            EXECUTION_STATUSES,
+            snapshot.execution_receipts_by_status,
         ),
     ]
 

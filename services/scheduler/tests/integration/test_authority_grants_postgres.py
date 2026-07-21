@@ -205,6 +205,9 @@ async def _fresh_schema(conn):
     await conn.execute("DROP SCHEMA IF EXISTS scheduler CASCADE")
     outcomes = dict(await migrate.apply_all_migrations(conn))
     assert outcomes["0012_authority_grants"] == "applied"
+    # This file exercises 0012 rollback semantics. Remove the empty, dependent
+    # 0013 receipt table first; 7.2 has its own migration integration coverage.
+    await migrate.rollback_migration(conn, "0013_operator_approved_execution")
 
 
 @pytest.mark.asyncio

@@ -806,19 +806,19 @@ def grant_content_sha256(document: Mapping[str, Any]) -> str:
     return sha256_hex(canonicalize(dict(document)))
 
 
-def verify_execution_authority(
-    grant: Any, events: Sequence, execution_context: Any, *, now: datetime
-) -> None:
-    """The 7.2 execution gate: authorize the WHOLE ordered batch or nothing.
-
-    Raises ``ExecutionAuthorityError`` with a bounded reason code. Its 7.1a
-    callers are grant-time preflight and the dry-run review — success here
-    only ever permits persistence, never claiming, dispatch, or actuation."""
+def _verify_execution_authority_for_status(
+    grant: Any,
+    events: Sequence,
+    execution_context: Any,
+    *,
+    now: datetime,
+    allowed_statuses: frozenset,
+):
     try:
         derived = derive_authority_grant_status(events, now)
     except AuthorityHistoryCorruptError as error:
         raise ExecutionAuthorityError("evidence_corrupt", str(error)) from error
-    if derived.status != STATUS_ACTIVE:
+    if derived.status not in allowed_statuses:
         raise ExecutionAuthorityError(
             "grant_not_active", f"grant status is {derived.status}"
         )
@@ -923,3 +923,57 @@ def verify_execution_authority(
             raise ExecutionAuthorityError(
                 "release_mismatch", "an intent lineage does not match the grant"
             )
+    return intents
+
+
+def verify_execution_authority(
+    grant: Any, events: Sequence, execution_context: Any, *, now: datetime
+) -> None:
+    """Authorize the whole immutable batch under a currently active grant."""
+    _verify_execution_authority_for_status(
+        grant,
+        events,
+        execution_context,
+        now=now,
+        allowed_statuses=frozenset({STATUS_ACTIVE}),
+    )
+
+
+def verify_fail_safe_close_authority(
+    grant: Any,
+    events: Sequence,
+    execution_context: Any,
+    *,
+    selected_intent_id: Any,
+    is_held: bool,
+    now: datetime,
+) -> None:
+    """Separately authorize only a held plan's close-at-zero after expiry/revoke."""
+    if not is_held:
+        raise ExecutionAuthorityError(
+            "plan_not_executable", "fail-safe close requires an operator-held plan"
+        )
+    intents = _verify_execution_authority_for_status(
+        grant,
+        events,
+        execution_context,
+        now=now,
+        allowed_statuses=frozenset({STATUS_EXPIRED, STATUS_REVOKED}),
+    )
+    selected = next(
+        (
+            intent
+            for intent in intents
+            if str(intent.intent_id) == str(selected_intent_id)
+        ),
+        None,
+    )
+    if (
+        selected is None
+        or selected.event_kind != "close"
+        or selected.target_position_m != 0
+    ):
+        raise ExecutionAuthorityError(
+            "scope_exceeded",
+            "fail-safe authority permits only a granted close-at-zero intent",
+        )

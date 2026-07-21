@@ -16,6 +16,7 @@ import type { DeviceCapabilitySnapshot } from '../domain/machine-boundary';
 import type { ApprovedLineageAnchor } from '../domain/approved-field-artifact';
 import type { CommandIntentReceiptRepository } from '../command-intents/types';
 import type { ScadaMetrics } from '../metrics/registry';
+import type { MachineExecutionService } from '../services/machine-execution-service';
 import type { TokenVerifier } from './auth';
 import type { ServiceTokenVerifier } from './service-auth';
 import { requireAuth } from './middleware';
@@ -44,6 +45,8 @@ export type ApiDeps = {
   // PR 6.4 — the per-build Prometheus registry served at GET /metrics and incremented at the
   // write chokepoint (writeMeter) and the validate route (schema_invalid rejections).
   readonly metrics: ScadaMetrics;
+  /** Absent keeps the physical endpoint mounted but dark (503). */
+  readonly machineExecutionService?: Pick<MachineExecutionService, 'executeCommandIntent'>;
 };
 
 const commandLevelSchema = z.object({ targetValue: z.number(), confirmed: z.boolean() });

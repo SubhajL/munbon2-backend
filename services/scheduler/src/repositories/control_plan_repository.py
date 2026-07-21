@@ -52,6 +52,7 @@ from models.control_plan import (
     ControlAuthorityGrant,
     ControlAuthorityGrantEvent,
     ControlCommandExecutionEvent,
+    ControlCommandExecutionReceipt,
     ControlCommandOutboxRow,
     ControlCommandValidationReceipt,
     ControlGateReadbackObservation,
@@ -66,6 +67,7 @@ from services.clients.control_flow_client import (
     FLOW_PREDICTION_IDENTITY_VERSION_V2,
 )
 from schemas.machine_boundary import ValidationReceipt
+from schemas.machine_execution import ExecutionReceipt
 
 
 class ControlPlanRepositoryError(Exception):
@@ -187,6 +189,32 @@ class ExecutionEventRow:
     worker_id: Optional[str]
     detail_document_text: Optional[str]
     occurred_at: datetime
+
+
+@dataclass(frozen=True)
+class ExecutionReceiptRow:
+    intent_id: UUID
+    plan_id: UUID
+    plan_version: int
+    grant_id: UUID
+    authority_not_after: datetime
+    receipt_id: UUID
+    idempotency_key: str
+    original_intent_content_hash: str
+    execution_intent_content_hash: str
+    capability_hash: str
+    purpose: str
+    status: str
+    reason_code: Optional[str]
+    target_level: int
+    observed_level: Optional[int]
+    readback_quality: str
+    writes_document_text: str
+    executed_at: datetime
+    receipt_document_text: str
+    receipt_content_sha256: str
+    dispatch_worker_id: str
+    dispatched_at: datetime
 
 
 @dataclass(frozen=True)
@@ -333,6 +361,14 @@ class AuthorityGrantConflictError(Exception):
     """The plan version already holds a grant with DIFFERENT content."""
 
 
+class ExecutionReceiptConflictError(Exception):
+    """An intent already holds a different physical execution outcome."""
+
+
+class ExecutionReceiptCorruptError(Exception):
+    """A stored physical execution receipt disagrees with its immutable replicas."""
+
+
 class AuthorityRevocationConflictError(Exception):
     """Lost the one-revocation race — the grant is already terminally revoked."""
 
@@ -424,6 +460,51 @@ class DraftPlanRecord:
 
 def text_sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def verify_stored_execution_receipt(row: Any) -> None:
+    if text_sha256(row.receipt_document_text) != row.receipt_content_sha256:
+        raise ExecutionReceiptCorruptError(
+            "execution receipt text does not match its hash"
+        )
+    try:
+        receipt = ExecutionReceipt.model_validate_json(row.receipt_document_text)
+    except (ValueError, ValidationError) as error:
+        raise ExecutionReceiptCorruptError(
+            "execution receipt violates its contract"
+        ) from error
+    replicas = {
+        "intent_id": str(row.intent_id),
+        "grant_id": str(row.grant_id),
+        "receipt_id": str(row.receipt_id),
+        "idempotency_key": row.idempotency_key,
+        "original_intent_content_hash": row.original_intent_content_hash,
+        "execution_intent_content_hash": row.execution_intent_content_hash,
+        "capability_hash": row.capability_hash,
+        "purpose": row.purpose,
+        "status": row.status,
+        "reason_code": row.reason_code,
+        "target_level": row.target_level,
+        "observed_level": row.observed_level,
+        "readback_quality": row.readback_quality,
+    }
+    if any(getattr(receipt, field) != value for field, value in replicas.items()):
+        raise ExecutionReceiptCorruptError("execution receipt typed replica mismatch")
+    if (
+        canonicalize([write.model_dump() for write in receipt.writes])
+        != row.writes_document_text
+    ):
+        raise ExecutionReceiptCorruptError("execution receipt writes replica mismatch")
+    parsed_at = datetime.fromisoformat(receipt.executed_at.replace("Z", "+00:00"))
+    parsed_authority_not_after = datetime.fromisoformat(
+        receipt.authority_not_after.replace("Z", "+00:00")
+    )
+    if parsed_at != row.executed_at or (
+        parsed_authority_not_after != row.authority_not_after
+    ):
+        raise ExecutionReceiptCorruptError(
+            "execution receipt timestamp replica mismatch"
+        )
 
 
 def verify_stored_validation_receipt(row: Any) -> None:
@@ -1651,6 +1732,7 @@ class PostgresControlPlanRepository:
         if not rows:
             return []
         try:
+            await self.acquire_recovery_lock(session)
             statement = pg_insert(ControlCommandExecutionEvent).values(
                 [
                     {"plan_id": plan_id, "plan_version": plan_version, **row.__dict__}
@@ -1769,6 +1851,72 @@ class PostgresControlPlanRepository:
         try:
             result = await session.execute(statement)
             inserted = result.scalar_one_or_none() is not None
+            await session.commit()
+            return inserted
+        except BaseException:
+            await session.rollback()
+            raise
+
+    async def acquire_authority_execution_lock(
+        self, session: AsyncSession, grant_id: UUID
+    ) -> None:
+        """Lock order for a physical request: lifecycle recovery lock, then grant lock."""
+        await self.acquire_recovery_lock(session)
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(:key)"),
+            {"key": _authority_grant_advisory_lock_key(grant_id)},
+        )
+
+    async def load_executed_intent_ids(
+        self, session: AsyncSession, plan_id: UUID, plan_version: int
+    ) -> "set[UUID]":
+        rows = await session.scalars(
+            select(ControlCommandExecutionReceipt).where(
+                ControlCommandExecutionReceipt.plan_id == plan_id,
+                ControlCommandExecutionReceipt.plan_version == plan_version,
+            )
+        )
+        stored = rows.all()
+        for row in stored:
+            verify_stored_execution_receipt(row)
+        return {row.intent_id for row in stored}
+
+    async def record_execution_receipt(
+        self,
+        session: AsyncSession,
+        row: "ExecutionReceiptRow",
+        *,
+        hold_event: "Optional[ExecutionEventRow]" = None,
+    ) -> bool:
+        """Persist one physical outcome and its failure hold in the same transaction."""
+        statement = (
+            pg_insert(ControlCommandExecutionReceipt)
+            .values(**row.__dict__)
+            .on_conflict_do_nothing(index_elements=["intent_id"])
+            .returning(ControlCommandExecutionReceipt.intent_id)
+        )
+        try:
+            inserted = (
+                await session.execute(statement)
+            ).scalar_one_or_none() is not None
+            if inserted and hold_event is not None:
+                await session.execute(
+                    pg_insert(ControlCommandExecutionEvent).values(
+                        plan_id=row.plan_id,
+                        plan_version=row.plan_version,
+                        **hold_event.__dict__,
+                    )
+                )
+            if not inserted:
+                stored_hash = await session.scalar(
+                    select(ControlCommandExecutionReceipt.receipt_content_sha256).where(
+                        ControlCommandExecutionReceipt.intent_id == row.intent_id
+                    )
+                )
+                if stored_hash != row.receipt_content_sha256:
+                    raise ExecutionReceiptConflictError(
+                        f"intent {row.intent_id} already has a different execution receipt"
+                    )
             await session.commit()
             return inserted
         except BaseException:

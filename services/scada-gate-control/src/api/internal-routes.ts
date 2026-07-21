@@ -16,15 +16,17 @@ import {
   buildValidationReceipt,
   compileCommandIntentValidator,
   formatUtcInstant,
+  parseUtcInstant,
   validateCommandIntent,
 } from '../domain/command-intent-validation';
 import { intentContentHash } from '../domain/intent-content-hash';
 import { projectGateReadback } from '../domain/gate-readback';
 import type { CommandIntent } from '../domain/machine-boundary';
+import type { ExecuteCommandIntentRequest } from '../command-executions/types';
 import type { ValidationReceiptRecord } from '../command-intents/types';
 import { logger } from '../utils/logger';
-import type { RejectionRecorder } from '../metrics/registry';
-import { requireServiceAuth } from './service-auth';
+import type { ExecutionOutcomeRecorder, RejectionRecorder } from '../metrics/registry';
+import { requireServiceAuth, requireServiceScope } from './service-auth';
 import { requireAuth, requireRole } from './middleware';
 import type { ApiDeps } from './routes';
 
@@ -41,7 +43,8 @@ type InternalDeps = Pick<
   | 'approvedLineageAnchor'
   | 'snapshot'
   | 'siteCanonicalGateId'
-> & { readonly metrics: RejectionRecorder };
+  | 'machineExecutionService'
+> & { readonly metrics: RejectionRecorder & ExecutionOutcomeRecorder };
 
 /** Return a stored receipt (idempotent replay) or a 409 conflict, without persisting. */
 function respondFromExisting(
@@ -83,17 +86,22 @@ export function buildInternalRouter(deps: InternalDeps): Router {
   // PR 6.3b — service-authed machine-boundary readback (dark 503 when the service secret is
   // unset). The scheduler's shadow reconciler reads this with its SERVICE token — never operator
   // creds. Read-only: it holds no actuator/transport, so there is no write path from here.
-  router.get('/v1/gate-readback', requireServiceAuth(deps.serviceVerifier), (_req, res) => {
-    res.set('Cache-Control', 'no-store');
-    res.json(
-      projectGateReadback(
-        deps.deviceCapabilities,
-        deps.snapshot(),
-        deps.siteCanonicalGateId,
-        new Date(deps.clock()).toISOString(),
-      ),
-    );
-  });
+  router.get(
+    '/v1/gate-readback',
+    requireServiceAuth(deps.serviceVerifier),
+    requireServiceScope('gate_readback.read'),
+    (_req, res) => {
+      res.set('Cache-Control', 'no-store');
+      res.json(
+        projectGateReadback(
+          deps.deviceCapabilities,
+          deps.snapshot(),
+          deps.siteCanonicalGateId,
+          new Date(deps.clock()).toISOString(),
+        ),
+      );
+    },
+  );
 
   router.post(
     '/v1/command-intents/validate',
@@ -101,6 +109,7 @@ export function buildInternalRouter(deps: InternalDeps): Router {
     // rejected (401/503) without parsing work, and a bad token + malformed body yields
     // 401/503 (the security answer) rather than 400 from the parser.
     requireServiceAuth(deps.serviceVerifier),
+    requireServiceScope('command_intents.validate'),
     express.json({ limit: '8kb' }), // a command intent with max-length ids exceeds the /api 2kb cap
     async (req: Request, res: Response, next) => {
       try {
@@ -188,6 +197,76 @@ export function buildInternalRouter(deps: InternalDeps): Router {
         respondFromExisting(res, outcome.stored, intent, contentHash, deps.clock());
       } catch (error) {
         next(error);
+      }
+    },
+  );
+
+  router.post(
+    '/v1/command-intents/execute',
+    requireServiceAuth(deps.serviceVerifier),
+    express.json({ limit: '10kb' }),
+    async (req: Request, res: Response) => {
+      const body = req.body as Partial<ExecuteCommandIntentRequest> | null;
+      if (
+        body === null ||
+        typeof body !== 'object' ||
+        !validateIntent(body.intent) ||
+        typeof body.grant_id !== 'string' ||
+        typeof body.authority_not_after !== 'string' ||
+        typeof body.original_intent_content_hash !== 'string' ||
+        typeof body.execution_intent_content_hash !== 'string' ||
+        (body.purpose !== 'operator_approved' && body.purpose !== 'fail_safe_close')
+      ) {
+        res.status(422).json({ error: 'execution request failed schema validation' });
+        return;
+      }
+      const executionRequest = body as ExecuteCommandIntentRequest;
+      const principal = req.serviceAuth;
+      const authorityNotAfter = parseUtcInstant(executionRequest.authority_not_after);
+      const requiredScope =
+        executionRequest.purpose === 'operator_approved'
+          ? 'command_intents.execute'
+          : 'command_intents.fail_safe_close';
+      if (
+        !principal ||
+        principal.scope !== requiredScope ||
+        !principal.jti ||
+        typeof principal.expiresAtMs !== 'number' ||
+        authorityNotAfter === null ||
+        principal.expiresAtMs > authorityNotAfter ||
+        principal.grantId !== executionRequest.grant_id ||
+        principal.authorityNotAfter !== executionRequest.authority_not_after ||
+        principal.intentId !== executionRequest.intent.intent_id ||
+        principal.originalIntentContentHash !== executionRequest.original_intent_content_hash ||
+        principal.executionIntentContentHash !== executionRequest.execution_intent_content_hash ||
+        principal.purpose !== executionRequest.purpose
+      ) {
+        res.status(403).json({ error: 'service token is not bound to this execution request' });
+        return;
+      }
+      if (!deps.machineExecutionService) {
+        res.status(503).json({ error: 'machine execution is not configured' });
+        return;
+      }
+      try {
+        const receipt = await deps.machineExecutionService.executeCommandIntent(
+          executionRequest,
+          principal.expiresAtMs,
+        );
+        deps.metrics.recordExecutionOutcome(receipt.status, receipt.purpose);
+        const status =
+          receipt.reason_code === 'idempotency_conflict'
+            ? 409
+            : receipt.status === 'execution_rejected'
+              ? 422
+              : 200;
+        res.status(status).json(receipt);
+      } catch (error) {
+        logger.error(
+          { err: error instanceof Error ? error.message : String(error) },
+          'machine execution failed closed',
+        );
+        res.status(503).json({ error: 'machine execution unavailable' });
       }
     },
   );

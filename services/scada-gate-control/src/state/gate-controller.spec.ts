@@ -147,6 +147,22 @@ describe('GateController serialization (the actuator-safety fix)', () => {
 });
 
 describe('GateController.executeWrites', () => {
+  it('rechecks a supplied write precondition inside the controller mutex', async () => {
+    const { transport, log } = loggingTransport();
+    const ctrl = new GateController({
+      transport,
+      thresholds,
+      intervalMs: 3_000,
+      now: () => 1_000,
+      writeMeter: noopWriteMeter,
+    });
+    await ctrl.poll();
+    log.length = 0;
+    const execution = await ctrl.executeWrites(gateWrites, 'operator_approved', () => false);
+    expect(execution.blocked).toBe(true);
+    expect(log).toEqual([]);
+  });
+
   test('applies all writes and reads back the new state', async () => {
     const { transport, log } = loggingTransport();
     const ctrl = new GateController({

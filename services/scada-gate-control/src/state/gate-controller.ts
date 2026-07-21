@@ -28,6 +28,7 @@ export type WriteExecution = {
   readonly succeeded: readonly ModbusWrite[];
   readonly failed: WriteFailure | null;
   readonly snapshot: GateSnapshot;
+  readonly blocked?: boolean;
 };
 
 /**
@@ -56,6 +57,7 @@ export interface GateActuator {
   executeWrites(
     writes: readonly ModbusWrite[],
     provenance: WriteProvenance,
+    precondition?: (snapshot: GateSnapshot) => boolean,
   ): Promise<WriteExecution>;
 }
 
@@ -120,10 +122,16 @@ export class GateController implements GateActuator {
   async executeWrites(
     writes: readonly ModbusWrite[],
     provenance: WriteProvenance,
+    precondition?: (snapshot: GateSnapshot) => boolean,
   ): Promise<WriteExecution> {
     const succeeded: ModbusWrite[] = [];
     let failed: WriteFailure | null = null;
+    let blocked = false;
     const result = await this.queue.run(async () => {
+      if (precondition && !precondition(this.snapshot())) {
+        blocked = true;
+        return null;
+      }
       for (const write of writes) {
         // Meter the ATTEMPT, before issuing it and OUTSIDE the write try/catch. Two reasons:
         // (1) a write can reach and move the PLC yet still throw on ack/timeout, so for the
@@ -141,8 +149,8 @@ export class GateController implements GateActuator {
       }
       return this.read();
     });
-    this.state = recordPoll(this.state, result);
-    return { succeeded, failed, snapshot: this.snapshot() };
+    if (result !== null) this.state = recordPoll(this.state, result);
+    return { succeeded, failed, snapshot: this.snapshot(), blocked };
   }
 
   private async applyWrite(write: ModbusWrite): Promise<void> {

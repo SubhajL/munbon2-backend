@@ -78,12 +78,16 @@ const okSnapshot: GateSnapshot = buildSnapshot(
 );
 
 function serviceToken(overrides: jwt.SignOptions = {}, payload: object = {}): string {
-  return jwt.sign({ sub: 'svc:scheduler', type: 'service', ...payload }, SVC_SECRET, {
-    issuer: SVC_ISSUER,
-    audience: SVC_AUDIENCE,
-    expiresIn: '5m',
-    ...overrides,
-  });
+  return jwt.sign(
+    { sub: 'svc:scheduler', type: 'service', scope: 'command_intents.validate', ...payload },
+    SVC_SECRET,
+    {
+      issuer: SVC_ISSUER,
+      audience: SVC_AUDIENCE,
+      expiresIn: '5m',
+      ...overrides,
+    },
+  );
 }
 
 function makeApp(
@@ -268,6 +272,11 @@ describe('POST /internal/v1/command-intents/validate', () => {
     await post(app, null, SHADOW).expect(401);
   });
 
+  it('rejects a readback-scoped token at the validation route', async () => {
+    const { app } = makeApp();
+    await post(app, serviceToken({}, { scope: 'gate_readback.read' }), SHADOW).expect(403);
+  });
+
   it('returns 400 for a malformed JSON body (authenticated)', async () => {
     const { app } = makeApp();
     await request(app)
@@ -326,7 +335,9 @@ describe('GET /internal/v1/gate-readback (PR 6.3b)', () => {
 
   it('serves an unavailable machine gate when no site canonical gate is configured (no-store)', async () => {
     const { app } = makeApp(); // MATCHING_SNAPSHOT has gate M(0,0;1,0); siteCanonicalGateId null
-    const res = await getReadback(app, serviceToken()).expect(200);
+    const res = await getReadback(app, serviceToken({}, { scope: 'gate_readback.read' })).expect(
+      200,
+    );
     expect(res.headers['cache-control']).toBe('no-store');
     expect(res.body.gates['M(0,0;1,0)'].observed_level).toBeNull();
     expect(res.body.gates['M(0,0;1,0)'].quality).toBe('unavailable');
@@ -334,10 +345,17 @@ describe('GET /internal/v1/gate-readback (PR 6.3b)', () => {
 
   it('attaches the live poll level when the gate is the configured site gate', async () => {
     const { app } = makeApp({ siteCanonicalGateId: 'M(0,0;1,0)' });
-    const res = await getReadback(app, serviceToken()).expect(200);
+    const res = await getReadback(app, serviceToken({}, { scope: 'gate_readback.read' })).expect(
+      200,
+    );
     // okSnapshot polled gateLevel raw = 2.
     expect(res.body.gates['M(0,0;1,0)'].observed_level).toBe(2);
     expect(res.body.gates['M(0,0;1,0)'].quality).toBe('ok');
+  });
+
+  it('rejects a validation-scoped token at the readback route', async () => {
+    const { app } = makeApp();
+    await getReadback(app, serviceToken()).expect(403);
   });
 });
 
@@ -384,7 +402,7 @@ describe('machine_modbus_writes_total invariant (PR 6.4)', () => {
     await post(app, serviceToken(), { nonsense: true }).expect(422); // schema_invalid
     await request(app)
       .get('/internal/v1/gate-readback')
-      .set('Authorization', `Bearer ${serviceToken()}`)
+      .set('Authorization', `Bearer ${serviceToken({}, { scope: 'gate_readback.read' })}`)
       .expect(200);
 
     const body = await metrics.render();
@@ -394,7 +412,9 @@ describe('machine_modbus_writes_total invariant (PR 6.4)', () => {
     expect(readSeriesValue(body, 'machine_modbus_writes_total{mode="operator_approved"}')).toBe(0);
     expect(modbusWrites).toEqual([]);
     // The 422 leaves no receipt, so SCADA is the only place it can be counted.
-    expect(readSeriesValue(body, 'command_intent_rejections_total{reason="schema_invalid"}')).toBe(1);
+    expect(readSeriesValue(body, 'command_intent_rejections_total{reason="schema_invalid"}')).toBe(
+      1,
+    );
   });
 
   it('non-vacuous: an operator command increments machine_modbus_writes_total{mode="operator"}', async () => {

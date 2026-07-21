@@ -31,6 +31,8 @@ export type AppConfig = {
   readonly databaseUrl: string;
   /** Allow the non-persistent in-memory audit sink when DATABASE_URL is unset. */
   readonly allowInMemoryAudit: boolean;
+  /** Independent physical-write kill switch. Exact true opts in; default false. */
+  readonly allowMachineCommands: boolean;
   readonly rateLimit: { readonly windowMs: number; readonly max: number };
   /**
    * Scheduler service-to-service JWT policy for the machine-boundary validation
@@ -71,6 +73,14 @@ function requireEnv(env: NodeJS.ProcessEnv, name: string): string {
   return value;
 }
 
+function strictBooleanEnv(env: NodeJS.ProcessEnv, name: string, fallback: boolean): boolean {
+  const raw = env[name];
+  if (raw === undefined || raw === '') return fallback;
+  if (raw === 'true') return true;
+  if (raw === 'false') return false;
+  throw new ConfigError(`${name} must be exactly "true" or "false"`);
+}
+
 /** Spec: poll field equipment every 2-5 seconds. */
 const MIN_POLL_INTERVAL_MS = 2_000;
 const MAX_POLL_INTERVAL_MS = 5_000;
@@ -87,6 +97,21 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (pollIntervalMs < MIN_POLL_INTERVAL_MS || pollIntervalMs > MAX_POLL_INTERVAL_MS) {
     throw new ConfigError(
       `MODBUS_POLL_INTERVAL_MS must be between ${MIN_POLL_INTERVAL_MS} and ${MAX_POLL_INTERVAL_MS} ms (spec: 2-5s), got ${pollIntervalMs}`,
+    );
+  }
+  const databaseUrl = optionalEnv(env, 'DATABASE_URL', '');
+  const allowMachineCommands = strictBooleanEnv(env, 'ALLOW_MACHINE_COMMANDS', false);
+  if (allowMachineCommands && databaseUrl === '') {
+    throw new ConfigError('DATABASE_URL is required when ALLOW_MACHINE_COMMANDS=true');
+  }
+  if (allowMachineCommands && !env.SCADA_SITE_CANONICAL_GATE_ID?.trim()) {
+    throw new ConfigError(
+      'SCADA_SITE_CANONICAL_GATE_ID is required when ALLOW_MACHINE_COMMANDS=true',
+    );
+  }
+  if (allowMachineCommands && !env.SCADA_APPROVED_LINEAGE_ANCHOR_PATH?.trim()) {
+    throw new ConfigError(
+      'SCADA_APPROVED_LINEAGE_ANCHOR_PATH is required when ALLOW_MACHINE_COMMANDS=true',
     );
   }
 
@@ -114,8 +139,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       jwtIssuer: optionalEnv(env, 'JWT_ISSUER', 'munbon-auth'),
       jwtAudience: optionalEnv(env, 'JWT_AUDIENCE', 'munbon-api'),
     },
-    databaseUrl: optionalEnv(env, 'DATABASE_URL', ''),
+    databaseUrl,
     allowInMemoryAudit: optionalEnv(env, 'ALLOW_IN_MEMORY_AUDIT', 'false') === 'true',
+    allowMachineCommands,
     rateLimit: {
       windowMs: optionalEnvInt(env, 'COMMAND_RATE_WINDOW_MS', 60_000),
       max: optionalEnvInt(env, 'COMMAND_RATE_MAX', 30),

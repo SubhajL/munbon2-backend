@@ -26,7 +26,9 @@ def _settings(base_url=None, secret=None, execution_mode="disabled"):
 
 
 def _mock_http():
-    return httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200)))
+    return httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200))
+    )
 
 
 def test_dark_without_base_url():
@@ -59,23 +61,47 @@ def test_configured_builds_a_client_whose_token_provider_mints_a_valid_service_t
     assert payload["type"] == "service"
     assert payload["sub"] == "scheduler-shadow-dispatcher"
     assert payload["exp"] - payload["iat"] == 300
+    assert payload["scope"] == "command_intents.validate"
 
 
 def test_factory_threads_execution_mode_from_the_injected_settings():
     # L4: the open-loop service must read the INJECTED settings' mode, not the module global.
     from jobs.shadow_dispatch_once import build_shadow_dispatch_service
 
-    settings = _settings(base_url="http://scada.local", secret=SECRET, execution_mode="disabled")
+    settings = _settings(
+        base_url="http://scada.local", secret=SECRET, execution_mode="disabled"
+    )
     service = build_shadow_dispatch_service(
         settings, object(), clock=lambda: NOW, http_client=_mock_http()
     )
     assert service._open_loop._execution_mode == "disabled"
 
 
+def test_operator_factory_uses_the_injected_settings_for_bound_service_tokens():
+    from jobs.shadow_dispatch_once import build_operator_dispatch_service
+
+    settings = _settings(
+        base_url="http://scada.local",
+        secret=SECRET,
+        execution_mode="operator_approved_open_loop",
+    )
+    service = build_operator_dispatch_service(
+        settings,
+        object(),
+        snapshot=SimpleNamespace(),
+        clock=lambda: NOW,
+        http_client=_mock_http(),
+    )
+
+    assert service._token_settings is settings
+
+
 def test_build_readback_client_dark_without_config():
     from jobs.shadow_dispatch_once import build_readback_client
 
-    assert build_readback_client(_settings(), clock=lambda: NOW) is None  # no base_url/secret
+    assert (
+        build_readback_client(_settings(), clock=lambda: NOW) is None
+    )  # no base_url/secret
 
 
 def test_build_readback_client_configured():
@@ -87,6 +113,15 @@ def test_build_readback_client_configured():
         http_client=_mock_http(),
     )
     assert client is not None
+    payload = jwt.decode(
+        client._token_provider(),
+        SECRET,
+        algorithms=["HS256"],
+        audience="munbon-scada-machine-boundary",
+        issuer="munbon-scheduler",
+        options={"verify_exp": False},
+    )
+    assert payload["scope"] == "gate_readback.read"
 
 
 def test_build_readback_reconciliation_service_threads_mode():
@@ -126,14 +161,47 @@ class _FakeRepoKeys:
         return self._keys
 
 
+class _RollbackSession:
+    def __init__(self):
+        self.rollbacks = 0
+
+    async def rollback(self):
+        self.rollbacks += 1
+
+
+@pytest.mark.asyncio
+async def test_operator_dispatch_releases_transaction_locks_after_every_plan_attempt():
+    from jobs.shadow_dispatch_once import dispatch_operator_active_plans
+
+    class Service:
+        async def run_execute_dispatch_once(self, session, plan_id, plan_version):
+            if plan_version == 2:
+                raise RuntimeError("isolated")
+            return SimpleNamespace(action="pending")
+
+    session = _RollbackSession()
+    reports = await dispatch_operator_active_plans(
+        Service(), session, _FakeRepoKeys([("plan", 1), ("plan", 2)])
+    )
+
+    assert ([report.action for report in reports], session.rollbacks) == (
+        ["pending"],
+        2,
+    )
+
+
 @pytest.mark.asyncio
 async def test_reconcile_active_plans_short_circuits_without_touching_scada_when_no_baselines():
     from jobs.shadow_dispatch_once import reconcile_active_plans
 
     client = _FakeReadbackClient()
-    reports = await reconcile_active_plans(object(), client, None, _FakeRepoKeys([]), baselines={})
+    reports = await reconcile_active_plans(
+        object(), client, None, _FakeRepoKeys([]), baselines={}
+    )
     assert reports == []
-    assert client.called is False  # never polls SCADA when there is nothing to reconcile
+    assert (
+        client.called is False
+    )  # never polls SCADA when there is nothing to reconcile
 
 
 @pytest.mark.asyncio

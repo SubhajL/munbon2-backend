@@ -8,10 +8,8 @@
  * Short-lived by policy (`maxAge`, default 5m). Carries NO roles: a service is not an
  * operator, so there is no role mapping — only a verified `subject`.
  *
- * Replay: a captured token is replayable for its (short) maxAge window. That is benign
- * for THIS endpoint because it is validation-only and idempotent on intent_content_hash
- * (a replay reproduces the same durable receipt, no side effect). Any future
- * NON-idempotent endpoint reusing this verifier MUST add nonce/jti anti-replay.
+ * Read-only/validation routes require exact scopes. Physical execution additionally
+ * requires a per-request jti and exact intent/hash/purpose bindings at the route.
  */
 import type { NextFunction, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
@@ -36,6 +34,15 @@ export class ServiceAuthError extends Error {
 
 export type ServicePrincipal = {
   readonly subject: string;
+  readonly scope?: string;
+  readonly jti?: string;
+  readonly expiresAtMs?: number;
+  readonly grantId?: string;
+  readonly authorityNotAfter?: string;
+  readonly intentId?: string;
+  readonly originalIntentContentHash?: string;
+  readonly executionIntentContentHash?: string;
+  readonly purpose?: string;
 };
 
 export type SchedulerServiceTokenConfig = {
@@ -86,7 +93,26 @@ export function verifySchedulerServiceToken(
   if (typeof payload.sub !== 'string' || payload.sub.trim() === '') {
     throw new ServiceAuthError('service token missing subject');
   }
-  return { subject: payload.sub };
+  const principal: ServicePrincipal = { subject: payload.sub };
+  if (typeof payload.scope !== 'string') return principal;
+  return {
+    ...principal,
+    scope: payload.scope,
+    expiresAtMs: payload.exp * 1000,
+    ...(typeof payload.jti === 'string' ? { jti: payload.jti } : {}),
+    ...(typeof payload.grant_id === 'string' ? { grantId: payload.grant_id } : {}),
+    ...(typeof payload.authority_not_after === 'string'
+      ? { authorityNotAfter: payload.authority_not_after }
+      : {}),
+    ...(typeof payload.intent_id === 'string' ? { intentId: payload.intent_id } : {}),
+    ...(typeof payload.original_intent_content_hash === 'string'
+      ? { originalIntentContentHash: payload.original_intent_content_hash }
+      : {}),
+    ...(typeof payload.execution_intent_content_hash === 'string'
+      ? { executionIntentContentHash: payload.execution_intent_content_hash }
+      : {}),
+    ...(typeof payload.purpose === 'string' ? { purpose: payload.purpose } : {}),
+  };
 }
 
 export class SchedulerServiceTokenVerifier implements ServiceTokenVerifier {
@@ -124,5 +150,15 @@ export function requireServiceAuth(verifier: ServiceTokenVerifier | null) {
       }
       next(error);
     }
+  };
+}
+
+export function requireServiceScope(scope: string) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    if (req.serviceAuth?.scope !== scope) {
+      res.status(403).json({ error: 'service token has the wrong scope' });
+      return;
+    }
+    next();
   };
 }

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from core.control_metrics import (
+    EXECUTION_STATUSES,
     OPTIMIZER_STATUSES,
     PREDICTION_STATUSES,
     REJECTION_REASONS,
@@ -51,6 +52,13 @@ def test_empty_snapshot_pre_registers_every_enum_series_at_zero():
             _series_value(body, f'command_intent_rejections_total{{reason="{reason}"}}')
             == 0.0
         )
+    for status in EXECUTION_STATUSES:
+        assert (
+            _series_value(
+                body, f'control_command_executions_total{{status="{status}"}}'
+            )
+            == 0.0
+        )
 
 
 def test_counts_are_reflected_per_bounded_label():
@@ -59,6 +67,7 @@ def test_counts_are_reflected_per_bounded_label():
         prediction_runs_by_status={"completed": 5, "infeasible": 1, "not_requested": 3},
         validations_by_status={"validation_accepted": 4, "validation_rejected": 6},
         rejections_by_reason={"freshness_failed": 4, "deadline_expired": 2},
+        execution_receipts_by_status={"execution_succeeded": 3, "readback_mismatch": 1},
     )
     body = _render(snapshot)
     assert _series_value(body, 'control_plan_runs_total{status="feasible"}') == 7.0
@@ -84,6 +93,12 @@ def test_counts_are_reflected_per_bounded_label():
             body, 'command_intent_rejections_total{reason="deadline_expired"}'
         )
         == 2.0
+    )
+    assert (
+        _series_value(
+            body, 'control_command_executions_total{status="execution_succeeded"}'
+        )
+        == 3.0
     )
     # a reason that did not occur is still present, at 0 (present, not absent).
     assert (

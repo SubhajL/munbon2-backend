@@ -88,10 +88,10 @@ describe('build-irrigation-config', () => {
   });
 
   describe('getIrrigationProcesses', () => {
-    it('returns 7 irrigation services', () => {
+    it('returns 7 services plus the bounded control-dispatch worker', () => {
       const processes = getIrrigationProcesses();
 
-      expect(processes).toHaveLength(7);
+      expect(processes).toHaveLength(8);
 
       const serviceNames = processes.map(p => p.name);
       expect(serviceNames).toContain('flow-monitoring');
@@ -101,13 +101,16 @@ describe('build-irrigation-config', () => {
       expect(serviceNames).toContain('awd-control');
       expect(serviceNames).toContain('gis');
       expect(serviceNames).toContain('water-accounting');
+      expect(serviceNames).toContain('scheduler-control-dispatch');
     });
 
     it('uses bash interpreter and start script wrappers for python apps', () => {
       const processes = getIrrigationProcesses();
 
       const pythonServices = processes.filter(p =>
-        ['flow-monitoring', 'scheduler', 'bff-water-planning', 'ros-gis-integration', 'water-accounting'].includes(p.name)
+        ['flow-monitoring', 'scheduler', 'bff-water-planning', 'ros-gis-integration', 'water-accounting'].includes(
+          p.name,
+        ),
       );
 
       pythonServices.forEach(service => {
@@ -220,6 +223,24 @@ describe('build-irrigation-config', () => {
       });
     });
 
+    it('registers the recurring bounded dispatch tick with both tracked execution gates dark', () => {
+      const processes = getIrrigationProcesses();
+      const scheduler = processes.find(p => p.name === 'scheduler');
+      const worker = processes.find(p => p.name === 'scheduler-control-dispatch');
+      expect(scheduler?.env?.CONTROL_EXECUTION_MODE).toBe('disabled');
+      expect(worker).toMatchObject({
+        cwd: scheduler?.cwd,
+        script: './venv/bin/python',
+        args: '-m jobs.shadow_dispatch_once',
+        interpreter: 'none',
+        autorestart: true,
+        restart_delay: 60_000,
+      });
+      expect(worker?.cron_restart).toBeUndefined();
+      expect(worker?.env?.CONTROL_EXECUTION_MODE).toBe('disabled');
+      expect(worker?.env?.PYTHONPATH).toBe(`${scheduler?.cwd}/src`);
+    });
+
     // PR 4.4a-2: canonical scheduler runtime port is 3021 everywhere. start.sh
     // honors $PORT (default 3021); PM2 must set PORT=3021 and the spec port to
     // 3021, and every consumer URL (BFF, ros-gis) must point at 3021.
@@ -241,10 +262,7 @@ describe('build-irrigation-config', () => {
     it('retires the hardcoded 3012 scheduler spec port from the config source', () => {
       // The ServiceSpec.port is not surfaced on PM2ProcessConfig, so lock the
       // source: the scheduler spec must declare port 3021 and 3012 is gone.
-      const source = fs.readFileSync(
-        path.join(REPO_ROOT, 'infra', 'pm2', 'build-irrigation-config.ts'),
-        'utf-8',
-      );
+      const source = fs.readFileSync(path.join(REPO_ROOT, 'infra', 'pm2', 'build-irrigation-config.ts'), 'utf-8');
       expect(source).toContain('port: 3021');
       expect(source).not.toContain('3012');
     });
@@ -255,16 +273,9 @@ describe('build-irrigation-config', () => {
     it('wires the committed non-commandable flow release path', () => {
       const flow = getIrrigationProcesses().find(p => p.name === 'flow-monitoring');
       const releasePath = flow?.env?.HYDRAULIC_MODEL_RELEASE_PATH;
-      expect(releasePath).toBe(
-        'data/model-releases/engineering-prior-v3-v1.json',
-      );
+      expect(releasePath).toBe('data/model-releases/engineering-prior-v3-v1.json');
 
-      const absolute = path.join(
-        REPO_ROOT,
-        'services',
-        'flow-monitoring',
-        releasePath as string,
-      );
+      const absolute = path.join(REPO_ROOT, 'services', 'flow-monitoring', releasePath as string);
       const release = JSON.parse(fs.readFileSync(absolute, 'utf-8'));
       expect(release.commandable).toBe(false);
       expect(release.evidence_class).toBe('engineering_prior');
@@ -273,12 +284,7 @@ describe('build-irrigation-config', () => {
 
   describe('deploy topology', () => {
     it('has retired the EC2 docker deploy workflow (PM2 is the topology)', () => {
-      const workflow = path.join(
-        REPO_ROOT,
-        '.github',
-        'workflows',
-        'deploy-flow-monitoring.yml',
-      );
+      const workflow = path.join(REPO_ROOT, '.github', 'workflows', 'deploy-flow-monitoring.yml');
       expect(fs.existsSync(workflow)).toBe(false);
     });
   });

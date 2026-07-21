@@ -31,10 +31,19 @@ def mint_scheduler_service_token(
     now: datetime,
     max_age_seconds: int = 300,
     jti: Optional[str] = None,
+    scope: Optional[str] = None,
+    grant_id: Optional[str] = None,
+    authority_not_after: Optional[str] = None,
+    intent_id: Optional[str] = None,
+    original_intent_content_hash: Optional[str] = None,
+    execution_intent_content_hash: Optional[str] = None,
+    purpose: Optional[str] = None,
 ) -> str:
     """Return a signed HS256 service token valid from ``now`` for ``max_age_seconds``."""
-    aware = now.replace(tzinfo=timezone.utc) if now.tzinfo is None else now.astimezone(
-        timezone.utc
+    aware = (
+        now.replace(tzinfo=timezone.utc)
+        if now.tzinfo is None
+        else now.astimezone(timezone.utc)
     )
     issued_at = int(aware.timestamp())
     payload = {
@@ -47,4 +56,16 @@ def mint_scheduler_service_token(
     }
     if jti is not None:
         payload["jti"] = jti
+    optional_claims = {
+        "scope": scope,
+        "grant_id": grant_id,
+        "authority_not_after": authority_not_after,
+        "intent_id": intent_id,
+        "original_intent_content_hash": original_intent_content_hash,
+        "execution_intent_content_hash": execution_intent_content_hash,
+        "purpose": purpose,
+    }
+    payload.update(
+        {key: value for key, value in optional_claims.items() if value is not None}
+    )
     return jwt.encode(payload, secret, algorithm="HS256")

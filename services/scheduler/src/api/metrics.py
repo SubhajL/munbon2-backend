@@ -8,8 +8,8 @@ OMITTED (not zero-filled): zero-filling a counter mid-history reads as a counter
 corrupt ``rate()``/``increase()`` far worse than a one-scrape gap — Prometheus rides a transient
 gap out via ``for:``/staleness, and ``scheduler_metrics_scrape_error`` says why. Read-only; a
 per-scrape ``statement_timeout`` bounds a slow scan so ``/metrics`` can never starve the operator
-read pool. Five small grouped queries (control_plan_runs, receipts, observations,
-authority grant events, pending/lag).
+read pool. Six small grouped queries (control_plan_runs, validation receipts, execution
+receipts, observations, authority grant events, pending/lag).
 """
 
 from __future__ import annotations
@@ -83,6 +83,11 @@ async def collect_metric_snapshot(
         f"SELECT event_type, count(*) FROM {SCHEMA}.control_authority_grant_events "
         "GROUP BY event_type",
     )
+    execution_receipts = await _group_counts(
+        conn,
+        f"SELECT status, count(*) FROM {SCHEMA}.control_command_execution_receipts "
+        "GROUP BY status",
+    )
     # Dispatch pending + lag: outbox intents with a 'claimed' event (0009) and NO receipt (0010),
     # SCOPED to plans that STILL HOLD AUTHORITY (control_active_gate_authority — the dispatcher's
     # own active set via load_active_shadow_plan_keys). A superseded/invalidated plan releases
@@ -126,6 +131,7 @@ async def collect_metric_snapshot(
         rejections_by_reason=rejections,
         readback_mismatch_by_gate=readback_mismatch,
         authority_grant_events_by_type=authority_events,
+        execution_receipts_by_status=execution_receipts,
         dispatch_pending_count=pending_count,
         dispatch_lag_seconds=lag_seconds,
         worker_heartbeat=heartbeat,

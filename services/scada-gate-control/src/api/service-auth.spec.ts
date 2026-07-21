@@ -101,6 +101,33 @@ describe('verifySchedulerServiceToken', () => {
     });
     expect(() => verifySchedulerServiceToken(token, CONFIG)).toThrow(ServiceAuthError);
   });
+
+  it('returns the execute scope and content bindings for a bound token', () => {
+    const token = sign({
+      sub: 'svc:scheduler',
+      type: 'service',
+      scope: 'command_intents.execute',
+      jti: 'execute-1',
+      grant_id: '77777777-7777-4777-8777-777777777777',
+      authority_not_after: '2026-07-20T03:05:00.000Z',
+      intent_id: '11111111-1111-1111-1111-111111111111',
+      original_intent_content_hash: 'a'.repeat(64),
+      execution_intent_content_hash: 'b'.repeat(64),
+      purpose: 'operator_approved',
+    });
+    expect(verifySchedulerServiceToken(token, CONFIG)).toEqual({
+      subject: 'svc:scheduler',
+      scope: 'command_intents.execute',
+      expiresAtMs: expect.any(Number),
+      jti: 'execute-1',
+      grantId: '77777777-7777-4777-8777-777777777777',
+      authorityNotAfter: '2026-07-20T03:05:00.000Z',
+      intentId: '11111111-1111-1111-1111-111111111111',
+      originalIntentContentHash: 'a'.repeat(64),
+      executionIntentContentHash: 'b'.repeat(64),
+      purpose: 'operator_approved',
+    });
+  });
 });
 
 describe('SchedulerServiceTokenVerifier', () => {

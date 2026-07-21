@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { randomUUID } from 'crypto';
 import { Pool } from 'pg';
 import { loadConfig, type AppConfig } from './config';
 import { ModbusSerialTransport } from './transport/modbus-serial-transport';
@@ -14,6 +15,10 @@ import type { AuditRepository } from './audit/types';
 import { InMemoryCommandIntentReceiptRepository } from './command-intents/memory-repository';
 import { PostgresCommandIntentReceiptRepository } from './command-intents/pg-repository';
 import type { CommandIntentReceiptRepository } from './command-intents/types';
+import { InMemoryCommandExecutionRepository } from './command-executions/memory-repository';
+import { PostgresCommandExecutionRepository } from './command-executions/pg-repository';
+import type { CommandExecutionRepository } from './command-executions/types';
+import { MachineExecutionService } from './services/machine-execution-service';
 import { SchedulerServiceTokenVerifier, type ServiceTokenVerifier } from './api/service-auth';
 import { createScadaMetrics } from './metrics/registry';
 import { logger } from './utils/logger';
@@ -21,6 +26,7 @@ import { logger } from './utils/logger';
 type Storage = {
   readonly audit: AuditRepository;
   readonly receipts: CommandIntentReceiptRepository;
+  readonly executions: CommandExecutionRepository;
 };
 
 /**
@@ -37,9 +43,10 @@ async function resolveStorage(config: AppConfig): Promise<Storage> {
     pool.on('error', (err) => logger.error({ err: err.message }, 'audit/receipt pg pool error'));
     const audit = new PostgresAuditRepository(pool);
     const receipts = new PostgresCommandIntentReceiptRepository(pool);
+    const executions = new PostgresCommandExecutionRepository(pool);
     // Independent DDLs — provision both in parallel (max round-trip, not sum).
-    await Promise.all([audit.ensureSchema(), receipts.ensureSchema()]);
-    return { audit, receipts };
+    await Promise.all([audit.ensureSchema(), receipts.ensureSchema(), executions.ensureSchema()]);
+    return { audit, receipts, executions };
   }
   if (!config.allowInMemoryAudit) {
     throw new Error(
@@ -50,6 +57,7 @@ async function resolveStorage(config: AppConfig): Promise<Storage> {
   return {
     audit: new InMemoryAuditRepository(),
     receipts: new InMemoryCommandIntentReceiptRepository(),
+    executions: new InMemoryCommandExecutionRepository(),
   };
 }
 
@@ -74,7 +82,7 @@ async function main(): Promise<void> {
       logger.warn({ err: error instanceof Error ? error.message : String(error) }, 'poll error'),
   });
 
-  const { audit, receipts } = await resolveStorage(config);
+  const { audit, receipts, executions } = await resolveStorage(config);
 
   const commandService = new CommandService({
     actuator: controller,
@@ -118,6 +126,17 @@ async function main(): Promise<void> {
     );
   }
 
+  const machineExecutionService = new MachineExecutionService({
+    actuator: controller,
+    repository: executions,
+    capabilities: deviceCapabilities,
+    approvedLineageAnchor,
+    siteCanonicalGateId: config.siteCanonicalGateId,
+    allowMachineCommands: config.allowMachineCommands,
+    clock: () => Date.now(),
+    randomId: randomUUID,
+  });
+
   const app = buildServer({
     verifier: new JwtTokenVerifier({
       secret: config.auth.jwtSecret,
@@ -136,6 +155,7 @@ async function main(): Promise<void> {
     approvedLineageAnchor,
     siteCanonicalGateId: config.siteCanonicalGateId,
     metrics,
+    machineExecutionService,
   });
 
   controller.start();
