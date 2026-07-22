@@ -1,0 +1,10 @@
+[
+  {
+    "targets": ["http://central-host.example.invalid:3021/ready"],
+    "labels": { "service": "scheduler", "environment": "replace-before-deploy" }
+  },
+  {
+    "targets": ["http://field-host.example.invalid:3030/health"],
+    "labels": { "service": "scada-gate-control", "environment": "replace-before-deploy" }
+  }
+]

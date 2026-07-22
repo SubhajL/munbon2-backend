@@ -1,0 +1,30 @@
+rule_files:
+  - /etc/prometheus/control-plane-alerts.yml
+
+scrape_configs:
+  - job_name: scheduler-control-plane
+    metrics_path: /metrics
+    file_sd_configs:
+      - files:
+          - /etc/prometheus/control-plane-central-targets.json
+
+  - job_name: scada-gate-control
+    metrics_path: /metrics
+    file_sd_configs:
+      - files:
+          - /etc/prometheus/control-plane-field-targets.json
+
+  - job_name: control-plane-readiness
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    file_sd_configs:
+      - files:
+          - /etc/prometheus/control-plane-readiness-targets.json
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: 127.0.0.1:9115
