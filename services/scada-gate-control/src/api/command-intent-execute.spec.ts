@@ -77,7 +77,7 @@ function token(scope = 'command_intents.execute', overrides: Record<string, unkn
       ...overrides,
     },
     SECRET,
-    { issuer: ISSUER, audience: AUDIENCE, expiresIn: '5m' },
+    { issuer: ISSUER, audience: AUDIENCE, expiresIn: '4m' },
   );
 }
 
