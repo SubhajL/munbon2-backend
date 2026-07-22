@@ -19,7 +19,6 @@ from pydantic import (
     BeforeValidator,
     ConfigDict,
     Field,
-    StrictBool,
 )
 from typing_extensions import Annotated
 
@@ -67,6 +66,7 @@ BoundedRef = Annotated[
 ]
 AwareDatetime = Annotated[datetime, AfterValidator(_aware)]
 SchemaVersion1 = Annotated[Literal[1], BeforeValidator(_strict_int)]
+SchemaVersion2 = Annotated[Literal[2], BeforeValidator(_strict_int)]
 PositiveInt = Annotated[int, BeforeValidator(_strict_int), Field(gt=0)]
 TrimCount = Annotated[int, BeforeValidator(_strict_int), Field(ge=0, le=2)]
 NonNegativeNumber = Annotated[
@@ -86,11 +86,8 @@ class _StrictModel(BaseModel):
 
 
 class CommandabilityEvidenceIn(_StrictModel):
-    schema_version: SchemaVersion1
-    model_release_id: ReleaseIdStr
-    model_release_content_hash: Sha256
-    engine_descriptor_content_hash: Sha256
-    commandable: StrictBool
+    schema_version: SchemaVersion2
+    commandability_approval_content_hash: Sha256
     approval_refs: List[BoundedRef] = Field(min_length=1, max_length=20)
 
 

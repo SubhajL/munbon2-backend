@@ -62,12 +62,15 @@ def authority_model_snapshot(
     model_release_id: str,
     model_release_content_hash: str,
     engine_descriptor_content_hash: str,
+    capability_release_id: str = "field-registry-2026.06",
+    capability_hash: str = "c" * 64,
+    approved_gate_ids: tuple[str, ...] = ("MC-01",),
     commandable: bool = True,
     response_commandable: Optional[bool] = None,
     action_commandable: Optional[bool] = None,
     actuation_approved: Optional[bool] = None,
 ) -> dict:
-    """A minimal content-addressed v3 snapshot for authority tests."""
+    """A minimal content-addressed v4 approval snapshot for authority tests."""
     response_commandable = (
         commandable if response_commandable is None else response_commandable
     )
@@ -77,12 +80,67 @@ def authority_model_snapshot(
     actuation_approved = (
         commandable if actuation_approved is None else actuation_approved
     )
+    model_config_sha256 = {
+        "network": "1" * 64,
+        "canal_geometry": "2" * 64,
+        "gate_calibrations": "3" * 64,
+        "geometry_coverage": "4" * 64,
+        "routing_topology": "5" * 64,
+    }
+    operating_envelope = {
+        "minimum_flow_m3s": 0.0,
+        "maximum_flow_m3s": 8.0,
+        "minimum_timestep_seconds": 60.0,
+        "maximum_timestep_seconds": 300.0,
+        "maximum_horizon_seconds": 604800.0,
+    }
+    approval_payload = {
+        "schema_version": 1,
+        "approval_state": "approved",
+        "base_model_release": {
+            "release_id": model_release_id,
+            "content_hash": model_release_content_hash,
+        },
+        "prediction_engine": {"content_hash": engine_descriptor_content_hash},
+        "model_config_sha256": model_config_sha256,
+        "operating_envelope": operating_envelope,
+        "device_capability": {
+            "capability_release_id": capability_release_id,
+            "capability_hash": capability_hash,
+            "approved_gate_ids": sorted(approved_gate_ids),
+        },
+        "approval": {
+            "approved_by_role": "RID hydraulic model authority",
+            "approved_at": "2026-07-21T08:00:00Z",
+            "approval_reference": "RID-COMMISSIONING-2026-001",
+            "evidence": [
+                {
+                    "kind": "signed-assessment",
+                    "reference": "doc://rid/commissioning/2026-001",
+                    "sha256": "6" * 64,
+                }
+            ],
+        },
+    }
+    approval = {
+        **approval_payload,
+        "content_hash": hashlib.sha256(
+            json.dumps(
+                approval_payload,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8")
+        ).hexdigest(),
+    }
     payload = {
-        "schema_version": 3,
+        "schema_version": 4 if commandable else 3,
         # Flow's snapshot hash serializer preserves 2.0 as JSON 2.0, unlike JCS.
         # This pin keeps authority tests honest about the producer algorithm.
         "test_numeric_pin": 2.0,
         "commandable": commandable,
+        "scada_graph": {"config_sha256": model_config_sha256["network"]},
+        "routing_topology": {"config_sha256": model_config_sha256["routing_topology"]},
         "prediction_engine": {"content_hash": engine_descriptor_content_hash},
         "response_model": {
             "release_id": model_release_id,
@@ -92,8 +150,16 @@ def authority_model_snapshot(
         "action_model": {
             "commandable": action_commandable,
             "actuation_approved": actuation_approved,
+            "config_sha256": {
+                "canal_geometry": model_config_sha256["canal_geometry"],
+                "gate_calibrations": model_config_sha256["gate_calibrations"],
+                "geometry_coverage": model_config_sha256["geometry_coverage"],
+            },
+            "operating_envelope": operating_envelope,
         },
     }
+    if commandable:
+        payload["commandability_approval"] = approval
     return {
         "snapshot_id": hashlib.sha256(
             json.dumps(
@@ -105,6 +171,21 @@ def authority_model_snapshot(
             ).encode("utf-8")
         ).hexdigest(),
         **payload,
+    }
+
+
+def authority_commandability_evidence(snapshot: dict) -> dict:
+    approval = snapshot["commandability_approval"]
+    attestation = approval["approval"]
+    return {
+        "schema_version": 2,
+        "commandability_approval_content_hash": approval["content_hash"],
+        "approval_refs": sorted(
+            {
+                attestation["approval_reference"],
+                *(item["reference"] for item in attestation["evidence"]),
+            }
+        ),
     }
 
 

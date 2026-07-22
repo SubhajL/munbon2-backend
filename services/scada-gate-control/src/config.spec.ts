@@ -39,7 +39,7 @@ describe('loadConfig', () => {
           ALLOW_MACHINE_COMMANDS: 'true',
           DATABASE_URL: 'postgresql://scada:secret@127.0.0.1/scada',
           SCADA_SITE_CANONICAL_GATE_ID: 'M(0,0;1,0)',
-          SCADA_APPROVED_LINEAGE_ANCHOR_PATH: '/approved/lineage.json',
+          SCADA_APPROVED_FIELD_BUNDLE_PATH: '/approved/field-bundle.json',
         }),
       ).allowMachineCommands,
     ).toBe(true);
@@ -65,13 +65,13 @@ describe('loadConfig', () => {
           ALLOW_MACHINE_COMMANDS: 'true',
           DATABASE_URL: 'postgresql://scada:secret@127.0.0.1/scada',
           SCADA_SITE_CANONICAL_GATE_ID: 'M(0,0;1,0)',
-          SCADA_APPROVED_LINEAGE_ANCHOR_PATH: '/approved/lineage.json',
+          SCADA_APPROVED_FIELD_BUNDLE_PATH: '/approved/field-bundle.json',
         }),
       ).allowMachineCommands,
     ).toBe(true);
   });
 
-  test('machine commands require the local canonical gate and approved lineage anchor', () => {
+  test('machine commands require the local canonical gate and rich approved field bundle', () => {
     const durable = {
       ALLOW_MACHINE_COMMANDS: 'true',
       DATABASE_URL: 'postgresql://scada:secret@127.0.0.1/scada',
@@ -79,7 +79,21 @@ describe('loadConfig', () => {
     expect(() => loadConfig(withHost(durable))).toThrow(/SCADA_SITE_CANONICAL_GATE_ID/);
     expect(() =>
       loadConfig(withHost({ ...durable, SCADA_SITE_CANONICAL_GATE_ID: 'M(0,0;1,0)' })),
-    ).toThrow(/SCADA_APPROVED_LINEAGE_ANCHOR_PATH/);
+    ).toThrow(/SCADA_APPROVED_FIELD_BUNDLE_PATH/);
+  });
+
+  test('machine boot rejects legacy split artifacts without the rich bundle', () => {
+    expect(() =>
+      loadConfig(
+        withHost({
+          ALLOW_MACHINE_COMMANDS: 'true',
+          DATABASE_URL: 'postgresql://scada:secret@127.0.0.1/scada',
+          SCADA_SITE_CANONICAL_GATE_ID: 'M(0,0;1,0)',
+          SCADA_DEVICE_REGISTRY_PATH: '/legacy/registry.json',
+          SCADA_APPROVED_LINEAGE_ANCHOR_PATH: '/legacy/lineage.json',
+        }),
+      ),
+    ).toThrow(/SCADA_APPROVED_FIELD_BUNDLE_PATH/);
   });
 
   test('ALLOW_IN_MEMORY_AUDIT=true enables the in-memory sink flag', () => {

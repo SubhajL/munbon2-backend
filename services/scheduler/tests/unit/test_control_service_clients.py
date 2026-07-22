@@ -116,9 +116,7 @@ class TestRosGisRequirementsClient:
     @pytest.mark.asyncio
     async def test_non_published_item_fails_closed(self):
         def handler(request):
-            return httpx.Response(
-                200, json=_daily_body([_item(dataStatus="stale")])
-            )
+            return httpx.Response(200, json=_daily_body([_item(dataStatus="stale")]))
 
         client = _ros_client(handler)
         with pytest.raises(RequirementStateError) as excinfo:
@@ -207,9 +205,7 @@ class TestRosGisRequirementsClient:
     @pytest.mark.asyncio
     async def test_negative_volume_is_contract_violation(self):
         def handler(request):
-            return httpx.Response(
-                200, json=_daily_body([_item(requiredVolumeM3=-1.0)])
-            )
+            return httpx.Response(200, json=_daily_body([_item(requiredVolumeM3=-1.0)]))
 
         client = _ros_client(handler)
         with pytest.raises(UpstreamContractViolation):
@@ -218,9 +214,7 @@ class TestRosGisRequirementsClient:
     @pytest.mark.asyncio
     async def test_unknown_quality_is_contract_violation(self):
         def handler(request):
-            return httpx.Response(
-                200, json=_daily_body([_item(quality="measured")])
-            )
+            return httpx.Response(200, json=_daily_body([_item(quality="measured")]))
 
         client = _ros_client(handler)
         with pytest.raises(UpstreamContractViolation):
@@ -287,6 +281,7 @@ def _snapshot_body(**overrides):
         "schema_version": 3,
         "snapshot_id": "a" * 64,
         "data_status": "complete",
+        "commandable": False,
         "prediction_engine": {
             "schema_version": 1,
             "engine_id": "munbon.flow-monitoring.network-transient",
@@ -295,6 +290,7 @@ def _snapshot_body(**overrides):
             "content_hash": "b" * 64,
         },
         "routing_topology": {
+            "config_sha256": "c" * 64,
             "elements": [
                 {
                     "element_id": "R1",
@@ -302,20 +298,28 @@ def _snapshot_body(**overrides):
                     "downstream_node_id": "N1",
                     "role": "transport",
                 }
-            ]
+            ],
         },
         "action_model": {
+            "commandable": False,
+            "actuation_approved": False,
+            "config_sha256": {
+                "canal_geometry": "d" * 64,
+                "gate_calibrations": "e" * 64,
+                "geometry_coverage": "f" * 64,
+            },
             "operating_envelope": {
                 "minimum_flow_m3s": 0.0,
                 "maximum_flow_m3s": 10.0,
                 "minimum_timestep_seconds": 300.0,
                 "maximum_timestep_seconds": 3600.0,
                 "maximum_horizon_seconds": 604800.0,
-            }
+            },
         },
         "response_model": {
             "release_id": "release-2026-07",
             "content_hash": "b" * 64,
+            "commandable": False,
             "response_members": [
                 {
                     "reach_id": "R1",
@@ -329,6 +333,53 @@ def _snapshot_body(**overrides):
         "unavailable_transport_reaches": [],
     }
     body.update(overrides)
+    return body
+
+
+def _approved_snapshot_body():
+    body = _snapshot_body(
+        schema_version=4,
+        commandable=True,
+    )
+    body["response_model"]["commandable"] = True
+    body["action_model"]["commandable"] = True
+    body["action_model"]["actuation_approved"] = True
+    body["scada_graph"] = {"config_sha256": "1" * 64}
+    body["commandability_approval"] = {
+        "schema_version": 1,
+        "approval_state": "approved",
+        "base_model_release": {
+            "release_id": "release-2026-07",
+            "content_hash": "b" * 64,
+        },
+        "prediction_engine": {"content_hash": "b" * 64},
+        "model_config_sha256": {
+            "network": "1" * 64,
+            "routing_topology": "c" * 64,
+            "canal_geometry": "d" * 64,
+            "gate_calibrations": "e" * 64,
+            "geometry_coverage": "f" * 64,
+        },
+        "operating_envelope": body["action_model"]["operating_envelope"],
+        "device_capability": {
+            "capability_release_id": "field-registry-2026.07",
+            "capability_hash": "8" * 64,
+            "approved_gate_ids": ["MC-01"],
+        },
+        "approval": {
+            "approved_by_role": "RID hydraulic model authority",
+            "approved_at": "2026-07-21T08:00:00Z",
+            "approval_reference": "RID-COMMISSIONING-2026-001",
+            "evidence": [
+                {
+                    "kind": "signed-assessment",
+                    "reference": "doc://rid/commissioning/2026-001",
+                    "sha256": "7" * 64,
+                }
+            ],
+        },
+        "content_hash": "9" * 64,
+    }
     return body
 
 
@@ -418,9 +469,7 @@ class TestControlFlowClient:
         assert json.loads(text) == body
         assert mirror["snapshot_id"] == "a" * 64
         assert mirror["schema_version"] == 3
-        assert mirror["response_model_release"]["release_id"] == (
-            "release-2026-07"
-        )
+        assert mirror["response_model_release"]["release_id"] == ("release-2026-07")
         # The embedded engine descriptor is captured verbatim for the engine
         # cross-check the scheduler performs before recording a prediction.
         assert mirror["prediction_engine"] == {
@@ -431,13 +480,49 @@ class TestControlFlowClient:
         }
 
     @pytest.mark.asyncio
-    async def test_snapshot_non_v3_schema_is_contract_violation(self):
+    async def test_snapshot_non_v3_or_v4_schema_is_contract_violation(self):
         def handler(request):
             return httpx.Response(200, json=_snapshot_body(schema_version=2))
 
         client = _flow_client(handler)
         with pytest.raises(UpstreamContractViolation, match="schema_version"):
             await client.create_model_snapshot()
+
+    @pytest.mark.asyncio
+    async def test_snapshot_v4_requires_and_preserves_the_strict_approval(self):
+        body = _approved_snapshot_body()
+
+        def handler(request):
+            return httpx.Response(200, json=body)
+
+        _, mirror = await _flow_client(handler).create_model_snapshot()
+        assert mirror["schema_version"] == 4
+        assert mirror["commandability_approval"]["device_capability"] == {
+            "capability_release_id": "field-registry-2026.07",
+            "capability_hash": "8" * 64,
+            "approved_gate_ids": ["MC-01"],
+        }
+
+    @pytest.mark.asyncio
+    async def test_snapshot_v4_without_approval_is_contract_violation(self):
+        body = _approved_snapshot_body()
+        del body["commandability_approval"]
+
+        def handler(request):
+            return httpx.Response(200, json=body)
+
+        with pytest.raises(UpstreamContractViolation, match="v4|approval"):
+            await _flow_client(handler).create_model_snapshot()
+
+    @pytest.mark.asyncio
+    async def test_snapshot_v3_with_true_commandability_is_contract_violation(self):
+        body = _snapshot_body(commandable=True)
+
+        def handler(request):
+            return httpx.Response(200, json=body)
+
+        with pytest.raises(UpstreamContractViolation, match="v3|commandability"):
+            await _flow_client(handler).create_model_snapshot()
 
     @pytest.mark.asyncio
     async def test_snapshot_without_prediction_engine_is_contract_violation(self):
@@ -513,9 +598,7 @@ class TestControlFlowClient:
         def handler(request):
             return _prediction_response(
                 _prediction_body(),
-                header_overrides={
-                    "X-Prediction-Artifact-Uncompressed-Size": "999999"
-                },
+                header_overrides={"X-Prediction-Artifact-Uncompressed-Size": "999999"},
             )
 
         client = _flow_client(handler)
@@ -657,13 +740,22 @@ class TestFakeInterfacePins:
         )
 
         pairs = [
-            (FakeRosGisClient, RosGisRequirementsClient,
-             ["get_exact_requirements"]),
-            (FakeControlFlowClient, ControlFlowClient,
-             ["create_model_snapshot", "create_prediction"]),
-            (FakeRepository, PostgresControlPlanRepository,
-             ["find_by_input_hash", "store_draft_plan", "load_draft_plan",
-              "allocate_campaign_version"]),
+            (FakeRosGisClient, RosGisRequirementsClient, ["get_exact_requirements"]),
+            (
+                FakeControlFlowClient,
+                ControlFlowClient,
+                ["create_model_snapshot", "create_prediction"],
+            ),
+            (
+                FakeRepository,
+                PostgresControlPlanRepository,
+                [
+                    "find_by_input_hash",
+                    "store_draft_plan",
+                    "load_draft_plan",
+                    "allocate_campaign_version",
+                ],
+            ),
         ]
         for fake, real, methods in pairs:
             for method in methods:

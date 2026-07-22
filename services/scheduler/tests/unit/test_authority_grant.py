@@ -6,6 +6,7 @@ execution predicate (verify_execution_authority). Everything fails closed;
 nothing here can actuate.
 """
 
+import hashlib
 import json
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
@@ -16,6 +17,7 @@ from uuid import uuid4
 import pytest
 
 from tests.control_plan_test_support import (
+    authority_commandability_evidence,
     authority_model_snapshot,
     authority_outbox_rows,
 )
@@ -185,14 +187,16 @@ class TestDeriveAuthorityGrantStatus:
 
 
 def _commandability_evidence(**overrides):
-    doc = {
-        "schema_version": 1,
-        "model_release_id": RELEASE_ID,
-        "model_release_content_hash": SHA_A,
-        "engine_descriptor_content_hash": SHA_B,
-        "commandable": True,
-        "approval_refs": ["RID-approval-2026-118"],
-    }
+    doc = authority_commandability_evidence(
+        authority_model_snapshot(
+            model_release_id=RELEASE_ID,
+            model_release_content_hash=SHA_A,
+            engine_descriptor_content_hash=SHA_B,
+            capability_release_id=CAPABILITY_RELEASE_ID,
+            capability_hash=SHA_C,
+            approved_gate_ids=(GATE,),
+        )
+    )
     doc.update(overrides)
     return doc
 
@@ -324,7 +328,9 @@ class TestValidateAuthorityEvidence:
 
     def test_grant_rejects_noncommandable_model_release(self):
         candidate = _candidate(
-            commandability_evidence=_commandability_evidence(commandable=False)
+            commandability_evidence=_commandability_evidence(
+                commandability_approval_content_hash=SHA_F
+            )
         )
         with pytest.raises(AuthorityEvidenceError) as excinfo:
             _validate(candidate)
@@ -333,7 +339,7 @@ class TestValidateAuthorityEvidence:
     def test_commandability_evidence_must_bind_the_same_release(self):
         candidate = _candidate(
             commandability_evidence=_commandability_evidence(
-                model_release_content_hash=SHA_F
+                approval_refs=["different-approval"]
             )
         )
         with pytest.raises(AuthorityEvidenceError) as excinfo:
@@ -705,6 +711,194 @@ class TestStoredSnapshotCommandability:
         with pytest.raises(AuthorityEvidenceError) as excinfo:
             _validate(context=_context(record=record))
         assert excinfo.value.reason == "noncommandable_release"
+
+    def test_v3_true_booleans_reject_without_a_versioned_approval(self):
+        snapshot = authority_model_snapshot(
+            model_release_id=RELEASE_ID,
+            model_release_content_hash=SHA_A,
+            engine_descriptor_content_hash=SHA_B,
+        )
+        snapshot.pop("commandability_approval")
+        snapshot["schema_version"] = 3
+        payload = dict(snapshot)
+        payload.pop("snapshot_id")
+        snapshot["snapshot_id"] = hashlib.sha256(
+            json.dumps(
+                payload,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+                default=str,
+            ).encode("utf-8")
+        ).hexdigest()
+        record = _record(
+            model_snapshot_id=snapshot["snapshot_id"],
+            model_snapshot_document_text=json.dumps(snapshot),
+        )
+
+        with pytest.raises(AuthorityEvidenceError) as excinfo:
+            _validate(context=_context(record=record))
+
+        assert excinfo.value.reason == "noncommandable_release"
+
+    def test_tampered_v4_approval_after_snapshot_rehash_is_corruption(self):
+        snapshot = authority_model_snapshot(
+            model_release_id=RELEASE_ID,
+            model_release_content_hash=SHA_A,
+            engine_descriptor_content_hash=SHA_B,
+        )
+        snapshot["commandability_approval"]["device_capability"][
+            "capability_hash"
+        ] = SHA_F
+        payload = dict(snapshot)
+        payload.pop("snapshot_id")
+        snapshot["snapshot_id"] = hashlib.sha256(
+            json.dumps(
+                payload,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+                default=str,
+            ).encode("utf-8")
+        ).hexdigest()
+        record = _record(
+            model_snapshot_id=snapshot["snapshot_id"],
+            model_snapshot_document_text=json.dumps(snapshot),
+        )
+
+        with pytest.raises(AuthorityEvidenceCorruptError):
+            _validate(context=_context(record=record))
+
+    def test_full_flow_snapshot_metadata_does_not_invalidate_the_v4_approval(self):
+        snapshot = authority_model_snapshot(
+            model_release_id=RELEASE_ID,
+            model_release_content_hash=SHA_A,
+            engine_descriptor_content_hash=SHA_B,
+        )
+        snapshot["scada_graph"].update(
+            {
+                "source_workbook_sha256": SHA_D,
+                "root_node_id": "S",
+                "gate_count": 1,
+                "edge_count": 1,
+                "edges": [],
+            }
+        )
+        snapshot["routing_topology"].update(
+            {
+                "schema_version": 1,
+                "content_hash": SHA_E,
+                "root_node_id": "S",
+                "node_count": 2,
+                "element_count": 1,
+                "role_counts": {"transport": 1},
+                "elements": [],
+            }
+        )
+        payload = dict(snapshot)
+        payload.pop("snapshot_id")
+        snapshot["snapshot_id"] = hashlib.sha256(
+            json.dumps(
+                payload,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+                default=str,
+            ).encode("utf-8")
+        ).hexdigest()
+        record = _record(
+            model_snapshot_id=snapshot["snapshot_id"],
+            model_snapshot_document_text=json.dumps(snapshot),
+        )
+        candidate = _candidate(
+            commandability_evidence=authority_commandability_evidence(snapshot)
+        )
+
+        _validate(candidate, context=_context(record=record))
+
+    def test_malformed_approval_timestamp_is_stored_evidence_corruption(self):
+        snapshot = authority_model_snapshot(
+            model_release_id=RELEASE_ID,
+            model_release_content_hash=SHA_A,
+            engine_descriptor_content_hash=SHA_B,
+        )
+        approval = snapshot["commandability_approval"]
+        approval["approval"]["approved_at"] = "not-a-timeZ"
+        approval_payload = dict(approval)
+        approval_payload.pop("content_hash")
+        approval["content_hash"] = hashlib.sha256(
+            json.dumps(
+                approval_payload,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+                default=str,
+            ).encode("utf-8")
+        ).hexdigest()
+        payload = dict(snapshot)
+        payload.pop("snapshot_id")
+        snapshot["snapshot_id"] = hashlib.sha256(
+            json.dumps(
+                payload,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+                default=str,
+            ).encode("utf-8")
+        ).hexdigest()
+        record = _record(
+            model_snapshot_id=snapshot["snapshot_id"],
+            model_snapshot_document_text=json.dumps(snapshot),
+        )
+
+        with pytest.raises(AuthorityEvidenceCorruptError):
+            _validate(context=_context(record=record))
+
+    def test_approval_capability_pair_must_match_current_server_snapshot(self):
+        snapshot = authority_model_snapshot(
+            model_release_id=RELEASE_ID,
+            model_release_content_hash=SHA_A,
+            engine_descriptor_content_hash=SHA_B,
+            capability_hash=SHA_F,
+        )
+        record = _record(
+            model_snapshot_id=snapshot["snapshot_id"],
+            model_snapshot_document_text=json.dumps(snapshot),
+        )
+
+        candidate = _candidate(
+            commandability_evidence=authority_commandability_evidence(snapshot)
+        )
+        with pytest.raises(AuthorityEvidenceError) as excinfo:
+            _validate(candidate, context=_context(record=record))
+
+        assert excinfo.value.reason == "capability_mismatch"
+
+    def test_approval_gate_scope_must_equal_the_plan_physical_scope(self):
+        snapshot = authority_model_snapshot(
+            model_release_id=RELEASE_ID,
+            model_release_content_hash=SHA_A,
+            engine_descriptor_content_hash=SHA_B,
+            approved_gate_ids=("OTHER-GATE",),
+        )
+        record = _record(
+            model_snapshot_id=snapshot["snapshot_id"],
+            model_snapshot_document_text=json.dumps(snapshot),
+        )
+
+        candidate = _candidate(
+            commandability_evidence=authority_commandability_evidence(snapshot)
+        )
+        with pytest.raises(AuthorityEvidenceError) as excinfo:
+            _validate(candidate, context=_context(record=record))
+
+        assert excinfo.value.reason == "scope_mismatch"
+
+    def test_grant_flow_envelope_must_equal_the_approved_snapshot_envelope(self):
+        with pytest.raises(AuthorityEvidenceError) as excinfo:
+            _validate(_candidate(flow_upper_inclusive_m3s=7.0))
+
+        assert excinfo.value.reason == "envelope_violation"
 
     @pytest.mark.parametrize(
         "snapshot_text",

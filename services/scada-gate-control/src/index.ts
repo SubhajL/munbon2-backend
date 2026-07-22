@@ -8,6 +8,7 @@ import { JwtTokenVerifier } from './api/auth';
 import { buildServer } from './api/server';
 import { loadDeviceCapabilitySnapshot } from './domain/device-registry';
 import { loadApprovedLineageAnchor } from './domain/approved-field-artifact';
+import { loadApprovedFieldBundle } from './domain/approved-field-bundle';
 import { CommandService } from './services/command-service';
 import { InMemoryAuditRepository } from './audit/memory-repository';
 import { PostgresAuditRepository } from './audit/pg-repository';
@@ -22,6 +23,7 @@ import { MachineExecutionService } from './services/machine-execution-service';
 import { SchedulerServiceTokenVerifier, type ServiceTokenVerifier } from './api/service-auth';
 import { createScadaMetrics } from './metrics/registry';
 import { logger } from './utils/logger';
+import { REGISTERS } from './domain/registers';
 
 type Storage = {
   readonly audit: AuditRepository;
@@ -92,13 +94,20 @@ async function main(): Promise<void> {
     site: config.site,
   });
 
-  // Fail-fast at startup on a broken registry (empty when unset = zero gates).
-  const deviceCapabilities = loadDeviceCapabilitySnapshot();
-
-  // PR 6.1b — the approved lineage anchor for the reserved `lineage_mismatch` check. Null
-  // (dark) unless SCADA_APPROVED_LINEAGE_ANCHOR_PATH is set; a set-but-broken anchor fails
-  // fast (opting in is deliberate — never silently disable the check).
-  const approvedLineageAnchor = loadApprovedLineageAnchor();
+  const expectedApprovedGateIds = new Set(
+    config.siteCanonicalGateId ? [config.siteCanonicalGateId] : [],
+  );
+  const approvedFieldBundle = loadApprovedFieldBundle(process.env, expectedApprovedGateIds, {
+    unitId: config.modbus.unitId,
+    commandRegister: REGISTERS.Op_gate.address,
+    readbackRegister: REGISTERS.Gate_Level.address,
+  });
+  const deviceCapabilities = approvedFieldBundle
+    ? approvedFieldBundle.deviceCapabilities
+    : loadDeviceCapabilitySnapshot();
+  const approvedLineageAnchor = approvedFieldBundle
+    ? approvedFieldBundle.approvedLineageAnchor
+    : loadApprovedLineageAnchor();
   if (!approvedLineageAnchor) {
     logger.warn(
       'SCADA_APPROVED_LINEAGE_ANCHOR_PATH is unset — the lineage_mismatch check is DARK (6.2-identical validation)',

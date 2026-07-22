@@ -1,5 +1,7 @@
 """Content-addressed snapshot of the sensorless hydraulic model.
 
+Schema version 4 (PR 7.3a) is emitted only for an exact, externally approved
+commandability binding. The dark default remains byte-identical schema v3.
 Schema version 3 (PR 4.4b-1): additionally embeds the running prediction
 ENGINE descriptor, so a change to the prediction closure's bytes changes the
 snapshot id (and therefore the identity-v2 prediction run id). Schema version 2
@@ -15,6 +17,11 @@ from collections.abc import Mapping
 from datetime import timezone
 import re
 
+from .commandability_approval import (
+    CommandabilityApprovalError,
+    is_commandability_approved,
+    verify_commandability_approval,
+)
 from .demand_contract import content_hash
 from .prediction_engine import (
     PredictionEngineError,
@@ -61,6 +68,7 @@ def build_model_snapshot(
     config_sha256: Mapping[str, str],
     actuation_approved: bool,
     prediction_engine: Mapping,
+    commandability_approval: Mapping | None = None,
 ) -> dict:
     """Return one deterministic, non-commanding view of the runtime model.
 
@@ -81,6 +89,16 @@ def build_model_snapshot(
         raise ModelSnapshotError(
             f"model snapshot requires a valid prediction engine descriptor: {exc}"
         ) from exc
+    if commandability_approval is not None:
+        try:
+            verify_commandability_approval(
+                commandability_approval,
+                release,
+                prediction_engine,
+                config_sha256,
+            )
+        except CommandabilityApprovalError as exc:
+            raise ModelSnapshotError(str(exc)) from exc
     transport_reach_ids = routing_topology.transport_reach_ids()
     unavailable = _unavailable_transport_reaches(transport_reach_ids, release)
     available_count = len(transport_reach_ids) - len(unavailable)
@@ -102,9 +120,7 @@ def build_model_snapshot(
         "prediction_engine": {
             "schema_version": prediction_engine["schema_version"],
             "engine_id": prediction_engine["engine_id"],
-            "semantic_contract_version": prediction_engine[
-                "semantic_contract_version"
-            ],
+            "semantic_contract_version": prediction_engine["semantic_contract_version"],
             "build_digest": prediction_engine["build_digest"],
             "content_hash": prediction_engine["content_hash"],
         },
@@ -159,6 +175,22 @@ def build_model_snapshot(
         },
         "unavailable_transport_reaches": unavailable,
     }
+    if is_commandability_approved(commandability_approval):
+        payload = {
+            **payload,
+            "schema_version": 4,
+            "commandable": True,
+            "action_model": {
+                **payload["action_model"],
+                "commandable": True,
+                "actuation_approved": True,
+            },
+            "response_model": {
+                **payload["response_model"],
+                "commandable": True,
+            },
+            "commandability_approval": dict(commandability_approval),
+        }
     return {"snapshot_id": content_hash(payload), **payload}
 
 
@@ -181,9 +213,7 @@ def _validate_runtime_contract(
     actuation_approved: bool,
 ) -> None:
     if not isinstance(routing_topology, RoutingTopology):
-        raise ModelSnapshotError(
-            "model snapshot requires a typed RoutingTopology"
-        )
+        raise ModelSnapshotError("model snapshot requires a typed RoutingTopology")
     if not isinstance(reach_responses, tuple):
         raise ModelSnapshotError("reach_responses must be an immutable tuple")
     if not isinstance(actuation_approved, bool):

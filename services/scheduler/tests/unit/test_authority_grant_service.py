@@ -17,6 +17,7 @@ import pytest
 from tests.control_plan_test_support import (
     FakeRepository,
     _transition_chain,
+    authority_commandability_evidence,
     authority_model_snapshot,
     authority_outbox_rows,
 )
@@ -118,20 +119,18 @@ def _snapshot():
 
 
 def _candidate(**overrides):
+    approval_snapshot = authority_model_snapshot(
+        model_release_id=RELEASE_ID,
+        model_release_content_hash=SHA_A,
+        engine_descriptor_content_hash=SHA_B,
+    )
     base = dict(
         plan_id=PLAN_ID,
         plan_version=3,
         model_release_id=RELEASE_ID,
         model_release_content_hash=SHA_A,
         engine_descriptor_content_hash=SHA_B,
-        commandability_evidence={
-            "schema_version": 1,
-            "model_release_id": RELEASE_ID,
-            "model_release_content_hash": SHA_A,
-            "engine_descriptor_content_hash": SHA_B,
-            "commandable": True,
-            "approval_refs": ["RID-approval-2026-118"],
-        },
+        commandability_evidence=authority_commandability_evidence(approval_snapshot),
         capability_release_id=CAPABILITY_RELEASE_ID,
         capability_hash=SHA_C,
         scope={
@@ -842,14 +841,16 @@ class TestUnderLockRechecks:
             await service.get_authority_grant(None, view.grant.grant_id)
 
     @pytest.mark.asyncio
-    async def test_self_consistent_false_commandability_evidence_is_corruption(self):
+    async def test_self_consistent_unsupported_commandability_evidence_is_corruption(
+        self,
+    ):
         from core.canonical_json import canonicalize, sha256_hex
         from repositories.control_plan_repository import AuthorityGrantCorruptError
 
         repository = _seeded_repository()
         view = await _grant(_service(repository), repository)
         document = json.loads(view.grant.grant_document_text)
-        document["commandability_evidence"]["commandable"] = False
+        document["commandability_evidence"]["schema_version"] = 1
         evidence_text = canonicalize(document["commandability_evidence"])
         document_text = canonicalize(document)
         repository.authority_grants[view.grant.grant_id] = replace(

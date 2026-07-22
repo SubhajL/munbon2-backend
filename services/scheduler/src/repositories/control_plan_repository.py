@@ -613,12 +613,7 @@ def verify_stored_grant(row: AuthorityGrantRow) -> None:
     intent_hashes = intents.get("intent_content_hashes")
     try:
         commandability_evidence = json.loads(row.commandability_evidence_document_text)
-        validate_commandability_evidence(
-            commandability_evidence,
-            model_release_id=row.model_release_id,
-            model_release_content_hash=row.model_release_content_hash,
-            engine_descriptor_content_hash=row.engine_descriptor_content_hash,
-        )
+        validate_commandability_evidence(commandability_evidence)
     except (TypeError, ValueError, AuthorityEvidenceError) as error:
         raise AuthorityGrantCorruptError(
             f"grant {row.grant_id}: commandability evidence is invalid"

@@ -46,3 +46,14 @@ def test_hydraulic_model_release_path_is_optional_and_exact():
         Settings.model_validate(payload).hydraulic_model_release_path
         == "/models/engineering-prior-v1.json"
     )
+
+
+def test_commandability_approval_path_is_optional_and_exact():
+    payload = _base_settings_payload()
+    assert Settings.model_validate(payload).commandability_approval_path is None
+
+    payload["commandability_approval_path"] = "/approvals/commandability-v1.json"
+    assert (
+        Settings.model_validate(payload).commandability_approval_path
+        == "/approvals/commandability-v1.json"
+    )

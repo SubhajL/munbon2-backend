@@ -1,0 +1,33 @@
+{
+  "manifest_version": 1,
+  "contract_family": "control-commissioning",
+  "contract_version": 1,
+  "json_schema_dialect": "https://json-schema.org/draft/2020-12/schema",
+  "contract_set_sha256": "8fa55db938c33ceeceae99568b08d629ffb423ffbde271ebb27bcd9c9ec2ad79",
+  "schemas": [
+    {
+      "relative_path": "commandability-approval.schema.json",
+      "sha256": "edb7212df90fd8db934dce13e1c2d073ef068f58d61ea72696c8e8747e80022b"
+    }
+  ],
+  "fixtures": [
+    {
+      "relative_path": "fixtures/valid/commandability-approval.not-approved.valid.json",
+      "schema": "commandability-approval.schema.json",
+      "expected_valid": true,
+      "sha256": "207e15a005fe4b5e6130044dff299f445fa025ccc8e3f6bc0a0850101ce7329e"
+    },
+    {
+      "relative_path": "fixtures/invalid/commandability-approval.approved-without-attestation.invalid.json",
+      "schema": "commandability-approval.schema.json",
+      "expected_valid": false,
+      "sha256": "06c0a68cf5d6be7903f2e7ac5ccd5cd3d9c63943580b7b13eb43896c3e08f825"
+    },
+    {
+      "relative_path": "fixtures/invalid/commandability-approval.extra-field.invalid.json",
+      "schema": "commandability-approval.schema.json",
+      "expected_valid": false,
+      "sha256": "0c6bf2ce4bccb1e4dd1ba8837d4abe404bc7de37a30b77e79087e4d4da45bc85"
+    }
+  ]
+}

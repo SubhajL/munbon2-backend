@@ -3,6 +3,7 @@ import { computeCapabilityHash } from './capability-hash';
 import { DEVICE_CAPABILITY_SNAPSHOT_SCHEMA_V1 } from './device-capability-snapshot.schema';
 import { newMachineBoundaryAjv } from './machine-boundary-ajv';
 import type { DeviceCapabilitySnapshot } from './machine-boundary';
+import type { DeviceRegistryDocument } from './approved-field-artifact';
 
 /**
  * PR 6.1a — strict, content-hashed device registry loader.
@@ -89,6 +90,13 @@ function assertRegistryHygiene(releaseId: unknown, capabilities: unknown): void 
 /** The dark default: zero machine-capable gates. */
 export function emptyDeviceCapabilitySnapshot(): DeviceCapabilitySnapshot {
   return assemble(EMPTY_RELEASE_ID, {});
+}
+
+export function buildDeviceCapabilitySnapshot(
+  registry: DeviceRegistryDocument,
+): DeviceCapabilitySnapshot {
+  assertRegistryHygiene(registry.capability_release_id, registry.capabilities);
+  return assemble(registry.capability_release_id, registry.capabilities);
 }
 
 export function loadDeviceCapabilitySnapshot(

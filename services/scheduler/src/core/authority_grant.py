@@ -76,6 +76,31 @@ EXECUTION_REASONS = (
 )
 
 _SHA256_HEX = re.compile(r"[0-9a-f]{64}")
+_APPROVAL_KEYS = {
+    "schema_version",
+    "approval_state",
+    "base_model_release",
+    "prediction_engine",
+    "model_config_sha256",
+    "operating_envelope",
+    "device_capability",
+    "approval",
+    "content_hash",
+}
+_MODEL_CONFIG_KEYS = {
+    "network",
+    "canal_geometry",
+    "gate_calibrations",
+    "geometry_coverage",
+    "routing_topology",
+}
+_OPERATING_ENVELOPE_KEYS = {
+    "minimum_flow_m3s",
+    "maximum_flow_m3s",
+    "minimum_timestep_seconds",
+    "maximum_timestep_seconds",
+    "maximum_horizon_seconds",
+}
 
 # The only initialization contract 7.1a accepts. Wet-state bounds have no
 # agreed variables/units yet and require a versioned future contract — an
@@ -458,53 +483,67 @@ def validate_evidence_set(
 def validate_commandability_evidence(
     evidence: Any,
     *,
-    model_release_id: str,
-    model_release_content_hash: str,
-    engine_descriptor_content_hash: str,
+    approval: Optional[Mapping[str, Any]] = None,
 ) -> None:
-    """Require positive commandability evidence bound to one release triple."""
+    """Require a strict evidence projection of one signed approval artifact."""
     if not isinstance(evidence, Mapping):
         raise AuthorityEvidenceError(
             "noncommandable_release", "commandability evidence is not an object"
         )
-    if evidence.get("commandable") is not True:
+    if (
+        set(evidence)
+        != {
+            "schema_version",
+            "commandability_approval_content_hash",
+            "approval_refs",
+        }
+        or evidence.get("schema_version") != 2
+    ):
         raise AuthorityEvidenceError(
             "noncommandable_release",
-            "the evidence does not declare a commandable release",
+            "commandability evidence must be an exact schema_version 2 projection",
         )
-    bound = (
-        evidence.get("model_release_id"),
-        evidence.get("model_release_content_hash"),
-        evidence.get("engine_descriptor_content_hash"),
-    )
-    requested = (
-        model_release_id,
-        model_release_content_hash,
-        engine_descriptor_content_hash,
-    )
-    if bound != requested:
+    if not _is_sha256(evidence.get("commandability_approval_content_hash")):
         raise AuthorityEvidenceError(
             "noncommandable_release",
-            "the commandability evidence does not bind the requested release",
+            "the commandability approval content hash is invalid",
         )
     refs = evidence.get("approval_refs")
     if (
         not isinstance(refs, list)
         or not refs
         or not all(_non_blank(ref) for ref in refs)
+        or refs != sorted(set(refs))
     ):
         raise AuthorityEvidenceError(
             "noncommandable_release",
-            "the commandability evidence carries no approval references",
+            "approval references must be a sorted non-empty unique list",
+        )
+    if approval is None:
+        return
+    attestation = approval["approval"]
+    expected_refs = sorted(
+        {
+            attestation["approval_reference"],
+            *(item["reference"] for item in attestation["evidence"]),
+        }
+    )
+    if (
+        evidence["commandability_approval_content_hash"] != approval["content_hash"]
+        or refs != expected_refs
+    ):
+        raise AuthorityEvidenceError(
+            "noncommandable_release",
+            "commandability evidence does not exactly project the stored approval",
         )
 
 
-def _check_commandability_evidence(candidate: AuthorityGrantCandidate) -> None:
+def _check_commandability_evidence(
+    candidate: AuthorityGrantCandidate, approval: Mapping[str, Any]
+) -> None:
     validate_commandability_evidence(
         candidate.commandability_evidence,
-        model_release_id=candidate.model_release_id,
-        model_release_content_hash=candidate.model_release_content_hash,
-        engine_descriptor_content_hash=candidate.engine_descriptor_content_hash,
+        approval=approval,
     )
 
 
@@ -526,7 +565,154 @@ def _flow_model_snapshot_content_hash(payload: Mapping[str, Any]) -> str:
     )
 
 
-def _validate_stored_commandable_release(record: Any) -> None:
+def _strict_approval_object(value: Any, keys: set[str], label: str) -> Mapping:
+    if not isinstance(value, Mapping) or set(value) != keys:
+        raise ValueError(f"{label} does not contain the exact required fields")
+    return value
+
+
+def _validate_approved_artifact(
+    approval: Any, stored_snapshot: Mapping[str, Any], record: Any
+) -> Mapping[str, Any]:
+    """Validate the embedded Flow approval and every immutable runtime binding."""
+    try:
+        artifact = _strict_approval_object(
+            approval, _APPROVAL_KEYS, "commandability approval"
+        )
+        if artifact["schema_version"] != 1 or artifact["approval_state"] != "approved":
+            raise ValueError("commandability approval is not approved schema version 1")
+        payload = dict(artifact)
+        content_hash = payload.pop("content_hash")
+        if not _is_sha256(
+            content_hash
+        ) or content_hash != _flow_model_snapshot_content_hash(payload):
+            raise ValueError("commandability approval content hash does not reproduce")
+
+        base_release = _strict_approval_object(
+            artifact["base_model_release"],
+            {"release_id", "content_hash"},
+            "base release",
+        )
+        engine = _strict_approval_object(
+            artifact["prediction_engine"], {"content_hash"}, "prediction engine"
+        )
+        config = _strict_approval_object(
+            artifact["model_config_sha256"], _MODEL_CONFIG_KEYS, "model config"
+        )
+        envelope = _strict_approval_object(
+            artifact["operating_envelope"],
+            _OPERATING_ENVELOPE_KEYS,
+            "operating envelope",
+        )
+        capability = _strict_approval_object(
+            artifact["device_capability"],
+            {"capability_release_id", "capability_hash", "approved_gate_ids"},
+            "device capability",
+        )
+        attestation = _strict_approval_object(
+            artifact["approval"],
+            {"approved_by_role", "approved_at", "approval_reference", "evidence"},
+            "approval attestation",
+        )
+        evidence = attestation["evidence"]
+        approved_at = attestation["approved_at"]
+        if (
+            not _non_blank(attestation["approved_by_role"])
+            or not _non_blank(approved_at)
+            or not approved_at.endswith("Z")
+            or not _non_blank(attestation["approval_reference"])
+            or not isinstance(evidence, list)
+            or not evidence
+        ):
+            raise ValueError("approval attestation is incomplete")
+        parsed_approved_at = datetime.fromisoformat(
+            approved_at.removesuffix("Z") + "+00:00"
+        )
+        if parsed_approved_at.utcoffset() != timedelta(0):
+            raise ValueError("approval timestamp is not a UTC instant")
+        for item in evidence:
+            evidence_item = _strict_approval_object(
+                item, {"kind", "reference", "sha256"}, "approval evidence"
+            )
+            if (
+                not _non_blank(evidence_item["kind"])
+                or not _non_blank(evidence_item["reference"])
+                or not _is_sha256(evidence_item["sha256"])
+            ):
+                raise ValueError("approval evidence is invalid")
+        if base_release != {
+            "release_id": record.model_release_id,
+            "content_hash": record.model_release_content_hash,
+        } or engine != {"content_hash": record.engine_descriptor_content_hash}:
+            raise ValueError(
+                "approval release or engine binding disagrees with the plan"
+            )
+
+        response_model = stored_snapshot["response_model"]
+        action_model = stored_snapshot["action_model"]
+        scada_graph = stored_snapshot.get("scada_graph")
+        routing_topology = stored_snapshot.get("routing_topology")
+        if (
+            not isinstance(scada_graph, Mapping)
+            or not isinstance(routing_topology, Mapping)
+            or not _is_sha256(scada_graph.get("config_sha256"))
+            or not _is_sha256(routing_topology.get("config_sha256"))
+        ):
+            raise ValueError("snapshot configuration bindings are invalid")
+        action_config = _strict_approval_object(
+            action_model.get("config_sha256"),
+            {"canal_geometry", "gate_calibrations", "geometry_coverage"},
+            "action model config",
+        )
+        expected_config = {
+            "network": scada_graph["config_sha256"],
+            "routing_topology": routing_topology["config_sha256"],
+            **dict(action_config),
+        }
+        if dict(config) != expected_config or artifact[
+            "operating_envelope"
+        ] != action_model.get("operating_envelope"):
+            raise ValueError(
+                "approval configuration or envelope disagrees with snapshot"
+            )
+        if not all(_is_sha256(value) for value in config.values()):
+            raise ValueError("approval config digest is invalid")
+        gate_ids = capability["approved_gate_ids"]
+        if (
+            not _non_blank(capability["capability_release_id"])
+            or not _is_sha256(capability["capability_hash"])
+            or not isinstance(gate_ids, list)
+            or not gate_ids
+            or not all(_non_blank(gate_id) for gate_id in gate_ids)
+            or gate_ids != sorted(set(gate_ids))
+        ):
+            raise ValueError("approved device capability is invalid")
+        numeric_envelope = list(envelope.values())
+        if any(
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            for value in numeric_envelope
+        ):
+            raise ValueError("approval envelope is not finite numeric data")
+        if not (
+            envelope["minimum_flow_m3s"] >= 0
+            and envelope["maximum_flow_m3s"] > envelope["minimum_flow_m3s"]
+            and envelope["minimum_timestep_seconds"] > 0
+            and envelope["maximum_timestep_seconds"]
+            >= envelope["minimum_timestep_seconds"]
+            and envelope["maximum_horizon_seconds"]
+            >= envelope["maximum_timestep_seconds"]
+        ):
+            raise ValueError("approval envelope bounds are invalid")
+    except (KeyError, TypeError, ValueError) as error:
+        raise AuthorityEvidenceCorruptError(
+            f"the stored commandability approval is corrupt: {error}"
+        ) from error
+    return artifact
+
+
+def _validate_stored_commandable_release(record: Any) -> Mapping[str, Any]:
     """Bind commandability to the content-addressed stored model snapshot.
 
     A malformed snapshot or one whose identity/release/engine replicas disagree
@@ -567,7 +753,7 @@ def _validate_stored_commandable_release(record: Any) -> None:
         raise AuthorityEvidenceCorruptError(
             "the stored model snapshot release or engine pins disagree with the plan"
         )
-    if not all(
+    if stored_snapshot.get("schema_version") != 4 or not all(
         value is True
         for value in (
             stored_snapshot.get("commandable"),
@@ -580,6 +766,9 @@ def _validate_stored_commandable_release(record: Any) -> None:
             "noncommandable_release",
             "the stored model snapshot does not authorize command execution",
         )
+    return _validate_approved_artifact(
+        stored_snapshot.get("commandability_approval"), stored_snapshot, record
+    )
 
 
 def stored_release_is_commandable(record: Any) -> bool:
@@ -638,8 +827,8 @@ def validate_authority_evidence(
             "release_mismatch",
             "the candidate release triple does not match the stored plan",
         )
-    _validate_stored_commandable_release(record)
-    _check_commandability_evidence(candidate)
+    approval = _validate_stored_commandable_release(record)
+    _check_commandability_evidence(candidate, approval)
     if context.derived_lifecycle_state != "shadow_active":
         raise AuthorityEvidenceError(
             "plan_not_shadow_active",
@@ -653,6 +842,15 @@ def validate_authority_evidence(
         raise AuthorityEvidenceError(
             "capability_mismatch",
             "the candidate capability pair does not match the configured snapshot",
+        )
+    approved_capability = approval["device_capability"]
+    if (
+        approved_capability["capability_release_id"] != snapshot.capability_release_id
+        or approved_capability["capability_hash"] != snapshot.capability_hash
+    ):
+        raise AuthorityEvidenceError(
+            "capability_mismatch",
+            "the approved capability pair does not match the configured snapshot",
         )
     if any(
         intent.capability_release_id != candidate.capability_release_id
@@ -675,10 +873,27 @@ def validate_authority_evidence(
                 "scope_unapproved_gate",
                 f"gate {gate!r} has no approved device capability",
             )
-    if scope != _plan_scope(record):
+    plan_scope = _plan_scope(record)
+    if scope != plan_scope:
         raise AuthorityEvidenceError(
             "scope_mismatch",
             "the grant scope does not exactly equal the plan's physical scope",
+        )
+    if set(approved_capability["approved_gate_ids"]) != {
+        gate for _, gate in plan_scope
+    }:
+        raise AuthorityEvidenceError(
+            "scope_mismatch",
+            "the approval gate set does not exactly equal the plan physical scope",
+        )
+    approved_envelope = approval["operating_envelope"]
+    if (
+        candidate.flow_lower_exclusive_m3s != approved_envelope["minimum_flow_m3s"]
+        or candidate.flow_upper_inclusive_m3s != approved_envelope["maximum_flow_m3s"]
+    ):
+        raise AuthorityEvidenceError(
+            "envelope_violation",
+            "the grant flow bounds do not equal the approved operating envelope",
         )
     if not (
         candidate.flow_lower_exclusive_m3s >= 0

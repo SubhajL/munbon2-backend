@@ -46,6 +46,13 @@ Docker workflow `.github/workflows/deploy-flow-monitoring.yml` was **retired**
 and `exec`s uvicorn ONLY on success (a checksum drift / unreachable DB aborts
 startup so PM2 never boots a falsely-ready process). PM2 wires
 `HYDRAULIC_MODEL_RELEASE_PATH=data/model-releases/engineering-prior-v3-v1.json`
+
+`HYDRAULIC_COMMANDABILITY_APPROVAL_PATH` is optional and dark by default. When unset,
+model snapshots remain byte-compatible schema v3 with every commandability gate false.
+When set, the capped external schema-v1 approval must reproduce its content hash and
+exactly bind the loaded release, prediction engine, five model-config hashes, operating
+envelope, D6 capability pair, pilot gate scope, and attestation. Only an approved document
+emits snapshot v4; set-but-invalid configuration fails startup/readiness.
 (committed `commandable=false`). `/health` is process liveness ONLY; `/ready`
 (`core/readiness.check_flow_readiness`) is dependency truth — 503 unless Postgres
 is healthy, a valid commandable=false release is loaded, the prediction service is

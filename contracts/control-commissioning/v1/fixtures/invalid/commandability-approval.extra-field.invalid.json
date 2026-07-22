@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "approval_state": "not_approved",
+  "base_model_release": {
+    "release_id": "invalid-example",
+    "content_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "prediction_engine": {
+    "content_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "model_config_sha256": {
+    "network": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "canal_geometry": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "gate_calibrations": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "geometry_coverage": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "routing_topology": "1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "operating_envelope": {
+    "minimum_flow_m3s": 0,
+    "maximum_flow_m3s": 8,
+    "minimum_timestep_seconds": 60,
+    "maximum_timestep_seconds": 300,
+    "maximum_horizon_seconds": 604800
+  },
+  "device_capability": {
+    "capability_release_id": "invalid-d6",
+    "capability_hash": "2222222222222222222222222222222222222222222222222222222222222222",
+    "approved_gate_ids": ["INVALID-GATE"]
+  },
+  "approval": null,
+  "content_hash": "3333333333333333333333333333333333333333333333333333333333333333",
+  "commandable": true
+}
