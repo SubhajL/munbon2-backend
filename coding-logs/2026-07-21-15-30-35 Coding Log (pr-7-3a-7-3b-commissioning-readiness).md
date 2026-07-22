@@ -464,3 +464,9 @@ LOW
 - Exact final remote-main SCADA under Node 22.22.3: TypeScript, ESLint, Vitest `421 passed, 7 skipped`, and build.
 - Final remote `main`: `8095bfe37550200da00ecb554edc646febf8aff9`.
 - Software is landed but runtime remains dark: no deployment, migration apply, artifact/secret provisioning, authority grant, PM2/Prometheus mutation, PLC request, or machine write occurred.
+
+## Primary local landing (2026-07-22 09:28:38 +0700)
+
+- The clean primary checkout at `/Users/subhajlimanond/dev/munbon2-backend` is on `main` at `8095bfe37550200da00ecb554edc646febf8aff9`, exactly equal to `origin/main`.
+- The prior divergent local-only `main` tip is preserved recoverably as `archive/local-main-pr73-pre-github-20260722` at `efbdf5cfdc06f6e82e9560af40af5a49d9f54915`.
+- The durable lifecycle log and pointer are published on `origin/ops/archive-pr-7-3a-7-3b-commissioning-readiness-20260722`.
