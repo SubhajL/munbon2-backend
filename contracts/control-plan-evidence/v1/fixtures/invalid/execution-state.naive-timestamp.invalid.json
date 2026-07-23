@@ -1,0 +1,12 @@
+{
+  "plan_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  "plan_version": 3,
+  "is_held": true,
+  "hold_events": [
+    {
+      "event_type": "held",
+      "worker_id": "readback-reconciler",
+      "occurred_at": "2026-07-20T06:12:00"
+    }
+  ]
+}

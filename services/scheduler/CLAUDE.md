@@ -92,6 +92,16 @@ history and is no longer accepted by the runtime response model. Scheduler and
 BFF must update their strict mirrors and fixture suites atomically on any future
 version bump.
 
+## Control-plan evidence contract v1 (ME-1)
+
+The three existing machine-evidence reads are published separately under
+`contracts/control-plan-evidence/v1/`. Its manifest pins the intent timeline,
+readback observations, and execution-state schemas plus valid and invalid fixture
+bytes. Scheduler and BFF validate the same complete set with Draft 2020-12 format
+checking and strict Pydantic models; ME-1 changes no route or response field.
+Readback observations retain the repository's 1,000-row cap. Timeline and hold
+history have no invented contract maximum.
+
 ## Execution-authority grants (PR 7.1a) — represent authority, execute NOTHING
 
 Migration `0012_authority_grants`: an IMMUTABLE per-plan-version

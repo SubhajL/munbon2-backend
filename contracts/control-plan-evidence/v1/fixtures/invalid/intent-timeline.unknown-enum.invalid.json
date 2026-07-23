@@ -1,0 +1,21 @@
+{
+  "plan_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  "plan_version": 3,
+  "intents": [
+    {
+      "intent_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      "canonical_gate_id": "M(0,0;1,0)",
+      "event_kind": "pause",
+      "event_sequence": 1,
+      "not_before": "2026-07-20T06:00:00+00:00",
+      "deadline": "2026-07-21T00:00:00+00:00",
+      "execution_state": "pending",
+      "claimed_at": null,
+      "receipt_status": null,
+      "reason_code": null,
+      "validated_at": null,
+      "dispatched_at": null,
+      "receipt_content_sha256": null
+    }
+  ]
+}

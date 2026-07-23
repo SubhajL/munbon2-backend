@@ -1,12 +1,11 @@
-"""Scheduler side of the shared v1 machine-boundary contract (PR 6.5b).
+"""Scheduler acceptance suite for the immutable control-plan evidence v1 contract."""
 
-The BFF validates the SAME fixtures against its own strict mirrors; if either side drifts from
-`contracts/control-plans/v1/`, that side's fixture test fails. A shared fixture that BOTH strict
-models accept — with the exact same field set — is the cross-service drift trip-wire.
-"""
-
+import hashlib
 import json
 from pathlib import Path
+
+from jsonschema import Draft202012Validator, FormatChecker
+from pydantic import ValidationError
 
 from schemas.control_plan import (
     ControlPlanExecutionStateResponse,
@@ -17,42 +16,117 @@ from schemas.control_plan import (
     ReadbackObservationOut,
 )
 
-_CONTRACT_DIR = Path(__file__).resolve().parents[4] / "contracts" / "control-plans" / "v1"
+ROOT = (
+    Path(__file__).resolve().parents[4] / "contracts" / "control-plan-evidence" / "v1"
+)
+LEGACY_ROOT = Path(__file__).resolve().parents[4] / "contracts" / "control-plans" / "v1"
+MODELS = {
+    "intent-timeline.schema.json": ControlPlanIntentTimelineResponse,
+    "readback-observations.schema.json": ControlPlanReadbackObservationsResponse,
+    "execution-state.schema.json": ControlPlanExecutionStateResponse,
+}
+NESTED_MODELS = {
+    "intent-timeline.schema.json": {"intent": IntentTimelineEntryOut},
+    "readback-observations.schema.json": {"observation": ReadbackObservationOut},
+    "execution-state.schema.json": {"hold_event": HoldEventOut},
+}
 
 
-def _load(name: str) -> dict:
-    return json.loads((_CONTRACT_DIR / name).read_text(encoding="utf-8"))
+def _load(path: Path):
+    def reject_constant(token: str):
+        raise AssertionError(f"non-standard JSON constant {token!r} in {path}")
 
-
-def test_scheduler_accepts_the_shared_intent_timeline_fixture():
-    timeline = ControlPlanIntentTimelineResponse.model_validate(
-        _load("intent-timeline.example.json")
+    return json.loads(
+        path.read_text(encoding="utf-8"),
+        parse_constant=reject_constant,
     )
-    assert timeline.intents[0].execution_state == "claimed"
-    assert timeline.intents[0].reason_code == "freshness_failed"
 
 
-def test_scheduler_accepts_the_shared_readback_observations_fixture():
-    obs = ControlPlanReadbackObservationsResponse.model_validate(
-        _load("readback-observations.example.json")
-    )
-    assert obs.observations[0].verdict == "mismatch"
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
 
 
-def test_scheduler_accepts_the_shared_execution_state_fixture():
-    state = ControlPlanExecutionStateResponse.model_validate(
-        _load("execution-state.example.json")
-    )
-    assert state.is_held is True
+def _contract_set_sha256(manifest: dict) -> str:
+    records = []
+    for entry in manifest["schemas"]:
+        records.append(
+            {
+                "relative_path": entry["relative_path"],
+                "sha256": _sha256(ROOT / entry["relative_path"]),
+            }
+        )
+    for entry in manifest["fixtures"]:
+        records.append(
+            {
+                "relative_path": entry["relative_path"],
+                "schema": entry["schema"],
+                "expected_valid": entry["expected_valid"],
+                "sha256": _sha256(ROOT / entry["relative_path"]),
+            }
+        )
+    encoded = json.dumps(
+        records, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
-def test_scheduler_out_models_and_fixtures_agree_on_the_exact_item_field_set():
-    assert set(IntentTimelineEntryOut.model_fields) == set(
-        _load("intent-timeline.example.json")["intents"][0]
-    )
-    assert set(ReadbackObservationOut.model_fields) == set(
-        _load("readback-observations.example.json")["observations"][0]
-    )
-    assert set(HoldEventOut.model_fields) == set(
-        _load("execution-state.example.json")["hold_events"][0]
-    )
+def test_scheduler_manifest_pins_the_complete_evidence_contract_set():
+    manifest = _load(ROOT / "manifest.json")
+    assert manifest["contract_family"] == "control-plan-evidence"
+    assert manifest["contract_version"] == 1
+    assert {entry["relative_path"] for entry in manifest["schemas"]} == set(MODELS)
+    listed = {
+        entry["relative_path"] for entry in manifest["schemas"] + manifest["fixtures"]
+    }
+    on_disk = {
+        path.relative_to(ROOT).as_posix()
+        for path in ROOT.rglob("*.json")
+        if path.name != "manifest.json"
+    }
+    assert listed == on_disk
+    for entry in manifest["schemas"] + manifest["fixtures"]:
+        assert entry["sha256"] == _sha256(ROOT / entry["relative_path"])
+    assert manifest["contract_set_sha256"] == _contract_set_sha256(manifest)
+
+
+def test_scheduler_models_and_json_schemas_agree_on_every_evidence_fixture():
+    manifest = _load(ROOT / "manifest.json")
+    schemas = {name: _load(ROOT / name) for name in MODELS}
+    for schema in schemas.values():
+        Draft202012Validator.check_schema(schema)
+    for fixture in manifest["fixtures"]:
+        document = _load(ROOT / fixture["relative_path"])
+        validator = Draft202012Validator(
+            schemas[fixture["schema"]],
+            format_checker=FormatChecker(),
+        )
+        schema_valid = validator.is_valid(document)
+        try:
+            validated = MODELS[fixture["schema"]].model_validate(document)
+            model_valid = True
+        except ValidationError:
+            model_valid = False
+        assert schema_valid is fixture["expected_valid"], fixture["relative_path"]
+        assert model_valid is fixture["expected_valid"], fixture["relative_path"]
+        if model_valid:
+            assert validator.is_valid(validated.model_dump(mode="json"))
+
+
+def test_scheduler_model_fields_match_every_evidence_schema_object():
+    for schema_name, model in MODELS.items():
+        schema = _load(ROOT / schema_name)
+        assert set(model.model_fields) == set(schema["properties"])
+        assert set(model.model_fields) == set(schema["required"])
+        for definition_name, nested_model in NESTED_MODELS[schema_name].items():
+            definition = schema["$defs"][definition_name]
+            assert set(nested_model.model_fields) == set(definition["properties"])
+            assert set(nested_model.model_fields) == set(definition["required"])
+
+
+def test_evidence_examples_preserve_the_existing_runtime_fixture_bytes():
+    for name in (
+        "intent-timeline.example.json",
+        "readback-observations.example.json",
+        "execution-state.example.json",
+    ):
+        assert (ROOT / name).read_bytes() == (LEGACY_ROOT / name).read_bytes()
