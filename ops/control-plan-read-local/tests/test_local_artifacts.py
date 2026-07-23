@@ -138,6 +138,7 @@ def test_all_stages_runbook_locks_local_before_aws_and_documents_current_command
     body = (
         REPO_ROOT / "docs/operations/CONTROL_PLAN_ALL_STAGES_LOCAL_ACCEPTANCE.md"
     ).read_text(encoding="utf-8")
+    documented_candidate_commands = 6
 
     for required in (
         "LOCAL-BASE-0",
@@ -150,9 +151,18 @@ def test_all_stages_runbook_locks_local_before_aws_and_documents_current_command
         "orchestrate.py run-stage --stage LOCAL-RTA-1",
         "orchestrate.py run-stage --stage LOCAL-AC-1",
         "orchestrate.py run-stage --stage LOCAL-READ-ACT-1",
-        "2ee640c5eed939b68035c7695a4c129570e9ca5a",
+        "orchestrate.py collect",
         "false → true → false",
         "bearer verification before `pm2 save`",
         "evidence-with-wildcard",
     ):
         assert required in body
+    assert (
+        body.count('--release-sha "$accepted_backend_sha"')
+        == documented_candidate_commands
+    )
+    assert (
+        body.count('--frontend-sha "$accepted_frontend_sha"')
+        == documented_candidate_commands
+    )
+    assert "2ee640c5eed939b68035c7695a4c129570e9ca5a" not in body

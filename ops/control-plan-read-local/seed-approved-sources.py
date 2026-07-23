@@ -194,7 +194,8 @@ def validate_local_postgres_url(postgres_url: str) -> str:
 
 
 async def _seed_connection(connection, scenario: dict) -> None:
-    await connection.execute("""
+    await connection.execute(
+        """
         CREATE SCHEMA IF NOT EXISTS gis;
         CREATE SCHEMA IF NOT EXISTS water_planning;
         CREATE SCHEMA IF NOT EXISTS ros;
@@ -230,7 +231,8 @@ async def _seed_connection(connection, scenario: dict) -> None:
             updated_at TIMESTAMPTZ NOT NULL,
             PRIMARY KEY (crop_type, month)
         );
-        """)
+        """
+    )
     tables = scenario["tables"]
     await connection.executemany(
         """

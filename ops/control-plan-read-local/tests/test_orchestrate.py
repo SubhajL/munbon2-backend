@@ -246,3 +246,63 @@ def test_run_all_executes_every_progressive_stage(monkeypatch):
     orchestrate.run_all_stages("a" * 40, "b" * 40)
 
     assert calls == [(stage, "a" * 40, "b" * 40) for stage in orchestrate.STAGE_ORDER]
+
+
+def test_documented_candidate_commands_validate_the_same_exact_shas(
+    tmp_path, monkeypatch
+):
+    backend_repo = tmp_path / "backend"
+    frontend_repo = tmp_path / "frontend"
+    evidence_dir = tmp_path / "evidence"
+    backend_sha = "a" * 40
+    frontend_sha = "b" * 40
+    calls = []
+    monkeypatch.setattr(
+        orchestrate,
+        "_origin_main_sha",
+        lambda path: backend_sha if path == backend_repo else frontend_sha,
+    )
+    monkeypatch.setattr(
+        orchestrate,
+        "provision",
+        lambda repo, release_sha, frontend, accepted_frontend_sha: calls.append(
+            ("provision", repo, release_sha, frontend, accepted_frontend_sha)
+        ),
+    )
+    monkeypatch.setattr(
+        orchestrate,
+        "run_stage",
+        lambda stage, release_sha, accepted_frontend_sha: calls.append(
+            (stage, release_sha, accepted_frontend_sha)
+        ),
+    )
+    monkeypatch.setattr(
+        orchestrate,
+        "collect_evidence",
+        lambda destination: calls.append(("collect", destination)),
+    )
+    common = [
+        "--repo",
+        str(backend_repo),
+        "--frontend-repo",
+        str(frontend_repo),
+        "--release-sha",
+        backend_sha,
+        "--frontend-sha",
+        frontend_sha,
+        "--accept-later-origin-main",
+    ]
+    commands = (
+        ["provision"],
+        *(["run-stage", "--stage", stage] for stage in orchestrate.STAGE_ORDER),
+        ["collect", "--evidence-dir", str(evidence_dir)],
+    )
+
+    assert [orchestrate.main([*command, *common]) for command in commands] == [0] * len(
+        commands
+    )
+    assert calls == [
+        ("provision", backend_repo, backend_sha, frontend_repo, frontend_sha),
+        *((stage, backend_sha, frontend_sha) for stage in orchestrate.STAGE_ORDER),
+        ("collect", evidence_dir),
+    ]

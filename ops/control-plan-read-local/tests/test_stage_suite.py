@@ -305,6 +305,134 @@ def test_validate_manual_requirement_run_requires_exact_complete_publication():
         )
 
 
+def test_validate_requirement_run_lineage_requires_exact_database_identity_and_hashes():
+    run_id = str(uuid4())
+    run_content_sha256 = "a" * 64
+    approved_source_sha256 = "b" * 64
+    section_source_sha256 = "c" * 64
+    gate_mapping_source_sha256 = "d" * 64
+    row = "\t".join(
+        (
+            run_id,
+            run_content_sha256,
+            "17",
+            section_source_sha256,
+            "23",
+            gate_mapping_source_sha256,
+            "crop-register-v1",
+            "weather-v1",
+            "ros-daily-v1",
+        )
+    )
+
+    assert stage_suite.validate_requirement_run_lineage(
+        row,
+        run_id=run_id,
+        approved_source_sha256=approved_source_sha256,
+    ) == {
+        "run_id": run_id,
+        "run_content_sha256": run_content_sha256,
+        "approved_source_content_sha256": approved_source_sha256,
+        "section_dataset": {
+            "version_id": 17,
+            "source_sha256": section_source_sha256,
+        },
+        "gate_mapping_dataset": {
+            "version_id": 23,
+            "source_sha256": gate_mapping_source_sha256,
+        },
+        "crop_register_version": "crop-register-v1",
+        "weather_version": "weather-v1",
+        "method_version": "ros-daily-v1",
+    }
+
+    invalid_rows = (
+        row.replace(run_id, str(uuid4()), 1),
+        row.replace(run_content_sha256, "invalid", 1),
+        row.replace("\t17\t", "\t0\t", 1),
+        row.replace("crop-register-v1", "", 1),
+    )
+    for invalid_row in invalid_rows:
+        with pytest.raises(
+            stage_suite.StageGateError,
+            match="requirement_run_lineage_not_accepted",
+        ):
+            stage_suite.validate_requirement_run_lineage(
+                invalid_row,
+                run_id=run_id,
+                approved_source_sha256=approved_source_sha256,
+            )
+
+
+def test_collect_requirement_run_lineage_queries_published_dataset_parents(
+    tmp_path, monkeypatch
+):
+    run_id = str(uuid4())
+    run_content_sha256 = "a" * 64
+    approved_source_sha256 = "b" * 64
+    section_source_sha256 = "c" * 64
+    gate_mapping_source_sha256 = "d" * 64
+    row = "\t".join(
+        (
+            run_id,
+            run_content_sha256,
+            "17",
+            section_source_sha256,
+            "23",
+            gate_mapping_source_sha256,
+            "crop-register-v1",
+            "weather-v1",
+            "ros-daily-v1",
+        )
+    )
+    queries = []
+    monkeypatch.setattr(
+        stage_suite,
+        "_psql",
+        lambda context, query: queries.append(query) or row,
+    )
+    context = stage_suite.StageContext(
+        release_sha="8" * 40,
+        frontend_sha="9" * 40,
+        repo_root=tmp_path / "repo",
+        harness_root=tmp_path / "harness",
+        evidence_root=tmp_path / "evidence",
+        runtime_env_dir=tmp_path / "runtime",
+    )
+
+    assert stage_suite.collect_requirement_run_lineage(
+        context,
+        run_id=run_id,
+        approved_source_sha256=approved_source_sha256,
+    ) == {
+        "run_id": run_id,
+        "run_content_sha256": run_content_sha256,
+        "approved_source_content_sha256": approved_source_sha256,
+        "section_dataset": {
+            "version_id": 17,
+            "source_sha256": section_source_sha256,
+        },
+        "gate_mapping_dataset": {
+            "version_id": 23,
+            "source_sha256": gate_mapping_source_sha256,
+        },
+        "crop_register_version": "crop-register-v1",
+        "weather_version": "weather-v1",
+        "method_version": "ros-daily-v1",
+    }
+    query = " ".join(queries[0].split())
+    for required in (
+        "FROM ros_gis.water_requirement_runs AS run",
+        "JOIN ros_gis.dataset_versions AS section_dataset",
+        "section_dataset.dataset_kind = 'section_master'",
+        "JOIN ros_gis.dataset_versions AS gate_mapping_dataset",
+        "gate_mapping_dataset.dataset_kind = 'gate_crosswalk'",
+        f"WHERE run.run_id = '{run_id}'::uuid",
+        "run.status = 'published'",
+    ):
+        assert required in query
+
+
 def test_validate_zone_requirements_requires_nine_current_zone_six_sections():
     run_id = str(uuid4())
     requirement_ids = [str(uuid4()) for _ in range(9)]
