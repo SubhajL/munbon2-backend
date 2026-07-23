@@ -5,7 +5,7 @@
 # real gate today. It is written to be CORRECT so that restoring Actions billing
 # (and making this a required check) needs no rework.
 #
-# Six jobs:
+# Seven jobs:
 #   - scheduler-tests: the scheduler bare-pytest gate (integration suites skip
 #     without SCHEDULER_TEST_POSTGRES_URL). Also covers the PR 6.0 Python half of
 #     the machine-boundary v1 contract (jsonschema + pydantic).
@@ -17,6 +17,9 @@
 #     vitest). It asserts the SAME machine-boundary v1 manifest fixture vector +
 #     contract-set hash as the scheduler suite, so both passing proves the
 #     Python and TypeScript validators agree (PR 6.0 cross-language boundary).
+#   - scada-gate-control-web-tests: the authenticated SCADA web surface
+#     (typecheck + lint + vitest + production build), including the isolated
+#     read-only gate route used by control-plan evidence.
 #   - scheduler-postgres-integration: an ephemeral loopback Postgres against
 #     which every migration is applied / rolled back / re-applied and the
 #     env-gated control-plan integration suites run for real (keyset over real
@@ -31,6 +34,7 @@ on:
       - "services/scheduler/**"
       - "services/bff-water-planning/**"
       - "services/scada-gate-control/**"
+      - "services/scada-gate-control-web/**"
       - "contracts/control-plans/**"
       - "contracts/control-plan-evidence/**"
       - "contracts/planning-depth-submissions/**"
@@ -46,6 +50,7 @@ on:
       - "services/scheduler/**"
       - "services/bff-water-planning/**"
       - "services/scada-gate-control/**"
+      - "services/scada-gate-control-web/**"
       - "contracts/control-plans/**"
       - "contracts/control-plan-evidence/**"
       - "contracts/planning-depth-submissions/**"
@@ -238,6 +243,27 @@ jobs:
           npm run typecheck
           npm run lint
           npm test
+
+  scada-gate-control-web-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/scada-gate-control-web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: services/scada-gate-control-web/package-lock.json
+      - name: Install pinned dependencies
+        run: npm ci
+      - name: Typecheck, lint, vitest, and production build
+        run: |
+          npm run typecheck
+          npm run lint
+          npm test
+          npm run build
 
   pm2-infrastructure-tests:
     runs-on: ubuntu-latest
