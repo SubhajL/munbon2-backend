@@ -64,9 +64,9 @@ def _client(conn: _ReadConnection, now: datetime = NOW) -> TestClient:
     async def connection_override():
         yield conn
 
-    app.dependency_overrides[water_requirements.get_requirement_connection] = (
-        connection_override
-    )
+    app.dependency_overrides[
+        water_requirements.get_requirement_connection
+    ] = connection_override
     app.dependency_overrides[water_requirements.get_current_time] = lambda: now
     return TestClient(app)
 
@@ -325,9 +325,9 @@ def test_manual_run_endpoint_calls_the_registered_daily_requirement_job():
     async def connection_override():
         yield conn
 
-    app.dependency_overrides[water_requirements.get_requirement_connection] = (
-        connection_override
-    )
+    app.dependency_overrides[
+        water_requirements.get_requirement_connection
+    ] = connection_override
     app.dependency_overrides[water_requirements.get_daily_requirement_job] = lambda: job
 
     app.state.daily_requirement_manual_token = MANUAL_RUN_TOKEN
@@ -373,9 +373,9 @@ def _crop_client(conn):
     async def connection_override():
         yield conn
 
-    app.dependency_overrides[water_requirements.get_requirement_connection] = (
-        connection_override
-    )
+    app.dependency_overrides[
+        water_requirements.get_requirement_connection
+    ] = connection_override
     return TestClient(app)
 
 

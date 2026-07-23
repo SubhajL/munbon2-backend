@@ -45,9 +45,12 @@ Run from the isolated implementation worktree. Replace SHAs only with explicitly
 accepted full values.
 
 ```bash
+accepted_backend_sha=REPLACE_WITH_ACCEPTED_40_CHARACTER_BACKEND_SHA
+accepted_frontend_sha=3a16498a60927996ac38e741b276150968d0cadc
+
 python3 ops/control-plan-read-local/orchestrate.py provision \
-  --release-sha 2ee640c5eed939b68035c7695a4c129570e9ca5a \
-  --frontend-sha 3a16498a60927996ac38e741b276150968d0cadc \
+  --release-sha "$accepted_backend_sha" \
+  --frontend-sha "$accepted_frontend_sha" \
   --accept-later-origin-main
 ```
 
@@ -67,23 +70,23 @@ node-exporter services are disabled to prevent wildcard listeners.
 
 ```bash
 python3 ops/control-plan-read-local/orchestrate.py run-stage --stage LOCAL-BASE-0 \
-  --release-sha 2ee640c5eed939b68035c7695a4c129570e9ca5a \
-  --frontend-sha 3a16498a60927996ac38e741b276150968d0cadc \
+  --release-sha "$accepted_backend_sha" \
+  --frontend-sha "$accepted_frontend_sha" \
   --accept-later-origin-main
 
 python3 ops/control-plan-read-local/orchestrate.py run-stage --stage LOCAL-RTA-1 \
-  --release-sha 2ee640c5eed939b68035c7695a4c129570e9ca5a \
-  --frontend-sha 3a16498a60927996ac38e741b276150968d0cadc \
+  --release-sha "$accepted_backend_sha" \
+  --frontend-sha "$accepted_frontend_sha" \
   --accept-later-origin-main
 
 python3 ops/control-plan-read-local/orchestrate.py run-stage --stage LOCAL-AC-1 \
-  --release-sha 2ee640c5eed939b68035c7695a4c129570e9ca5a \
-  --frontend-sha 3a16498a60927996ac38e741b276150968d0cadc \
+  --release-sha "$accepted_backend_sha" \
+  --frontend-sha "$accepted_frontend_sha" \
   --accept-later-origin-main
 
 python3 ops/control-plan-read-local/orchestrate.py run-stage --stage LOCAL-READ-ACT-1 \
-  --release-sha 2ee640c5eed939b68035c7695a4c129570e9ca5a \
-  --frontend-sha 3a16498a60927996ac38e741b276150968d0cadc \
+  --release-sha "$accepted_backend_sha" \
+  --frontend-sha "$accepted_frontend_sha" \
   --accept-later-origin-main
 ```
 
@@ -115,12 +118,13 @@ set. Migrations are not rolled back.
 `LOCAL-AC-1` seeds deterministic approved GIS and crop sources, runs the real
 manual ROS producer through a transient guest-local internal header, proves
 missing and invalid headers are rejected with 403, verifies 287 D..D+6
-publications and the Zone 6 read, creates a real Flow snapshot, obtains a
-feasible Scheduler draft with completed prediction, checks all eight BFF
-projections plus missing-plan behavior, and restores ROS and PM2 to the original
-dark contract. The manual trigger credential is generated inside the isolated
-guest, is absent from the saved dark ROS environment, and is never written to
-evidence.
+publications and the Zone 6 read, and records the published run hash plus its
+section/crosswalk dataset versions and source hashes alongside the approved
+scenario hash. It creates a real Flow snapshot, obtains a feasible Scheduler
+draft with completed prediction, checks all eight BFF projections plus
+missing-plan behavior, and restores ROS and PM2 to the original dark contract.
+The manual trigger credential is generated inside the isolated guest, is absent
+from the saved dark ROS environment, and is never written to evidence.
 
 `LOCAL-READ-ACT-1` pins Node and Chromium tooling, runs the focused frontend
 suite, and makes three independent production builds in the exact
@@ -139,8 +143,8 @@ Collect sanitized evidence without exposing the isolated guest filesystem:
 
 ```bash
 python3 ops/control-plan-read-local/orchestrate.py collect \
-  --release-sha 2ee640c5eed939b68035c7695a4c129570e9ca5a \
-  --frontend-sha 3a16498a60927996ac38e741b276150968d0cadc \
+  --release-sha "$accepted_backend_sha" \
+  --frontend-sha "$accepted_frontend_sha" \
   --accept-later-origin-main \
   --evidence-dir coding-logs/evidence/local-ac-read
 ```
@@ -158,7 +162,7 @@ gate was strengthened, and Stage 0/1 were rerun from a new evidence directory.
 
 ## Current local result
 
-- Exact BASE/RTA backend baseline: `2ee640c5eed939b68035c7695a4c129570e9ca5a`
+- Backend: the exact accepted 40-character candidate SHA
 - Frontend: `3a16498a60927996ac38e741b276150968d0cadc`
 - `LOCAL-BASE-0`: PASS
 - `LOCAL-RTA-1`: PASS
@@ -172,10 +176,11 @@ gate was strengthened, and Stage 0/1 were rerun from a new evidence directory.
   gates: dark
 - AWS actions: none
 
-The AC and READ proofs exercise the implementation candidate layered onto the
-exact baseline inside the isolated guest. A clean exact-candidate rerun remains
-part of lifecycle closeout. These readings are local evidence and do not
-describe AWS capacity or runtime state.
+Every new candidate must be provisioned cleanly and rerun through all four
+implemented stages at its exact SHA. Evidence from a predecessor or a
+tree-equivalent squash commit is not reused because the evidence index is
+SHA-bound. These readings are local evidence and do not describe AWS capacity
+or runtime state.
 
 ## Next local work
 

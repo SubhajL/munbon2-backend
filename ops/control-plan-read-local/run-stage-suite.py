@@ -217,6 +217,100 @@ def validate_manual_requirement_run(status: int, body: Any, *, as_of_date: str) 
         raise StageGateError("manual_requirement_run_not_accepted") from exc
 
 
+def validate_requirement_run_lineage(
+    row: str,
+    *,
+    run_id: str,
+    approved_source_sha256: str,
+) -> dict:
+    try:
+        fields = row.strip().split("\t")
+        if len(fields) != 9:
+            raise ValueError
+        actual_run_id = str(UUID(fields[0]))
+        expected_run_id = str(UUID(run_id))
+        run_content_sha256 = fields[1]
+        section_version_id = int(fields[2])
+        section_source_sha256 = fields[3]
+        gate_mapping_version_id = int(fields[4])
+        gate_mapping_source_sha256 = fields[5]
+        versions = fields[6:]
+        hashes = (
+            run_content_sha256,
+            approved_source_sha256,
+            section_source_sha256,
+            gate_mapping_source_sha256,
+        )
+        if (
+            actual_run_id != expected_run_id
+            or section_version_id <= 0
+            or gate_mapping_version_id <= 0
+            or any(re.fullmatch(r"[0-9a-f]{64}", value) is None for value in hashes)
+            or any(not value or value.strip() != value for value in versions)
+        ):
+            raise ValueError
+        return {
+            "run_id": actual_run_id,
+            "run_content_sha256": run_content_sha256,
+            "approved_source_content_sha256": approved_source_sha256,
+            "section_dataset": {
+                "version_id": section_version_id,
+                "source_sha256": section_source_sha256,
+            },
+            "gate_mapping_dataset": {
+                "version_id": gate_mapping_version_id,
+                "source_sha256": gate_mapping_source_sha256,
+            },
+            "crop_register_version": versions[0],
+            "weather_version": versions[1],
+            "method_version": versions[2],
+        }
+    except (TypeError, ValueError) as exc:
+        raise StageGateError("requirement_run_lineage_not_accepted") from exc
+
+
+def collect_requirement_run_lineage(
+    context: StageContext,
+    *,
+    run_id: str,
+    approved_source_sha256: str,
+) -> dict:
+    try:
+        normalized_run_id = str(UUID(run_id))
+    except (TypeError, ValueError) as exc:
+        raise StageGateError("requirement_run_lineage_not_accepted") from exc
+    row = _psql(
+        context,
+        f"""
+        SELECT run.run_id,
+               run.content_hash,
+               run.section_dataset_version_id,
+               section_dataset.source_hash,
+               run.gate_mapping_dataset_version_id,
+               gate_mapping_dataset.source_hash,
+               run.crop_register_version,
+               run.weather_version,
+               run.method_version
+        FROM ros_gis.water_requirement_runs AS run
+        JOIN ros_gis.dataset_versions AS section_dataset
+          ON section_dataset.dataset_version_id =
+             run.section_dataset_version_id
+         AND section_dataset.dataset_kind = 'section_master'
+        JOIN ros_gis.dataset_versions AS gate_mapping_dataset
+          ON gate_mapping_dataset.dataset_version_id =
+             run.gate_mapping_dataset_version_id
+         AND gate_mapping_dataset.dataset_kind = 'gate_crosswalk'
+        WHERE run.run_id = '{normalized_run_id}'::uuid
+          AND run.status = 'published'
+        """,
+    )
+    return validate_requirement_run_lineage(
+        row,
+        run_id=normalized_run_id,
+        approved_source_sha256=approved_source_sha256,
+    )
+
+
 def validate_zone_requirements(
     status: int,
     body: Any,
@@ -1649,13 +1743,18 @@ def run_local_ac(context: StageContext) -> dict:
             run.body,
             as_of_date=as_of_date,
         )
+        run_id = run_evidence["run_id"]
         steps["manual_requirement_run"] = {
             **run_evidence,
+            "lineage": collect_requirement_run_lineage(
+                context,
+                run_id=run_id,
+                approved_source_sha256=source_evidence["content_sha256"],
+            ),
             "route_authentication": "local_internal_header",
             "missing_header_status": missing_trigger.status,
             "invalid_header_status": invalid_trigger.status,
         }
-        run_id = run_evidence["run_id"]
         daily = client.request(
             "GET",
             "http://127.0.0.1:3047/api/v1/water-requirements/daily?"

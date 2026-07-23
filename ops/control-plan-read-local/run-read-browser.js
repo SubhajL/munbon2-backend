@@ -55,16 +55,16 @@ async function login(page, baseUrl, email, password, navigate = true) {
       candidate.request().method() === "POST",
     { timeout: 30000 },
   );
-  await page
-    .getByRole("button", { name: "เข้าสู่ระบบ", exact: true })
-    .click();
+  await page.getByRole("button", { name: "เข้าสู่ระบบ", exact: true }).click();
   assert((await response).status() === 200, "login_not_accepted");
 }
 
 async function runDark(browser, baseUrl, email, password) {
   checkpoint = "dark_login";
-  const { context, controlPlanMutationRequests } =
-    await newLoopbackContext(browser, baseUrl);
+  const { context, controlPlanMutationRequests } = await newLoopbackContext(
+    browser,
+    baseUrl,
+  );
   const page = await context.newPage();
   const listPath = "/smart-water/control-plans";
   await page.goto(`${baseUrl}/login`, { waitUntil: "domcontentloaded" });
@@ -76,9 +76,9 @@ async function runDark(browser, baseUrl, email, password) {
   await page.waitForTimeout(500);
   await page.goto(`${baseUrl}${listPath}`, { waitUntil: "domcontentloaded" });
   checkpoint = "dark_navigation";
-  const navigationLinkCount = await page.locator(
-    'a[href="/smart-water/control-plans"]',
-  ).count();
+  const navigationLinkCount = await page
+    .locator('a[href="/smart-water/control-plans"]')
+    .count();
   const route = await context.request.get(
     `${baseUrl}/smart-water/control-plans`,
     { maxRedirects: 0 },
@@ -143,9 +143,18 @@ function projectionPanel(page, title) {
     );
 }
 
-async function runVisible(browser, baseUrl, email, password, planId, planVersion) {
-  const { context, controlPlanMutationRequests } =
-    await newLoopbackContext(browser, baseUrl);
+async function runVisible(
+  browser,
+  baseUrl,
+  email,
+  password,
+  planId,
+  planVersion,
+) {
+  const { context, controlPlanMutationRequests } = await newLoopbackContext(
+    browser,
+    baseUrl,
+  );
   const page = await context.newPage();
   const listPath = "/smart-water/control-plans";
   const detailPath = `${listPath}/${encodeURIComponent(planId)}/versions/${planVersion}`;
@@ -166,9 +175,9 @@ async function runVisible(browser, baseUrl, email, password, planId, planVersion
     state: "visible",
     timeout: 30000,
   });
-  const navigationLinkCount = await page.locator(
-    'a[href="/smart-water/control-plans"]',
-  ).count();
+  const navigationLinkCount = await page
+    .locator('a[href="/smart-water/control-plans"]')
+    .count();
   const detailLink = page.locator(`a[href="${detailPath}"]`);
   const listPlanFound = (await detailLink.count()) === 1;
   assert(listPlanFound, "list_plan_missing");
@@ -205,7 +214,9 @@ async function runVisible(browser, baseUrl, email, password, planId, planVersion
     "Predicted ledger",
     "Lifecycle history",
   ]) {
-    const alerts = projectionPanel(missingPage, title).locator('[role="alert"]');
+    const alerts = projectionPanel(missingPage, title).locator(
+      '[role="alert"]',
+    );
     await alerts.first().waitFor({ state: "visible", timeout: 30000 });
     missingPlanAlerts += await alerts.count();
   }
@@ -232,7 +243,8 @@ async function runVisible(browser, baseUrl, email, password, planId, planVersion
     state: "visible",
     timeout: 30000,
   });
-  await failurePage.getByText("predicted · not observed", { exact: true })
+  await failurePage
+    .getByText("predicted · not observed", { exact: true })
     .first()
     .waitFor({ state: "visible", timeout: 30000 });
   await failurePage.getByText("Plan identity", { exact: true }).waitFor({
@@ -243,20 +255,18 @@ async function runVisible(browser, baseUrl, email, password, planId, planVersion
     state: "visible",
     timeout: 30000,
   });
-  const ledgerAlerts = await projectionPanel(
-    failurePage,
-    "Predicted ledger",
-  ).locator('[role="alert"]').count();
+  const ledgerAlerts = await projectionPanel(failurePage, "Predicted ledger")
+    .locator('[role="alert"]')
+    .count();
   let otherPanelAlerts = 0;
   for (const title of [
     "Plan detail",
     "Prediction coverage",
     "Lifecycle history",
   ]) {
-    otherPanelAlerts += await projectionPanel(
-      failurePage,
-      title,
-    ).locator('[role="alert"]').count();
+    otherPanelAlerts += await projectionPanel(failurePage, title)
+      .locator('[role="alert"]')
+      .count();
   }
   assert(
     ledgerAlerts === 1,
@@ -320,7 +330,10 @@ async function main() {
   const password = required("MUNBON_OPERATOR_PASSWORD");
   const planId = required("LOCAL_PLAN_ID");
   const planVersion = Number(required("LOCAL_PLAN_VERSION"));
-  assert(Number.isInteger(planVersion) && planVersion > 0, "plan_version_invalid");
+  assert(
+    Number.isInteger(planVersion) && planVersion > 0,
+    "plan_version_invalid",
+  );
 
   checkpoint = "browser_launch";
   const browser = await chromium.launch({ headless: true });

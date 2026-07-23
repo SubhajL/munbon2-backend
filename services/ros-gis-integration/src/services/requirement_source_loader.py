@@ -37,7 +37,8 @@ class AuthoritativeRequirementSourceLoader:
         cutoff = now.astimezone(timezone.utc)
         manifest = load_requirement_source_manifest()
         async with self.source_connection() as source_conn:
-            gis_sections = await source_conn.fetch("""
+            gis_sections = await source_conn.fetch(
+                """
                 SELECT code,
                        props->>'Zone' AS zone,
                        (props->>'Area_Rai')::numeric AS area_rai,
@@ -46,7 +47,8 @@ class AuthoritativeRequirementSourceLoader:
                        create_date
                 FROM gis.zone
                 ORDER BY code
-                """)
+                """
+            )
             planting_dates = await source_conn.fetch(
                 """
                 SELECT project_key, zone_number, planting_date, updated_by, updated_at
@@ -67,21 +69,27 @@ class AuthoritativeRequirementSourceLoader:
             """,
             as_of_date,
         )
-        eto_rows = await local_conn.fetch("""
+        eto_rows = await local_conn.fetch(
+            """
             SELECT month, eto_value, updated_at
             FROM ros.eto_monthly
             ORDER BY month
-            """)
-        kc_rows = await local_conn.fetch("""
+            """
+        )
+        kc_rows = await local_conn.fetch(
+            """
             SELECT crop_type, crop_week, kc_value, updated_at
             FROM ros.kc_weekly
             ORDER BY crop_type, crop_week
-            """)
-        rainfall_rows = await local_conn.fetch("""
+            """
+        )
+        rainfall_rows = await local_conn.fetch(
+            """
             SELECT crop_type, month, effective_rainfall_mm, updated_at
             FROM ros.effective_rainfall_monthly
             ORDER BY crop_type, month
-            """)
+            """
+        )
         oldest_allowed = cutoff - timedelta(hours=self.max_input_age_hours)
         stale_zones = [
             str(row["zone_number"])
