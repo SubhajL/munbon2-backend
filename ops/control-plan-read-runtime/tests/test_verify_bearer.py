@@ -7,11 +7,9 @@ import verify_bearer
 
 
 def _token(claims: dict) -> str:
-    encode = (
-        lambda value: base64.urlsafe_b64encode(json.dumps(value).encode())
-        .decode()
-        .rstrip("=")
-    )
+    def encode(value: dict) -> str:
+        return base64.urlsafe_b64encode(json.dumps(value).encode()).decode().rstrip("=")
+
     return f"{encode({'alg': 'HS256'})}.{encode(claims)}.signature"
 
 
@@ -119,3 +117,64 @@ def test_safe_reporter_never_prints_credentials(capsys):
         "PASS central_login",
         "FAIL operator_reads: safe_code",
     ]
+
+
+def test_run_verification_returns_secret_safe_status_and_cache_evidence(monkeypatch):
+    claims = {
+        "iss": "munbon-auth",
+        "aud": "munbon-services",
+        "type": "access",
+        "sub": "operator-id",
+        "jti": "token-id",
+        "roles": ["operator"],
+    }
+    access_token = _token(claims)
+    page = {"projection_schema_version": 2, "items": [], "next_cursor": None}
+    no_store = {"cache-control": "private, no-store"}
+    responses = iter(
+        [
+            verify_bearer.HttpResult(403, None, {}),
+            verify_bearer.HttpResult(403, None, no_store),
+            verify_bearer.HttpResult(401, None, {}),
+            verify_bearer.HttpResult(401, None, no_store),
+            verify_bearer.HttpResult(200, {"data": {"accessToken": access_token}}, {}),
+            verify_bearer.HttpResult(200, page, {}),
+            verify_bearer.HttpResult(200, page, no_store),
+            verify_bearer.HttpResult(404, None, {}),
+            verify_bearer.HttpResult(404, None, no_store),
+            verify_bearer.HttpResult(200, None, {}),
+            verify_bearer.HttpResult(401, None, {}),
+        ]
+    )
+
+    class FakeClient:
+        def request(self, *_args, **_kwargs):
+            return next(responses)
+
+        def refresh_cookie(self):
+            return "refresh-secret"
+
+    monkeypatch.setattr(verify_bearer, "VerificationClient", FakeClient)
+
+    evidence = verify_bearer.run_verification(
+        verify_bearer.Config(
+            email="operator@example.invalid",
+            password="runtime-only-password",
+            audience="munbon-services",
+        ),
+        verify_bearer.SafeReporter(),
+    )
+
+    assert evidence == {
+        "missing_bearer": {"scheduler": 403, "bff": 403, "bff_no_store": True},
+        "malformed_bearer": {
+            "scheduler": 401,
+            "bff": 401,
+            "bff_no_store": True,
+        },
+        "login": {"status": 200, "claims": "valid"},
+        "operator_list": {"scheduler": 200, "bff": 200, "bff_no_store": True},
+        "missing_detail": {"scheduler": 404, "bff": 404, "bff_no_store": True},
+        "logout": {"status": 200, "refresh_reuse": 401},
+    }
+    assert access_token not in json.dumps(evidence)

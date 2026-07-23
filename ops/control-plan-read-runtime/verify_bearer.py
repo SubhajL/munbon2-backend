@@ -167,24 +167,37 @@ def verify_projection_page(status: int, body: Any) -> None:
         raise VerificationError("invalid_projection_page")
 
 
-def run_verification(config: Config, reporter: SafeReporter) -> None:
+def run_verification(config: Config, reporter: SafeReporter) -> dict[str, dict]:
     client = VerificationClient()
+    evidence: dict[str, dict] = {}
     list_paths = (
         ("scheduler", f"{config.scheduler_url}/api/v1/control-plans"),
         ("bff", f"{config.bff_url}/api/v1/control-plans"),
     )
+    statuses = {}
     for name, url in list_paths:
         result = client.request("GET", url)
         _require_status(result, 403, f"{name}_missing_bearer_status")
+        statuses[name] = result.status
         if name == "bff":
             _require_no_store(result, "bff_missing_bearer_cache")
+    evidence["missing_bearer"] = {
+        **statuses,
+        "bff_no_store": True,
+    }
     reporter.ok("missing_bearer_rejected")
 
+    statuses = {}
     for name, url in list_paths:
         result = client.request("GET", url, bearer="malformed-access-token")
         _require_status(result, 401, f"{name}_malformed_bearer_status")
+        statuses[name] = result.status
         if name == "bff":
             _require_no_store(result, "bff_malformed_bearer_cache")
+    evidence["malformed_bearer"] = {
+        **statuses,
+        "bff_no_store": True,
+    }
     reporter.ok("malformed_bearer_rejected")
 
     login = client.request(
@@ -208,21 +221,28 @@ def run_verification(config: Config, reporter: SafeReporter) -> None:
     if errors:
         raise VerificationError("access_claims_invalid")
     refresh_token = client.refresh_cookie()
+    evidence["login"] = {"status": login.status, "claims": "valid"}
     reporter.ok("central_login_and_claims")
 
+    statuses = {}
     for name, url in list_paths:
         result = client.request("GET", url, bearer=token)
         verify_projection_page(result.status, result.body)
+        statuses[name] = result.status
         if name == "bff":
             _require_no_store(result, "bff_list_cache")
+    evidence["operator_list"] = {**statuses, "bff_no_store": True}
     reporter.ok("operator_list_reads")
 
     detail_suffix = f"/{MISSING_PLAN_ID}/versions/1"
+    statuses = {}
     for name, url in list_paths:
         result = client.request("GET", f"{url}{detail_suffix}", bearer=token)
         _require_status(result, 404, f"{name}_missing_detail_status")
+        statuses[name] = result.status
         if name == "bff":
             _require_no_store(result, "bff_detail_cache")
+    evidence["missing_detail"] = {**statuses, "bff_no_store": True}
     reporter.ok("missing_detail_preserved")
 
     logout = client.request(
@@ -237,7 +257,9 @@ def run_verification(config: Config, reporter: SafeReporter) -> None:
         payload={"refreshToken": refresh_token},
     )
     _require_status(reuse, 401, "refresh_reuse_status")
+    evidence["logout"] = {"status": logout.status, "refresh_reuse": reuse.status}
     reporter.ok("logout_and_refresh_reuse_rejected")
+    return evidence
 
 
 def main() -> int:
