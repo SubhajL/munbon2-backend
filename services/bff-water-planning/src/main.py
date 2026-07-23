@@ -34,6 +34,7 @@ async def lifespan(app: FastAPI):
     """Manage application lifecycle"""
     # Startup
     logger.info("Starting Water Planning BFF Service", port=settings.port)
+    app.state.db_manager = db_manager
     await db_manager.initialize()
     logger.info("Database connections initialized")
 
@@ -120,11 +121,18 @@ register_graphql_context_cleanup(app)
 app.include_router(admin.router, prefix="/api/v1")
 
 # Include REST API routes
-from api.routes import control_plans, crop_season, water_demand, water_demand_v2
+from api.routes import (
+    control_plans,
+    crop_season,
+    planning_depths,
+    water_demand,
+    water_demand_v2,
+)
 app.include_router(crop_season.router)
 app.include_router(water_demand.router)
 app.include_router(water_demand_v2.router)
 app.include_router(control_plans.router)
+app.include_router(planning_depths.router)
 
 # Add Prometheus metrics endpoint
 metrics_app = make_asgi_app()

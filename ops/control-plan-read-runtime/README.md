@@ -16,7 +16,7 @@ Create four operator-owned files and run `chmod 600` on each. Values below are n
 | `flow.env` | `POSTGRES_URL`, `TIMESCALE_URL`, `REDIS_URL`, `INFLUXDB_URL`, `INFLUXDB_TOKEN`, `INFLUXDB_ORG`, `INFLUXDB_BUCKET` |
 | `scheduler.env` | `POSTGRES_URL`, central-auth `REDIS_URL`, `JWT_SECRET_KEY`, `JWT_ISSUER`, `JWT_AUDIENCE`, `JWT_CLAIM_POLICY_MODE` |
 | `ros.env` | `POSTGRES_URL`, isolated `REDIS_URL`; `REQUIREMENT_SOURCE_POSTGRES_URL` is canonical only when the producer is intentionally enabled, but this read-only runtime unsets it and keeps the producer disabled |
-| `bff.env` | `POSTGRES_URL`, isolated `REDIS_URL` |
+| `bff.env` | `POSTGRES_URL`, isolated `REDIS_URL`, `PLANNING_DEPTH_WRITES_ENABLED=false`, `PLANNING_DEPTH_WRITE_LIMIT=10`, `PLANNING_DEPTH_WRITE_WINDOW_SECONDS=300` |
 
 Encoded database credentials stay encoded in `POSTGRES_URL`; RT-3 decodes them once. Do not create decoded DSN aliases. Each wrapper checks mode 600 before sourcing its trusted operator-owned env file.
 
@@ -32,6 +32,12 @@ ops/control-plan-read-runtime/activate.sh
 Activation fails before PM2 changes when `MemAvailable` is below 512 MiB or used swap is above 1 GiB. It starts or updates exactly four processes and immediately snapshots the resulting restart counters. A bounded two-minute startup phase allows only transient missing/offline/not-ready states while migrations and connection pools initialize; capacity faults and restart-counter changes fail immediately. The required five-minute window begins only after the first fully ready sample, then checks capacity, online state, unchanged counters, and exact `status: ready` responses every five seconds. The initial PM2 load is intentional; any later counter change is unexpected and fails the gate. Only then does it run `pm2 save`. Any start, readiness, capacity, or restart failure stops the four new runtime processes and does not save the failed state.
 
 Exact bindings are Flow `127.0.0.1:3011`, Scheduler `127.0.0.1:3021`, ROS-GIS `127.0.0.1:3047`, and BFF `127.0.0.1:3022`. Scheduler remains `CONTROL_EXECUTION_MODE=disabled`, readback remains `off`, SCADA/service-token/capability settings are removed, and ROS daily requirement production remains disabled.
+
+The BFF migration runner verifies and applies the ordered tracked manifest,
+requiring both `009_crop_registry` and `010_planning_depth_submissions` in
+`water_planning.schema_migrations`. Planning-depth writes remain unavailable
+unless the backend flag is the exact string `true`; this runtime keeps it
+`false`.
 
 The earlier host snapshot had roughly 330 MiB available and 873 MiB used swap. The new gate therefore correctly blocks that memory state until capacity is recovered; swap alone was below the ceiling.
 

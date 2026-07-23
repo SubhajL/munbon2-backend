@@ -378,6 +378,13 @@ class DatabaseManager:
         async with self._pg_pool.acquire() as conn:
             yield conn
 
+    def get_redis_client(self):
+        if self._redis_client is None:
+            raise RuntimeError(
+                "DatabaseManager is not initialized - call initialize() first"
+            )
+        return self._redis_client
+
     # Repository access methods
     @asynccontextmanager
     async def get_session(self):

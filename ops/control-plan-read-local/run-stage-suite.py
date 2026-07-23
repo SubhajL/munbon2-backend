@@ -717,18 +717,22 @@ def unexpected_non_loopback_listeners(listeners: list[dict]) -> list[int]:
 
 
 def validate_migration_parity(
-    scheduler_ids: list[str], ros_ids: list[str], bff_009_present: bool
+    scheduler_ids: list[str], ros_ids: list[str], bff_ids: list[str]
 ) -> dict:
     expected_ros = [
         "0001_dataset_version_parent",
         "0002_water_requirement_publication",
         "0003_daily_requirement_producer",
     ]
+    expected_bff = [
+        "009_crop_registry",
+        "010_planning_depth_submissions",
+    ]
     if (
         len(scheduler_ids) != 13
         or scheduler_ids[-1:] != ["0013_operator_approved_execution"]
         or ros_ids != expected_ros
-        or not bff_009_present
+        or bff_ids != expected_bff
     ):
         raise StageGateError("migration_parity_failed")
     return {
@@ -736,7 +740,8 @@ def validate_migration_parity(
         "scheduler_count": len(scheduler_ids),
         "ros_latest": ros_ids[-1],
         "ros_count": len(ros_ids),
-        "bff_latest": "009_crop_registry",
+        "bff_latest": bff_ids[-1],
+        "bff_count": len(bff_ids),
     }
 
 
@@ -1100,7 +1105,7 @@ def _apply_migrations(context: StageContext) -> dict:
         )
     bff_root = context.repo_root / "services/bff-water-planning"
     _run_checked(
-        "bff_009_migration",
+        "bff_migrations",
         [
             str(bff_root / ".venv/bin/python"),
             str(
@@ -1120,18 +1125,34 @@ def _apply_migrations(context: StageContext) -> dict:
         context,
         "SELECT migration_id, checksum FROM ros_gis.schema_migrations ORDER BY migration_id",
     ).splitlines()
-    bff_present = (
-        _psql(context, "SELECT to_regclass('gis.crop_registry') IS NOT NULL").strip()
+    bff_rows = _psql(
+        context,
+        "SELECT migration_id, checksum "
+        "FROM water_planning.schema_migrations ORDER BY migration_id",
+    ).splitlines()
+    bff_tables_present = (
+        _psql(
+            context,
+            "SELECT to_regclass('gis.crop_registry') IS NOT NULL "
+            "AND to_regclass("
+            "'water_planning.planning_depth_submissions') IS NOT NULL "
+            "AND to_regclass('water_planning.planning_depth_values') IS NOT NULL",
+        ).strip()
         == "t"
     )
     scheduler_ids = [row.split("\t", 1)[0] for row in scheduler_rows]
     ros_ids = [row.split("\t", 1)[0] for row in ros_rows]
-    parity = validate_migration_parity(scheduler_ids, ros_ids, bff_present)
+    bff_ids = [row.split("\t", 1)[0] for row in bff_rows]
+    if not bff_tables_present:
+        raise StageGateError("migration_parity_failed")
+    parity = validate_migration_parity(scheduler_ids, ros_ids, bff_ids)
     parity["scheduler_migrations"] = scheduler_ids
     parity["ros_migrations"] = ros_ids
-    parity["bff_009_sha256"] = hashlib.sha256(
-        (bff_root / "migrations/009_crop_registry.sql").read_bytes()
-    ).hexdigest()
+    parity["bff_migrations"] = bff_ids
+    parity["bff_migration_sha256"] = {
+        path.stem: hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in sorted((bff_root / "migrations").glob("*.sql"))
+    }
     return parity
 
 

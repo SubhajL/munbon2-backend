@@ -1,0 +1,140 @@
+{
+  "manifest_version": 1,
+  "contract_family": "planning-depth-submissions",
+  "contract_version": 1,
+  "json_schema_dialect": "https://json-schema.org/draft/2020-12/schema",
+  "contract_set_sha256": "f05abc57d16c92b61edf2bb2cdc5e39b33acf22e264b7a59d3670617dbba9d2f",
+  "schemas": [
+    {
+      "relative_path": "effective-principal.schema.json",
+      "sha256": "4ccdc9c0764f6af05e15e8b89bca84bef347963df0c71f3361c20ab5a27058b8"
+    },
+    {
+      "relative_path": "submission-request.schema.json",
+      "sha256": "38413c212ea606030d585d7226b3db3326f668751a2d314b184de6a12cfcdacb"
+    },
+    {
+      "relative_path": "submission-receipt.schema.json",
+      "sha256": "ed7997cafead79eadf888eab92cb108a099d09b597e29a066a6cc53495b4563a"
+    },
+    {
+      "relative_path": "active-submission.schema.json",
+      "sha256": "27ff51e1d4710684bc732017bee98a10c52e12d90117111709f38a288cdd7875"
+    }
+  ],
+  "fixtures": [
+    {
+      "relative_path": "effective-principal.operator.example.json",
+      "schema": "effective-principal.schema.json",
+      "expected_schema_valid": true,
+      "expected_model_valid": true,
+      "sha256": "a5de49f93a3acc8ac4c9df4fe6d819acc4844a8fbe6e90c1f195612702ee9f63"
+    },
+    {
+      "relative_path": "effective-principal.field-team.example.json",
+      "schema": "effective-principal.schema.json",
+      "expected_schema_valid": true,
+      "expected_model_valid": true,
+      "sha256": "fdfa1a4ec6e14831c5f61d8acfa65f9060350d00eb8ae9c1788783c63b3d423d"
+    },
+    {
+      "relative_path": "effective-principal.supervisor.example.json",
+      "schema": "effective-principal.schema.json",
+      "expected_schema_valid": true,
+      "expected_model_valid": true,
+      "sha256": "efeb915b216728fc537b0c825abdf38d3759ecada7f89a9406589bac9b39fbde"
+    },
+    {
+      "relative_path": "effective-principal.admin.example.json",
+      "schema": "effective-principal.schema.json",
+      "expected_schema_valid": true,
+      "expected_model_valid": true,
+      "sha256": "a14a4f0a3874c2faf804521c01d4558a1707f527d1b5f4f092b61c780d7e40e2"
+    },
+    {
+      "relative_path": "fixtures/invalid/effective-principal.alias.invalid.json",
+      "schema": "effective-principal.schema.json",
+      "expected_schema_valid": false,
+      "expected_model_valid": false,
+      "sha256": "9711fe2f282b51869b53f235fd27d9ba6877e66fc9000b10fa479ed3de4e1d7f"
+    },
+    {
+      "relative_path": "fixtures/invalid/effective-principal.unsorted.invalid.json",
+      "schema": "effective-principal.schema.json",
+      "expected_schema_valid": false,
+      "expected_model_valid": false,
+      "sha256": "b9c229192b7445ccb72986dede9f126b99e6230175f767784c102be67a12ed8b"
+    },
+    {
+      "relative_path": "fixtures/invalid/effective-principal.incomplete-hierarchy.invalid.json",
+      "schema": "effective-principal.schema.json",
+      "expected_schema_valid": false,
+      "expected_model_valid": false,
+      "sha256": "4e17df49920af790b319344560f2ba03e786327d11bd090686a0a772fd8c4e00"
+    },
+    {
+      "relative_path": "submission-request.decimals.example.json",
+      "schema": "submission-request.schema.json",
+      "expected_schema_valid": true,
+      "expected_model_valid": true,
+      "canonical_request_sha256": "77bf9bbe610663575f310baf52e8c96b4a2c9f551b36055198b9487ea8253077",
+      "sha256": "3af3c85f8829b15f4b9b4972d92045f1417ad948ad484a3fc4099ff0e1e14ccd"
+    },
+    {
+      "relative_path": "fixtures/invalid/submission-request.string-decimal.invalid.json",
+      "schema": "submission-request.schema.json",
+      "expected_schema_valid": false,
+      "expected_model_valid": false,
+      "sha256": "bc59b3f40a9b091b0e5d0363628ea656cc52e5c86e23c4d3b3785c3f29fc65f9"
+    },
+    {
+      "relative_path": "fixtures/invalid/submission-request.overflow.invalid.json",
+      "schema": "submission-request.schema.json",
+      "expected_schema_valid": false,
+      "expected_model_valid": false,
+      "sha256": "51a4641a7df0f3ac489b8d50e259f43bc8d1aeb89c43b3db9c0b05b0a7d64e7a"
+    },
+    {
+      "relative_path": "fixtures/invalid/submission-request.datetime-date.invalid.json",
+      "schema": "submission-request.schema.json",
+      "expected_schema_valid": false,
+      "expected_model_valid": false,
+      "sha256": "c757039773944114046f4ad23ef61a9396f435e185adb259ba838d4e7ee7f098"
+    },
+    {
+      "relative_path": "fixtures/invalid/submission-request.week-mismatch.invalid.json",
+      "schema": "submission-request.schema.json",
+      "expected_schema_valid": true,
+      "expected_model_valid": false,
+      "sha256": "0e5a3bc5c8f3d460fafb670ca8781064ce41ad86a014d1ec6d8977df33697dcd"
+    },
+    {
+      "relative_path": "submission-receipt.created.example.json",
+      "schema": "submission-receipt.schema.json",
+      "expected_schema_valid": true,
+      "expected_model_valid": true,
+      "sha256": "04566ac364d146070e3bb460c3ea657ee470fdf705b8af10229a38c6a636c26c"
+    },
+    {
+      "relative_path": "fixtures/invalid/submission-receipt.naive-datetime.invalid.json",
+      "schema": "submission-receipt.schema.json",
+      "expected_schema_valid": false,
+      "expected_model_valid": false,
+      "sha256": "1eb7a6e28d593f61f29a20f6ba74c632dc95f05a2842ff77cc4c9c0c2f087dfe"
+    },
+    {
+      "relative_path": "active-submission.max-41.example.json",
+      "schema": "active-submission.schema.json",
+      "expected_schema_valid": true,
+      "expected_model_valid": true,
+      "sha256": "1336ce9c0775b57392c10bde3caa21b8650b2ad092bab6b6b9abf8b73e180a14"
+    },
+    {
+      "relative_path": "fixtures/invalid/active-submission.extra-field.invalid.json",
+      "schema": "active-submission.schema.json",
+      "expected_schema_valid": false,
+      "expected_model_valid": false,
+      "sha256": "4347964d8d44a0b48ca11782e0db98b92d2169db1b08d0b4c27d5baaaf87b5a5"
+    }
+  ]
+}

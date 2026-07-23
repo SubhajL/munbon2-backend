@@ -98,6 +98,10 @@ credentials
 
 # Database credentials and dumps
 *.sql
+!services/bff-water-planning/migrations/
+!services/bff-water-planning/migrations/009_crop_registry.sql
+!services/bff-water-planning/migrations/010_planning_depth_submissions.sql
+!services/bff-water-planning/migrations/manifest.json
 *.dump
 *.bak
 *.backup

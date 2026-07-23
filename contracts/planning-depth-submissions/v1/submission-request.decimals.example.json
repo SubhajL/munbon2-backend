@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "client_submission_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  "project_key": "mun-bon",
+  "week_key": "2026-W30",
+  "week_date": "2026-07-20",
+  "expected_active_submission_id": null,
+  "levels": [
+    {
+      "area_type": "zone",
+      "area_id": "01-01",
+      "planning_depth_mm": 0
+    },
+    {
+      "area_type": "zone",
+      "area_id": "01-02",
+      "planning_depth_mm": 0.1
+    },
+    {
+      "area_type": "zone",
+      "area_id": "01-03",
+      "planning_depth_mm": 20.5
+    },
+    {
+      "area_type": "zone",
+      "area_id": "01-04",
+      "planning_depth_mm": 40
+    },
+    {
+      "area_type": "zone",
+      "area_id": "01-05",
+      "planning_depth_mm": 50
+    },
+    {
+      "area_type": "zone",
+      "area_id": "01-06",
+      "planning_depth_mm": 60
+    },
+    {
+      "area_type": "section",
+      "area_id": "01-01-01-03",
+      "zone_id": "01-01",
+      "planning_depth_mm": 20.5
+    }
+  ]
+}
