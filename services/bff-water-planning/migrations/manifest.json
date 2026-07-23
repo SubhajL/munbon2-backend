@@ -1,5 +1,6 @@
 {
   "manifest_version": 1,
+  "owned_migration_number_min": 9,
   "migrations": [
     {
       "migration_id": "009_crop_registry",

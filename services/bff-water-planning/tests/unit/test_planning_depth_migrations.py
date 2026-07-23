@@ -1,11 +1,13 @@
 import hashlib
 import json
+import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 from db.migration_runner import (
     MigrationChecksumError,
+    MigrationManifestError,
     apply_migrations,
     load_migration_manifest,
     migration_status,
@@ -55,8 +57,11 @@ def test_manifest_pins_every_owned_sql_file_and_git_tracks_them():
         "009_crop_registry",
         "010_planning_depth_submissions",
     ]
+    owned_migration_number_min = manifest["owned_migration_number_min"]
     assert {item["filename"] for item in manifest["migrations"]} == {
-        path.name for path in MIGRATIONS.glob("*.sql")
+        path.name
+        for path in MIGRATIONS.glob("*.sql")
+        if int(path.name.split("_", 1)[0]) >= owned_migration_number_min
     }
     for item in manifest["migrations"]:
         path = MIGRATIONS / item["filename"]
@@ -69,6 +74,23 @@ def test_manifest_pins_every_owned_sql_file_and_git_tracks_them():
             check=False,
         )
         assert tracked.returncode == 0, path
+
+
+def test_manifest_ignores_legacy_sql_but_rejects_new_unlisted_migrations(
+    tmp_path,
+):
+    migrations = tmp_path / "migrations"
+    shutil.copytree(MIGRATIONS, migrations)
+    (migrations / "001_legacy.sql").write_text("SELECT 1;\n", encoding="utf-8")
+
+    assert [item.migration_id for item in load_migration_manifest(migrations)] == [
+        "009_crop_registry",
+        "010_planning_depth_submissions",
+    ]
+
+    (migrations / "011_unlisted.sql").write_text("SELECT 1;\n", encoding="utf-8")
+    with pytest.raises(MigrationManifestError, match="incomplete or unordered"):
+        load_migration_manifest(migrations)
 
 
 @pytest.mark.asyncio
