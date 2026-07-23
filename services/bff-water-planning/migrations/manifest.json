@@ -1,0 +1,15 @@
+{
+  "manifest_version": 1,
+  "migrations": [
+    {
+      "migration_id": "009_crop_registry",
+      "filename": "009_crop_registry.sql",
+      "sha256": "060062baf15d384730ec1284abb7fb8a39eaa86d238d63140a4648afc79f7d82"
+    },
+    {
+      "migration_id": "010_planning_depth_submissions",
+      "filename": "010_planning_depth_submissions.sql",
+      "sha256": "c904510204c97269a73ee4592c06c1a35c1fd8f13b53b47885a21b4c5a5c62f6"
+    }
+  ]
+}

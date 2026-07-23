@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://munbon.example/contracts/planning-depth-submissions/v1/effective-principal.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "subject",
+    "effective_roles"
+  ],
+  "properties": {
+    "subject": {
+      "type": "string",
+      "minLength": 1
+    },
+    "effective_roles": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4,
+      "uniqueItems": true,
+      "enum": [
+        [
+          "field_team"
+        ],
+        [
+          "field_team",
+          "operator"
+        ],
+        [
+          "field_team",
+          "operator",
+          "supervisor"
+        ],
+        [
+          "admin",
+          "field_team",
+          "operator",
+          "supervisor"
+        ]
+      ],
+      "items": {
+        "type": "string",
+        "enum": [
+          "admin",
+          "supervisor",
+          "operator",
+          "field_team"
+        ]
+      }
+    }
+  }
+}

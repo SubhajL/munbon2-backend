@@ -71,7 +71,12 @@ def test_bff_schema_imports_with_pinned_strawberry():
 def test_live_route_surface_survives_boot():
     main = importlib.import_module("main")
     route_paths = {route.path for route in main.app.routes}
-    for expected in ("/health", "/api/v1/status", "/graphql"):
+    for expected in (
+        "/health",
+        "/api/v1/status",
+        "/graphql",
+        "/api/v1/water-planning/planning-depth-submissions",
+    ):
         assert any(
             path.startswith(expected) for path in route_paths
         ), f"expected live route {expected} missing after boot restoration"

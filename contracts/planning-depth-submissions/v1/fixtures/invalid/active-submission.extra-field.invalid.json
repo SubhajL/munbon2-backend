@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "submission_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+  "client_submission_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  "project_key": "mun-bon",
+  "week_key": "2026-W30",
+  "week_date": "2026-07-20",
+  "submitted_at": "2026-07-24T01:00:00Z",
+  "submitted_by": "operator-1",
+  "supersedes_submission_id": null,
+  "request_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "levels": [],
+  "is_active": true
+}

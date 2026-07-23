@@ -1,0 +1,9 @@
+{
+  "subject": "admin-1",
+  "effective_roles": [
+    "admin",
+    "field_team",
+    "operator",
+    "supervisor"
+  ]
+}

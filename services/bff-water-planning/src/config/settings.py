@@ -34,6 +34,20 @@ class Settings(BaseSettings):
         default="http://localhost:3021",
         env="SCHEDULER_URL"
     )
+    planning_depth_writes_enabled: str = Field(
+        default="false",
+        env="PLANNING_DEPTH_WRITES_ENABLED",
+    )
+    planning_depth_write_limit: int = Field(
+        default=10,
+        gt=0,
+        env="PLANNING_DEPTH_WRITE_LIMIT",
+    )
+    planning_depth_write_window_seconds: int = Field(
+        default=300,
+        gt=0,
+        env="PLANNING_DEPTH_WRITE_WINDOW_SECONDS",
+    )
     ros_service_url: str = Field(
         default="http://localhost:3047",  # Correct ROS port
         env="ROS_SERVICE_URL"

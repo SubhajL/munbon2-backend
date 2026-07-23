@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "client_submission_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  "project_key": "mun-bon",
+  "week_key": "2026-W30",
+  "week_date": "2026-07-20",
+  "expected_active_submission_id": null,
+  "levels": [
+    {
+      "area_type": "zone",
+      "area_id": "01-01",
+      "planning_depth_mm": "20.5"
+    }
+  ]
+}
