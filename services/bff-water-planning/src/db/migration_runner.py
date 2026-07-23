@@ -22,6 +22,18 @@ class Migration:
     sql: str
 
 
+def _migration_number(filename: str) -> int | None:
+    prefix, separator, remainder = filename.partition("_")
+    if (
+        len(prefix) != 3
+        or not prefix.isdigit()
+        or not separator
+        or not remainder.endswith(".sql")
+    ):
+        return None
+    return int(prefix)
+
+
 def load_migration_manifest(migrations_dir: Path) -> tuple[Migration, ...]:
     try:
         document = json.loads(
@@ -29,10 +41,21 @@ def load_migration_manifest(migrations_dir: Path) -> tuple[Migration, ...]:
         )
     except (OSError, json.JSONDecodeError) as exc:
         raise MigrationManifestError("migration manifest is unavailable") from exc
-    if set(document) != {"manifest_version", "migrations"}:
+    if set(document) != {
+        "manifest_version",
+        "owned_migration_number_min",
+        "migrations",
+    }:
         raise MigrationManifestError("migration manifest has invalid keys")
-    if document["manifest_version"] != 1 or not isinstance(
-        document["migrations"], list
+    owned_migration_number_min = document["owned_migration_number_min"]
+    if (
+        document["manifest_version"] != 1
+        or not isinstance(document["migrations"], list)
+        or (
+            isinstance(owned_migration_number_min, bool)
+            or not isinstance(owned_migration_number_min, int)
+            or owned_migration_number_min < 0
+        )
     ):
         raise MigrationManifestError("migration manifest version is unsupported")
 
@@ -45,6 +68,9 @@ def load_migration_manifest(migrations_dir: Path) -> tuple[Migration, ...]:
             not isinstance(filename, str)
             or Path(filename).name != filename
             or not filename.endswith(".sql")
+            or _migration_number(filename) is None
+            or _migration_number(filename) < owned_migration_number_min
+            or item["migration_id"] != Path(filename).stem
         ):
             raise MigrationManifestError("migration filename is unsafe")
         path = migrations_dir / filename
@@ -68,11 +94,19 @@ def load_migration_manifest(migrations_dir: Path) -> tuple[Migration, ...]:
 
     ids = [item.migration_id for item in migrations]
     filenames = [item.filename for item in migrations]
+    owned_filenames = {
+        path.name
+        for path in migrations_dir.glob("*.sql")
+        if (
+            (number := _migration_number(path.name)) is not None
+            and number >= owned_migration_number_min
+        )
+    }
     if (
         len(ids) != len(set(ids))
         or len(filenames) != len(set(filenames))
         or filenames != sorted(filenames)
-        or set(filenames) != {path.name for path in migrations_dir.glob("*.sql")}
+        or set(filenames) != owned_filenames
     ):
         raise MigrationManifestError("migration manifest is incomplete or unordered")
     return tuple(migrations)
