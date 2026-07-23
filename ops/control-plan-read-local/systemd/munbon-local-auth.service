@@ -1,0 +1,19 @@
+[Unit]
+Description=Munbon disposable local acceptance auth
+After=network.target postgresql.service redis-server.service
+Requires=postgresql.service redis-server.service
+
+[Service]
+Type=simple
+User=munbon
+Group=munbon
+WorkingDirectory=/opt/munbon/repo/services/auth
+EnvironmentFile=/etc/munbon/control-plan-read-runtime/auth.env
+ExecStart=/usr/bin/node src/index.js
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
