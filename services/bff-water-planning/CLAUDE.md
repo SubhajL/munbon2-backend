@@ -96,6 +96,13 @@ shared `contracts/control-plans/v1/{intent-timeline,readback-observations,
 execution-state}.example.json` fixture validated by BOTH the BFF and scheduler
 suites, so a mirror drift fails a test at PR time.
 
+**Control-plan evidence contract v1 (ME-1)** — the three machine-boundary reads
+are now published as a complete immutable family under
+`contracts/control-plan-evidence/v1/`. The manifest pins all schemas and valid/
+invalid fixture bytes. BFF and Scheduler independently run Draft 2020-12 format
+validation and their strict Pydantic mirrors against the same vectors. This
+publishes existing response truth only; it does not add routes or activation.
+
 ## Gotchas / Watch-outs
 - 🚨🚨 **CONFIRMED hardcoded PRODUCTION DB credentials** in `scripts/populate_weekly_demands_with_events.py` (`GIS_DB_CONFIG`/`BFF_DB_CONFIG`: host `43.208.201.191`, plaintext password). The **same password appears in ~34 `scripts/` files** and the prod IP in ~40 files — this is the **SEC / F-07** remediation item. Rotate the password, move to env/secrets, add secret-scanning. Do **not** copy this pattern.
 - `/health` is process-only. `/ready` probes Scheduler, Flow, and ROS dependency-truth `/ready` endpoints and fails closed with safe status labels.

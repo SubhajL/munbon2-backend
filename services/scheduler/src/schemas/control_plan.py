@@ -46,6 +46,24 @@ def _strict_json_int(value: Any) -> Any:
     return value
 
 
+def _strict_json_bool(value: Any) -> Any:
+    if not isinstance(value, bool):
+        raise ValueError("expected a JSON boolean")
+    return value
+
+
+def _strict_json_datetime(value: Any) -> Any:
+    if not isinstance(value, (str, datetime)):
+        raise ValueError("expected an ISO-8601 datetime string")
+    return value
+
+
+def _require_aware_datetime(value: datetime) -> datetime:
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("datetime must carry an explicit timezone offset")
+    return value
+
+
 def _no_boundary_whitespace(value: str) -> str:
     # The optimizer rejects boundary whitespace on identifiers (Munbon gate ids
     # legitimately carry interior spaces), so catch it here as a 422 rather than
@@ -67,6 +85,12 @@ AwareUtc = Annotated[datetime, AfterValidator(_require_aware_utc)]
 StrictNumber = Annotated[float, BeforeValidator(_finite_number)]
 StrictInt = Annotated[int, BeforeValidator(_reject_bool)]
 StrictJsonInt = Annotated[int, BeforeValidator(_strict_json_int)]
+StrictJsonBool = Annotated[bool, BeforeValidator(_strict_json_bool)]
+StrictJsonDatetime = Annotated[
+    datetime,
+    BeforeValidator(_strict_json_datetime),
+    AfterValidator(_require_aware_datetime),
+]
 StrictId = Annotated[str, Field(min_length=1), AfterValidator(_no_boundary_whitespace)]
 NonBlank = Annotated[str, Field(min_length=1), AfterValidator(_non_blank)]
 # Bounded, non-blank text for the persisted shadow-approval document: the list
@@ -410,23 +434,23 @@ class IntentTimelineEntryOut(_StrictModel):
     intent_id: UUID
     canonical_gate_id: str
     event_kind: Literal["open", "trim", "close"]
-    event_sequence: int
-    not_before: datetime
-    deadline: datetime
+    event_sequence: StrictJsonInt
+    not_before: StrictJsonDatetime
+    deadline: StrictJsonDatetime
     execution_state: Literal["pending", "claimed", "missed", "invalidated"]
-    claimed_at: Optional[datetime]
+    claimed_at: Optional[StrictJsonDatetime]
     receipt_status: Optional[Literal["validation_accepted", "validation_rejected"]]
     # The frozen 6.0 rejection vocabulary — a stored out-of-vocab reason fails closed (503)
     # at the projection rather than passing an unknown value through to the dashboard.
     reason_code: Optional[ValidationRejectionReason]
-    validated_at: Optional[datetime]
-    dispatched_at: Optional[datetime]
+    validated_at: Optional[StrictJsonDatetime]
+    dispatched_at: Optional[StrictJsonDatetime]
     receipt_content_sha256: Optional[str]
 
 
 class ControlPlanIntentTimelineResponse(_StrictModel):
     plan_id: UUID
-    plan_version: int
+    plan_version: StrictJsonInt
     intents: list[IntentTimelineEntryOut]
 
 
@@ -435,24 +459,24 @@ class ReadbackObservationOut(_StrictModel):
     reading could not be trusted (never a hold); a null observed_level is explicit."""
 
     canonical_gate_id: str
-    observed_level: Optional[int]
-    expected_level: int
+    observed_level: Optional[StrictJsonInt]
+    expected_level: StrictJsonInt
     quality: str
     verdict: Literal["ok", "mismatch", "unavailable"]
     reconciliation_mode: Literal["observe", "enforce"]
-    observed_at: datetime
+    observed_at: StrictJsonDatetime
 
 
 class ControlPlanReadbackObservationsResponse(_StrictModel):
     plan_id: UUID
-    plan_version: int
-    observations: list[ReadbackObservationOut]
+    plan_version: StrictJsonInt
+    observations: Annotated[list[ReadbackObservationOut], Field(max_length=1000)]
 
 
 class HoldEventOut(_StrictModel):
     event_type: Literal["held", "resumed"]
     worker_id: Optional[str]
-    occurred_at: datetime
+    occurred_at: StrictJsonDatetime
 
 
 class ControlPlanExecutionStateResponse(_StrictModel):
@@ -461,8 +485,8 @@ class ControlPlanExecutionStateResponse(_StrictModel):
     exit (the plan keeps its authority)."""
 
     plan_id: UUID
-    plan_version: int
-    is_held: bool
+    plan_version: StrictJsonInt
+    is_held: StrictJsonBool
     hold_events: list[HoldEventOut]
 
 

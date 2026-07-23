@@ -1,0 +1,101 @@
+{
+  "manifest_version": 1,
+  "contract_family": "control-plan-evidence",
+  "contract_version": 1,
+  "json_schema_dialect": "https://json-schema.org/draft/2020-12/schema",
+  "contract_set_sha256": "67bacfee2c975302cf478c1caf2ee9f5991552fcbe0d5a771c09ec96f8192742",
+  "schemas": [
+    {
+      "relative_path": "intent-timeline.schema.json",
+      "sha256": "f14a09aad16c744cfce2f3f5be56d053fbe1da17af4c23b6ab16b0e446963695"
+    },
+    {
+      "relative_path": "readback-observations.schema.json",
+      "sha256": "2abb6b75140d65ceb9ccd9f9aee36ce21013cde92096887ed3561c465d7b05af"
+    },
+    {
+      "relative_path": "execution-state.schema.json",
+      "sha256": "29ed3832b91bd2d1d9ed2701d6d54f32a4ab4747a8b085496eec0f18bb1c74d7"
+    }
+  ],
+  "fixtures": [
+    {
+      "relative_path": "intent-timeline.example.json",
+      "schema": "intent-timeline.schema.json",
+      "expected_valid": true,
+      "sha256": "d962da134fb7d1551a0cbed9c9d3a73e2cc519c619914f1215dfb3f197dda7a9"
+    },
+    {
+      "relative_path": "readback-observations.example.json",
+      "schema": "readback-observations.schema.json",
+      "expected_valid": true,
+      "sha256": "5ff2852dc65e3294a774b52aa9233846a07e587f5db59d9e2d718e25c62de10e"
+    },
+    {
+      "relative_path": "execution-state.example.json",
+      "schema": "execution-state.schema.json",
+      "expected_valid": true,
+      "sha256": "b7a7fe422d189686b3159f62a6d1955bddda6de3efa1ebe0de7f4bb391b21119"
+    },
+    {
+      "relative_path": "fixtures/invalid/intent-timeline.missing-required.invalid.json",
+      "schema": "intent-timeline.schema.json",
+      "expected_valid": false,
+      "sha256": "47c899de8deac24b7b0b535a908d39f89f7888c3e3e913ccaf448b623b5de679"
+    },
+    {
+      "relative_path": "fixtures/invalid/intent-timeline.extra-field.invalid.json",
+      "schema": "intent-timeline.schema.json",
+      "expected_valid": false,
+      "sha256": "bc46ff9a1c7f779d77736f5497717ca19d45e2570d9bf02d2aa5d32cebeca506"
+    },
+    {
+      "relative_path": "fixtures/invalid/intent-timeline.numeric-timestamp.invalid.json",
+      "schema": "intent-timeline.schema.json",
+      "expected_valid": false,
+      "sha256": "a5cd2169f091a326d2dfc6ad6e368a3397a743dcb898e0fe16b8c41859cca5f4"
+    },
+    {
+      "relative_path": "fixtures/invalid/intent-timeline.naive-timestamp.invalid.json",
+      "schema": "intent-timeline.schema.json",
+      "expected_valid": false,
+      "sha256": "b35664ffc528a62a24067cc264bf41b4e122224898e17c8662782a1fac7e2a80"
+    },
+    {
+      "relative_path": "fixtures/invalid/intent-timeline.date-only.invalid.json",
+      "schema": "intent-timeline.schema.json",
+      "expected_valid": false,
+      "sha256": "a48ff5e3ee242d13dfb6001e881bb5b67608da9bfde4c663aba54e2c3bf2ccc5"
+    },
+    {
+      "relative_path": "fixtures/invalid/intent-timeline.unknown-enum.invalid.json",
+      "schema": "intent-timeline.schema.json",
+      "expected_valid": false,
+      "sha256": "f259d1182161335ba8f8e8c2bb65e7b49286390fcbdb654bf6e29abe38f176a5"
+    },
+    {
+      "relative_path": "fixtures/invalid/readback-observations.retyped-level.invalid.json",
+      "schema": "readback-observations.schema.json",
+      "expected_valid": false,
+      "sha256": "07be8f524435c52df02bc2852dabee7a61cbf6ce5f67677b2793520f68c3e12b"
+    },
+    {
+      "relative_path": "fixtures/invalid/readback-observations.naive-timestamp.invalid.json",
+      "schema": "readback-observations.schema.json",
+      "expected_valid": false,
+      "sha256": "a84c63888152df184a93b2fcf580039eed8191b0de4a28293ee54ba80b13acc6"
+    },
+    {
+      "relative_path": "fixtures/invalid/execution-state.retyped-held.invalid.json",
+      "schema": "execution-state.schema.json",
+      "expected_valid": false,
+      "sha256": "47799ca8431fa68da4c260b5c5578e10d8430db41f040c10c423609c57f439c1"
+    },
+    {
+      "relative_path": "fixtures/invalid/execution-state.naive-timestamp.invalid.json",
+      "schema": "execution-state.schema.json",
+      "expected_valid": false,
+      "sha256": "ee8194b4004b2d46a0de18f55f70508b1ea47cf28a979b991c1317b501e392f5"
+    }
+  ]
+}

@@ -21,7 +21,7 @@ from datetime import date, datetime
 from typing import Annotated, Any, Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict
+from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field
 
 
 def _strict_int(value: Any) -> Any:
@@ -63,10 +63,20 @@ def _strict_datetime(value: Any) -> Any:
     return value
 
 
+def _require_aware_datetime(value: datetime) -> datetime:
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("datetime must carry an explicit timezone offset")
+    return value
+
+
 StrictInt = Annotated[int, BeforeValidator(_strict_int)]
 StrictNumber = Annotated[float, BeforeValidator(_strict_number)]
 StrictBool = Annotated[bool, BeforeValidator(_strict_bool)]
-StrictDatetime = Annotated[datetime, BeforeValidator(_strict_datetime)]
+StrictDatetime = Annotated[
+    datetime,
+    BeforeValidator(_strict_datetime),
+    AfterValidator(_require_aware_datetime),
+]
 
 
 class StrictControlPlanModel(BaseModel):
@@ -293,7 +303,7 @@ class ControlPlanReadbackObservations(StrictControlPlanModel):
 
     plan_id: UUID
     plan_version: StrictInt
-    observations: list[ReadbackObservationProjection]
+    observations: Annotated[list[ReadbackObservationProjection], Field(max_length=1000)]
 
 
 class HoldEventProjection(StrictControlPlanModel):

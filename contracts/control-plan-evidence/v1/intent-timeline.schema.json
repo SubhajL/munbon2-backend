@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://munbon.internal/contracts/control-plan-evidence/v1/intent-timeline.schema.json",
+  "$defs": {
+    "intent": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "intent_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "canonical_gate_id": {
+          "type": "string"
+        },
+        "event_kind": {
+          "type": "string",
+          "enum": [
+            "open",
+            "trim",
+            "close"
+          ]
+        },
+        "event_sequence": {
+          "type": "integer"
+        },
+        "not_before": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "(?:Z|[+-][0-9]{2}:[0-9]{2})$"
+        },
+        "deadline": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "(?:Z|[+-][0-9]{2}:[0-9]{2})$"
+        },
+        "execution_state": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "claimed",
+            "missed",
+            "invalidated"
+          ]
+        },
+        "claimed_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "(?:Z|[+-][0-9]{2}:[0-9]{2})$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "receipt_status": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "validation_accepted",
+                "validation_rejected"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reason_code": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "schema_invalid",
+                "capability_mismatch",
+                "target_invalid",
+                "not_before_violation",
+                "deadline_expired",
+                "lineage_mismatch",
+                "freshness_failed",
+                "idempotency_conflict"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "validated_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "(?:Z|[+-][0-9]{2}:[0-9]{2})$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "dispatched_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "(?:Z|[+-][0-9]{2}:[0-9]{2})$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "receipt_content_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "intent_id",
+        "canonical_gate_id",
+        "event_kind",
+        "event_sequence",
+        "not_before",
+        "deadline",
+        "execution_state",
+        "claimed_at",
+        "receipt_status",
+        "reason_code",
+        "validated_at",
+        "dispatched_at",
+        "receipt_content_sha256"
+      ]
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "plan_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "plan_version": {
+      "type": "integer"
+    },
+    "intents": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/intent"
+      }
+    }
+  },
+  "required": [
+    "plan_id",
+    "plan_version",
+    "intents"
+  ]
+}

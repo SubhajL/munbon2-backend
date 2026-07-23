@@ -1,0 +1,15 @@
+{
+  "plan_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  "plan_version": 3,
+  "observations": [
+    {
+      "canonical_gate_id": "M(0,0;1,0)",
+      "observed_level": 2,
+      "expected_level": 3,
+      "quality": "ok",
+      "verdict": "mismatch",
+      "reconciliation_mode": "enforce",
+      "observed_at": "2026-07-20T06:10:00+00:00"
+    }
+  ]
+}
