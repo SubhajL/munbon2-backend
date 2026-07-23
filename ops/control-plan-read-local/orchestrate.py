@@ -13,6 +13,12 @@ import tempfile
 
 ACCEPTED_BASE_SHA = "8095bfe37550200da00ecb554edc646febf8aff9"
 MACHINE_NAME = "munbon-control-plan-local"
+STAGE_ORDER = (
+    "LOCAL-BASE-0",
+    "LOCAL-RTA-1",
+    "LOCAL-AC-1",
+    "LOCAL-READ-ACT-1",
+)
 
 
 class OrchestrationError(RuntimeError):
@@ -233,8 +239,14 @@ def _push_isolated_file(source: Path, destination: str) -> None:
     print(f"PASS guest_input_{source.name}")
 
 
-def provision(repo: Path, release_sha: str) -> None:
+def provision(
+    repo: Path,
+    release_sha: str,
+    frontend_repo: Path,
+    frontend_sha: str,
+) -> None:
     _validate_commit(repo, release_sha)
+    _validate_commit(frontend_repo, frontend_sha)
     state = _machine_state()
     created_now = state == "missing"
     if state == "missing":
@@ -255,6 +267,10 @@ def provision(repo: Path, release_sha: str) -> None:
     sources = [
         local_dir / "bootstrap-linux.sh",
         local_dir / "run-stage-suite.py",
+        local_dir / "local-ac1.py",
+        local_dir / "seed-approved-sources.py",
+        local_dir / "run-ros-manual-producer.sh",
+        local_dir / "run-read-browser.js",
         local_dir / "seed-local-operators.js",
         local_dir / "systemd/munbon-local-auth.service",
         runtime_verifier,
@@ -263,7 +279,9 @@ def provision(repo: Path, release_sha: str) -> None:
         raise OrchestrationError("harness_artifact_missing")
     with tempfile.TemporaryDirectory(prefix="munbon-local-acceptance-") as temporary:
         bundle = Path(temporary) / "source.bundle"
+        frontend_bundle = Path(temporary) / "frontend.bundle"
         _create_bundle(repo, release_sha, bundle)
+        _create_bundle(frontend_repo, frontend_sha, frontend_bundle)
         _run_checked(
             "guest_input_directory",
             build_guest_command(
@@ -272,7 +290,7 @@ def provision(repo: Path, release_sha: str) -> None:
             ),
             timeout=30,
         )
-        for source in (bundle, *sources):
+        for source in (bundle, frontend_bundle, *sources):
             _push_isolated_file(source, f"/opt/munbon/input/{source.name}")
     _run_checked(
         "bootstrap_linux",
@@ -282,6 +300,8 @@ def provision(repo: Path, release_sha: str) -> None:
                 "/opt/munbon/input/bootstrap-linux.sh",
                 "/opt/munbon/input/source.bundle",
                 release_sha,
+                "/opt/munbon/input/frontend.bundle",
+                frontend_sha,
             ],
             user="root",
         ),
@@ -290,7 +310,7 @@ def provision(repo: Path, release_sha: str) -> None:
 
 
 def run_stage(stage: str, release_sha: str, frontend_sha: str) -> None:
-    if stage not in {"LOCAL-BASE-0", "LOCAL-RTA-1"}:
+    if stage not in STAGE_ORDER:
         raise OrchestrationError("stage_not_supported")
     if _machine_state() != "ready":
         raise OrchestrationError("machine_not_ready")
@@ -310,6 +330,11 @@ def run_stage(stage: str, release_sha: str, frontend_sha: str) -> None:
         ),
         timeout=2400,
     )
+
+
+def run_all_stages(release_sha: str, frontend_sha: str) -> None:
+    for stage in STAGE_ORDER:
+        run_stage(stage, release_sha, frontend_sha)
 
 
 def collect_evidence(destination: Path) -> None:
@@ -354,11 +379,16 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "action", choices=("plan", "provision", "run-stage", "run-all", "collect")
     )
     parser.add_argument("--repo", type=Path, default=Path.cwd())
+    parser.add_argument(
+        "--frontend-repo",
+        type=Path,
+        default=Path.cwd().parent / "smart-cms-app",
+    )
     parser.add_argument("--release-sha", default=ACCEPTED_BASE_SHA)
     parser.add_argument(
         "--frontend-sha", default="3a16498a60927996ac38e741b276150968d0cadc"
     )
-    parser.add_argument("--stage", choices=("LOCAL-BASE-0", "LOCAL-RTA-1"))
+    parser.add_argument("--stage", choices=STAGE_ORDER)
     parser.add_argument("--accept-later-origin-main", action="store_true")
     parser.add_argument("--evidence-dir", type=Path)
     return parser.parse_args(argv)
@@ -368,11 +398,17 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     try:
         origin_main = _origin_main_sha(args.repo)
+        frontend_origin_main = _origin_main_sha(args.frontend_repo)
         release_sha = validate_release_sha(
             args.release_sha,
             origin_main_sha=origin_main,
             accept_later_origin_main=args.accept_later_origin_main,
         )
+        if (
+            not re.fullmatch(r"[0-9a-f]{40}", args.frontend_sha)
+            or args.frontend_sha != frontend_origin_main
+        ):
+            raise OrchestrationError("frontend_sha_not_accepted")
         if args.action == "plan":
             print(
                 json.dumps(
@@ -382,20 +418,25 @@ def main(argv: list[str] | None = None) -> int:
                         "isolation": True,
                         "network_isolation": True,
                         "release_sha": release_sha,
+                        "frontend_sha": args.frontend_sha,
                         "aws_actions": False,
                     },
                     sort_keys=True,
                 )
             )
         elif args.action == "provision":
-            provision(args.repo, release_sha)
+            provision(
+                args.repo,
+                release_sha,
+                args.frontend_repo,
+                args.frontend_sha,
+            )
         elif args.action == "run-stage":
             if args.stage is None:
                 raise OrchestrationError("stage_required")
             run_stage(args.stage, release_sha, args.frontend_sha)
         elif args.action == "run-all":
-            run_stage("LOCAL-BASE-0", release_sha, args.frontend_sha)
-            run_stage("LOCAL-RTA-1", release_sha, args.frontend_sha)
+            run_all_stages(release_sha, args.frontend_sha)
         else:
             if args.evidence_dir is None:
                 raise OrchestrationError("evidence_dir_required")

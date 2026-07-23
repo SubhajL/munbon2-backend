@@ -1,10 +1,11 @@
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from hmac import compare_digest
 from typing import Annotated, Literal, Mapping
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from db.water_requirement_repository import (
@@ -110,6 +111,25 @@ def get_daily_requirement_job(request: Request):
     return job
 
 
+def require_manual_requirement_token(
+    request: Request,
+    x_munbon_internal_token: Annotated[
+        str | None,
+        Header(alias="X-Munbon-Internal-Token"),
+    ] = None,
+) -> None:
+    expected = getattr(request.app.state, "daily_requirement_manual_token", None)
+    if not isinstance(expected, str) or not expected:
+        raise HTTPException(
+            status_code=503,
+            detail="manual requirement trigger is disabled",
+        )
+    if not isinstance(x_munbon_internal_token, str) or not compare_digest(
+        x_munbon_internal_token, expected
+    ):
+        raise HTTPException(status_code=403, detail="manual trigger forbidden")
+
+
 def get_current_time() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -129,6 +149,7 @@ def get_current_time() -> datetime:
 )
 async def trigger_daily_requirement_run(
     request: ManualRequirementRunRequest,
+    _manual_trigger=Depends(require_manual_requirement_token),
     job=Depends(get_daily_requirement_job),
 ) -> ManualRequirementRunResponse:
     try:

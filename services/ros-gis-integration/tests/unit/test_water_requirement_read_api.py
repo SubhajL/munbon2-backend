@@ -18,6 +18,7 @@ SERVICE_DATE = date(2026, 7, 16)
 NOW = datetime(2026, 7, 16, 3, tzinfo=UTC)
 RUN_ID = UUID("11111111-1111-4111-8111-111111111111")
 REQUIREMENT_ID = UUID("22222222-2222-4222-8222-222222222222")
+MANUAL_RUN_TOKEN = "local-internal-trigger-value"
 
 
 def _requirement_row(**overrides) -> dict:
@@ -250,17 +251,40 @@ class _FailingJob:
 
 def _manual_run_client(job) -> TestClient:
     app = FastAPI()
+    app.state.daily_requirement_manual_token = MANUAL_RUN_TOKEN
     app.include_router(water_requirements.router)
     app.dependency_overrides[water_requirements.get_daily_requirement_job] = lambda: job
     return TestClient(app, raise_server_exceptions=False)
+
+
+def _post_manual_run(client: TestClient, *, token: str = MANUAL_RUN_TOKEN):
+    return client.post(
+        "/api/v1/water-requirements/runs",
+        json={"asOfDate": "2026-07-16"},
+        headers={"X-Munbon-Internal-Token": token},
+    )
+
+
+def test_manual_run_rejects_missing_or_invalid_internal_trigger_token():
+    job = _ManualJob()
+    client = _manual_run_client(job)
+
+    assert [
+        client.post(
+            "/api/v1/water-requirements/runs",
+            json={"asOfDate": "2026-07-16"},
+        ).status_code,
+        _post_manual_run(client, token="wrong-trigger-value").status_code,
+    ] == [403, 403]
+    assert job.calls == []
 
 
 def test_manual_run_returns_explicit_incomplete_input_response():
     from services.requirement_source_loader import RequirementSourceError
 
     reason = "section 01-01-01-03 has no planting date for 2026-07-16"
-    response = _manual_run_client(_FailingJob(RequirementSourceError(reason))).post(
-        "/api/v1/water-requirements/runs", json={"asOfDate": "2026-07-16"}
+    response = _post_manual_run(
+        _manual_run_client(_FailingJob(RequirementSourceError(reason)))
     )
 
     assert response.status_code == 409
@@ -274,8 +298,8 @@ def test_manual_run_returns_explicit_incomplete_input_response():
 
 
 def test_manual_run_does_not_reclassify_unexpected_value_error():
-    response = _manual_run_client(_FailingJob(ValueError("negative volume"))).post(
-        "/api/v1/water-requirements/runs", json={"asOfDate": "2026-07-16"}
+    response = _post_manual_run(
+        _manual_run_client(_FailingJob(ValueError("negative volume")))
     )
 
     assert response.status_code == 500
@@ -306,9 +330,8 @@ def test_manual_run_endpoint_calls_the_registered_daily_requirement_job():
     )
     app.dependency_overrides[water_requirements.get_daily_requirement_job] = lambda: job
 
-    response = TestClient(app).post(
-        "/api/v1/water-requirements/runs", json={"asOfDate": "2026-07-16"}
-    )
+    app.state.daily_requirement_manual_token = MANUAL_RUN_TOKEN
+    response = _post_manual_run(TestClient(app))
 
     assert response.status_code == 200
     assert response.json() == {

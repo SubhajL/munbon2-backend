@@ -130,6 +130,11 @@ app = FastAPI(
 )
 app.state.db_manager = db_manager
 app.state.daily_requirement_job = None
+app.state.daily_requirement_manual_token = (
+    settings.daily_requirement_manual_token.get_secret_value()
+    if settings.daily_requirement_manual_token is not None
+    else None
+)
 
 # Add CORS middleware
 app.add_middleware(

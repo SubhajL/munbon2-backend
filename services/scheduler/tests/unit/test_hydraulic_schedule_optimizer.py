@@ -4,6 +4,7 @@ from typing import Any, cast
 
 import pytest
 
+import algorithms.hydraulic_schedule_optimizer as optimizer_module
 from algorithms.hydraulic_schedule_optimizer import (
     DeliveryObligation,
     GateEventKind,
@@ -20,13 +21,65 @@ from algorithms.hydraulic_schedule_optimizer import (
     verify_adjustment_budget,
 )
 
-
 UTC = timezone.utc
 MODEL_SNAPSHOT_ID = "a" * 64
 STEP_SECONDS = 3_600
 HORIZON_START = datetime(2026, 7, 16, tzinfo=UTC)
 HORIZON_END = HORIZON_START + timedelta(days=3)
 PATH_REACH = "C_S_M(0,0)"
+
+
+def test_cbc_solver_prefers_the_native_system_binary(monkeypatch) -> None:
+    calls = []
+
+    def coin_cmd(**kwargs):
+        calls.append(kwargs)
+        return "native-cbc"
+
+    monkeypatch.setattr(optimizer_module.shutil, "which", lambda name: "/usr/bin/cbc")
+    monkeypatch.setattr(optimizer_module.pulp, "COIN_CMD", coin_cmd)
+
+    solver = optimizer_module._cbc_solver(
+        remaining_seconds=15.0,
+        warm_start=True,
+    )
+
+    assert solver == "native-cbc"
+    assert calls == [
+        {
+            "path": "/usr/bin/cbc",
+            "msg": False,
+            "threads": 1,
+            "timeLimit": 15.0,
+            "warmStart": True,
+        }
+    ]
+
+
+def test_cbc_solver_falls_back_to_the_bundled_binary(monkeypatch) -> None:
+    calls = []
+
+    def pulp_cbc_cmd(**kwargs):
+        calls.append(kwargs)
+        return "bundled-cbc"
+
+    monkeypatch.setattr(optimizer_module.shutil, "which", lambda name: None)
+    monkeypatch.setattr(optimizer_module.pulp, "PULP_CBC_CMD", pulp_cbc_cmd)
+
+    solver = optimizer_module._cbc_solver(
+        remaining_seconds=15.0,
+        warm_start=False,
+    )
+
+    assert solver == "bundled-cbc"
+    assert calls == [
+        {
+            "msg": False,
+            "threads": 1,
+            "timeLimit": 15.0,
+            "warmStart": False,
+        }
+    ]
 
 
 def _window(start_hour: int, duration_hours: int) -> TimeWindow:
