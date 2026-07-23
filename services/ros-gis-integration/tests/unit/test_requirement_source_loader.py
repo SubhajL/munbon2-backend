@@ -15,6 +15,17 @@ UTC = timezone.utc
 CUTOFF = datetime(2026, 7, 16, 1, tzinfo=UTC)
 
 
+class _RecordLike:
+    def __init__(self, values):
+        self.values = values
+
+    def keys(self):
+        return self.values.keys()
+
+    def __getitem__(self, key):
+        return self.values[key]
+
+
 def _zone(number: int) -> int:
     if number <= 7:
         return 1
@@ -191,6 +202,39 @@ def test_build_snapshot_applies_section_level_fe_crop_and_planted_area_override(
         "operator-fe",
         date(2026, 7, 15),
     )
+
+
+def test_build_snapshot_hashes_database_record_mappings_for_weather_lineage():
+    expected = _build()
+
+    actual = _build(
+        eto_rows=[
+            _RecordLike({"month": 7, "eto_value": Decimal("93"), "updated_at": CUTOFF})
+        ],
+        kc_rows=[
+            _RecordLike(
+                {
+                    "crop_type": "rice",
+                    "crop_week": week,
+                    "kc_value": Decimal("1.2"),
+                    "updated_at": CUTOFF,
+                }
+            )
+            for week in (1, 2)
+        ],
+        rainfall_rows=[
+            _RecordLike(
+                {
+                    "crop_type": "rice",
+                    "month": 7,
+                    "effective_rainfall_mm": Decimal("31"),
+                    "updated_at": CUTOFF,
+                }
+            )
+        ],
+    )
+
+    assert actual.weather_version == expected.weather_version
 
 
 @pytest.mark.parametrize(

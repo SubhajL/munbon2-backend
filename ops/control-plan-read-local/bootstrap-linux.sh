@@ -1,16 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ "$(id -u)" != "0" || "$#" != "2" ]]; then
+if [[ "$(id -u)" != "0" || "$#" != "4" ]]; then
   echo "FAIL bootstrap_arguments" >&2
   exit 2
 fi
 
+cd /
+
 BOOTSTRAP_PHASE=arguments
 INFLUX_KEY=
+NODE_TEMP=
 on_exit() {
   local status=$?
   [[ -z "${INFLUX_KEY}" ]] || rm -f "${INFLUX_KEY}"
+  [[ -z "${NODE_TEMP}" ]] || rm -rf "${NODE_TEMP}"
   if [[ "${status}" != "0" ]]; then
     echo "FAIL bootstrap_${BOOTSTRAP_PHASE}" >&2
   fi
@@ -24,15 +28,28 @@ phase() {
 
 SOURCE_BUNDLE="$1"
 RELEASE_SHA="$2"
+FRONTEND_BUNDLE="$3"
+FRONTEND_SHA="$4"
 INPUT_DIR="$(cd -- "$(dirname -- "${SOURCE_BUNDLE}")" && pwd)"
 REPO_ROOT=/opt/munbon/repo
+FRONTEND_ROOT=/opt/munbon/frontend
 HARNESS_ROOT=/opt/munbon/harness
+BROWSER_ROOT=/opt/munbon/browser
+PLAYWRIGHT_BROWSERS_PATH=/opt/munbon/playwright-browsers
 RUNTIME_ENV_DIR=/etc/munbon/control-plan-read-runtime
 STATE_ROOT=/var/lib/munbon-local-acceptance
+EVIDENCE_ROOT="${STATE_ROOT}/evidence"
+EVIDENCE_ARCHIVE_ROOT="${STATE_ROOT}/evidence-archive"
 INFLUX_FINGERPRINT=24C975CBA61A024EE1B631787C3D57159FC2F927
 PM2_VERSION=5.4.3
+NODE_VERSION=22.23.1
+NODE_ROOT="/opt/node-v${NODE_VERSION}-linux-arm64"
 
-if [[ "$(uname -m)" != "aarch64" || ! "${RELEASE_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+if [[ \
+  "$(uname -m)" != "aarch64" \
+  || ! "${RELEASE_SHA}" =~ ^[0-9a-f]{40}$ \
+  || ! "${FRONTEND_SHA}" =~ ^[0-9a-f]{40}$ \
+]]; then
   echo "FAIL bootstrap_platform_or_sha" >&2
   exit 1
 fi
@@ -41,11 +58,33 @@ phase base_packages
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq \
-  build-essential ca-certificates curl gdal-bin git gnupg jq libgdal-dev libgeos-dev \
+  build-essential ca-certificates coinor-cbc curl gdal-bin git gnupg jq \
+  libgdal-dev libgeos-dev \
   libpq-dev nodejs npm openssl \
   postgresql postgresql-contrib postgis prometheus python3 python3-dev python3-venv \
-  redis-server rsync
+  redis-server rsync xz-utils
 systemctl disable --now prometheus prometheus-node-exporter >/dev/null 2>&1 || true
+
+phase node_runtime
+NODE_TEMP="$(mktemp -d)"
+NODE_ARCHIVE="node-v${NODE_VERSION}-linux-arm64.tar.xz"
+curl --fail --silent --show-error --location \
+  "https://nodejs.org/dist/v${NODE_VERSION}/${NODE_ARCHIVE}" \
+  --output "${NODE_TEMP}/${NODE_ARCHIVE}"
+curl --fail --silent --show-error --location \
+  "https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt" \
+  --output "${NODE_TEMP}/SHASUMS256.txt"
+(
+  cd "${NODE_TEMP}"
+  grep " ${NODE_ARCHIVE}$" SHASUMS256.txt | sha256sum --check --status
+)
+install -d -m 0755 "${NODE_ROOT}"
+tar -xJf "${NODE_TEMP}/${NODE_ARCHIVE}" \
+  --strip-components=1 --directory="${NODE_ROOT}"
+if [[ "$("${NODE_ROOT}/bin/node" --version)" != "v${NODE_VERSION}" ]]; then
+  echo "FAIL node_runtime_version" >&2
+  exit 1
+fi
 
 install -d -m 0755 /etc/apt/keyrings
 INFLUX_KEY="$(mktemp)"
@@ -68,12 +107,45 @@ phase filesystem
 if ! id munbon >/dev/null 2>&1; then
   useradd --create-home --shell /bin/bash munbon
 fi
-install -d -o munbon -g munbon -m 0750 /opt/munbon "${HARNESS_ROOT}" "${STATE_ROOT}"
+install -d -o munbon -g munbon -m 0750 \
+  /opt/munbon "${HARNESS_ROOT}" "${STATE_ROOT}" "${BROWSER_ROOT}" \
+  "${EVIDENCE_ARCHIVE_ROOT}"
 install -d -o munbon -g munbon -m 0700 "${RUNTIME_ENV_DIR}"
 install -o munbon -g munbon -m 0644 "${SOURCE_BUNDLE}" /opt/munbon/source.bundle
-for artifact in run-stage-suite.py seed-local-operators.js verify_bearer.py; do
+install -o munbon -g munbon -m 0644 \
+  "${FRONTEND_BUNDLE}" /opt/munbon/frontend.bundle
+for artifact in \
+  run-stage-suite.py \
+  local-ac1.py \
+  seed-approved-sources.py \
+  run-ros-manual-producer.sh \
+  run-read-browser.js \
+  seed-local-operators.js \
+  verify_bearer.py; do
   install -o munbon -g munbon -m 0750 "${INPUT_DIR}/${artifact}" "${HARNESS_ROOT}/${artifact}"
 done
+
+phase evidence_archive
+if [[ \
+  -d "${EVIDENCE_ROOT}" \
+  && -n "$(find "${EVIDENCE_ROOT}" -mindepth 1 -maxdepth 1 -print -quit)" \
+]]; then
+  PREVIOUS_RELEASE=unknown
+  if [[ -f "${STATE_ROOT}/owner.json" ]]; then
+    CANDIDATE_RELEASE="$(jq -r '.release_sha // empty' "${STATE_ROOT}/owner.json")"
+    if [[ "${CANDIDATE_RELEASE}" =~ ^[0-9a-f]{40}$ ]]; then
+      PREVIOUS_RELEASE="${CANDIDATE_RELEASE}"
+    fi
+  fi
+  ARCHIVE_STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+  mv -- "${EVIDENCE_ROOT}" \
+    "${EVIDENCE_ARCHIVE_ROOT}/${PREVIOUS_RELEASE}-${ARCHIVE_STAMP}-$$"
+fi
+install -d -o munbon -g munbon -m 0700 "${EVIDENCE_ROOT}"
+
+phase runtime_quiesce
+systemctl stop munbon-local-auth >/dev/null 2>&1 || true
+runuser -u munbon -- pm2 delete all >/dev/null 2>&1 || true
 
 phase source_checkout
 if [[ ! -d "${REPO_ROOT}/.git" ]]; then
@@ -82,9 +154,23 @@ else
   runuser -u munbon -- git -C "${REPO_ROOT}" fetch --quiet --force \
     /opt/munbon/source.bundle refs/heads/main
 fi
-runuser -u munbon -- git -C "${REPO_ROOT}" checkout --quiet --detach "${RELEASE_SHA}"
+runuser -u munbon -- git -C "${REPO_ROOT}" checkout --force --quiet \
+  --detach "${RELEASE_SHA}"
 if [[ "$(runuser -u munbon -- git -C "${REPO_ROOT}" rev-parse HEAD)" != "${RELEASE_SHA}" ]]; then
   echo "FAIL checkout_sha" >&2
+  exit 1
+fi
+if [[ ! -d "${FRONTEND_ROOT}/.git" ]]; then
+  runuser -u munbon -- git clone --quiet \
+    /opt/munbon/frontend.bundle "${FRONTEND_ROOT}"
+else
+  runuser -u munbon -- git -C "${FRONTEND_ROOT}" fetch --quiet --force \
+    /opt/munbon/frontend.bundle refs/heads/main
+fi
+runuser -u munbon -- git -C "${FRONTEND_ROOT}" checkout --force --quiet \
+  --detach "${FRONTEND_SHA}"
+if [[ "$(runuser -u munbon -- git -C "${FRONTEND_ROOT}" rev-parse HEAD)" != "${FRONTEND_SHA}" ]]; then
+  echo "FAIL frontend_checkout_sha" >&2
   exit 1
 fi
 
@@ -97,13 +183,20 @@ if [[ ! -f "${SECRETS_FILE}" ]]; then
   SESSION_SECRET="$(openssl rand -hex 32)"
   INFLUX_TOKEN="$(openssl rand -hex 48)"
   OPERATOR_PASSWORD="L1!$(openssl rand -hex 20)aA"
+  DAILY_REQUIREMENT_MANUAL_TOKEN="$(openssl rand -hex 48)"
   {
     echo "DB_PASSWORD=${DB_PASSWORD}"
     echo "JWT_SECRET=${JWT_SECRET}"
     echo "SESSION_SECRET=${SESSION_SECRET}"
     echo "INFLUX_TOKEN=${INFLUX_TOKEN}"
     echo "OPERATOR_PASSWORD=${OPERATOR_PASSWORD}"
+    echo "DAILY_REQUIREMENT_MANUAL_TOKEN=${DAILY_REQUIREMENT_MANUAL_TOKEN}"
   } > "${SECRETS_FILE}"
+fi
+if ! grep -q '^DAILY_REQUIREMENT_MANUAL_TOKEN=' "${SECRETS_FILE}"; then
+  DAILY_REQUIREMENT_MANUAL_TOKEN="$(openssl rand -hex 48)"
+  echo "DAILY_REQUIREMENT_MANUAL_TOKEN=${DAILY_REQUIREMENT_MANUAL_TOKEN}" \
+    >> "${SECRETS_FILE}"
 fi
 chown munbon:munbon "${SECRETS_FILE}"
 chmod 600 "${SECRETS_FILE}"
@@ -113,6 +206,10 @@ set +a
 
 phase postgres_redis
 systemctl enable --now postgresql redis-server >/dev/null
+runuser -u postgres -- psql --set=ON_ERROR_STOP=1 -Atqc \
+  "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='munbon_local' AND pid <> pg_backend_pid()" \
+  >/dev/null
+runuser -u postgres -- dropdb --if-exists munbon_local
 if ! runuser -u postgres -- psql -Atqc "SELECT 1 FROM pg_roles WHERE rolname='munbon_local'" \
   | grep -qx 1; then
   runuser -u postgres -- createuser --no-superuser --no-createdb --no-createrole munbon_local
@@ -132,6 +229,7 @@ SQL
 
 sed -ri 's/^bind .*/bind 127.0.0.1 ::1/' /etc/redis/redis.conf
 systemctl restart redis-server
+redis-cli FLUSHALL >/dev/null
 phase influx_runtime
 install -d -m 0755 /etc/systemd/system/influxdb.service.d
 cat > /etc/systemd/system/influxdb.service.d/loopback.conf <<'EOF'
@@ -248,6 +346,26 @@ chown -h munbon:munbon "${REPO_ROOT}/services/flow-monitoring/venv" \
   "${REPO_ROOT}/services/scheduler/venv"
 runuser -u munbon -- npm --prefix "${REPO_ROOT}/services/auth" ci --omit=dev --silent
 runuser -u munbon -- npm --prefix "${REPO_ROOT}/infra/pm2" ci --silent
+runuser -u munbon -- env \
+  PATH="${NODE_ROOT}/bin:/usr/bin:/bin" \
+  "${NODE_ROOT}/bin/npm" --prefix "${FRONTEND_ROOT}" ci --silent
+(
+  cd "${FRONTEND_ROOT}"
+  runuser -u munbon -- env \
+    PATH="${NODE_ROOT}/bin:/usr/bin:/bin" \
+    "${NODE_ROOT}/bin/npm" exec prisma generate
+)
+runuser -u munbon -- env \
+  PATH="${NODE_ROOT}/bin:/usr/bin:/bin" \
+  "${NODE_ROOT}/bin/npm" --prefix "${BROWSER_ROOT}" install --silent \
+  "playwright@1.54.2"
+(
+  cd "${BROWSER_ROOT}"
+  PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH}" \
+    PATH="${NODE_ROOT}/bin:/usr/bin:/bin" \
+    "${NODE_ROOT}/bin/npx" playwright install --with-deps chromium
+)
+chown -R munbon:munbon "${BROWSER_ROOT}" "${PLAYWRIGHT_BROWSERS_PATH}"
 
 phase auth
 runuser -u munbon -- bash -c \

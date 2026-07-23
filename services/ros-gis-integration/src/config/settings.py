@@ -1,6 +1,6 @@
 from typing import List, Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field
+from pydantic import Field, SecretStr
 
 
 class Settings(BaseSettings):
@@ -90,6 +90,10 @@ class Settings(BaseSettings):
         default=4320,
         ge=1,
         env="DAILY_REQUIREMENT_INPUT_MAX_AGE_HOURS",
+    )
+    daily_requirement_manual_token: Optional[SecretStr] = Field(
+        default=None,
+        env="DAILY_REQUIREMENT_MANUAL_TOKEN",
     )
 
     # Priority Weights

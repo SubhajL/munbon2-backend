@@ -1,22 +1,34 @@
 #!/usr/bin/env python3
-"""Run LOCAL-BASE-0 and LOCAL-RTA-1 inside the isolated Linux guest."""
+"""Run the progressive all-local control-plan acceptance stages."""
 
 from __future__ import annotations
 
 import argparse
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from http.cookiejar import CookieJar
 import hashlib
+from hmac import compare_digest
 import importlib.util
 import json
 import os
 from pathlib import Path
+import signal
 import re
 import subprocess
 import sys
-from urllib.parse import urlsplit
-from urllib.request import Request, urlopen
+import time
+from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode, urlsplit
+from urllib.request import (
+    HTTPCookieProcessor,
+    Request,
+    build_opener,
+    urlopen,
+)
+from uuid import UUID
 
 
 class StageGateError(RuntimeError):
@@ -29,6 +41,12 @@ PROCESS_NAMES = (
     "ros-gis-integration",
     "bff-water-planning",
 )
+STAGE_ORDER = (
+    "LOCAL-BASE-0",
+    "LOCAL-RTA-1",
+    "LOCAL-AC-1",
+    "LOCAL-READ-ACT-1",
+)
 READINESS_URLS = {
     "flow-monitoring": "http://127.0.0.1:3011/ready",
     "scheduler": "http://127.0.0.1:3021/ready",
@@ -36,6 +54,18 @@ READINESS_URLS = {
     "bff-water-planning": "http://127.0.0.1:3022/ready",
 }
 EXPECTED_FRONTEND_SHA = "3a16498a60927996ac38e741b276150968d0cadc"
+NODE_ROOT = Path("/opt/node-v22.23.1-linux-arm64")
+BROWSER_ROOT = Path("/opt/munbon/browser")
+PLAYWRIGHT_BROWSERS_ROOT = Path("/opt/munbon/playwright-browsers")
+HARNESS_ARTIFACTS = (
+    "local-ac1.py",
+    "run-read-browser.js",
+    "run-ros-manual-producer.sh",
+    "run-stage-suite.py",
+    "seed-approved-sources.py",
+    "seed-local-operators.js",
+    "verify_bearer.py",
+)
 GATE_ENV_NAMES = {
     "ALLOW_MACHINE_COMMANDS",
     "CONTROL_EXECUTION_MODE",
@@ -60,7 +90,67 @@ class StageContext:
     harness_root: Path
     evidence_root: Path
     runtime_env_dir: Path
+    frontend_root: Path = Path("/opt/munbon/frontend")
     stability_duration: int = 300
+    as_of_date: date = date.today()
+
+
+@dataclass(frozen=True)
+class HttpResult:
+    status: int
+    body: Any
+    headers: dict[str, str]
+
+
+class LocalHttpClient:
+    def __init__(self) -> None:
+        self.cookies = CookieJar()
+        self.opener = build_opener(HTTPCookieProcessor(self.cookies))
+
+    def request(
+        self,
+        method: str,
+        url: str,
+        *,
+        payload: dict | None = None,
+        bearer: str | None = None,
+        internal_trigger: str | None = None,
+        timeout: int = 30,
+    ) -> HttpResult:
+        headers = {"Accept": "application/json"}
+        data = None
+        if payload is not None:
+            headers["Content-Type"] = "application/json"
+            data = json.dumps(payload).encode("utf-8")
+        if bearer is not None:
+            headers["Authorization"] = f"Bearer {bearer}"
+        if internal_trigger is not None:
+            headers["X-Munbon-Internal-Token"] = internal_trigger
+        request = Request(url, data=data, headers=headers, method=method)
+        try:
+            response = self.opener.open(request, timeout=timeout)
+        except HTTPError as error:
+            response = error
+        except (OSError, URLError) as exc:
+            raise StageGateError("local_http_request_failed") from exc
+        try:
+            raw = response.read(16 * 1024 * 1024 + 1)
+            if len(raw) > 16 * 1024 * 1024:
+                raise ValueError
+            body = json.loads(raw) if raw else None
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise StageGateError("local_http_response_invalid") from exc
+        return HttpResult(
+            status=response.status,
+            body=body,
+            headers={key.lower(): value for key, value in response.headers.items()},
+        )
+
+    def refresh_cookie(self) -> str:
+        for cookie in self.cookies:
+            if cookie.name == "refreshToken" and cookie.value:
+                return cookie.value
+        raise StageGateError("refresh_cookie_missing")
 
 
 def validate_runtime_urls(urls: dict[str, str]) -> dict[str, str]:
@@ -81,14 +171,227 @@ def validate_runtime_urls(urls: dict[str, str]) -> dict[str, str]:
 
 
 def validate_stage_transition(completed: tuple[str, ...], requested: str) -> None:
-    order = ("LOCAL-BASE-0", "LOCAL-RTA-1")
     expected_index = len(completed)
     if (
-        completed != order[:expected_index]
-        or expected_index >= len(order)
-        or requested != order[expected_index]
+        completed != STAGE_ORDER[:expected_index]
+        or expected_index >= len(STAGE_ORDER)
+        or requested != STAGE_ORDER[expected_index]
     ):
         raise StageGateError("stage_transition_invalid")
+
+
+def validate_ros_lifecycle(payload: Any, *, manual_enabled: bool) -> dict:
+    try:
+        lifecycle = payload["daily_requirement"]
+        expected = {
+            "enabled": manual_enabled,
+            "startup_catchup_enabled": False,
+            "schedule_enabled": False,
+            "schedule_running": False,
+        }
+        projected = {name: lifecycle[name] for name in expected}
+        if projected != expected:
+            raise ValueError
+        return projected
+    except (KeyError, TypeError, ValueError) as exc:
+        raise StageGateError("ros_lifecycle_not_accepted") from exc
+
+
+def validate_manual_requirement_run(status: int, body: Any, *, as_of_date: str) -> dict:
+    try:
+        run_id = str(UUID(str(body["runId"])))
+        if (
+            status != 200
+            or body["status"] != "published"
+            or body["asOfDate"] != as_of_date
+            or body["requirementCount"] != 287
+        ):
+            raise ValueError
+        return {
+            "status": body["status"],
+            "run_id": run_id,
+            "as_of_date": body["asOfDate"],
+            "requirement_count": body["requirementCount"],
+        }
+    except (KeyError, TypeError, ValueError) as exc:
+        raise StageGateError("manual_requirement_run_not_accepted") from exc
+
+
+def validate_zone_requirements(
+    status: int,
+    body: Any,
+    *,
+    as_of_date: str,
+    run_id: str,
+) -> dict:
+    try:
+        expected_sections = {f"01-06-01-{number:02d}" for number in range(35, 44)}
+        requirements = body["requirements"]
+        if (
+            status != 200
+            or body["serviceDate"] != as_of_date
+            or body["zone"] != 6
+            or body["dataStatus"] != "published"
+            or not isinstance(requirements, list)
+            or len(requirements) != len(expected_sections)
+        ):
+            raise ValueError
+        versions = set()
+        sections = set()
+        positive_count = 0
+        for requirement in requirements:
+            UUID(str(requirement["requirementId"]))
+            if (
+                str(UUID(str(requirement["runId"]))) != run_id
+                or requirement["serviceDate"] != as_of_date
+                or requirement["zone"] != 6
+                or requirement["dataStatus"] != "published"
+                or isinstance(requirement["requiredVolumeM3"], bool)
+                or not isinstance(requirement["requiredVolumeM3"], (int, float))
+                or requirement["requiredVolumeM3"] < 0
+            ):
+                raise ValueError
+            versions.add(requirement["version"])
+            sections.add(requirement["sectionId"])
+            positive_count += requirement["requiredVolumeM3"] > 0
+        if (
+            sections != expected_sections
+            or len(versions) != 1
+            or next(iter(versions)) < 1
+            or positive_count == 0
+        ):
+            raise ValueError
+        return {
+            "service_date": body["serviceDate"],
+            "zone": body["zone"],
+            "data_status": body["dataStatus"],
+            "requirement_count": len(requirements),
+            "run_id": run_id,
+            "version": next(iter(versions)),
+            "positive_requirement_count": positive_count,
+        }
+    except (KeyError, TypeError, ValueError) as exc:
+        raise StageGateError("zone_requirements_not_accepted") from exc
+
+
+def validate_draft_result(status: int, body: Any, *, requirement_run_id: str) -> dict:
+    try:
+        plan_id = str(UUID(str(body["plan_id"])))
+        plan_version = body["plan_version"]
+        if (
+            status not in {200, 201}
+            or str(UUID(str(body["requirement_run_id"]))) != requirement_run_id
+            or isinstance(plan_version, bool)
+            or not isinstance(plan_version, int)
+            or plan_version < 1
+            or body["lifecycle_state"] != "draft"
+            or body["optimizer_status"] != "feasible"
+            or body["prediction_status"] != "completed"
+            or not isinstance(body["requirements"], list)
+            or not body["requirements"]
+            or not isinstance(body["events"], list)
+            or not body["events"]
+            or not isinstance(body["transitions"], list)
+            or not body["transitions"]
+        ):
+            raise ValueError
+        return {
+            "status": status,
+            "plan_id": plan_id,
+            "plan_version": plan_version,
+            "lifecycle_state": body["lifecycle_state"],
+            "optimizer_status": body["optimizer_status"],
+            "prediction_status": body["prediction_status"],
+            "requirement_count": len(body["requirements"]),
+            "event_count": len(body["events"]),
+            "transition_count": len(body["transitions"]),
+        }
+    except (KeyError, TypeError, ValueError) as exc:
+        raise StageGateError("draft_result_not_accepted") from exc
+
+
+def validate_projection_result(
+    path: str,
+    status: int,
+    headers: dict[str, str],
+    body: Any,
+    *,
+    plan_id: str,
+    plan_version: int,
+) -> dict:
+    try:
+        no_store = "no-store" in headers.get("cache-control", "").lower()
+        if status != 200 or not no_store or not isinstance(body, dict):
+            raise ValueError
+        if path == "/api/v1/control-plans":
+            items = body["items"]
+            if (
+                body["projection_schema_version"] != 2
+                or not isinstance(items, list)
+                or not any(
+                    item.get("plan_id") == plan_id
+                    and item.get("plan_version") == plan_version
+                    for item in items
+                    if isinstance(item, dict)
+                )
+            ):
+                raise ValueError
+        elif body.get("plan_id") != plan_id or body.get("plan_version") != plan_version:
+            raise ValueError
+        return {
+            "status": status,
+            "no_store": True,
+            "plan_id": plan_id,
+            "plan_version": plan_version,
+            "top_level_keys": sorted(body),
+        }
+    except (KeyError, TypeError, ValueError) as exc:
+        raise StageGateError("projection_result_not_accepted") from exc
+
+
+def validate_read_browser_result(
+    body: Any,
+    *,
+    mode: str,
+    plan_id: str,
+    plan_version: int,
+) -> dict:
+    try:
+        normalized_plan_id = str(UUID(plan_id))
+        if mode == "dark":
+            expected = {
+                "mode": "dark",
+                "signed_in": True,
+                "navigation_link_count": 0,
+                "route_status": 404,
+            }
+        elif mode == "visible":
+            expected = {
+                "mode": "visible",
+                "signed_out_redirect": "/login",
+                "navigation_link_count": 1,
+                "list_plan_found": True,
+                "detail_plan_id": normalized_plan_id,
+                "detail_plan_version": plan_version,
+                "refresh_preserved_detail": True,
+                "deep_link_loaded": True,
+                "missing_plan_alerts": 4,
+                "independent_panel_failure": "ledger-only",
+                "action_controls": 0,
+                "unexpected_control_plan_mutations": 0,
+                "mutation_route_denial_count": 5,
+            }
+        else:
+            raise ValueError
+        if not isinstance(body, dict) or body != expected or plan_version < 1:
+            raise ValueError
+        return expected
+    except (TypeError, ValueError) as exc:
+        raise StageGateError("read_browser_result_not_accepted") from exc
+
+
+def read_activation_flag_sequence() -> tuple[bool, ...]:
+    return (False, True, False)
 
 
 def rta_step_order() -> tuple[str, ...]:
@@ -273,6 +576,12 @@ def write_stage_manifest(path, payload: dict) -> None:
         raise
 
 
+def clear_failure_manifest(evidence_root: Path, stage: str) -> None:
+    if stage not in STAGE_ORDER:
+        raise StageGateError("stage_not_supported")
+    (evidence_root / f"{stage}-failure.json").unlink(missing_ok=True)
+
+
 def parse_listening_sockets(ss_output: str) -> list[dict]:
     listeners = []
     for line in ss_output.splitlines():
@@ -382,6 +691,54 @@ def _load_env_file(path: Path) -> dict[str, str]:
         raise StageGateError("runtime_env_invalid") from exc
 
 
+def frontend_process_environment(
+    runtime_env_dir: Path,
+    *,
+    control_plan_reads: bool,
+) -> dict[str, str]:
+    auth = _load_env_file(runtime_env_dir / "auth.env")
+    try:
+        jwt = {
+            name: auth[name] for name in ("JWT_SECRET", "JWT_ISSUER", "JWT_AUDIENCE")
+        }
+        if any(not value for value in jwt.values()):
+            raise ValueError
+    except (KeyError, ValueError) as exc:
+        raise StageGateError("frontend_auth_environment_invalid") from exc
+    validate_runtime_urls(
+        {
+            "auth": "http://127.0.0.1:3005",
+            "bff": "http://127.0.0.1:3022",
+        }
+    )
+    return {
+        **os.environ,
+        **jwt,
+        "PATH": f"{NODE_ROOT / 'bin'}:/usr/bin:/bin",
+        "NODE_ENV": "production",
+        "NEXT_PUBLIC_CONTROL_PLAN_READS": ("true" if control_plan_reads else "false"),
+        "NEXT_PUBLIC_WATER_PLANNING_V2": "false",
+        "NEXT_PUBLIC_WATER_PLANNING_SUBMIT_ENABLED": "false",
+        "CENTRAL_AUTH_URL": "http://127.0.0.1:3005",
+        "WATER_PLANNING_BFF_URL": "http://127.0.0.1:3022",
+    }
+
+
+def project_frontend_activation_gates(environment: dict[str, str]) -> dict[str, bool]:
+    names = {
+        "control_plan_reads": "NEXT_PUBLIC_CONTROL_PLAN_READS",
+        "water_planning_v2": "NEXT_PUBLIC_WATER_PLANNING_V2",
+        "water_planning_submit": "NEXT_PUBLIC_WATER_PLANNING_SUBMIT_ENABLED",
+    }
+    try:
+        values = {name: environment[key] for name, key in names.items()}
+        if any(value not in {"true", "false"} for value in values.values()):
+            raise ValueError
+        return {name: value == "true" for name, value in values.items()}
+    except (KeyError, ValueError) as exc:
+        raise StageGateError("frontend_activation_gates_invalid") from exc
+
+
 def _service_environment(context: StageContext, service: str) -> dict[str, str]:
     return {
         **os.environ,
@@ -451,7 +808,7 @@ def _listener_snapshot() -> list[dict]:
     return parse_listening_sockets(output)
 
 
-def _read_json(path: Path) -> dict:
+def _read_json(path: Path) -> dict[str, Any]:
     try:
         if path.stat().st_size > 1024 * 1024:
             raise ValueError
@@ -463,23 +820,70 @@ def _read_json(path: Path) -> dict:
         raise StageGateError("json_artifact_invalid") from exc
 
 
-def _load_state(context: StageContext) -> dict:
+def _hash_file(path: Path) -> str:
+    try:
+        if path.stat().st_size > 16 * 1024 * 1024:
+            raise ValueError
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except (OSError, ValueError) as exc:
+        raise StageGateError("stage_identity_unavailable") from exc
+
+
+def _stage_identity(context: StageContext) -> dict[str, Any]:
+    return {
+        "release_sha": context.release_sha,
+        "frontend_sha": context.frontend_sha,
+        "harness_hashes": {
+            name: _hash_file(context.harness_root / name) for name in HARNESS_ARTIFACTS
+        },
+    }
+
+
+def _verify_source_checkouts(context: StageContext) -> None:
+    for label, root, expected_sha in (
+        ("backend", context.repo_root, context.release_sha),
+        ("frontend", context.frontend_root, context.frontend_sha),
+    ):
+        actual_sha = _run_checked(
+            f"{label}_source_identity",
+            ["git", "rev-parse", "HEAD"],
+            cwd=root,
+        ).strip()
+        tracked_status = _run_checked(
+            f"{label}_tracked_identity",
+            ["git", "status", "--porcelain", "--untracked-files=no"],
+            cwd=root,
+        ).strip()
+        if actual_sha != expected_sha or tracked_status:
+            raise StageGateError(f"{label}_source_identity_stale")
+
+
+def _load_state(context: StageContext) -> dict[str, Any]:
+    _verify_source_checkouts(context)
     path = context.evidence_root / "stage-state.json"
     if not path.exists():
-        return {"release_sha": context.release_sha, "completed": []}
+        if (context.evidence_root / "SHA256SUMS").exists():
+            raise StageGateError("stage_state_missing")
+        return {**_stage_identity(context), "completed": []}
+    _verify_checksum_entry(path)
     state = _read_json(path)
-    if state.get("release_sha") != context.release_sha or not isinstance(
-        state.get("completed"), list
+    completed = state.get("completed")
+    expected_identity = _stage_identity(context)
+    if (
+        not isinstance(completed, list)
+        or tuple(completed) != STAGE_ORDER[: len(completed)]
+        or {key: state.get(key) for key in expected_identity} != expected_identity
     ):
         raise StageGateError("stage_state_stale")
+    for stage in completed:
+        _verify_checksum_entry(context.evidence_root / f"{stage}.json")
     return state
 
 
 def _save_state(context: StageContext, completed: list[str]) -> None:
-    write_stage_manifest(
-        context.evidence_root / "stage-state.json",
-        {"release_sha": context.release_sha, "completed": completed},
-    )
+    path = context.evidence_root / "stage-state.json"
+    write_stage_manifest(path, {**_stage_identity(context), "completed": completed})
+    _checksum_manifest(path)
 
 
 def run_local_base(context: StageContext) -> dict:
@@ -531,7 +935,10 @@ def run_local_base(context: StageContext) -> dict:
             "planning_depth_writes_visible": False,
         },
     }
-    write_stage_manifest(context.evidence_root / "LOCAL-BASE-0.json", manifest)
+    clear_failure_manifest(context.evidence_root, "LOCAL-BASE-0")
+    target = context.evidence_root / "LOCAL-BASE-0.json"
+    write_stage_manifest(target, manifest)
+    _checksum_manifest(target)
     _save_state(context, ["LOCAL-BASE-0"])
     print("PASS LOCAL-BASE-0")
     return manifest
@@ -779,15 +1186,53 @@ def _stop_runtime() -> None:
 def _checksum_manifest(path: Path) -> None:
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
     index = path.parent / "SHA256SUMS"
-    descriptor = os.open(index, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-        stream.write(f"{digest}  {path.name}\n")
+    entries = _read_checksum_index(index)
+    entries[path.name] = digest
+    temporary = index.with_suffix(".tmp")
+    descriptor = os.open(
+        temporary,
+        os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+        0o600,
+    )
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            for name in sorted(entries):
+                stream.write(f"{entries[name]}  {name}\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, index)
+        os.chmod(index, 0o600)
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
+def _read_checksum_index(index: Path) -> dict[str, str]:
+    if not index.exists():
+        return {}
+    try:
+        entries = {}
+        for line in index.read_text(encoding="utf-8").splitlines():
+            match = re.fullmatch(r"([0-9a-f]{64})  ([A-Za-z0-9_.-]+)", line)
+            if match is None or match.group(2) in entries:
+                raise ValueError
+            entries[match.group(2)] = match.group(1)
+        return entries
+    except (OSError, ValueError) as exc:
+        raise StageGateError("checksum_index_invalid") from exc
+
+
+def _verify_checksum_entry(path: Path) -> None:
+    entries = _read_checksum_index(path.parent / "SHA256SUMS")
+    expected = entries.get(path.name)
+    if expected is None or not compare_digest(expected, _hash_file(path)):
+        raise StageGateError("evidence_checksum_mismatch")
 
 
 def run_local_rta(context: StageContext) -> dict:
     state = _load_state(context)
     validate_stage_transition(tuple(state["completed"]), "LOCAL-RTA-1")
-    steps = {}
+    steps: dict[str, Any] = {}
     before_pm2_json = _pm2_json()
     steps["capture_baseline"] = {
         "captured_at": _utc_timestamp(),
@@ -928,6 +1373,7 @@ def run_local_rta(context: StageContext) -> dict:
     validate_evidence_payload(manifest)
     _run_checked("pm2_save", ["pm2", "save"], timeout=60)
     target = context.evidence_root / "LOCAL-RTA-1.json"
+    clear_failure_manifest(context.evidence_root, "LOCAL-RTA-1")
     write_stage_manifest(target, manifest)
     _checksum_manifest(target)
     _save_state(context, ["LOCAL-BASE-0", "LOCAL-RTA-1"])
@@ -935,12 +1381,708 @@ def run_local_rta(context: StageContext) -> dict:
     return manifest
 
 
+def _load_harness_module(context: StageContext, filename: str, module_name: str):
+    path = context.harness_root / filename
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    if spec is None or spec.loader is None:
+        raise StageGateError("local_harness_module_unavailable")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _wait_json(
+    client: LocalHttpClient, url: str, *, timeout_seconds: int = 120
+) -> object:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        try:
+            result = client.request("GET", url, timeout=5)
+            if result.status == 200 and isinstance(result.body, dict):
+                return result.body
+        except StageGateError:
+            pass
+        time.sleep(1)
+    raise StageGateError("local_service_readiness_failed")
+
+
+def _start_manual_ros(context: StageContext, client: LocalHttpClient) -> dict:
+    _run_checked(
+        "stop_dark_ros",
+        ["pm2", "delete", "ros-gis-integration"],
+        timeout=30,
+    )
+    _run_checked(
+        "start_manual_ros",
+        [
+            "pm2",
+            "start",
+            str(context.harness_root / "run-ros-manual-producer.sh"),
+            "--name",
+            "ros-gis-integration",
+            "--interpreter",
+            "bash",
+            "--update-env",
+        ],
+        env={
+            **os.environ,
+            "MUNBON_RUNTIME_ENV_DIR": str(context.runtime_env_dir),
+        },
+        timeout=60,
+    )
+    _wait_json(client, READINESS_URLS["ros-gis-integration"])
+    status = _wait_json(client, "http://127.0.0.1:3047/api/v1/status")
+    return validate_ros_lifecycle(status, manual_enabled=True)
+
+
+def _restore_dark_ros(context: StageContext, client: LocalHttpClient) -> dict:
+    subprocess.run(
+        ["pm2", "delete", "ros-gis-integration"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+        timeout=30,
+    )
+    runtime_env = {
+        **os.environ,
+        "MUNBON_RUNTIME_ENV_DIR": str(context.runtime_env_dir),
+    }
+    _run_checked(
+        "restore_dark_ros",
+        [
+            "pm2",
+            "start",
+            "ecosystem.config.cjs",
+            "--only",
+            "ros-gis-integration",
+            "--update-env",
+        ],
+        cwd=context.repo_root / "ops/control-plan-read-runtime",
+        env=runtime_env,
+        timeout=60,
+    )
+    _wait_json(client, READINESS_URLS["ros-gis-integration"])
+    status = _wait_json(client, "http://127.0.0.1:3047/api/v1/status")
+    lifecycle = validate_ros_lifecycle(status, manual_enabled=False)
+    _run_checked("pm2_save_dark_runtime", ["pm2", "save"], timeout=60)
+    return lifecycle
+
+
+def _seed_approved_sources(context: StageContext) -> tuple[dict, dict[str, str]]:
+    postgres_url = _load_env_file(context.runtime_env_dir / "bff.env")["POSTGRES_URL"]
+    output = _run_checked(
+        "seed_approved_sources",
+        [
+            str(context.repo_root / "services/ros-gis-integration/.venv/bin/python"),
+            str(context.harness_root / "seed-approved-sources.py"),
+            "--as-of-date",
+            context.as_of_date.isoformat(),
+            "--manifest",
+            str(
+                context.repo_root
+                / "services/ros-gis-integration/data/requirement_sources.json"
+            ),
+        ],
+        env={
+            **os.environ,
+            "LOCAL_ACCEPTANCE_POSTGRES_URL": postgres_url,
+        },
+        timeout=120,
+    )
+    try:
+        evidence = json.loads(output)
+        if (
+            evidence["scenario_version"] != "local-ac-1-v4"
+            or evidence["section_count"] != 41
+            or evidence["total_area_rai"] != "47385"
+        ):
+            raise ValueError
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise StageGateError("approved_source_seed_result_invalid") from exc
+    module = _load_harness_module(
+        context, "seed-approved-sources.py", "local_approved_sources"
+    )
+    manifest = module.load_manifest(
+        context.repo_root / "services/ros-gis-integration/data/requirement_sources.json"
+    )
+    scenario = module.build_approved_source_scenario(manifest, context.as_of_date)
+    gate_by_section = {
+        row["code"]: row["props"]["GateId"] for row in scenario["tables"]["gis.zone"]
+    }
+    validate_evidence_payload(evidence)
+    return evidence, gate_by_section
+
+
+def _login_operator(
+    context: StageContext, client: LocalHttpClient, verifier
+) -> tuple[str, str, dict]:
+    operator_env = _load_env_file(context.runtime_env_dir / "operator.env")
+    with _temporary_environment(operator_env):
+        try:
+            config = verifier.Config.from_environment()
+        except verifier.VerificationError as exc:
+            raise StageGateError(f"operator_{exc}") from exc
+    validate_runtime_urls(
+        {
+            "auth": config.auth_url,
+            "scheduler": config.scheduler_url,
+            "bff": config.bff_url,
+            "flow": "http://127.0.0.1:3011",
+            "ros": "http://127.0.0.1:3047",
+        }
+    )
+    login = client.request(
+        "POST",
+        f"{config.auth_url}/api/v1/auth/login",
+        payload={"email": config.email, "password": config.password},
+    )
+    try:
+        token = login.body["data"]["accessToken"]
+        if login.status != 200 or not isinstance(token, str) or not token:
+            raise ValueError
+        errors = verifier.claim_errors(
+            verifier.decode_jwt_claims(token),
+            issuer=config.issuer,
+            audience=config.audience,
+            role=config.role,
+        )
+        if errors:
+            raise ValueError
+    except (KeyError, TypeError, ValueError, verifier.VerificationError) as exc:
+        raise StageGateError("operator_login_not_accepted") from exc
+    return (
+        token,
+        client.refresh_cookie(),
+        {
+            "status": login.status,
+            "claims": "valid",
+        },
+    )
+
+
+def _validate_flow_publication(result: HttpResult, *, requirement_run_id: str) -> dict:
+    try:
+        records = result.body["records"]
+        matching = [
+            item
+            for item in records
+            if isinstance(item, dict)
+            and isinstance(item.get("record"), dict)
+            and item["record"].get("source_service") == "ros-gis-integration"
+            and item["record"].get("source_version") == requirement_run_id
+            and item["record"].get("synthetic") is False
+        ]
+        if (
+            result.status != 200
+            or result.body["kind"] != "demand"
+            or len(matching) != 287
+        ):
+            raise ValueError
+        return {
+            "status": result.status,
+            "kind": result.body["kind"],
+            "published_record_count": len(matching),
+            "source_service": "ros-gis-integration",
+            "synthetic": False,
+        }
+    except (KeyError, TypeError, ValueError) as exc:
+        raise StageGateError("flow_publication_not_accepted") from exc
+
+
+def run_local_ac(context: StageContext) -> dict:
+    state = _load_state(context)
+    validate_stage_transition(tuple(state["completed"]), "LOCAL-AC-1")
+    model_release = _read_json(
+        context.repo_root
+        / "services/flow-monitoring/data/model-releases/engineering-prior-v3-v1.json"
+    )
+    before_dark = collect_dark_runtime_contract(
+        _actual_gate_environment(_pm2_json()), model_release
+    )
+    source_evidence, gate_by_section = _seed_approved_sources(context)
+    ac_helpers = _load_harness_module(context, "local-ac1.py", "local_ac1_helpers")
+    verifier = _load_harness_module(
+        context, "verify_bearer.py", "local_ac1_bearer_verifier"
+    )
+    client = LocalHttpClient()
+    as_of_date = context.as_of_date.isoformat()
+    refresh_token = None
+    logged_out = False
+    steps: dict[str, Any] = {
+        "approved_sources": source_evidence,
+        "dark_contract_before": before_dark,
+    }
+    try:
+        steps["manual_ros_lifecycle"] = _start_manual_ros(context, client)
+        token, refresh_token, login_evidence = _login_operator(
+            context, client, verifier
+        )
+        steps["operator_login"] = login_evidence
+        manual_trigger = _load_env_file(
+            context.runtime_env_dir / "local-secrets.env"
+        ).get("DAILY_REQUIREMENT_MANUAL_TOKEN")
+        if not manual_trigger:
+            raise StageGateError("manual_trigger_unavailable")
+        missing_trigger = client.request(
+            "POST",
+            "http://127.0.0.1:3047/api/v1/water-requirements/runs",
+            payload={"asOfDate": as_of_date},
+        )
+        invalid_trigger = client.request(
+            "POST",
+            "http://127.0.0.1:3047/api/v1/water-requirements/runs",
+            payload={"asOfDate": as_of_date},
+            internal_trigger="invalid-local-trigger",
+        )
+        if missing_trigger.status != 403 or invalid_trigger.status != 403:
+            raise StageGateError("manual_trigger_denial_not_accepted")
+        run = client.request(
+            "POST",
+            "http://127.0.0.1:3047/api/v1/water-requirements/runs",
+            payload={"asOfDate": as_of_date},
+            internal_trigger=manual_trigger,
+            timeout=120,
+        )
+        run_evidence = validate_manual_requirement_run(
+            run.status,
+            run.body,
+            as_of_date=as_of_date,
+        )
+        steps["manual_requirement_run"] = {
+            **run_evidence,
+            "route_authentication": "local_internal_header",
+            "missing_header_status": missing_trigger.status,
+            "invalid_header_status": invalid_trigger.status,
+        }
+        run_id = run_evidence["run_id"]
+        daily = client.request(
+            "GET",
+            "http://127.0.0.1:3047/api/v1/water-requirements/daily?"
+            + urlencode({"service_date": as_of_date, "zone": 6}),
+        )
+        steps["zone_requirements"] = validate_zone_requirements(
+            daily.status,
+            daily.body,
+            as_of_date=as_of_date,
+            run_id=run_id,
+        )
+        flow_demands = client.request(
+            "GET",
+            "http://127.0.0.1:3011/api/v1/control/demands?kind=demand",
+        )
+        steps["flow_publication"] = _validate_flow_publication(
+            flow_demands, requirement_run_id=run_id
+        )
+        snapshot = client.request(
+            "POST",
+            "http://127.0.0.1:3011/api/v1/control/model-snapshots",
+            timeout=60,
+        )
+        if snapshot.status != 200 or not isinstance(snapshot.body, dict):
+            raise StageGateError("model_snapshot_not_accepted")
+        draft_request = ac_helpers.build_control_plan_draft(
+            daily.body["requirements"],
+            snapshot.body,
+            gate_by_section,
+        )
+        draft = client.request(
+            "POST",
+            "http://127.0.0.1:3021/api/v1/control-plans/drafts",
+            payload=draft_request,
+            bearer=token,
+            timeout=300,
+        )
+        draft_evidence = validate_draft_result(
+            draft.status,
+            draft.body,
+            requirement_run_id=run_id,
+        )
+        steps["scheduler_draft"] = draft_evidence
+        plan_id = draft_evidence["plan_id"]
+        plan_version = draft_evidence["plan_version"]
+        projection_evidence = {}
+        for path in ac_helpers.projection_paths(plan_id, plan_version):
+            result = client.request(
+                "GET",
+                f"http://127.0.0.1:3022{path}",
+                bearer=token,
+                timeout=60,
+            )
+            projection_evidence[path] = validate_projection_result(
+                path,
+                result.status,
+                result.headers,
+                result.body,
+                plan_id=plan_id,
+                plan_version=plan_version,
+            )
+        steps["bff_projections"] = projection_evidence
+        missing_path = (
+            "/api/v1/control-plans/" "00000000-0000-0000-0000-000000000000/versions/1"
+        )
+        missing = client.request(
+            "GET",
+            f"http://127.0.0.1:3022{missing_path}",
+            bearer=token,
+        )
+        if (
+            missing.status != 404
+            or "no-store" not in missing.headers.get("cache-control", "").lower()
+        ):
+            raise StageGateError("missing_plan_not_preserved")
+        steps["missing_plan"] = {"status": 404, "no_store": True}
+        logout = client.request(
+            "POST",
+            "http://127.0.0.1:3005/api/v1/auth/logout",
+            payload={"refreshToken": refresh_token},
+        )
+        reuse = client.request(
+            "POST",
+            "http://127.0.0.1:3005/api/v1/auth/refresh",
+            payload={"refreshToken": refresh_token},
+        )
+        if logout.status != 200 or reuse.status != 401:
+            raise StageGateError("operator_logout_not_accepted")
+        logged_out = True
+        steps["operator_logout"] = {
+            "status": logout.status,
+            "refresh_reuse": reuse.status,
+        }
+    finally:
+        if refresh_token is not None and not logged_out:
+            try:
+                client.request(
+                    "POST",
+                    "http://127.0.0.1:3005/api/v1/auth/logout",
+                    payload={"refreshToken": refresh_token},
+                )
+            except StageGateError:
+                pass
+        steps["restored_ros_lifecycle"] = _restore_dark_ros(context, client)
+    after_dark = collect_dark_runtime_contract(
+        _actual_gate_environment(_pm2_json()), model_release
+    )
+    steps["dark_contract_after"] = after_dark
+    if before_dark != after_dark:
+        raise StageGateError("dark_contract_not_restored")
+    manifest = {
+        "stage": "LOCAL-AC-1",
+        "verdict": "PASS",
+        "release_sha": context.release_sha,
+        "frontend_sha": context.frontend_sha,
+        "completed_at": _utc_timestamp(),
+        "steps": steps,
+    }
+    validate_evidence_payload(manifest)
+    target = context.evidence_root / "LOCAL-AC-1.json"
+    clear_failure_manifest(context.evidence_root, "LOCAL-AC-1")
+    write_stage_manifest(target, manifest)
+    _checksum_manifest(target)
+    _save_state(context, list(STAGE_ORDER[:3]))
+    print("PASS LOCAL-AC-1")
+    return manifest
+
+
+def _verify_frontend_source(context: StageContext) -> dict:
+    actual_sha = _run_checked(
+        "frontend_sha",
+        ["git", "rev-parse", "HEAD"],
+        cwd=context.frontend_root,
+    ).strip()
+    tracked_status = _run_checked(
+        "frontend_tracked_tree",
+        [
+            "git",
+            "status",
+            "--porcelain",
+            "--untracked-files=no",
+        ],
+        cwd=context.frontend_root,
+    ).strip()
+    if actual_sha != context.frontend_sha or tracked_status:
+        raise StageGateError("frontend_source_not_accepted")
+    return {"sha": actual_sha, "tracked_tree_clean": True}
+
+
+def _frontend_test_paths() -> tuple[str, ...]:
+    return (
+        "lib/control-plans/feature.test.ts",
+        "lib/control-plans/contract-pin.test.ts",
+        "lib/control-plans/server.test.ts",
+        "components/smart-water/shared/SmartWaterNavigation.test.tsx",
+        "components/smart-water/control-plans/ControlPlanListPage.test.tsx",
+        "components/smart-water/control-plans/ControlPlanDetailPage.test.tsx",
+        "components/smart-water/control-plans/useControlPlanQueries.test.tsx",
+        "app/smart-water/control-plans/page.test.tsx",
+        "app/smart-water/control-plans/[planId]/versions/[version]/page.test.tsx",
+        "app/api/smart-water-backend/control-plans/route.test.ts",
+        "app/api/smart-water-backend/control-plans/[planId]/versions/[version]/route.test.ts",
+        "app/api/smart-water-backend/control-plans/[planId]/versions/[version]/[projection]/route.test.ts",
+    )
+
+
+def _build_frontend(
+    context: StageContext,
+    *,
+    control_plan_reads: bool,
+    run_tests: bool,
+) -> dict:
+    mode = "visible" if control_plan_reads else "dark"
+    environment = frontend_process_environment(
+        context.runtime_env_dir,
+        control_plan_reads=control_plan_reads,
+    )
+    activation_gates = project_frontend_activation_gates(environment)
+    if activation_gates != {
+        "control_plan_reads": control_plan_reads,
+        "water_planning_v2": False,
+        "water_planning_submit": False,
+    }:
+        raise StageGateError("frontend_activation_gates_not_accepted")
+    npm = str(NODE_ROOT / "bin/npm")
+    if run_tests:
+        _run_checked(
+            f"frontend_{mode}_tests",
+            [
+                npm,
+                "--prefix",
+                str(context.frontend_root),
+                "test",
+                "--",
+                *_frontend_test_paths(),
+            ],
+            env={**environment, "NODE_ENV": "test"},
+            timeout=900,
+        )
+    _run_checked(
+        f"frontend_{mode}_build",
+        [
+            npm,
+            "--prefix",
+            str(context.frontend_root),
+            "run",
+            "build",
+        ],
+        env=environment,
+        timeout=1200,
+    )
+    return {
+        "activation_gates": activation_gates,
+        "focused_tests": "PASS" if run_tests else "rollback-only",
+        "production_build": "PASS",
+    }
+
+
+def _wait_frontend(process: subprocess.Popen, *, timeout_seconds: int = 120) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise StageGateError("frontend_process_exited")
+        try:
+            with urlopen("http://127.0.0.1:9999/login", timeout=5) as response:
+                if response.status == 200:
+                    return
+        except (HTTPError, OSError, URLError):
+            pass
+        time.sleep(1)
+    raise StageGateError("frontend_readiness_failed")
+
+
+@contextmanager
+def _frontend_server(context: StageContext, *, control_plan_reads: bool):
+    mode = "visible" if control_plan_reads else "dark"
+    environment = frontend_process_environment(
+        context.runtime_env_dir,
+        control_plan_reads=control_plan_reads,
+    )
+    log_path = context.evidence_root / f".frontend-{mode}.log"
+    descriptor = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    completed = False
+    process = None
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            process = subprocess.Popen(
+                [
+                    str(NODE_ROOT / "bin/node"),
+                    str(context.frontend_root / "node_modules/next/dist/bin/next"),
+                    "start",
+                    "-H",
+                    "127.0.0.1",
+                    "-p",
+                    "9999",
+                ],
+                cwd=context.frontend_root,
+                env=environment,
+                stdout=stream,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+            _wait_frontend(process)
+            yield
+            completed = True
+    except OSError as exc:
+        raise StageGateError("frontend_process_failed") from exc
+    finally:
+        if process is not None and process.poll() is None:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+                process.wait(timeout=15)
+            except (OSError, subprocess.TimeoutExpired):
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                    process.wait(timeout=5)
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
+        if completed:
+            log_path.unlink(missing_ok=True)
+
+
+def _run_read_browser(
+    context: StageContext,
+    *,
+    mode: str,
+    plan_id: str,
+    plan_version: int,
+) -> dict:
+    operator = _load_env_file(context.runtime_env_dir / "operator.env")
+    output = _run_checked(
+        f"read_browser_{mode}",
+        [
+            str(NODE_ROOT / "bin/node"),
+            str(context.harness_root / "run-read-browser.js"),
+        ],
+        env={
+            **os.environ,
+            **operator,
+            "PATH": f"{NODE_ROOT / 'bin'}:/usr/bin:/bin",
+            "NODE_PATH": str(BROWSER_ROOT / "node_modules"),
+            "PLAYWRIGHT_BROWSERS_PATH": str(PLAYWRIGHT_BROWSERS_ROOT),
+            "LOCAL_READ_MODE": mode,
+            "LOCAL_FRONTEND_URL": "http://127.0.0.1:9999",
+            "LOCAL_PLAN_ID": plan_id,
+            "LOCAL_PLAN_VERSION": str(plan_version),
+        },
+        timeout=300,
+    )
+    try:
+        body = json.loads(output)
+    except json.JSONDecodeError as exc:
+        raise StageGateError("read_browser_output_invalid") from exc
+    return validate_read_browser_result(
+        body,
+        mode=mode,
+        plan_id=plan_id,
+        plan_version=plan_version,
+    )
+
+
+def run_local_read_activation(context: StageContext) -> dict:
+    state = _load_state(context)
+    validate_stage_transition(tuple(state["completed"]), "LOCAL-READ-ACT-1")
+    source = _verify_frontend_source(context)
+    ac_manifest = _read_json(context.evidence_root / "LOCAL-AC-1.json")
+    try:
+        draft = ac_manifest["steps"]["scheduler_draft"]
+        plan_id = str(UUID(str(draft["plan_id"])))
+        plan_version = draft["plan_version"]
+        if (
+            ac_manifest["verdict"] != "PASS"
+            or ac_manifest["release_sha"] != context.release_sha
+            or isinstance(plan_version, bool)
+            or not isinstance(plan_version, int)
+            or plan_version < 1
+        ):
+            raise ValueError
+    except (KeyError, TypeError, ValueError) as exc:
+        raise StageGateError("local_ac_evidence_not_accepted") from exc
+    model_release = _read_json(
+        context.repo_root
+        / "services/flow-monitoring/data/model-releases/engineering-prior-v3-v1.json"
+    )
+    before_dark = collect_dark_runtime_contract(
+        _actual_gate_environment(_pm2_json()),
+        model_release,
+    )
+    steps: dict[str, Any] = {
+        "frontend_source": source,
+        "accepted_plan": {"plan_id": plan_id, "plan_version": plan_version},
+        "dark_contract_before": before_dark,
+        "activation_sequence": list(read_activation_flag_sequence()),
+        "builds": [],
+    }
+    final_dark_build_complete = False
+    visible_build_attempted = False
+    try:
+        for index, enabled in enumerate(read_activation_flag_sequence()):
+            visible_build_attempted = visible_build_attempted or enabled
+            build = _build_frontend(
+                context,
+                control_plan_reads=enabled,
+                run_tests=True,
+            )
+            steps["builds"].append(build)
+            with _frontend_server(context, control_plan_reads=enabled):
+                browser = _run_read_browser(
+                    context,
+                    mode="visible" if enabled else "dark",
+                    plan_id=plan_id,
+                    plan_version=plan_version,
+                )
+            if index == 0:
+                steps["initial_dark_browser"] = browser
+            elif enabled:
+                steps["visible_browser"] = browser
+            else:
+                steps["rollback_dark_browser"] = browser
+                final_dark_build_complete = True
+    finally:
+        if visible_build_attempted and not final_dark_build_complete:
+            try:
+                _build_frontend(
+                    context,
+                    control_plan_reads=False,
+                    run_tests=False,
+                )
+            except StageGateError as exc:
+                raise StageGateError("frontend_dark_rollback_failed") from exc
+    after_dark = collect_dark_runtime_contract(
+        _actual_gate_environment(_pm2_json()),
+        model_release,
+    )
+    if before_dark != after_dark:
+        raise StageGateError("dark_contract_not_restored")
+    steps["dark_contract_after"] = after_dark
+    steps["frontend_source_after"] = _verify_frontend_source(context)
+    manifest = {
+        "stage": "LOCAL-READ-ACT-1",
+        "verdict": "PASS",
+        "release_sha": context.release_sha,
+        "frontend_sha": context.frontend_sha,
+        "completed_at": _utc_timestamp(),
+        "steps": steps,
+    }
+    validate_evidence_payload(manifest)
+    target = context.evidence_root / "LOCAL-READ-ACT-1.json"
+    clear_failure_manifest(context.evidence_root, "LOCAL-READ-ACT-1")
+    write_stage_manifest(target, manifest)
+    _checksum_manifest(target)
+    _save_state(context, list(STAGE_ORDER))
+    print("PASS LOCAL-READ-ACT-1")
+    return manifest
+
+
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("stage", choices=("LOCAL-BASE-0", "LOCAL-RTA-1"))
+    parser.add_argument("stage", choices=STAGE_ORDER)
     parser.add_argument("--release-sha", required=True)
     parser.add_argument("--frontend-sha", default=EXPECTED_FRONTEND_SHA)
     parser.add_argument("--repo-root", type=Path, default=Path("/opt/munbon/repo"))
+    parser.add_argument(
+        "--frontend-root",
+        type=Path,
+        default=Path("/opt/munbon/frontend"),
+    )
     parser.add_argument(
         "--harness-root", type=Path, default=Path("/opt/munbon/harness")
     )
@@ -954,6 +2096,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=Path,
         default=Path("/etc/munbon/control-plan-read-runtime"),
     )
+    parser.add_argument("--as-of-date", type=date.fromisoformat, default=date.today())
     return parser.parse_args(argv)
 
 
@@ -963,15 +2106,21 @@ def main(argv: list[str] | None = None) -> int:
         release_sha=args.release_sha,
         frontend_sha=args.frontend_sha,
         repo_root=args.repo_root,
+        frontend_root=args.frontend_root,
         harness_root=args.harness_root,
         evidence_root=args.evidence_root,
         runtime_env_dir=args.runtime_env_dir,
+        as_of_date=args.as_of_date,
     )
     try:
         if args.stage == "LOCAL-BASE-0":
             run_local_base(context)
-        else:
+        elif args.stage == "LOCAL-RTA-1":
             run_local_rta(context)
+        elif args.stage == "LOCAL-AC-1":
+            run_local_ac(context)
+        else:
+            run_local_read_activation(context)
     except Exception as exc:
         safe_error = (
             exc

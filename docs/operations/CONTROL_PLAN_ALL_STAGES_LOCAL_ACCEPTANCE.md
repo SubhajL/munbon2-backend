@@ -26,8 +26,8 @@ bundle; the runtime checkout must remain at the accepted 40-character SHA.
 | ------------------ | -------------------------- | ---------------------------- |
 | BASE-0             | `LOCAL-BASE-0`             | Implemented and passed       |
 | RTA-1              | `LOCAL-RTA-1`              | Implemented and passed       |
-| AC-1               | `LOCAL-AC-1`               | Planned; not yet implemented |
-| READ-ACT-1         | `LOCAL-READ-ACT-1`         | Planned; not yet implemented |
+| AC-1               | `LOCAL-AC-1`               | Implemented and passed       |
+| READ-ACT-1         | `LOCAL-READ-ACT-1`         | Implemented and passed       |
 | ME-1 / FE-8        | `LOCAL-EVIDENCE-1`         | Planned; not yet implemented |
 | W1 / W2            | `LOCAL-WRITE-FOUNDATION-1` | Planned; not yet implemented |
 | FE-5 / FE-6        | `LOCAL-WRITE-UI-1`         | Planned; not yet implemented |
@@ -46,27 +46,45 @@ accepted full values.
 
 ```bash
 python3 ops/control-plan-read-local/orchestrate.py provision \
-  --release-sha 8095bfe37550200da00ecb554edc646febf8aff9
+  --release-sha 2ee640c5eed939b68035c7695a4c129570e9ca5a \
+  --frontend-sha 3a16498a60927996ac38e741b276150968d0cadc \
+  --accept-later-origin-main
 ```
 
 Provisioning installs PostgreSQL/PostGIS, Redis, loopback InfluxDB, promtool,
 PM2, central auth, and one service-local `.venv` from each of the four tracked
 requirements manifests. It creates local-only credentials inside the guest and
 stores them in mode-600 files. It never returns their values to macOS.
+Reprovisioning first archives the prior evidence directory, stops the harness
+runtime, recreates the harness-owned `munbon_local` database, and flushes the
+guest-local Redis instance so an exact-candidate run cannot reuse an earlier
+requirement publication, plan, session, or cache entry.
 
 The Prometheus Debian package is used only for `promtool`; its Prometheus and
 node-exporter services are disabled to prevent wildcard listeners.
 
-## Run Stage 0 and Stage 1
+## Run the four implemented stages
 
 ```bash
 python3 ops/control-plan-read-local/orchestrate.py run-stage --stage LOCAL-BASE-0 \
-  --release-sha 8095bfe37550200da00ecb554edc646febf8aff9 \
-  --frontend-sha 3a16498a60927996ac38e741b276150968d0cadc
+  --release-sha 2ee640c5eed939b68035c7695a4c129570e9ca5a \
+  --frontend-sha 3a16498a60927996ac38e741b276150968d0cadc \
+  --accept-later-origin-main
 
 python3 ops/control-plan-read-local/orchestrate.py run-stage --stage LOCAL-RTA-1 \
-  --release-sha 8095bfe37550200da00ecb554edc646febf8aff9 \
-  --frontend-sha 3a16498a60927996ac38e741b276150968d0cadc
+  --release-sha 2ee640c5eed939b68035c7695a4c129570e9ca5a \
+  --frontend-sha 3a16498a60927996ac38e741b276150968d0cadc \
+  --accept-later-origin-main
+
+python3 ops/control-plan-read-local/orchestrate.py run-stage --stage LOCAL-AC-1 \
+  --release-sha 2ee640c5eed939b68035c7695a4c129570e9ca5a \
+  --frontend-sha 3a16498a60927996ac38e741b276150968d0cadc \
+  --accept-later-origin-main
+
+python3 ops/control-plan-read-local/orchestrate.py run-stage --stage LOCAL-READ-ACT-1 \
+  --release-sha 2ee640c5eed939b68035c7695a4c129570e9ca5a \
+  --frontend-sha 3a16498a60927996ac38e741b276150968d0cadc \
+  --accept-later-origin-main
 ```
 
 `LOCAL-RTA-1` preserves the twelve mandated steps. The local runner invokes the
@@ -94,43 +112,75 @@ On failure, the runner stops only `flow-monitoring`, `scheduler`,
 `ros-gis-integration`, and `bff-water-planning`. It does not save the failed PM2
 set. Migrations are not rolled back.
 
+`LOCAL-AC-1` seeds deterministic approved GIS and crop sources, runs the real
+manual ROS producer through a transient guest-local internal header, proves
+missing and invalid headers are rejected with 403, verifies 287 D..D+6
+publications and the Zone 6 read, creates a real Flow snapshot, obtains a
+feasible Scheduler draft with completed prediction, checks all eight BFF
+projections plus missing-plan behavior, and restores ROS and PM2 to the original
+dark contract. The manual trigger credential is generated inside the isolated
+guest, is absent from the saved dark ROS environment, and is never written to
+evidence.
+
+`LOCAL-READ-ACT-1` pins Node and Chromium tooling, runs the focused frontend
+suite, and makes three independent production builds in the exact
+false → true → false order. The browser proof covers signed-out redirect,
+login, navigation, list, detail, refresh, direct deep link, missing-plan
+projection errors, and one injected ledger-panel failure. Browser traffic is
+restricted to loopback control-plan and auth routes. The browser also observes
+zero non-read control-plan requests, searches link, button, input, role, and
+action attributes for write or authority controls, and proves five mutation or
+authority route candidates return 404 or 405. The final build and browser proof
+are dark, and no frontend process remains listening.
+
 ## Evidence
 
 Collect sanitized evidence without exposing the isolated guest filesystem:
 
 ```bash
 python3 ops/control-plan-read-local/orchestrate.py collect \
-  --release-sha 8095bfe37550200da00ecb554edc646febf8aff9 \
-  --evidence-dir coding-logs/evidence/local-rta-1
+  --release-sha 2ee640c5eed939b68035c7695a4c129570e9ca5a \
+  --frontend-sha 3a16498a60927996ac38e741b276150968d0cadc \
+  --accept-later-origin-main \
+  --evidence-dir coding-logs/evidence/local-ac-read
 ```
 
-The evidence bundle contains stage JSON, state, and `SHA256SUMS`. It rejects
-secret-shaped keys, bearer values, credential-bearing URLs, and credential
-material before writing mode-600 files.
+The evidence bundle contains stage JSON, state, and `SHA256SUMS`. Each
+transition verifies the state and every preceding stage checksum, rechecks clean
+backend and frontend SHAs, and binds the state to hashes of the installed
+harness files. It rejects secret-shaped keys, bearer values, credential-bearing
+URLs, and credential material before writing mode-600 files.
 
 The 2026-07-23 rehearsal preserved its first otherwise-successful attempt as
 `evidence-with-wildcard` after listener inspection found package-started
 Prometheus services on ports 9090 and 9100. Those services were disabled, the
 gate was strengthened, and Stage 0/1 were rerun from a new evidence directory.
 
-## Current accepted local result
+## Current local result
 
-- Backend: `8095bfe37550200da00ecb554edc646febf8aff9`
+- Exact BASE/RTA backend baseline: `2ee640c5eed939b68035c7695a4c129570e9ca5a`
 - Frontend: `3a16498a60927996ac38e741b276150968d0cadc`
 - `LOCAL-BASE-0`: PASS
 - `LOCAL-RTA-1`: PASS
+- `LOCAL-AC-1`: PASS
+- `LOCAL-READ-ACT-1`: PASS
 - Stability: 300 seconds, restart-count equality
-- Final capacity: more than 9 GiB available, 0 MiB used swap
-- Final listeners: loopback only
+- Final application listeners: loopback only
+- Frontend build sequence: false → true → false
 - PM2 saved only after bearer success
+- Final execution, producer, write, visibility, authority, and machine-command
+  gates: dark
 - AWS actions: none
 
-These readings are local evidence and do not describe AWS capacity or runtime
-state.
+The AC and READ proofs exercise the implementation candidate layered onto the
+exact baseline inside the isolated guest. A clean exact-candidate rerun remains
+part of lifecycle closeout. These readings are local evidence and do not
+describe AWS capacity or runtime state.
 
 ## Next local work
 
-Implement and pass `LOCAL-AC-1` and `LOCAL-READ-ACT-1` against deterministic
-local sources and the real service routes. Continue through each named local
-gate, then rebuild disposable state and pass `LOCAL-RC-1`. Only that final pass
-allows a separately authorized AWS promotion turn to begin.
+Implement and pass `LOCAL-EVIDENCE-1`, then continue through the historical W1
+and W2 write-foundation roadmap with all write and authority gates dark by
+default. Rebuild disposable state and pass `LOCAL-RC-1` after every named local
+gate. Only that final pass allows a separately authorized AWS promotion turn to
+begin.

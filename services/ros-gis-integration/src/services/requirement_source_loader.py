@@ -197,6 +197,11 @@ def _crop(value) -> str | None:
 
 def _hash(value) -> str:
     def default(item):
+        if isinstance(item, Mapping):
+            return dict(item)
+        keys = getattr(item, "keys", None)
+        if callable(keys) and hasattr(item, "__getitem__"):
+            return {key: item[key] for key in keys()}
         if isinstance(item, (date, datetime)):
             return item.isoformat()
         if isinstance(item, Decimal):

@@ -8,6 +8,7 @@ from datetime import date, datetime, timedelta
 from enum import Enum
 import math
 import re
+import shutil
 from time import monotonic
 
 import pulp
@@ -974,11 +975,9 @@ def _solve_before_deadline(
     remaining_seconds = deadline - monotonic()
     if remaining_seconds <= 0:
         raise HydraulicScheduleError("optimizer exceeded its end-to-end solver timeout")
-    solver = pulp.PULP_CBC_CMD(
-        msg=False,
-        threads=1,
-        timeLimit=remaining_seconds,
-        warmStart=warm_start,
+    solver = _cbc_solver(
+        remaining_seconds=remaining_seconds,
+        warm_start=warm_start,
     )
     model.setObjective(objective)
     status = pulp.LpStatus[model.solve(solver)]
@@ -987,6 +986,19 @@ def _solve_before_deadline(
     if allow_infeasible and status == "Infeasible":
         return False
     raise HydraulicScheduleError(f"optimizer did not prove an optimal result: {status}")
+
+
+def _cbc_solver(*, remaining_seconds: float, warm_start: bool):
+    system_cbc = shutil.which("cbc")
+    options = {
+        "msg": False,
+        "threads": 1,
+        "timeLimit": remaining_seconds,
+        "warmStart": warm_start,
+    }
+    if system_cbc is not None:
+        return pulp.COIN_CMD(path=system_cbc, **options)
+    return pulp.PULP_CBC_CMD(**options)
 
 
 def _expression_value(expression: pulp.LpAffineExpression) -> float:

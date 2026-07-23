@@ -217,3 +217,32 @@ def test_build_isolated_write_command_targets_only_fixed_guest_directory():
         orchestrate.OrchestrationError, match="isolated_destination_invalid"
     ):
         orchestrate.build_isolated_write_command("/home/munbonlocal/source.bundle")
+
+
+def test_parser_and_stage_runner_accept_ac_and_read_activation_gates():
+    for stage in ("LOCAL-AC-1", "LOCAL-READ-ACT-1"):
+        args = orchestrate._parse_args(
+            [
+                "run-stage",
+                "--stage",
+                stage,
+                "--release-sha",
+                orchestrate.ACCEPTED_BASE_SHA,
+            ]
+        )
+        assert args.stage == stage
+
+
+def test_run_all_executes_every_progressive_stage(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        orchestrate,
+        "run_stage",
+        lambda stage, release_sha, frontend_sha: calls.append(
+            (stage, release_sha, frontend_sha)
+        ),
+    )
+
+    orchestrate.run_all_stages("a" * 40, "b" * 40)
+
+    assert calls == [(stage, "a" * 40, "b" * 40) for stage in orchestrate.STAGE_ORDER]
