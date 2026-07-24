@@ -645,3 +645,75 @@ LOW
 
 - The exception is limited to Next's read-only framework prefetch. It adds no
   API, write method, authority, command permission, or AWS action.
+
+## Exact-main runtime attempt 5 and signed-out login RSC boundary
+
+Backend `b46b1f4da5803ee9ce6ade12c93f48afa347d107` and the accepted frontend were
+reprovisioned from disposable state. The first five stages passed.
+`LOCAL-GO-READ-1` produced both screenshots and stopped at
+`forbidden_product_request_observed`. Failure restoration was fully verified:
+the temporary listeners were gone, PM2 identity and auth readiness were
+unchanged, all frontend activation flags were false, execution and machine
+commands remained disabled, and service authority remained dark.
+
+A full authenticated request trace proved that the live, unknown-gate,
+restored-live, and outage browser phases contained only allowed requests. A
+separate signed-out trace then identified the sole remaining request: Next.js
+uses `GET /login?next=<allowlisted-gate-path>&_rsc=<nonempty>` while redirecting
+the protected read-only gate detail to login.
+
+The request classifier now admits only same-origin `GET` for that exact
+two-parameter login RSC shape. The `next` value must already be one of the
+explicit read-only document paths and `_rsc` must be nonempty. HEAD, empty RSC,
+unknown destinations, and extra query parameters remain rejected.
+
+Validation passed three consecutive times: `100` Python tests, `10` Node tests
+including all `5` scoped browser-inventory tests, Ruff, Node syntax, and diff
+checks. Independent Terra QCHECK found no actionable issue.
+
+## Review (2026-07-24 11:30:38 +07) - GO-READ signed-out login RSC boundary
+
+### Reviewed
+
+- Repo:
+  `/Users/subhajlimanond/dev/munbon2-backend-go-read-signedout-fix`
+- Branch: `fix/go-read-signed-out-rsc-boundary`
+- Scope: exact signed-out login RSC request-classifier allowance and regression
+  tests based on `b46b1f4da5803ee9ce6ade12c93f48afa347d107`
+- Commands Run: exact failure-manifest inspection; authenticated and signed-out
+  request traces; focused RED/GREEN Node test; full Python and Node suites three
+  times; Ruff; Node syntax; diff checks; independent Terra QCHECK
+
+### Findings
+
+CRITICAL
+
+- No findings.
+
+HIGH
+
+- No findings.
+
+MEDIUM
+
+- No findings.
+
+LOW
+
+- No findings.
+
+### Open Questions / Assumptions
+
+- Acceptance evidence remains unclaimed until the exact merged-main SHA is
+  provisioned and all six stages complete.
+
+### Recommended Tests / Validation
+
+- Rerun the complete six-stage acceptance from clean provisioning and require
+  an empty forbidden, unallowlisted, mutation, and direct-SCADA browser
+  inventory.
+
+### Rollout Notes
+
+- The exception is limited to Next's signed-out read-only navigation. It adds
+  no API, write method, authority, machine-command permission, or AWS action.
