@@ -49,17 +49,23 @@ test("rejects authority, gate command, mutation, and unknown API requests", () =
 
 test("scopes login to plan detail before submitting credentials", async () => {
   const events = [];
+  let responseCount = 0;
   const page = {
     goto: async (url) => events.push(["goto", url]),
     evaluate: async (_callback, path) => events.push(["redirect", path]),
     locator: (selector) => ({
       fill: async (value) => events.push(["fill", selector, value]),
     }),
-    waitForResponse: () => Promise.resolve({ status: () => 200 }),
+    waitForResponse: () => {
+      responseCount += 1;
+      events.push(["wait-response", responseCount]);
+      return Promise.resolve({
+        status: () => (responseCount === 1 ? 401 : 200),
+      });
+    },
     getByRole: () => ({
-      click: async () => events.push(["click"]),
+      click: async (options) => events.push(["click", options]),
     }),
-    waitForTimeout: async () => events.push(["wait"]),
   };
   const detailPath =
     "/smart-water/control-plans/00000000-0000-0000-0000-000000000000/versions/3";
@@ -72,12 +78,15 @@ test("scopes login to plan detail before submitting credentials", async () => {
     detailPath,
   );
 
-  assert.deepEqual(events.slice(0, 4), [
+  assert.deepEqual(events.slice(0, 5), [
+    ["wait-response", 1],
     ["goto", `${frontendOrigin}/login`],
     ["redirect", detailPath],
     ["fill", "#email", "operator@example.test"],
     ["fill", "#password", "local-test-value"],
   ]);
+  assert.deepEqual(events.at(-2), ["wait-response", 2]);
+  assert.deepEqual(events.at(-1), ["click", { noWaitAfter: true }]);
   await assert.rejects(
     login(
       page,

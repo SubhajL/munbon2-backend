@@ -64,7 +64,17 @@ async function login(page, baseUrl, email, password, redirectPath) {
     ),
     "login_redirect_invalid",
   );
+  const bootstrapRefresh = page.waitForResponse(
+    (candidate) =>
+      candidate.url() === `${baseUrl}/api/auth/refresh` &&
+      candidate.request().method() === "POST",
+    { timeout: 30000 },
+  );
   await page.goto(`${baseUrl}/login`, { waitUntil: "domcontentloaded" });
+  assert(
+    (await bootstrapRefresh).status() === 401,
+    "bootstrap_refresh_not_settled",
+  );
   await page.evaluate(
     (path) => localStorage.setItem("redirectAfterLogin", path),
     redirectPath,
@@ -77,9 +87,10 @@ async function login(page, baseUrl, email, password, redirectPath) {
       candidate.request().method() === "POST",
     { timeout: 30000 },
   );
-  await page.getByRole("button", { name: "เข้าสู่ระบบ", exact: true }).click();
+  await page
+    .getByRole("button", { name: "เข้าสู่ระบบ", exact: true })
+    .click({ noWaitAfter: true });
   assert((await response).status() === 200, "login_not_accepted");
-  await page.waitForTimeout(500);
 }
 
 function evidencePanel(page, title) {
@@ -151,9 +162,11 @@ async function main() {
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext();
   const projectionProofs = new Map();
-  const forbiddenProductRequests = [];
+  const forbiddenControlPathRequests = [];
+  const unexpectedApiRequests = [];
   const productMutationRequests = [];
   const gateOperationsRequests = [];
+  let evidenceInventoryActive = false;
 
   context.on("request", (request) => {
     const url = new URL(request.url());
@@ -165,14 +178,18 @@ async function main() {
       gateOrigin,
       allowedReadPaths,
     });
+    if (!evidenceInventoryActive) return;
     if (inventory.gateOperation) {
       gateOperationsRequests.push(`${method} ${url.pathname}`);
     }
     if (inventory.mutation) {
       productMutationRequests.push(`${method} ${url.pathname}`);
     }
-    if (inventory.forbiddenPath || inventory.unexpectedApi) {
-      forbiddenProductRequests.push(`${method} ${url.pathname}`);
+    if (inventory.forbiddenPath) {
+      forbiddenControlPathRequests.push(`${method} ${url.pathname}`);
+    }
+    if (inventory.unexpectedApi) {
+      unexpectedApiRequests.push(`${method} ${url.pathname}`);
     }
   });
   context.on("response", async (response) => {
@@ -214,6 +231,7 @@ async function main() {
     await login(page, baseUrl, email, password, detailPath);
 
     checkpoint = "present_held";
+    evidenceInventoryActive = true;
     await page.goto(`${baseUrl}${detailPath}`, {
       waitUntil: "domcontentloaded",
     });
@@ -338,8 +356,12 @@ async function main() {
       "gate_operations_navigation_observed",
     );
     assert(
-      forbiddenProductRequests.length === 0,
-      "forbidden_product_request_observed",
+      forbiddenControlPathRequests.length === 0,
+      "forbidden_control_path_observed",
+    );
+    assert(
+      unexpectedApiRequests.length === 0,
+      "unexpected_api_request_observed",
     );
     assert(
       productMutationRequests.length === 0,
@@ -359,8 +381,12 @@ async function main() {
         held_state: true,
         gate_link: gateLink,
         gate_operations_navigation_requests: gateOperationsRequests.length,
+        request_inventory_scope: "post-auth-plan-detail",
         evidence_request_paths: expectedProjectionPaths,
-        forbidden_product_requests: forbiddenProductRequests,
+        forbidden_product_requests: [
+          ...forbiddenControlPathRequests,
+          ...unexpectedApiRequests,
+        ],
         product_mutation_requests: productMutationRequests.length,
       })}\n`,
     );
