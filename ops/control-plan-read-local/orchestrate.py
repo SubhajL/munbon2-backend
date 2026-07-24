@@ -18,6 +18,7 @@ STAGE_ORDER = (
     "LOCAL-RTA-1",
     "LOCAL-AC-1",
     "LOCAL-READ-ACT-1",
+    "LOCAL-EVIDENCE-1",
 )
 
 
@@ -271,6 +272,7 @@ def provision(
         local_dir / "seed-approved-sources.py",
         local_dir / "run-ros-manual-producer.sh",
         local_dir / "run-read-browser.js",
+        local_dir / "run-evidence-browser.js",
         local_dir / "seed-local-operators.js",
         local_dir / "systemd/munbon-local-auth.service",
         runtime_verifier,
@@ -386,7 +388,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--release-sha", default=ACCEPTED_BASE_SHA)
     parser.add_argument(
-        "--frontend-sha", default="3a16498a60927996ac38e741b276150968d0cadc"
+        "--frontend-sha", default="fbd4ce4df0bb0476b7cd402ac1a4e180a91a7792"
     )
     parser.add_argument("--stage", choices=STAGE_ORDER)
     parser.add_argument("--accept-later-origin-main", action="store_true")

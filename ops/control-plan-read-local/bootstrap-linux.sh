@@ -120,6 +120,7 @@ for artifact in \
   seed-approved-sources.py \
   run-ros-manual-producer.sh \
   run-read-browser.js \
+  run-evidence-browser.js \
   seed-local-operators.js \
   verify_bearer.py; do
   install -o munbon -g munbon -m 0750 "${INPUT_DIR}/${artifact}" "${HARNESS_ROOT}/${artifact}"

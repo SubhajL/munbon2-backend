@@ -46,6 +46,7 @@ STAGE_ORDER = (
     "LOCAL-RTA-1",
     "LOCAL-AC-1",
     "LOCAL-READ-ACT-1",
+    "LOCAL-EVIDENCE-1",
 )
 READINESS_URLS = {
     "flow-monitoring": "http://127.0.0.1:3011/ready",
@@ -53,12 +54,13 @@ READINESS_URLS = {
     "ros-gis-integration": "http://127.0.0.1:3047/ready",
     "bff-water-planning": "http://127.0.0.1:3022/ready",
 }
-EXPECTED_FRONTEND_SHA = "3a16498a60927996ac38e741b276150968d0cadc"
+EXPECTED_FRONTEND_SHA = "fbd4ce4df0bb0476b7cd402ac1a4e180a91a7792"
 NODE_ROOT = Path("/opt/node-v22.23.1-linux-arm64")
 BROWSER_ROOT = Path("/opt/munbon/browser")
 PLAYWRIGHT_BROWSERS_ROOT = Path("/opt/munbon/playwright-browsers")
 HARNESS_ARTIFACTS = (
     "local-ac1.py",
+    "run-evidence-browser.js",
     "run-read-browser.js",
     "run-ros-manual-producer.sh",
     "run-stage-suite.py",
@@ -484,8 +486,363 @@ def validate_read_browser_result(
         raise StageGateError("read_browser_result_not_accepted") from exc
 
 
+def validate_evidence_browser_result(
+    body: Any,
+    *,
+    plan_id: str,
+    plan_version: int,
+    gate_id: str,
+) -> dict:
+    try:
+        normalized_plan_id = str(UUID(plan_id))
+        if plan_version < 1 or gate_id != "waste-way" or not isinstance(body, dict):
+            raise ValueError
+        projection_names = (
+            "execution-state",
+            "intent-timeline",
+            "readback-observations",
+        )
+        expected = {
+            "mode": "evidence-visible",
+            "projection_statuses": {name: 200 for name in projection_names},
+            "projection_no_store_count": 3,
+            "evidence_panel_count": 3,
+            "absent_projection_alerts": 3,
+            "unavailable_projection": "readback-observations",
+            "malformed_projection": "intent-timeline",
+            "intent_timeline_state": "empty-not-execution",
+            "held_state": True,
+            "gate_link": (f"http://127.0.0.1:9998/read-only/gates/{gate_id}"),
+            "gate_operations_navigation_requests": 0,
+            "evidence_request_paths": [
+                (
+                    "/api/smart-water-backend/control-plans/"
+                    f"{normalized_plan_id}/versions/{plan_version}/{name}"
+                )
+                for name in projection_names
+            ],
+            "forbidden_product_requests": [],
+            "product_mutation_requests": 0,
+        }
+        if body != expected:
+            raise ValueError
+        return expected
+    except (TypeError, ValueError) as exc:
+        raise StageGateError("evidence_browser_result_not_accepted") from exc
+
+
+def validate_evidence_projection_results(
+    results: dict[str, HttpResult],
+    *,
+    absent_statuses: dict[str, int],
+    plan_id: str,
+    plan_version: int,
+) -> dict:
+    names = (
+        "intent-timeline",
+        "readback-observations",
+        "execution-state",
+    )
+    try:
+        normalized_plan_id = str(UUID(plan_id))
+        if set(results) != set(names) or set(absent_statuses) != set(names):
+            raise ValueError
+        for name in names:
+            result = results[name]
+            if (
+                result.status != 200
+                or "no-store" not in result.headers.get("cache-control", "").lower()
+                or result.body["plan_id"] != normalized_plan_id
+                or result.body["plan_version"] != plan_version
+                or absent_statuses[name] != 404
+            ):
+                raise ValueError
+        intents = results["intent-timeline"].body["intents"]
+        observations = results["readback-observations"].body["observations"]
+        execution = results["execution-state"].body
+        unavailable = [
+            item
+            for item in observations
+            if isinstance(item, dict)
+            and item.get("canonical_gate_id") == "waste-way"
+            and item.get("verdict") == "unavailable"
+            and "observed_level" in item
+            and item.get("observed_level") is None
+        ]
+        hold_events = execution["hold_events"]
+        if (
+            not isinstance(intents, list)
+            or len(intents) != 0
+            or not isinstance(observations, list)
+            or len(unavailable) < 1
+            or execution["is_held"] is not True
+            or not isinstance(hold_events, list)
+            or not any(
+                isinstance(event, dict) and event.get("event_type") == "held"
+                for event in hold_events
+            )
+        ):
+            raise ValueError
+        return {
+            "statuses": {name: results[name].status for name in names},
+            "no_store_count": len(names),
+            "intent_count": len(intents),
+            "observation_count": len(observations),
+            "unavailable_observation_count": len(unavailable),
+            "is_held": True,
+            "hold_event_count": len(hold_events),
+            "absent_statuses": absent_statuses,
+        }
+    except (KeyError, TypeError, ValueError) as exc:
+        raise StageGateError("evidence_projection_result_not_accepted") from exc
+
+
 def read_activation_flag_sequence() -> tuple[bool, ...]:
     return (False, True, False)
+
+
+def evidence_activation_flag_sequence() -> tuple[tuple[bool, bool], ...]:
+    return ((True, False), (True, True), (False, False))
+
+
+def _normalized_text_sha256(path: Path) -> str:
+    try:
+        text = path.read_text(encoding="utf-8").replace("\r\n", "\n")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise StageGateError("evidence_contract_parity_failed") from exc
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def verify_evidence_contract_parity(
+    backend_root: Path,
+    frontend_root: Path,
+) -> dict:
+    try:
+        manifest = json.loads(
+            (backend_root / "manifest.json").read_text(encoding="utf-8")
+        )
+        if (
+            manifest["contract_family"] != "control-plan-evidence"
+            or manifest["contract_version"] != 1
+            or not isinstance(manifest["schemas"], list)
+            or not isinstance(manifest["fixtures"], list)
+        ):
+            raise ValueError
+        roster = [
+            "manifest.json",
+            *[entry["relative_path"] for entry in manifest["schemas"]],
+            *[entry["relative_path"] for entry in manifest["fixtures"]],
+        ]
+        if len(roster) != len(set(roster)):
+            raise ValueError
+        records = []
+        for entry in manifest["schemas"]:
+            path = backend_root / entry["relative_path"]
+            actual_sha = _normalized_text_sha256(path)
+            if actual_sha != entry["sha256"]:
+                raise ValueError
+            records.append(
+                {
+                    "relative_path": entry["relative_path"],
+                    "sha256": actual_sha,
+                }
+            )
+        for entry in manifest["fixtures"]:
+            path = backend_root / entry["relative_path"]
+            actual_sha = _normalized_text_sha256(path)
+            if actual_sha != entry["sha256"]:
+                raise ValueError
+            records.append(
+                {
+                    "expected_valid": entry["expected_valid"],
+                    "relative_path": entry["relative_path"],
+                    "schema": entry["schema"],
+                    "sha256": actual_sha,
+                }
+            )
+        aggregate = hashlib.sha256(
+            json.dumps(records, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        actual_roster = sorted(
+            str(path.relative_to(backend_root)).replace(os.sep, "/")
+            for path in backend_root.rglob("*")
+            if path.is_file()
+        )
+        frontend_roster = sorted(
+            str(path.relative_to(frontend_root)).replace(os.sep, "/")
+            for path in frontend_root.rglob("*")
+            if path.is_file()
+        )
+        if (
+            sorted(roster) != actual_roster
+            or frontend_roster != actual_roster
+            or aggregate != manifest["contract_set_sha256"]
+            or any(
+                (backend_root / relative_path).read_bytes()
+                != (frontend_root / relative_path).read_bytes()
+                for relative_path in actual_roster
+            )
+        ):
+            raise ValueError
+        return {
+            "contract_version": 1,
+            "file_count": len(actual_roster),
+            "contract_set_sha256": aggregate,
+            "exact_bytes": True,
+        }
+    except (
+        KeyError,
+        OSError,
+        TypeError,
+        ValueError,
+        json.JSONDecodeError,
+    ) as exc:
+        raise StageGateError("evidence_contract_parity_failed") from exc
+
+
+def verify_read_only_gate_source(repo_root: Path) -> dict:
+    try:
+        page_source = (
+            repo_root
+            / "services/scada-gate-control-web/src/app/read-only/gates/[id]/page.tsx"
+        ).read_text(encoding="utf-8")
+        client_source = (
+            repo_root
+            / "services/scada-gate-control-web/src/lib/read-only-gate-status.ts"
+        ).read_text(encoding="utf-8")
+        forbidden_imports = (
+            "createApiClient",
+            "ConfirmCommandModal",
+            "LevelSensors",
+            "SidePanel",
+            "commandLevel",
+            "commandHorn",
+            "control-authority",
+        )
+        import_pattern = re.compile(
+            r"""^\s*import(?:\s+type)?(?:[^"'\n]*\s+from\s+)?["']([^"']+)["']""",
+            re.MULTILINE,
+        )
+        runtime_import_pattern = re.compile(
+            r"""^\s*import(?!\s+type\b)(?:[^"'\n]*\s+from\s+)?["'][^"']+["']""",
+            re.MULTILINE,
+        )
+        page_imports = set(import_pattern.findall(page_source))
+        client_imports = set(import_pattern.findall(client_source))
+        allowed_page_imports = {
+            "react",
+            "next/navigation",
+            "@/components/AuthProvider",
+            "@/components/GateDetailHeader",
+            "@/components/RequireAuth",
+            "@/hooks/usePolling",
+            "@/lib/config",
+            "@/lib/read-only-gate-status",
+        }
+        allowed_client_imports = {"./api"}
+        mutation_pattern = re.compile(
+            r"""method\s*:\s*["'](?:POST|PUT|PATCH|DELETE)["']""",
+            re.IGNORECASE,
+        )
+        if (
+            "@/components/RequireAuth" not in page_imports
+            or "@/lib/read-only-gate-status" not in page_imports
+            or not page_imports.issubset(allowed_page_imports)
+            or not client_imports.issubset(allowed_client_imports)
+            or runtime_import_pattern.search(client_source)
+            or "import(" in page_source
+            or "import(" in client_source
+            or "require(" in page_source
+            or "require(" in client_source
+            or "/api/gates/" not in client_source
+            or "/status" not in client_source
+            or any(name in page_source for name in forbidden_imports)
+            or any(name in client_source for name in forbidden_imports)
+            or mutation_pattern.search(page_source)
+            or mutation_pattern.search(client_source)
+        ):
+            raise ValueError
+        return {
+            "route": "/read-only/gates/[id]",
+            "command_capable_imports": 0,
+            "mutation_methods": 0,
+        }
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        raise StageGateError("read_only_gate_source_invalid") from exc
+
+
+def build_evidence_seed_sql(plan_id: str, plan_version: int) -> str:
+    try:
+        normalized_plan_id = str(UUID(plan_id))
+        if isinstance(plan_version, bool) or plan_version < 1:
+            raise ValueError
+    except (TypeError, ValueError) as exc:
+        raise StageGateError("evidence_seed_identity_invalid") from exc
+    return f"""
+BEGIN;
+INSERT INTO scheduler.control_command_execution_events (
+    event_id, plan_id, plan_version, intent_id, event_type, worker_id,
+    detail_document_text, occurred_at
+) VALUES (
+    gen_random_uuid(), '{normalized_plan_id}'::uuid, {plan_version},
+    NULL, 'held', 'local-evidence-1', NULL, now()
+);
+INSERT INTO scheduler.control_gate_readback_observations (
+    observation_id, plan_id, plan_version, canonical_gate_id, observed_level,
+    expected_level, quality, verdict, reconciliation_mode, observed_at
+) VALUES (
+    gen_random_uuid(), '{normalized_plan_id}'::uuid, {plan_version},
+    'waste-way', NULL, 2, 'offline', 'unavailable', 'observe', now()
+);
+COMMIT;
+"""
+
+
+def build_evidence_resume_sql(plan_id: str, plan_version: int) -> str:
+    try:
+        normalized_plan_id = str(UUID(plan_id))
+        if isinstance(plan_version, bool) or plan_version < 1:
+            raise ValueError
+    except (TypeError, ValueError) as exc:
+        raise StageGateError("evidence_seed_identity_invalid") from exc
+    return f"""
+INSERT INTO scheduler.control_command_execution_events (
+    event_id, plan_id, plan_version, intent_id, event_type, worker_id,
+    detail_document_text, occurred_at
+) VALUES (
+    gen_random_uuid(), '{normalized_plan_id}'::uuid, {plan_version},
+    NULL, 'resumed', 'local-evidence-1', NULL, now()
+);
+"""
+
+
+def restore_evidence_safety(
+    context: StageContext,
+    *,
+    plan_id: str,
+    plan_version: int,
+    resume_required: bool,
+    dark_build_required: bool,
+) -> None:
+    failures = []
+    if resume_required:
+        try:
+            _psql(context, build_evidence_resume_sql(plan_id, plan_version))
+        except StageGateError:
+            failures.append("evidence_resume_failed")
+    if dark_build_required:
+        try:
+            _build_frontend(
+                context,
+                control_plan_reads=False,
+                control_plan_evidence_reads=False,
+                run_tests=False,
+                build_label="evidence-emergency-dark",
+            )
+        except StageGateError:
+            failures.append("frontend_dark_rollback_failed")
+    if failures:
+        raise StageGateError(failures[0])
 
 
 def rta_step_order() -> tuple[str, ...]:
@@ -794,6 +1151,8 @@ def frontend_process_environment(
     runtime_env_dir: Path,
     *,
     control_plan_reads: bool,
+    control_plan_evidence_reads: bool = False,
+    gate_operations_base_url: str | None = None,
 ) -> dict[str, str]:
     auth = _load_env_file(runtime_env_dir / "auth.env")
     try:
@@ -810,22 +1169,46 @@ def frontend_process_environment(
             "bff": "http://127.0.0.1:3022",
         }
     )
-    return {
+    if control_plan_evidence_reads:
+        try:
+            gate_url = urlsplit(gate_operations_base_url or "")
+            if (
+                not control_plan_reads
+                or gate_url.scheme != "http"
+                or gate_url.hostname != "127.0.0.1"
+                or gate_url.port != 9998
+                or gate_url.path != "/read-only/gates"
+                or gate_url.username is not None
+                or gate_url.password is not None
+                or gate_url.query
+                or gate_url.fragment
+            ):
+                raise ValueError
+        except ValueError as exc:
+            raise StageGateError("gate_operations_url_invalid") from exc
+    environment = {
         **os.environ,
         **jwt,
         "PATH": f"{NODE_ROOT / 'bin'}:/usr/bin:/bin",
         "NODE_ENV": "production",
         "NEXT_PUBLIC_CONTROL_PLAN_READS": ("true" if control_plan_reads else "false"),
+        "NEXT_PUBLIC_CONTROL_PLAN_EVIDENCE_READS": (
+            "true" if control_plan_evidence_reads else "false"
+        ),
         "NEXT_PUBLIC_WATER_PLANNING_V2": "false",
         "NEXT_PUBLIC_WATER_PLANNING_SUBMIT_ENABLED": "false",
         "CENTRAL_AUTH_URL": "http://127.0.0.1:3005",
         "WATER_PLANNING_BFF_URL": "http://127.0.0.1:3022",
     }
+    if gate_operations_base_url is not None:
+        environment["NEXT_PUBLIC_GATE_OPERATIONS_URL"] = gate_operations_base_url
+    return environment
 
 
 def project_frontend_activation_gates(environment: dict[str, str]) -> dict[str, bool]:
     names = {
         "control_plan_reads": "NEXT_PUBLIC_CONTROL_PLAN_READS",
+        "control_plan_evidence_reads": "NEXT_PUBLIC_CONTROL_PLAN_EVIDENCE_READS",
         "water_planning_v2": "NEXT_PUBLIC_WATER_PLANNING_V2",
         "water_planning_submit": "NEXT_PUBLIC_WATER_PLANNING_SUBMIT_ENABLED",
     }
@@ -1020,8 +1403,9 @@ def run_local_base(context: StageContext) -> dict:
             "FE-2": "complete",
             "FE-3": "complete",
             "FE-4": "complete",
+            "FE-8": "complete",
         },
-        "pending_starts": ["ME-1", "W1"],
+        "pending_starts": ["LOCAL-RTA-1"],
         "activation_flags": {
             "scheduler_execution": False,
             "machine_commands": False,
@@ -1927,12 +2311,17 @@ def _verify_frontend_source(context: StageContext) -> dict:
 
 def _frontend_test_paths() -> tuple[str, ...]:
     return (
+        "lib/control-plan-evidence/contract-pin.test.ts",
+        "lib/control-plan-evidence/contract.test.ts",
+        "lib/control-plan-evidence/feature.test.ts",
+        "lib/control-plan-evidence/gate-operations-url.test.ts",
         "lib/control-plans/feature.test.ts",
         "lib/control-plans/contract-pin.test.ts",
         "lib/control-plans/server.test.ts",
         "components/smart-water/shared/SmartWaterNavigation.test.tsx",
         "components/smart-water/control-plans/ControlPlanListPage.test.tsx",
         "components/smart-water/control-plans/ControlPlanDetailPage.test.tsx",
+        "components/smart-water/control-plans/ControlPlanEvidenceSummary.test.tsx",
         "components/smart-water/control-plans/useControlPlanQueries.test.tsx",
         "app/smart-water/control-plans/page.test.tsx",
         "app/smart-water/control-plans/[planId]/versions/[version]/page.test.tsx",
@@ -1947,15 +2336,21 @@ def _build_frontend(
     *,
     control_plan_reads: bool,
     run_tests: bool,
+    control_plan_evidence_reads: bool = False,
+    gate_operations_base_url: str | None = None,
+    build_label: str | None = None,
 ) -> dict:
-    mode = "visible" if control_plan_reads else "dark"
+    mode = build_label or ("visible" if control_plan_reads else "dark")
     environment = frontend_process_environment(
         context.runtime_env_dir,
         control_plan_reads=control_plan_reads,
+        control_plan_evidence_reads=control_plan_evidence_reads,
+        gate_operations_base_url=gate_operations_base_url,
     )
     activation_gates = project_frontend_activation_gates(environment)
     if activation_gates != {
         "control_plan_reads": control_plan_reads,
+        "control_plan_evidence_reads": control_plan_evidence_reads,
         "water_planning_v2": False,
         "water_planning_submit": False,
     }:
@@ -2010,11 +2405,20 @@ def _wait_frontend(process: subprocess.Popen, *, timeout_seconds: int = 120) -> 
 
 
 @contextmanager
-def _frontend_server(context: StageContext, *, control_plan_reads: bool):
-    mode = "visible" if control_plan_reads else "dark"
+def _frontend_server(
+    context: StageContext,
+    *,
+    control_plan_reads: bool,
+    control_plan_evidence_reads: bool = False,
+    gate_operations_base_url: str | None = None,
+    server_label: str | None = None,
+):
+    mode = server_label or ("visible" if control_plan_reads else "dark")
     environment = frontend_process_environment(
         context.runtime_env_dir,
         control_plan_reads=control_plan_reads,
+        control_plan_evidence_reads=control_plan_evidence_reads,
+        gate_operations_base_url=gate_operations_base_url,
     )
     log_path = context.evidence_root / f".frontend-{mode}.log"
     descriptor = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -2095,6 +2499,226 @@ def _run_read_browser(
         plan_id=plan_id,
         plan_version=plan_version,
     )
+
+
+def _run_evidence_browser(
+    context: StageContext,
+    *,
+    plan_id: str,
+    plan_version: int,
+    gate_id: str,
+) -> dict:
+    operator = _load_env_file(context.runtime_env_dir / "operator.env")
+    output = _run_checked(
+        "evidence_browser_visible",
+        [
+            str(NODE_ROOT / "bin/node"),
+            str(context.harness_root / "run-evidence-browser.js"),
+        ],
+        env={
+            **os.environ,
+            **operator,
+            "PATH": f"{NODE_ROOT / 'bin'}:/usr/bin:/bin",
+            "NODE_PATH": str(BROWSER_ROOT / "node_modules"),
+            "PLAYWRIGHT_BROWSERS_PATH": str(PLAYWRIGHT_BROWSERS_ROOT),
+            "LOCAL_FRONTEND_URL": "http://127.0.0.1:9999",
+            "LOCAL_GATE_OPERATIONS_URL": ("http://127.0.0.1:9998/read-only/gates"),
+            "LOCAL_PLAN_ID": plan_id,
+            "LOCAL_PLAN_VERSION": str(plan_version),
+            "LOCAL_GATE_ID": gate_id,
+        },
+        timeout=300,
+    )
+    try:
+        body = json.loads(output)
+    except json.JSONDecodeError as exc:
+        raise StageGateError("evidence_browser_output_invalid") from exc
+    return validate_evidence_browser_result(
+        body,
+        plan_id=plan_id,
+        plan_version=plan_version,
+        gate_id=gate_id,
+    )
+
+
+def _evidence_projection_path(
+    plan_id: str,
+    plan_version: int,
+    projection: str,
+) -> str:
+    if projection not in {
+        "intent-timeline",
+        "readback-observations",
+        "execution-state",
+    }:
+        raise StageGateError("evidence_projection_invalid")
+    try:
+        normalized_plan_id = str(UUID(plan_id))
+        if isinstance(plan_version, bool) or plan_version < 1:
+            raise ValueError
+    except (TypeError, ValueError) as exc:
+        raise StageGateError("evidence_projection_invalid") from exc
+    return (
+        f"/api/v1/control-plans/{normalized_plan_id}/versions/"
+        f"{plan_version}/{projection}"
+    )
+
+
+def _run_evidence_projection_reads(
+    context: StageContext,
+    *,
+    plan_id: str,
+    plan_version: int,
+) -> dict:
+    verifier = _load_harness_module(
+        context,
+        "verify_bearer.py",
+        "local_evidence_bearer_verifier",
+    )
+    client = LocalHttpClient()
+    refresh_cookie = None
+    token, refresh_cookie, login_evidence = _login_operator(
+        context,
+        client,
+        verifier,
+    )
+    names = (
+        "intent-timeline",
+        "readback-observations",
+        "execution-state",
+    )
+    try:
+        results = {
+            name: client.request(
+                "GET",
+                (
+                    "http://127.0.0.1:3022"
+                    + _evidence_projection_path(plan_id, plan_version, name)
+                ),
+                bearer=token,
+            )
+            for name in names
+        }
+        missing_id = "00000000-0000-0000-0000-000000000000"
+        absent_statuses = {
+            name: client.request(
+                "GET",
+                (
+                    "http://127.0.0.1:3022"
+                    + _evidence_projection_path(missing_id, 1, name)
+                ),
+                bearer=token,
+            ).status
+            for name in names
+        }
+        summary = validate_evidence_projection_results(
+            results,
+            absent_statuses=absent_statuses,
+            plan_id=plan_id,
+            plan_version=plan_version,
+        )
+        return {**summary, "login": login_evidence}
+    finally:
+        if refresh_cookie is not None:
+            logout = client.request(
+                "POST",
+                "http://127.0.0.1:3005/api/v1/auth/logout",
+                payload={"refreshToken": refresh_cookie},
+            )
+            if logout.status not in {200, 204}:
+                raise StageGateError("evidence_operator_logout_failed")
+
+
+def _verify_evidence_resumed(
+    context: StageContext,
+    *,
+    plan_id: str,
+    plan_version: int,
+) -> dict:
+    verifier = _load_harness_module(
+        context,
+        "verify_bearer.py",
+        "local_evidence_resume_bearer_verifier",
+    )
+    client = LocalHttpClient()
+    token, refresh_cookie, _login_evidence = _login_operator(
+        context,
+        client,
+        verifier,
+    )
+    try:
+        result = client.request(
+            "GET",
+            (
+                "http://127.0.0.1:3022"
+                + _evidence_projection_path(
+                    plan_id,
+                    plan_version,
+                    "execution-state",
+                )
+            ),
+            bearer=token,
+        )
+        try:
+            hold_events = result.body["hold_events"]
+            if (
+                result.status != 200
+                or "no-store" not in result.headers.get("cache-control", "").lower()
+                or result.body["is_held"] is not False
+                or not isinstance(hold_events, list)
+                or not hold_events
+                or hold_events[-1]["event_type"] != "resumed"
+            ):
+                raise ValueError
+        except (KeyError, TypeError, ValueError) as exc:
+            raise StageGateError("evidence_resume_not_accepted") from exc
+        return {
+            "status": result.status,
+            "no_store": True,
+            "is_held": False,
+            "hold_event_count": len(hold_events),
+            "latest_event": "resumed",
+        }
+    finally:
+        logout = client.request(
+            "POST",
+            "http://127.0.0.1:3005/api/v1/auth/logout",
+            payload={"refreshToken": refresh_cookie},
+        )
+        if logout.status not in {200, 204}:
+            raise StageGateError("evidence_operator_logout_failed")
+
+
+def _probe_evidence_dark_routes(
+    *,
+    plan_id: str,
+    plan_version: int,
+) -> dict:
+    client = LocalHttpClient()
+    statuses = {
+        name: client.request(
+            "GET",
+            (
+                "http://127.0.0.1:9999/api/smart-water-backend/"
+                f"control-plans/{plan_id}/versions/{plan_version}/{name}"
+            ),
+        )
+        for name in (
+            "intent-timeline",
+            "readback-observations",
+            "execution-state",
+        )
+    }
+    if any(
+        result.status != 404
+        or "no-store" not in result.headers.get("cache-control", "").lower()
+        for result in statuses.values()
+    ):
+        raise StageGateError("evidence_dark_routes_exposed")
+    return {
+        "statuses": {name: result.status for name, result in statuses.items()},
+        "no_store_count": len(statuses),
+    }
 
 
 def run_local_read_activation(context: StageContext) -> dict:
@@ -2187,8 +2811,186 @@ def run_local_read_activation(context: StageContext) -> dict:
     clear_failure_manifest(context.evidence_root, "LOCAL-READ-ACT-1")
     write_stage_manifest(target, manifest)
     _checksum_manifest(target)
-    _save_state(context, list(STAGE_ORDER))
+    _save_state(context, list(STAGE_ORDER[:4]))
     print("PASS LOCAL-READ-ACT-1")
+    return manifest
+
+
+def run_local_evidence_activation(context: StageContext) -> dict:
+    state = _load_state(context)
+    validate_stage_transition(tuple(state["completed"]), "LOCAL-EVIDENCE-1")
+    source = _verify_frontend_source(context)
+    ac_manifest = _read_json(context.evidence_root / "LOCAL-AC-1.json")
+    try:
+        draft = ac_manifest["steps"]["scheduler_draft"]
+        plan_id = str(UUID(str(draft["plan_id"])))
+        plan_version = draft["plan_version"]
+        if (
+            ac_manifest["verdict"] != "PASS"
+            or ac_manifest["release_sha"] != context.release_sha
+            or isinstance(plan_version, bool)
+            or not isinstance(plan_version, int)
+            or plan_version < 1
+        ):
+            raise ValueError
+    except (KeyError, TypeError, ValueError) as exc:
+        raise StageGateError("local_ac_evidence_not_accepted") from exc
+
+    model_release = _read_json(
+        context.repo_root
+        / "services/flow-monitoring/data/model-releases/engineering-prior-v3-v1.json"
+    )
+    before_dark = collect_dark_runtime_contract(
+        _actual_gate_environment(_pm2_json()),
+        model_release,
+    )
+    contract_parity = verify_evidence_contract_parity(
+        context.repo_root / "contracts/control-plan-evidence/v1",
+        context.frontend_root / "contracts/backend/control-plan-evidence/v1",
+    )
+    gate_source = verify_read_only_gate_source(context.repo_root)
+    gate_base_url = "http://127.0.0.1:9998/read-only/gates"
+    steps: dict[str, Any] = {
+        "frontend_source": source,
+        "accepted_plan": {
+            "plan_id": plan_id,
+            "plan_version": plan_version,
+        },
+        "contract_parity": contract_parity,
+        "read_only_gate_source": gate_source,
+        "dark_contract_before": before_dark,
+        "activation_sequence": [
+            {
+                "control_plan_reads": control_reads,
+                "control_plan_evidence_reads": evidence_reads,
+            }
+            for control_reads, evidence_reads in evidence_activation_flag_sequence()
+        ],
+        "builds": [],
+    }
+
+    seeded = False
+    resumed = False
+    visible_build_attempted = False
+    final_dark_build_complete = False
+    try:
+        _psql(context, build_evidence_seed_sql(plan_id, plan_version))
+        seeded = True
+        steps["durable_evidence_preparation"] = {
+            "method": "append-only disposable-local SQL",
+            "hold_event": "held",
+            "readback_gate_id": "waste-way",
+            "readback_verdict": "unavailable",
+            "product_http_mutations": 0,
+        }
+        steps["real_bearer_projections"] = _run_evidence_projection_reads(
+            context,
+            plan_id=plan_id,
+            plan_version=plan_version,
+        )
+
+        for index, (
+            control_plan_reads,
+            evidence_reads,
+        ) in enumerate(evidence_activation_flag_sequence()):
+            label = (
+                "evidence-visible"
+                if evidence_reads
+                else (
+                    "evidence-dark" if control_plan_reads else "evidence-rollback-dark"
+                )
+            )
+            visible_build_attempted = visible_build_attempted or evidence_reads
+            build = _build_frontend(
+                context,
+                control_plan_reads=control_plan_reads,
+                control_plan_evidence_reads=evidence_reads,
+                gate_operations_base_url=(gate_base_url if evidence_reads else None),
+                run_tests=True,
+                build_label=label,
+            )
+            steps["builds"].append(build)
+            with _frontend_server(
+                context,
+                control_plan_reads=control_plan_reads,
+                control_plan_evidence_reads=evidence_reads,
+                gate_operations_base_url=(gate_base_url if evidence_reads else None),
+                server_label=label,
+            ):
+                if evidence_reads:
+                    steps["visible_browser"] = _run_evidence_browser(
+                        context,
+                        plan_id=plan_id,
+                        plan_version=plan_version,
+                        gate_id="waste-way",
+                    )
+                else:
+                    proof = _probe_evidence_dark_routes(
+                        plan_id=plan_id,
+                        plan_version=plan_version,
+                    )
+                    if index == 0:
+                        steps["initial_evidence_dark_routes"] = proof
+                    else:
+                        steps["rollback_dark_routes"] = proof
+                        final_dark_build_complete = True
+
+        _psql(context, build_evidence_resume_sql(plan_id, plan_version))
+        resumed = True
+        steps["resumed_state"] = _verify_evidence_resumed(
+            context,
+            plan_id=plan_id,
+            plan_version=plan_version,
+        )
+    finally:
+        restore_evidence_safety(
+            context,
+            plan_id=plan_id,
+            plan_version=plan_version,
+            resume_required=seeded and not resumed,
+            dark_build_required=(
+                visible_build_attempted and not final_dark_build_complete
+            ),
+        )
+
+    after_dark = collect_dark_runtime_contract(
+        _actual_gate_environment(_pm2_json()),
+        model_release,
+    )
+    if before_dark != after_dark:
+        raise StageGateError("dark_contract_not_restored")
+    final_environment = frontend_process_environment(
+        context.runtime_env_dir,
+        control_plan_reads=False,
+        control_plan_evidence_reads=False,
+    )
+    final_activation_gates = project_frontend_activation_gates(final_environment)
+    if final_activation_gates != {
+        "control_plan_reads": False,
+        "control_plan_evidence_reads": False,
+        "water_planning_v2": False,
+        "water_planning_submit": False,
+    }:
+        raise StageGateError("frontend_dark_rollback_failed")
+    steps["final_activation_gates"] = final_activation_gates
+    steps["dark_contract_after"] = after_dark
+    steps["frontend_source_after"] = _verify_frontend_source(context)
+
+    manifest = {
+        "stage": "LOCAL-EVIDENCE-1",
+        "verdict": "PASS",
+        "release_sha": context.release_sha,
+        "frontend_sha": context.frontend_sha,
+        "completed_at": _utc_timestamp(),
+        "steps": steps,
+    }
+    validate_evidence_payload(manifest)
+    target = context.evidence_root / "LOCAL-EVIDENCE-1.json"
+    clear_failure_manifest(context.evidence_root, "LOCAL-EVIDENCE-1")
+    write_stage_manifest(target, manifest)
+    _checksum_manifest(target)
+    _save_state(context, list(STAGE_ORDER))
+    print("PASS LOCAL-EVIDENCE-1")
     return manifest
 
 
@@ -2239,8 +3041,10 @@ def main(argv: list[str] | None = None) -> int:
             run_local_rta(context)
         elif args.stage == "LOCAL-AC-1":
             run_local_ac(context)
-        else:
+        elif args.stage == "LOCAL-READ-ACT-1":
             run_local_read_activation(context)
+        else:
+            run_local_evidence_activation(context)
     except Exception as exc:
         safe_error = (
             exc

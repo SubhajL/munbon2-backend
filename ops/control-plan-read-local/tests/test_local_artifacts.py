@@ -39,6 +39,7 @@ def test_bootstrap_is_valid_bash_and_provisions_only_isolated_manifests():
         "playwright install --with-deps chromium",
         "frontend.bundle",
         "run-read-browser.js",
+        "run-evidence-browser.js",
         "prisma generate",
         "checkout --force --quiet",
         "evidence-archive",
@@ -63,6 +64,7 @@ def test_orchestrator_provisions_every_local_ac_harness_artifact():
         "run-ros-manual-producer.sh",
         "frontend.bundle",
         "run-read-browser.js",
+        "run-evidence-browser.js",
         "--frontend-repo",
     ):
         assert required in body
@@ -71,7 +73,7 @@ def test_orchestrator_provisions_every_local_ac_harness_artifact():
 def test_every_completed_stage_is_added_to_the_checksum_index():
     body = (LOCAL_DIR / "run-stage-suite.py").read_text(encoding="utf-8")
 
-    assert body.count("_checksum_manifest(target)") == 4
+    assert body.count("_checksum_manifest(target)") == 5
     assert "_checksum_manifest(path)" in body
     assert "_verify_checksum_entry" in body
 
@@ -95,6 +97,33 @@ def test_read_browser_runner_covers_dark_visible_and_panel_failure_scenarios():
         "browser_${checkpoint}_failed",
         "serverProxyAllowed",
         "projectionPanel",
+    ):
+        assert required in body
+
+
+def test_evidence_browser_runner_covers_machine_evidence_and_gate_boundary():
+    path = LOCAL_DIR / "run-evidence-browser.js"
+    body = path.read_text(encoding="utf-8")
+
+    subprocess.run(["node", "--check", str(path)], check=True)
+    for required in (
+        "projection_statuses",
+        "projection_no_store_count",
+        "evidence_panel_count",
+        "absent_projection_alerts",
+        "unavailable_projection",
+        "malformed_projection",
+        "intent_timeline_state",
+        "held_state",
+        "gate_link",
+        "gate_operations_navigation_requests",
+        "evidence_request_paths",
+        "forbidden_product_requests",
+        "product_mutation_requests",
+        "classifyProductRequest",
+        "unexpectedApi",
+        "No command intents are recorded.",
+        "Empty intent history does not claim execution.",
     ):
         assert required in body
 
@@ -138,7 +167,7 @@ def test_all_stages_runbook_locks_local_before_aws_and_documents_current_command
     body = (
         REPO_ROOT / "docs/operations/CONTROL_PLAN_ALL_STAGES_LOCAL_ACCEPTANCE.md"
     ).read_text(encoding="utf-8")
-    documented_candidate_commands = 6
+    documented_candidate_commands = 7
 
     for required in (
         "LOCAL-BASE-0",
@@ -151,6 +180,7 @@ def test_all_stages_runbook_locks_local_before_aws_and_documents_current_command
         "orchestrate.py run-stage --stage LOCAL-RTA-1",
         "orchestrate.py run-stage --stage LOCAL-AC-1",
         "orchestrate.py run-stage --stage LOCAL-READ-ACT-1",
+        "orchestrate.py run-stage --stage LOCAL-EVIDENCE-1",
         "orchestrate.py collect",
         "false → true → false",
         "bearer verification before `pm2 save`",

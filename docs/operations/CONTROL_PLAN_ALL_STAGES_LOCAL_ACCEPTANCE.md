@@ -28,7 +28,7 @@ bundle; the runtime checkout must remain at the accepted 40-character SHA.
 | RTA-1              | `LOCAL-RTA-1`              | Implemented and passed       |
 | AC-1               | `LOCAL-AC-1`               | Implemented and passed       |
 | READ-ACT-1         | `LOCAL-READ-ACT-1`         | Implemented and passed       |
-| ME-1 / FE-8        | `LOCAL-EVIDENCE-1`         | Planned; not yet implemented |
+| ME-1 / FE-8        | `LOCAL-EVIDENCE-1`         | Implemented; exact-SHA run required |
 | W1 / W2            | `LOCAL-WRITE-FOUNDATION-1` | Planned; not yet implemented |
 | FE-5 / FE-6        | `LOCAL-WRITE-UI-1`         | Planned; not yet implemented |
 | DEC-W4             | `LOCAL-PERSIST-ONLY-1`     | Planned; persist-only        |
@@ -46,7 +46,7 @@ accepted full values.
 
 ```bash
 accepted_backend_sha=REPLACE_WITH_ACCEPTED_40_CHARACTER_BACKEND_SHA
-accepted_frontend_sha=3a16498a60927996ac38e741b276150968d0cadc
+accepted_frontend_sha=fbd4ce4df0bb0476b7cd402ac1a4e180a91a7792
 
 python3 ops/control-plan-read-local/orchestrate.py provision \
   --release-sha "$accepted_backend_sha" \
@@ -66,7 +66,7 @@ requirement publication, plan, session, or cache entry.
 The Prometheus Debian package is used only for `promtool`; its Prometheus and
 node-exporter services are disabled to prevent wildcard listeners.
 
-## Run the four implemented stages
+## Run the five implemented stages
 
 ```bash
 python3 ops/control-plan-read-local/orchestrate.py run-stage --stage LOCAL-BASE-0 \
@@ -88,6 +88,11 @@ python3 ops/control-plan-read-local/orchestrate.py run-stage --stage LOCAL-READ-
   --release-sha "$accepted_backend_sha" \
   --frontend-sha "$accepted_frontend_sha" \
   --accept-later-origin-main
+
+python3 ops/control-plan-read-local/orchestrate.py run-stage --stage LOCAL-EVIDENCE-1 \
+  --release-sha "$accepted_backend_sha" \
+  --frontend-sha "$accepted_frontend_sha" \
+  --accept-later-origin-main
 ```
 
 `LOCAL-RTA-1` preserves the twelve mandated steps. The local runner invokes the
@@ -101,7 +106,7 @@ The gate requires:
 - no application-port conflict or non-loopback TCP listener;
 - Scheduler migration parity through `0013_operator_approved_execution`;
 - ROS parity through `0003_daily_requirement_producer`;
-- BFF migration 009 presence and recorded file hash;
+- BFF migration parity through `010_planning_depth_submissions`;
 - promtool and repository preflight success;
 - four ready loopback services for 300 continuous seconds;
 - unchanged PM2 restart counts;
@@ -137,6 +142,17 @@ action attributes for write or authority controls, and proves five mutation or
 authority route candidates return 404 or 405. The final build and browser proof
 are dark, and no frontend process remains listening.
 
+`LOCAL-EVIDENCE-1` verifies byte-for-byte parity between the backend and
+frontend ME-1 contract trees, then prepares append-only held and unavailable
+readback evidence inside the disposable local database. All three projections
+must return through the real BFF bearer path with `no-store`; the missing-plan
+paths must return 404. The evidence browser proves the present, absent,
+unavailable, held, and malformed-decoder states independently, validates the
+exact read-only Gate Operations href without navigating it, and records zero
+product mutation, authority, hold/resume, level, horn, command, or dispatch
+requests. The gate finishes by appending a resumed event and rebuilding with
+both control-plan flags false.
+
 ## Evidence
 
 Collect sanitized evidence without exposing the isolated guest filesystem:
@@ -160,7 +176,7 @@ The 2026-07-23 rehearsal preserved its first otherwise-successful attempt as
 Prometheus services on ports 9090 and 9100. Those services were disabled, the
 gate was strengthened, and Stage 0/1 were rerun from a new evidence directory.
 
-## Current local result
+## Last completed local result
 
 - Backend: the exact accepted 40-character candidate SHA
 - Frontend: `3a16498a60927996ac38e741b276150968d0cadc`
@@ -176,7 +192,7 @@ gate was strengthened, and Stage 0/1 were rerun from a new evidence directory.
   gates: dark
 - AWS actions: none
 
-Every new candidate must be provisioned cleanly and rerun through all four
+Every new candidate must be provisioned cleanly and rerun through all five
 implemented stages at its exact SHA. Evidence from a predecessor or a
 tree-equivalent squash commit is not reused because the evidence index is
 SHA-bound. These readings are local evidence and do not describe AWS capacity
@@ -184,8 +200,8 @@ or runtime state.
 
 ## Next local work
 
-Implement and pass `LOCAL-EVIDENCE-1`, then continue through the historical W1
-and W2 write-foundation roadmap with all write and authority gates dark by
-default. Rebuild disposable state and pass `LOCAL-RC-1` after every named local
-gate. Only that final pass allows a separately authorized AWS promotion turn to
-begin.
+Run and pass `LOCAL-EVIDENCE-1` at the exact merged backend and frontend SHAs,
+then continue through the historical write-foundation roadmap with all write
+and authority gates dark by default. Rebuild disposable state and pass
+`LOCAL-RC-1` after every named local gate. Only that final pass allows a
+separately authorized AWS promotion turn to begin.
