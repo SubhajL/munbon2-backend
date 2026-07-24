@@ -34,6 +34,7 @@ export interface ModbusClientLike {
   writeRegister(address: number, value: number): Promise<unknown>;
   writeCoil(address: number, value: boolean): Promise<unknown>;
   close(callback: () => void): void;
+  destroy(callback: () => void): void;
 }
 
 export type ModbusClientFactory = () => ModbusClientLike;
@@ -85,7 +86,7 @@ export class ModbusSerialTransport implements ModbusTransport {
     try {
       await this.connectWithTimeout(client);
     } catch (error) {
-      await new Promise<void>((resolve) => client.close(() => resolve()));
+      await new Promise<void>((resolve) => client.destroy(() => resolve()));
       throw error;
     }
     client.setID(this.config.unitId);
@@ -98,7 +99,7 @@ export class ModbusSerialTransport implements ModbusTransport {
     const client = this.client;
     this.client = null;
     if (client) {
-      await new Promise<void>((resolve) => client.close(() => resolve()));
+      await new Promise<void>((resolve) => client.destroy(() => resolve()));
     }
   }
 

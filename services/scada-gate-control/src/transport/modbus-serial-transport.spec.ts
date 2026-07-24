@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { createServer } from 'node:net';
 import {
   ModbusSerialTransport,
   mapPointReads,
@@ -6,13 +7,14 @@ import {
 } from './modbus-serial-transport';
 import { startSimulator, type Simulator } from './simulator';
 
-type FakeClient = ModbusClientLike & { closed: boolean };
+type FakeClient = ModbusClientLike & { closed: boolean; destroyed: boolean };
 
 /** A controllable in-memory client used to test the socket lifecycle deterministically. */
 function makeFakeClient(opts: { failReadOnce?: boolean; hangConnect?: boolean }): FakeClient {
   let failRead = opts.failReadOnce ?? false;
   const client: FakeClient = {
     closed: false,
+    destroyed: false,
     connectTCP: () => (opts.hangConnect ? new Promise<void>(() => undefined) : Promise.resolve()),
     setID: () => undefined,
     setTimeout: () => undefined,
@@ -28,6 +30,11 @@ function makeFakeClient(opts: { failReadOnce?: boolean; hangConnect?: boolean })
     writeCoil: async () => undefined,
     close: (cb: () => void) => {
       client.closed = true;
+      cb();
+    },
+    destroy: (cb: () => void) => {
+      client.closed = true;
+      client.destroyed = true;
       cb();
     },
   };
@@ -112,6 +119,37 @@ describe('ModbusSerialTransport against an in-process Modbus simulator', () => {
 });
 
 describe('ModbusSerialTransport socket lifecycle', () => {
+  test('a refused TCP connection rejects instead of hanging during cleanup', async () => {
+    const server = createServer();
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('test TCP port unavailable');
+    }
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
+    const transport = new ModbusSerialTransport({
+      host: '127.0.0.1',
+      port: address.port,
+      unitId: 1,
+      timeoutMs: 100,
+    });
+
+    let cleanupTimer: ReturnType<typeof setTimeout> | undefined;
+    const result = await Promise.race([
+      transport.readAll().then(
+        () => 'unexpected-success',
+        (error: unknown) => error,
+      ),
+      new Promise<string>((resolve) => {
+        cleanupTimer = setTimeout(() => resolve('cleanup-timeout'), 2_000);
+      }),
+    ]).finally(() => clearTimeout(cleanupTimer));
+
+    expect(result).toBeInstanceOf(Error);
+  });
+
   test('destroys the client on a read failure and creates a fresh one next time', async () => {
     const created: FakeClient[] = [];
     const factory = (): ModbusClientLike => {
@@ -123,7 +161,8 @@ describe('ModbusSerialTransport socket lifecycle', () => {
 
     await expect(transport.readAll()).rejects.toThrow('read fail');
     expect(created).toHaveLength(1);
-    expect(created[0]?.closed).toBe(true); // failed client was closed, not reused
+    expect(created[0]?.closed).toBe(true);
+    expect(created[0]?.destroyed).toBe(true);
 
     expect(await transport.readAll()).toEqual({ gateLevel: 3, horn: 1, doorSw: 0, gateCf: 1 });
     expect(created).toHaveLength(2); // a fresh client was created for the retry
@@ -151,6 +190,7 @@ describe('ModbusSerialTransport socket lifecycle', () => {
     });
 
     await expect(transport.readAll()).rejects.toThrow('Modbus connect timeout');
-    expect(created[0]?.closed).toBe(true); // the stuck client is cleaned up
+    expect(created[0]?.closed).toBe(true);
+    expect(created[0]?.destroyed).toBe(true);
   });
 });
