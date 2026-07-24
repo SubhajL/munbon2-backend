@@ -104,19 +104,26 @@ describe('GET /api/sites', () => {
 });
 
 describe('GET /api/gates/:id/status', () => {
-  test('returns the snapshot + endpoint for the known gate', async () => {
+  test('returns the snapshot + endpoint for the known gate without caching', async () => {
     const res = await request(setup().app)
       .get('/api/gates/waste-way/status')
       .set('authorization', viewerAuth)
       .expect(200);
     expect(res.body).toMatchObject({ id: 'waste-way', connection: 'ok', endpoint });
+    expect(res.headers['cache-control']).toBe('no-store');
   });
 
-  test('404 for an unknown gate id', async () => {
-    await request(setup().app)
+  test('returns a no-store 404 for an unknown gate id', async () => {
+    const res = await request(setup().app)
       .get('/api/gates/nope/status')
       .set('authorization', viewerAuth)
       .expect(404);
+    expect(res.headers['cache-control']).toBe('no-store');
+  });
+
+  test('returns a no-store 401 without a token', async () => {
+    const res = await request(setup().app).get('/api/gates/waste-way/status').expect(401);
+    expect(res.headers['cache-control']).toBe('no-store');
   });
 });
 

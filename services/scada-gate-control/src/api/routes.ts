@@ -99,15 +99,23 @@ export function buildRouter(deps: ApiDeps): Router {
     ]);
   });
 
-  router.get('/gates/:id/status', auth, (req, res) => {
-    if (!ensureGate(req, res)) return;
-    res.json({
-      id: deps.site.gateId,
-      name: deps.site.name,
-      endpoint: deps.endpoint,
-      ...deps.snapshot(),
-    });
-  });
+  router.get(
+    '/gates/:id/status',
+    (_req, res, next) => {
+      res.set('Cache-Control', 'no-store');
+      next();
+    },
+    auth,
+    (req, res) => {
+      if (!ensureGate(req, res)) return;
+      res.json({
+        id: deps.site.gateId,
+        name: deps.site.name,
+        endpoint: deps.endpoint,
+        ...deps.snapshot(),
+      });
+    },
+  );
 
   router.post('/gates/:id/command-level', auth, rateLimit, async (req, res, next) => {
     if (!ensureGate(req, res)) return;

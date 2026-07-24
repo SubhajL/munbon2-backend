@@ -137,6 +137,22 @@ describe("read-only gate page", () => {
     ).toHaveLength(0);
   });
 
+  test("hides the last successful status as soon as polling fails", () => {
+    h.pollState = {
+      data: gateStatus,
+      error: new Error("upstream offline"),
+      loading: false,
+    };
+
+    render(<ReadOnlyGatePage />);
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "ไม่สามารถอ่านสถานะประตูน้ำได้",
+    );
+    expect(screen.queryByText("ระดับ 2")).not.toBeInTheDocument();
+    expect(screen.queryByText("gate 7/ฝาย")).not.toBeInTheDocument();
+  });
+
   test("does not initialize status access while signed out", () => {
     h.authenticated = false;
 
@@ -164,7 +180,6 @@ describe("read-only gate page", () => {
       "@/components/GateDetailHeader",
       "@/components/RequireAuth",
       "@/hooks/usePolling",
-      "@/lib/config",
       "@/lib/read-only-gate-status",
     ]);
     expect(source).not.toMatch(

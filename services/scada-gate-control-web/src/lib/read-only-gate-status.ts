@@ -11,7 +11,6 @@ export class ReadOnlyGateStatusError extends Error {
 }
 
 export type ReadOnlyGateStatusClientOptions = {
-  baseUrl: string;
   getToken: () => string | undefined;
   onUnauthorized?: () => Promise<string | null>;
   fetchImpl?: typeof fetch;
@@ -109,14 +108,16 @@ export function createReadOnlyGateStatusClient(
     token ? { authorization: `Bearer ${token}` } : {};
 
   async function send(path: string, token: string | undefined) {
-    return fetchStatus(`${options.baseUrl}${path}`, {
+    return fetchStatus(path, {
+      method: "GET",
+      cache: "no-store",
       headers: headers(token),
     });
   }
 
   return {
     async getGateStatus(id) {
-      const path = `/api/gates/${encodeURIComponent(id)}/status`;
+      const path = `/api/read-only/gates/${encodeURIComponent(id)}/status`;
       const initialToken = options.getToken();
       if (!initialToken) {
         throw new ReadOnlyGateStatusError(
@@ -146,7 +147,7 @@ export function createReadOnlyGateStatusClient(
           502,
         );
       }
-      if (!isGateStatus(body)) {
+      if (!isGateStatus(body) || body.id !== id) {
         throw new ReadOnlyGateStatusError(
           `GET ${path} returned malformed gate status`,
           502,

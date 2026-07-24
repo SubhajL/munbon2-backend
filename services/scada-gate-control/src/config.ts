@@ -18,6 +18,7 @@ export class ConfigError extends Error {
 export type AppConfig = {
   readonly logLevel: string;
   readonly timezone: string;
+  readonly httpHost: string;
   readonly httpPort: number;
   readonly site: { readonly gateId: string; readonly name: string };
   readonly modbus: ModbusConnectionConfig & { readonly pollIntervalMs: number };
@@ -118,6 +119,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   return {
     logLevel: optionalEnv(env, 'LOG_LEVEL', 'info'),
     timezone: optionalEnv(env, 'TZ', 'Asia/Bangkok'),
+    httpHost: optionalEnv(env, 'HTTP_HOST', '0.0.0.0'),
     httpPort: optionalEnvInt(env, 'PORT', 3030),
     site: {
       gateId: optionalEnv(env, 'SITE_GATE_ID', 'waste-way'),

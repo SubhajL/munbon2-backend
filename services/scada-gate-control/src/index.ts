@@ -168,11 +168,12 @@ async function main(): Promise<void> {
   });
 
   controller.start();
-  const server = app.listen(config.httpPort, () => {
+  const server = app.listen(config.httpPort, config.httpHost, () => {
     logger.info(
       {
         site: config.site,
         endpoint,
+        host: config.httpHost,
         port: config.httpPort,
         intervalMs: config.modbus.pollIntervalMs,
       },
