@@ -582,3 +582,66 @@ LOW
 
 - This is a locator-scope correction only. Runtime configuration, flags,
   authority, machine commands, and AWS remain unchanged.
+
+## Exact-main runtime attempt 4 and root RSC prefetch
+
+Backend `77d7f17aa6e5331e0acc16d919cb629e67fce32a` and the accepted frontend were
+reprovisioned from disposable state. The first five stages passed.
+`LOCAL-GO-READ-1` produced both live and outage screenshots and stopped at the
+explicit `forbidden_product_request_observed` inventory gate. Restoration was
+fully verified and the dark contract remained unchanged.
+
+The prior request trace identified the single natural unallowlisted request:
+Next.js prefetches the `GateDetailHeader` back link as `GET /?_rsc=<value>`.
+The allowlist now admits only same-origin `GET /` with exactly one nonempty
+`_rsc` parameter. Bare root, extra query parameters, non-GET methods, external
+origins, and direct SCADA remain rejected and inventoried.
+
+Final validation passed three consecutive times: `100` Python tests, `5` Node
+behavior tests, Ruff, Node syntax, and diff checks. Independent QCHECK found no
+actionable issue.
+
+## Review (2026-07-24 11:03:39 +07) - GO-READ root RSC prefetch
+
+### Reviewed
+
+- Repo: `/Users/subhajlimanond/dev/munbon2-backend-go-read-rsc-fix`
+- Branch: `fix/go-read-root-rsc-prefetch`
+- Scope: exact browser request classifier and Node behavior test based on
+  `77d7f17aa6e5331e0acc16d919cb629e67fce32a`
+- Commands Run: exact failure-manifest inspection; request-trace disposition;
+  focused RED/GREEN Node test; full Python and Node suites three times; Ruff;
+  Node syntax; diff checks; independent Terra QCHECK
+
+### Findings
+
+CRITICAL
+
+- No findings.
+
+HIGH
+
+- No findings.
+
+MEDIUM
+
+- No findings.
+
+LOW
+
+- No findings.
+
+### Open Questions / Assumptions
+
+- The next exact-main run must still prove the inventory is empty and complete
+  all six stages before evidence is accepted.
+
+### Recommended Tests / Validation
+
+- Rerun all six stages from clean provisioning and require zero unallowlisted,
+  mutation, forbidden-control, and direct-SCADA browser requests.
+
+### Rollout Notes
+
+- The exception is limited to Next's read-only framework prefetch. It adds no
+  API, write method, authority, command permission, or AWS action.
