@@ -19,6 +19,7 @@ STAGE_ORDER = (
     "LOCAL-AC-1",
     "LOCAL-READ-ACT-1",
     "LOCAL-EVIDENCE-1",
+    "LOCAL-GO-READ-1",
 )
 
 
@@ -273,6 +274,7 @@ def provision(
         local_dir / "run-ros-manual-producer.sh",
         local_dir / "run-read-browser.js",
         local_dir / "run-evidence-browser.js",
+        local_dir / "run-go-read-browser.js",
         local_dir / "seed-local-operators.js",
         local_dir / "systemd/munbon-local-auth.service",
         runtime_verifier,

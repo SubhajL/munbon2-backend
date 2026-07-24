@@ -47,6 +47,7 @@ STAGE_ORDER = (
     "LOCAL-AC-1",
     "LOCAL-READ-ACT-1",
     "LOCAL-EVIDENCE-1",
+    "LOCAL-GO-READ-1",
 )
 READINESS_URLS = {
     "flow-monitoring": "http://127.0.0.1:3011/ready",
@@ -61,6 +62,7 @@ PLAYWRIGHT_BROWSERS_ROOT = Path("/opt/munbon/playwright-browsers")
 HARNESS_ARTIFACTS = (
     "local-ac1.py",
     "run-evidence-browser.js",
+    "run-go-read-browser.js",
     "run-read-browser.js",
     "run-ros-manual-producer.sh",
     "run-stage-suite.py",
@@ -81,6 +83,13 @@ GATE_ENV_NAMES = {
     "SCHEDULER_DEVICE_CAPABILITY_SNAPSHOT_PATH",
     "SCHEDULER_SCADA_BASE_URL",
     "SCHEDULER_SERVICE_JWT_SECRET",
+}
+GO_READ_FORBIDDEN_SCADA_ENV = {
+    "SCHEDULER_SERVICE_JWT_SECRET",
+    "SCADA_SITE_CANONICAL_GATE_ID",
+    "SCADA_APPROVED_FIELD_BUNDLE_PATH",
+    "SCADA_DEVICE_REGISTRY_PATH",
+    "SCADA_APPROVED_LINEAGE_ANCHOR_PATH",
 }
 
 
@@ -532,6 +541,104 @@ def validate_evidence_browser_result(
         raise StageGateError("evidence_browser_result_not_accepted") from exc
 
 
+def validate_go_read_browser_result(body: Any, *, gate_id: str) -> dict:
+    try:
+        expected = {
+            "mode": "go-read",
+            "signed_out_redirect": "/login",
+            "signed_out_status_requests": 0,
+            "login_status": 200,
+            "gate_id": gate_id,
+            "gate_name": "Waste Way",
+            "connection": "offline",
+            "read_status": 200,
+            "read_no_store": True,
+            "unknown_gate_status": 404,
+            "unknown_gate_no_store": True,
+            "outage_status": 503,
+            "outage_no_store": True,
+            "outage_alert_visible": True,
+            "stale_status_hidden": True,
+            "action_controls": 0,
+            "same_origin_status_path": (f"/api/read-only/gates/{gate_id}/status"),
+            "direct_scada_browser_requests": 0,
+            "forbidden_product_requests": [],
+            "product_mutation_requests": 0,
+            "request_inventory_scope": "full-signed-out-through-outage",
+            "screenshots": [
+                "LOCAL-GO-READ-1-live.png",
+                "LOCAL-GO-READ-1-outage.png",
+            ],
+        }
+        if (
+            gate_id != "waste-way"
+            or not isinstance(body, dict)
+            or isinstance(body.get("live_status_responses"), bool)
+            or not isinstance(body.get("live_status_responses"), int)
+            or body["live_status_responses"] < 3
+            or {key: body.get(key) for key in expected} != expected
+            or set(body) != {*expected, "live_status_responses"}
+        ):
+            raise ValueError
+        return body
+    except (KeyError, TypeError, ValueError) as exc:
+        raise StageGateError("go_read_browser_result_not_accepted") from exc
+
+
+def validate_go_read_status_results(
+    known: HttpResult,
+    unknown: HttpResult,
+) -> dict[str, Any]:
+    try:
+        body = known.body
+        points = [body[name] for name in ("gateLevel", "doorSw", "horn", "gateCf")]
+        if (
+            known.status != 200
+            or "no-store" not in known.headers.get("cache-control", "").lower()
+            or body["id"] != "waste-way"
+            or body["name"] != "Waste Way"
+            or body["connection"] != "offline"
+            or body["endpoint"] != {"host": "127.0.0.1", "port": 65534, "unitId": 1}
+            or body["markerColor"] != "red"
+            or body["lastUpdated"] is not None
+            or not isinstance(body["lastError"], str)
+            or not body["lastError"]
+            or any(
+                not isinstance(point, dict)
+                or point.get("raw") is not None
+                or point.get("value") is not None
+                or point.get("quality") != "offline"
+                or point.get("lastUpdated") is not None
+                or not isinstance(point.get("lastError"), str)
+                or not point["lastError"]
+                for point in points
+            )
+            or unknown.status != 404
+            or "no-store" not in unknown.headers.get("cache-control", "").lower()
+            or unknown.body != {"error": "unknown gate"}
+        ):
+            raise ValueError
+        return {
+            "known_gate_status": known.status,
+            "known_gate_no_store": True,
+            "gate_id": body["id"],
+            "gate_name": body["name"],
+            "connection": body["connection"],
+            "endpoint": {
+                "host": body["endpoint"]["host"],
+                "port": body["endpoint"]["port"],
+                "unit_id": body["endpoint"]["unitId"],
+            },
+            "null_observations": sum(point.get("value") is None for point in points),
+            "unknown_gate_status": unknown.status,
+            "unknown_gate_no_store": True,
+            "http_methods": ["GET", "GET"],
+            "product_mutations": 0,
+        }
+    except (KeyError, TypeError, ValueError) as exc:
+        raise StageGateError("go_read_status_result_not_accepted") from exc
+
+
 def validate_evidence_projection_results(
     results: dict[str, HttpResult],
     *,
@@ -933,6 +1040,18 @@ def project_pm2_state(pm2_json: str) -> list[dict]:
         raise StageGateError("pm2_state_invalid") from exc
 
 
+def _pm2_runtime_identity(pm2_json: str) -> list[dict[str, Any]]:
+    return [
+        {
+            "name": item["name"],
+            "status": item["status"],
+            "restarts": item["restarts"],
+            "pid": item["pid"],
+        }
+        for item in project_pm2_state(pm2_json)
+    ]
+
+
 def collect_dark_runtime_contract(pm2_json: str, model_release: dict) -> dict:
     try:
         raw = json.loads(pm2_json)
@@ -1072,6 +1191,28 @@ def unexpected_non_loopback_listeners(listeners: list[dict]) -> list[int]:
             and isinstance(listener.get("port"), int)
         }
     )
+
+
+def go_read_listener_projection(listeners: list[dict]) -> dict[str, list[str]]:
+    try:
+        projected = {
+            str(port): sorted(
+                {
+                    item["address"]
+                    for item in listeners
+                    if item.get("port") == port and isinstance(item.get("address"), str)
+                }
+            )
+            for port in (3030, 9998)
+        }
+        if projected != {
+            "3030": ["127.0.0.1"],
+            "9998": ["127.0.0.1"],
+        }:
+            raise ValueError
+        return projected
+    except (KeyError, TypeError, ValueError) as exc:
+        raise StageGateError("go_read_listener_binding_invalid") from exc
 
 
 def validate_migration_parity(
@@ -1239,6 +1380,54 @@ def project_frontend_activation_gates(environment: dict[str, str]) -> dict[str, 
         return {name: value == "true" for name, value in values.items()}
     except (KeyError, ValueError) as exc:
         raise StageGateError("frontend_activation_gates_invalid") from exc
+
+
+def validate_go_read_runtime_environment(
+    scada: dict[str, str],
+    gate_web: dict[str, str],
+) -> dict[str, Any]:
+    try:
+        validate_runtime_urls(
+            {
+                "auth": gate_web["AUTH_SERVICE_URL"],
+                "scada": gate_web["SCADA_GATE_CONTROL_URL"],
+            }
+        )
+        expected_scada = {
+            "NODE_ENV": "production",
+            "HTTP_HOST": "127.0.0.1",
+            "PORT": "3030",
+            "MODBUS_HOST": "127.0.0.1",
+            "MODBUS_PORT": "65534",
+            "ALLOW_IN_MEMORY_AUDIT": "false",
+            "ALLOW_MACHINE_COMMANDS": "false",
+        }
+        if (
+            any(scada.get(name) != value for name, value in expected_scada.items())
+            or not scada.get("DATABASE_URL")
+            or not scada.get("JWT_SECRET")
+            or any(name in scada for name in GO_READ_FORBIDDEN_SCADA_ENV)
+            or gate_web.get("NODE_ENV") != "production"
+            or gate_web["AUTH_SERVICE_URL"] != "http://127.0.0.1:3005"
+            or gate_web["SCADA_GATE_CONTROL_URL"] != "http://127.0.0.1:3030"
+            or gate_web.get("NEXT_PUBLIC_DEV_TOKEN") not in (None, "")
+            or gate_web.get("NEXT_PUBLIC_API_BASE_URL") not in (None, "")
+        ):
+            raise ValueError
+        return {
+            "scada_bind": "127.0.0.1:3030",
+            "modbus_target": "127.0.0.1:65534",
+            "machine_commands": False,
+            "durable_audit": True,
+            "service_auth": "dark",
+            "gate_web_bind": "127.0.0.1:9998",
+            "auth_origin": gate_web["AUTH_SERVICE_URL"],
+            "scada_origin": gate_web["SCADA_GATE_CONTROL_URL"],
+            "dev_bypass": False,
+            "legacy_direct_scada": False,
+        }
+    except (KeyError, TypeError, ValueError, StageGateError) as exc:
+        raise StageGateError("go_read_runtime_environment_invalid") from exc
 
 
 def _service_environment(context: StageContext, service: str) -> dict[str, str]:
@@ -2562,6 +2751,476 @@ def _run_evidence_browser(
     )
 
 
+def _go_read_runtime_environments(
+    context: StageContext,
+) -> tuple[dict[str, str], dict[str, str], dict[str, Any]]:
+    auth = _load_env_file(context.runtime_env_dir / "auth.env")
+    bff = _load_env_file(context.runtime_env_dir / "bff.env")
+    try:
+        jwt = {
+            name: auth[name] for name in ("JWT_SECRET", "JWT_ISSUER", "JWT_AUDIENCE")
+        }
+        if any(not value for value in jwt.values()) or not bff["POSTGRES_URL"]:
+            raise ValueError
+    except (KeyError, ValueError) as exc:
+        raise StageGateError("go_read_runtime_environment_invalid") from exc
+    path_value = f"{NODE_ROOT / 'bin'}:/usr/bin:/bin"
+    scada_base = {
+        name: value
+        for name, value in os.environ.items()
+        if name not in GO_READ_FORBIDDEN_SCADA_ENV
+    }
+    scada = {
+        **scada_base,
+        **jwt,
+        "PATH": path_value,
+        "NODE_ENV": "production",
+        "LOG_LEVEL": "error",
+        "HTTP_HOST": "127.0.0.1",
+        "PORT": "3030",
+        "SITE_GATE_ID": "waste-way",
+        "SITE_NAME": "Waste Way",
+        "MODBUS_HOST": "127.0.0.1",
+        "MODBUS_PORT": "65534",
+        "MODBUS_UNIT_ID": "1",
+        "MODBUS_TIMEOUT_MS": "500",
+        "MODBUS_POLL_INTERVAL_MS": "2000",
+        "MODBUS_STALE_AFTER_MS": "5000",
+        "MODBUS_OFFLINE_AFTER_MS": "10000",
+        "DATABASE_URL": bff["POSTGRES_URL"],
+        "ALLOW_IN_MEMORY_AUDIT": "false",
+        "ALLOW_MACHINE_COMMANDS": "false",
+    }
+    gate_web = {
+        **os.environ,
+        "PATH": path_value,
+        "NODE_ENV": "production",
+        "NEXT_TELEMETRY_DISABLED": "1",
+        "AUTH_SERVICE_URL": "http://127.0.0.1:3005",
+        "SCADA_GATE_CONTROL_URL": "http://127.0.0.1:3030",
+        "NEXT_PUBLIC_DEV_TOKEN": "",
+        "NEXT_PUBLIC_API_BASE_URL": "",
+    }
+    projection = validate_go_read_runtime_environment(scada, gate_web)
+    return scada, gate_web, projection
+
+
+def _build_go_read_services(
+    context: StageContext,
+    scada_environment: dict[str, str],
+    gate_web_environment: dict[str, str],
+) -> dict[str, Any]:
+    npm = str(NODE_ROOT / "bin/npm")
+    scada_root = context.repo_root / "services/scada-gate-control"
+    gate_web_root = context.repo_root / "services/scada-gate-control-web"
+    for label, root, environment, commands in (
+        (
+            "go_read_scada",
+            scada_root,
+            scada_environment,
+            ("test", "typecheck", "lint", "build"),
+        ),
+        (
+            "go_read_gate_web",
+            gate_web_root,
+            gate_web_environment,
+            ("test", "typecheck", "lint", "build"),
+        ),
+    ):
+        for command in commands:
+            command_environment = (
+                {
+                    **os.environ,
+                    "PATH": environment["PATH"],
+                    "NODE_ENV": "test",
+                }
+                if command == "test"
+                else environment
+            )
+            _run_checked(
+                f"{label}_{command}",
+                [npm, "--prefix", str(root), "run", command],
+                env=command_environment,
+                timeout=1200,
+            )
+    return {
+        "scada": {
+            "tests": "PASS",
+            "typecheck": "PASS",
+            "lint": "PASS",
+            "production_build": "PASS",
+        },
+        "gate_web": {
+            "tests": "PASS",
+            "typecheck": "PASS",
+            "lint": "PASS",
+            "production_build": "PASS",
+        },
+    }
+
+
+def _wait_node_server(
+    process: subprocess.Popen,
+    url: str,
+    *,
+    process_code: str,
+    readiness_code: str,
+    timeout_seconds: int = 120,
+) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise StageGateError(process_code)
+        try:
+            with urlopen(url, timeout=5) as response:
+                if response.status == 200:
+                    return
+        except (HTTPError, OSError, URLError):
+            pass
+        time.sleep(1)
+    raise StageGateError(readiness_code)
+
+
+def _stop_temporary_process(process: subprocess.Popen) -> None:
+    if process.poll() is None:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+            process.wait(timeout=15)
+        except (OSError, subprocess.TimeoutExpired):
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.wait(timeout=5)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+
+
+@contextmanager
+def _temporary_node_server(
+    *,
+    argv: list[str],
+    cwd: Path,
+    environment: dict[str, str],
+    readiness_url: str,
+    log_path: Path,
+    process_code: str,
+    readiness_code: str,
+):
+    descriptor = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    completed = False
+    process = None
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            process = subprocess.Popen(
+                argv,
+                cwd=cwd,
+                env=environment,
+                stdout=stream,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+            _wait_node_server(
+                process,
+                readiness_url,
+                process_code=process_code,
+                readiness_code=readiness_code,
+            )
+            yield process
+            completed = True
+    except OSError as exc:
+        raise StageGateError(process_code) from exc
+    finally:
+        if process is not None:
+            _stop_temporary_process(process)
+        if completed:
+            log_path.unlink(missing_ok=True)
+
+
+def _verify_go_read_restoration(
+    context: StageContext,
+    before_pm2: dict[str, Any],
+    before_dark: dict[str, Any],
+    model_release: dict[str, Any],
+) -> dict[str, Any]:
+    after_listeners = _listener_snapshot()
+    remaining_reserved = [
+        {
+            "address": listener.get("address"),
+            "port": listener.get("port"),
+        }
+        for listener in after_listeners
+        if listener.get("port") in {3030, 9998}
+    ]
+    if remaining_reserved:
+        raise StageGateError("go_read_listener_cleanup_failed")
+    if unexpected_non_loopback_listeners(after_listeners):
+        raise StageGateError("unexpected_non_loopback_listener")
+    after_pm2_json = _pm2_json()
+    after_pm2 = _pm2_runtime_identity(after_pm2_json)
+    if before_pm2 != after_pm2:
+        raise StageGateError("go_read_pm2_state_changed")
+    after_dark = collect_dark_runtime_contract(
+        _actual_gate_environment(after_pm2_json),
+        model_release,
+    )
+    if before_dark != after_dark:
+        raise StageGateError("dark_contract_not_restored")
+    final_activation_gates = project_frontend_activation_gates(
+        frontend_process_environment(
+            context.runtime_env_dir,
+            control_plan_reads=False,
+            control_plan_evidence_reads=False,
+        )
+    )
+    if final_activation_gates != {
+        "control_plan_reads": False,
+        "control_plan_evidence_reads": False,
+        "water_planning_v2": False,
+        "water_planning_submit": False,
+    }:
+        raise StageGateError("frontend_dark_rollback_failed")
+    auth_ready = LocalHttpClient().request(
+        "GET",
+        "http://127.0.0.1:3005/health/ready",
+    )
+    if auth_ready.status != 200:
+        raise StageGateError("go_read_auth_not_restored")
+    _verify_source_checkouts(context)
+    return {
+        "verified": True,
+        "reserved_listeners": remaining_reserved,
+        "pm2_unchanged": True,
+        "auth_ready": True,
+        "temporary_processes": 0,
+        "dark_contract_after": after_dark,
+        "final_activation_gates": final_activation_gates,
+    }
+
+
+@contextmanager
+def _go_read_restoration_guard(
+    context: StageContext,
+    *,
+    before_pm2: dict[str, Any],
+    before_dark: dict[str, Any],
+    model_release: dict[str, Any],
+):
+    restoration: dict[str, Any] = {}
+    try:
+        yield restoration
+    except Exception as primary_error:
+        try:
+            proof = _verify_go_read_restoration(
+                context,
+                before_pm2,
+                before_dark,
+                model_release,
+            )
+        except StageGateError as cleanup_error:
+            proof = {
+                "verified": False,
+                "failed_gate": str(cleanup_error),
+            }
+        setattr(primary_error, "restoration", proof)
+        raise
+    else:
+        restoration.update(
+            _verify_go_read_restoration(
+                context,
+                before_pm2,
+                before_dark,
+                model_release,
+            )
+        )
+
+
+def _actual_process_environment(process: subprocess.Popen) -> dict[str, str]:
+    try:
+        values = {}
+        for entry in Path(f"/proc/{process.pid}/environ").read_bytes().split(b"\0"):
+            key, separator, value = entry.partition(b"=")
+            if separator:
+                values[key.decode("utf-8", errors="strict")] = value.decode(
+                    "utf-8",
+                    errors="strict",
+                )
+        return values
+    except (OSError, UnicodeDecodeError) as exc:
+        raise StageGateError("go_read_process_environment_unavailable") from exc
+
+
+def _observe_go_read_stability(
+    scada_process: subprocess.Popen,
+    gate_web_process: subprocess.Popen,
+    duration_seconds: int,
+) -> dict[str, Any]:
+    started = time.monotonic()
+    deadline = started + duration_seconds
+    samples = 0
+    while True:
+        if scada_process.poll() is not None or gate_web_process.poll() is not None:
+            raise StageGateError("go_read_process_exited_during_stability")
+        for url in (
+            "http://127.0.0.1:3030/health",
+            "http://127.0.0.1:9998/login",
+        ):
+            try:
+                with urlopen(url, timeout=5) as response:
+                    if response.status != 200:
+                        raise ValueError
+            except (HTTPError, OSError, URLError, ValueError) as exc:
+                raise StageGateError("go_read_readiness_lost") from exc
+        samples += 1
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        time.sleep(min(5, remaining))
+    return {
+        "duration_seconds": duration_seconds,
+        "samples": samples,
+        "processes_stable": True,
+        "readiness": {
+            "scada_health": 200,
+            "gate_web_login": 200,
+        },
+    }
+
+
+def _probe_go_read_scada(context: StageContext) -> dict[str, Any]:
+    verifier = _load_harness_module(
+        context,
+        "verify_bearer.py",
+        "local_go_read_bearer_verifier",
+    )
+    client = LocalHttpClient()
+    token, refresh_cookie, login_evidence = _login_operator(
+        context,
+        client,
+        verifier,
+    )
+    try:
+        known = client.request(
+            "GET",
+            "http://127.0.0.1:3030/api/gates/waste-way/status",
+            bearer=token,
+        )
+        unknown = client.request(
+            "GET",
+            "http://127.0.0.1:3030/api/gates/unknown-gate/status",
+            bearer=token,
+        )
+        return {
+            **validate_go_read_status_results(known, unknown),
+            "login": login_evidence,
+        }
+    finally:
+        logout = client.request(
+            "POST",
+            "http://127.0.0.1:3005/api/v1/auth/logout",
+            payload={"refreshToken": refresh_cookie},
+        )
+        if logout.status not in {200, 204}:
+            raise StageGateError("go_read_operator_logout_failed")
+
+
+def _write_coordination_file(path: Path, value: str) -> None:
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+        stream.write(value)
+        stream.flush()
+        os.fsync(stream.fileno())
+
+
+def _run_go_read_browser(
+    context: StageContext,
+    *,
+    scada_process: subprocess.Popen,
+) -> dict[str, Any]:
+    operator = _load_env_file(context.runtime_env_dir / "operator.env")
+    ready_path = context.evidence_root / ".go-read-ready"
+    outage_release_path = context.evidence_root / ".go-read-outage-release"
+    live_screenshot = context.evidence_root / "LOCAL-GO-READ-1-live.png"
+    outage_screenshot = context.evidence_root / "LOCAL-GO-READ-1-outage.png"
+    for path in (
+        ready_path,
+        outage_release_path,
+        live_screenshot,
+        outage_screenshot,
+    ):
+        path.unlink(missing_ok=True)
+    process = None
+    try:
+        process = subprocess.Popen(
+            [
+                str(NODE_ROOT / "bin/node"),
+                str(context.harness_root / "run-go-read-browser.js"),
+            ],
+            env={
+                **os.environ,
+                **operator,
+                "PATH": f"{NODE_ROOT / 'bin'}:/usr/bin:/bin",
+                "NODE_PATH": str(BROWSER_ROOT / "node_modules"),
+                "PLAYWRIGHT_BROWSERS_PATH": str(PLAYWRIGHT_BROWSERS_ROOT),
+                "LOCAL_GATE_WEB_URL": "http://127.0.0.1:9998",
+                "LOCAL_SCADA_URL": "http://127.0.0.1:3030",
+                "LOCAL_GATE_ID": "waste-way",
+                "LOCAL_GO_READ_READY_PATH": str(ready_path),
+                "LOCAL_GO_READ_OUTAGE_RELEASE_PATH": str(outage_release_path),
+                "LOCAL_GO_READ_LIVE_SCREENSHOT": str(live_screenshot),
+                "LOCAL_GO_READ_OUTAGE_SCREENSHOT": str(outage_screenshot),
+            },
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=True,
+        )
+        deadline = time.monotonic() + 120
+        while not ready_path.exists():
+            if process.poll() is not None:
+                stdout, stderr = process.communicate()
+                safe_code = safe_subprocess_failure_code(
+                    stderr,
+                    "FAIL go_read_browser: ",
+                )
+                raise StageGateError(safe_code or "go_read_browser_failed")
+            if time.monotonic() >= deadline:
+                raise StageGateError("go_read_browser_ready_timeout")
+            time.sleep(0.1)
+        _stop_temporary_process(scada_process)
+        if scada_process.poll() not in {0, -signal.SIGTERM}:
+            raise StageGateError("go_read_scada_stop_failed")
+        _write_coordination_file(outage_release_path, "released\n")
+        try:
+            stdout, stderr = process.communicate(timeout=180)
+        except subprocess.TimeoutExpired as exc:
+            raise StageGateError("go_read_browser_outage_timeout") from exc
+        if process.returncode != 0:
+            safe_code = safe_subprocess_failure_code(
+                stderr,
+                "FAIL go_read_browser: ",
+            )
+            raise StageGateError(safe_code or "go_read_browser_failed")
+        try:
+            body = json.loads(stdout)
+        except json.JSONDecodeError as exc:
+            raise StageGateError("go_read_browser_output_invalid") from exc
+        result = validate_go_read_browser_result(body, gate_id="waste-way")
+        for screenshot in (live_screenshot, outage_screenshot):
+            if (
+                not screenshot.is_file()
+                or screenshot.stat().st_size < 1024
+                or screenshot.stat().st_size > 16 * 1024 * 1024
+            ):
+                raise StageGateError("go_read_screenshot_invalid")
+        return result
+    except OSError as exc:
+        raise StageGateError("go_read_browser_process_failed") from exc
+    finally:
+        if process is not None:
+            _stop_temporary_process(process)
+        ready_path.unlink(missing_ok=True)
+        outage_release_path.unlink(missing_ok=True)
+
+
 def _evidence_projection_path(
     plan_id: str,
     plan_version: int,
@@ -3010,8 +3669,152 @@ def run_local_evidence_activation(context: StageContext) -> dict:
     clear_failure_manifest(context.evidence_root, "LOCAL-EVIDENCE-1")
     write_stage_manifest(target, manifest)
     _checksum_manifest(target)
-    _save_state(context, list(STAGE_ORDER))
+    _save_state(context, list(STAGE_ORDER[:5]))
     print("PASS LOCAL-EVIDENCE-1")
+    return manifest
+
+
+def run_local_go_read(context: StageContext) -> dict:
+    state = _load_state(context)
+    validate_stage_transition(tuple(state["completed"]), "LOCAL-GO-READ-1")
+    model_release = _read_json(
+        context.repo_root
+        / "services/flow-monitoring/data/model-releases/engineering-prior-v3-v1.json"
+    )
+    before_pm2_json = _pm2_json()
+    before_pm2 = _pm2_runtime_identity(before_pm2_json)
+    before_dark = collect_dark_runtime_contract(
+        _actual_gate_environment(before_pm2_json),
+        model_release,
+    )
+    before_listeners = _listener_snapshot()
+    if any(
+        listener.get("port") in {3030, 9998, 65534} for listener in before_listeners
+    ):
+        raise StageGateError("go_read_port_conflict")
+    if unexpected_non_loopback_listeners(before_listeners):
+        raise StageGateError("unexpected_non_loopback_listener")
+
+    scada_environment, gate_web_environment, environment_projection = (
+        _go_read_runtime_environments(context)
+    )
+    steps: dict[str, Any] = {
+        "source": {
+            "backend_sha": context.release_sha,
+            "frontend_sha": context.frontend_sha,
+            "tracked_trees_clean": True,
+        },
+        "dark_contract_before": before_dark,
+        "pm2_before": before_pm2,
+        "reserved_ports_before": [],
+        "runtime_environment": environment_projection,
+        "builds": _build_go_read_services(
+            context,
+            scada_environment,
+            gate_web_environment,
+        ),
+    }
+    scada_root = context.repo_root / "services/scada-gate-control"
+    gate_web_root = context.repo_root / "services/scada-gate-control-web"
+    scada_log = context.evidence_root / ".go-read-scada.log"
+    gate_web_log = context.evidence_root / ".go-read-gate-web.log"
+    with _go_read_restoration_guard(
+        context,
+        before_pm2=before_pm2,
+        before_dark=before_dark,
+        model_release=model_release,
+    ) as restoration:
+        with _temporary_node_server(
+            argv=[
+                str(NODE_ROOT / "bin/node"),
+                str(scada_root / "dist/index.js"),
+            ],
+            cwd=scada_root,
+            environment=scada_environment,
+            readiness_url="http://127.0.0.1:3030/health",
+            log_path=scada_log,
+            process_code="go_read_scada_process_failed",
+            readiness_code="go_read_scada_readiness_failed",
+        ) as scada_process:
+            with _temporary_node_server(
+                argv=[
+                    str(NODE_ROOT / "bin/node"),
+                    str(gate_web_root / "node_modules/next/dist/bin/next"),
+                    "start",
+                    "-H",
+                    "127.0.0.1",
+                    "-p",
+                    "9998",
+                ],
+                cwd=gate_web_root,
+                environment=gate_web_environment,
+                readiness_url="http://127.0.0.1:9998/login",
+                log_path=gate_web_log,
+                process_code="go_read_gate_web_process_failed",
+                readiness_code="go_read_gate_web_readiness_failed",
+            ) as gate_web_process:
+                steps["actual_runtime_environment"] = (
+                    validate_go_read_runtime_environment(
+                        _actual_process_environment(scada_process),
+                        _actual_process_environment(gate_web_process),
+                    )
+                )
+                steps["loopback_listeners"] = go_read_listener_projection(
+                    _listener_snapshot()
+                )
+                steps["five_minute_stability"] = _observe_go_read_stability(
+                    scada_process,
+                    gate_web_process,
+                    context.stability_duration,
+                )
+                steps["direct_scada_reads"] = _probe_go_read_scada(context)
+                steps["browser"] = _run_go_read_browser(
+                    context,
+                    scada_process=scada_process,
+                )
+                if gate_web_process.poll() is not None:
+                    raise StageGateError("go_read_gate_web_exited_during_outage")
+
+    after_dark = restoration["dark_contract_after"]
+    final_activation_gates = restoration["final_activation_gates"]
+    screenshots = {}
+    for name in ("LOCAL-GO-READ-1-live.png", "LOCAL-GO-READ-1-outage.png"):
+        screenshot = context.evidence_root / name
+        screenshots[name] = {
+            "bytes": screenshot.stat().st_size,
+            "sha256": _hash_file(screenshot),
+        }
+        _checksum_manifest(screenshot)
+    steps["cleanup"] = {
+        key: restoration[key]
+        for key in (
+            "verified",
+            "reserved_listeners",
+            "pm2_unchanged",
+            "auth_ready",
+            "temporary_processes",
+        )
+    }
+    steps["dark_contract_after"] = after_dark
+    steps["final_activation_gates"] = final_activation_gates
+    steps["screenshots"] = screenshots
+    steps["aws_actions"] = False
+
+    manifest = {
+        "stage": "LOCAL-GO-READ-1",
+        "verdict": "PASS",
+        "release_sha": context.release_sha,
+        "frontend_sha": context.frontend_sha,
+        "completed_at": _utc_timestamp(),
+        "steps": steps,
+    }
+    validate_evidence_payload(manifest)
+    target = context.evidence_root / "LOCAL-GO-READ-1.json"
+    clear_failure_manifest(context.evidence_root, "LOCAL-GO-READ-1")
+    write_stage_manifest(target, manifest)
+    _checksum_manifest(target)
+    _save_state(context, list(STAGE_ORDER))
+    print("PASS LOCAL-GO-READ-1")
     return manifest
 
 
@@ -3064,8 +3867,10 @@ def main(argv: list[str] | None = None) -> int:
             run_local_ac(context)
         elif args.stage == "LOCAL-READ-ACT-1":
             run_local_read_activation(context)
-        else:
+        elif args.stage == "LOCAL-EVIDENCE-1":
             run_local_evidence_activation(context)
+        else:
+            run_local_go_read(context)
     except Exception as exc:
         safe_error = (
             exc
@@ -3081,6 +3886,9 @@ def main(argv: list[str] | None = None) -> int:
             "failed_gate": str(safe_error),
             "failed_at": _utc_timestamp(),
         }
+        restoration = getattr(safe_error, "restoration", None)
+        if isinstance(restoration, dict):
+            failure["restoration"] = restoration
         try:
             write_stage_manifest(
                 args.evidence_root / f"{args.stage}-failure.json", failure

@@ -29,6 +29,7 @@ bundle; the runtime checkout must remain at the accepted 40-character SHA.
 | AC-1               | `LOCAL-AC-1`               | Implemented and passed       |
 | READ-ACT-1         | `LOCAL-READ-ACT-1`         | Implemented and passed       |
 | ME-1 / FE-8        | `LOCAL-EVIDENCE-1`         | Implemented and passed       |
+| GO-READ-1          | `LOCAL-GO-READ-1`          | Implemented; exact run due   |
 | W1 / W2            | `LOCAL-WRITE-FOUNDATION-1` | Planned; not yet implemented |
 | FE-5 / FE-6        | `LOCAL-WRITE-UI-1`         | Planned; not yet implemented |
 | DEC-W4             | `LOCAL-PERSIST-ONLY-1`     | Planned; persist-only        |
@@ -55,9 +56,10 @@ python3 ops/control-plan-read-local/orchestrate.py provision \
 ```
 
 Provisioning installs PostgreSQL/PostGIS, Redis, loopback InfluxDB, promtool,
-PM2, central auth, and one service-local `.venv` from each of the four tracked
-requirements manifests. It creates local-only credentials inside the guest and
-stores them in mode-600 files. It never returns their values to macOS.
+PM2, central auth, one service-local `.venv` from each of the four tracked
+requirements manifests, and the locked Node manifests for SCADA and Gate Web.
+It creates local-only credentials inside the guest and stores them in mode-600
+files. It never returns their values to macOS.
 Reprovisioning first archives the prior evidence directory, stops the harness
 runtime, recreates the harness-owned `munbon_local` database, and flushes the
 guest-local Redis instance so an exact-candidate run cannot reuse an earlier
@@ -66,7 +68,7 @@ requirement publication, plan, session, or cache entry.
 The Prometheus Debian package is used only for `promtool`; its Prometheus and
 node-exporter services are disabled to prevent wildcard listeners.
 
-## Run the five implemented stages
+## Run the six implemented stages
 
 ```bash
 python3 ops/control-plan-read-local/orchestrate.py run-stage --stage LOCAL-BASE-0 \
@@ -90,6 +92,11 @@ python3 ops/control-plan-read-local/orchestrate.py run-stage --stage LOCAL-READ-
   --accept-later-origin-main
 
 python3 ops/control-plan-read-local/orchestrate.py run-stage --stage LOCAL-EVIDENCE-1 \
+  --release-sha "$accepted_backend_sha" \
+  --frontend-sha "$accepted_frontend_sha" \
+  --accept-later-origin-main
+
+python3 ops/control-plan-read-local/orchestrate.py run-stage --stage LOCAL-GO-READ-1 \
   --release-sha "$accepted_backend_sha" \
   --frontend-sha "$accepted_frontend_sha" \
   --accept-later-origin-main
@@ -153,6 +160,24 @@ product mutation, authority, hold/resume, level, horn, command, or dispatch
 requests. The gate finishes by appending a resumed event and rebuilding with
 both control-plan flags false.
 
+`LOCAL-GO-READ-1` builds SCADA and Gate Web from the exact accepted backend
+SHA, binds both temporary processes only to `127.0.0.1`, and holds them stable
+for 300 continuous seconds. A real operator bearer must read the known offline
+gate and unknown-gate 404 directly from SCADA with `no-store`. A real Chromium
+session then proves signed-out deep-link protection, login, the same-origin
+GET-only proxy, at least three live status responses, the read-only UI, and the
+unknown-gate state. The runner stops the real SCADA process after a successful
+read; the next poll must return 503, show the unavailable alert, and remove the
+prior observation. Browser routing blocks every request except exact auth
+posts without query strings, the three expected documents, Next static assets,
+framework RSC reads, and the two allowlisted status GETs without query strings.
+Screenshots cover the live-offline and post-outage states. Cleanup requires
+ports 3030 and 9998 to disappear, PM2 identity to remain exact, central auth to
+remain ready, every execution/authority/write gate to remain dark, and both
+Smart CMS flags to remain false. The same restoration checks run after
+readiness, browser, or outage failure; the failure manifest records their result
+without replacing the original failed-gate code.
+
 ## Evidence
 
 Collect sanitized evidence without exposing the isolated guest filesystem:
@@ -165,7 +190,8 @@ python3 ops/control-plan-read-local/orchestrate.py collect \
   --evidence-dir coding-logs/evidence/local-ac-read
 ```
 
-The evidence bundle contains stage JSON, state, and `SHA256SUMS`. Each
+The evidence bundle contains stage JSON, two GO-READ screenshots, state, and
+`SHA256SUMS`. Each
 transition verifies the state and every preceding stage checksum, rechecks clean
 backend and frontend SHAs, and binds the state to hashes of the installed
 harness files. It rejects secret-shaped keys, bearer values, credential-bearing
@@ -185,6 +211,7 @@ gate was strengthened, and Stage 0/1 were rerun from a new evidence directory.
 - `LOCAL-AC-1`: PASS
 - `LOCAL-READ-ACT-1`: PASS
 - `LOCAL-EVIDENCE-1`: PASS
+- `LOCAL-GO-READ-1`: pending exact-main run
 - Stability: 300 seconds, restart-count equality
 - Final application listeners: loopback only
 - Evidence contract: 17 exact files, aggregate SHA-256
@@ -204,7 +231,7 @@ gate was strengthened, and Stage 0/1 were rerun from a new evidence directory.
 - Sanitized archive:
   `coding-logs/evidence/2026-07-24-local-evidence-main-8ce28a8a/`
 
-Every new candidate must be provisioned cleanly and rerun through all five
+Every new candidate must be provisioned cleanly and rerun through all six
 implemented stages at its exact SHA. Evidence from a predecessor or a
 tree-equivalent squash commit is not reused because the evidence index is
 SHA-bound. These readings are local evidence and do not describe AWS capacity

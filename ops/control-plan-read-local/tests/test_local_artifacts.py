@@ -40,6 +40,9 @@ def test_bootstrap_is_valid_bash_and_provisions_only_isolated_manifests():
         "frontend.bundle",
         "run-read-browser.js",
         "run-evidence-browser.js",
+        "run-go-read-browser.js",
+        "services/scada-gate-control",
+        "services/scada-gate-control-web",
         "prisma generate",
         "checkout --force --quiet",
         "evidence-archive",
@@ -65,6 +68,7 @@ def test_orchestrator_provisions_every_local_ac_harness_artifact():
         "frontend.bundle",
         "run-read-browser.js",
         "run-evidence-browser.js",
+        "run-go-read-browser.js",
         "--frontend-repo",
     ):
         assert required in body
@@ -73,9 +77,10 @@ def test_orchestrator_provisions_every_local_ac_harness_artifact():
 def test_every_completed_stage_is_added_to_the_checksum_index():
     body = (LOCAL_DIR / "run-stage-suite.py").read_text(encoding="utf-8")
 
-    assert body.count("_checksum_manifest(target)") == 5
+    assert body.count("_checksum_manifest(target)") == 6
     assert "_checksum_manifest(path)" in body
     assert "_verify_checksum_entry" in body
+    assert "_save_state(context, list(STAGE_ORDER[:5]))" in body
 
 
 def test_read_browser_runner_covers_dark_visible_and_panel_failure_scenarios():
@@ -134,6 +139,41 @@ def test_evidence_browser_runner_covers_machine_evidence_and_gate_boundary():
         assert required in body
 
 
+def test_go_read_browser_runner_covers_real_status_outage_and_request_inventory():
+    path = LOCAL_DIR / "run-go-read-browser.js"
+    body = path.read_text(encoding="utf-8")
+
+    subprocess.run(["node", "--check", str(path)], check=True)
+    subprocess.run(
+        [
+            "node",
+            "--test",
+            str(LOCAL_DIR / "tests" / "test_go_read_browser_inventory.js"),
+        ],
+        check=True,
+    )
+    for required in (
+        "signed_out_status_requests",
+        "live_status_responses",
+        "unknown_gate_status",
+        "outage_status",
+        "outage_alert_visible",
+        "stale_status_hidden",
+        "action_controls",
+        "direct_scada_browser_requests",
+        "forbidden_product_requests",
+        "product_mutation_requests",
+        "full-signed-out-through-outage",
+        "LOCAL_GO_READ_READY_PATH",
+        "LOCAL_GO_READ_OUTAGE_RELEASE_PATH",
+        'route.abort("blockedbyclient")',
+        "FAIL go_read_browser:",
+        "LOCAL-GO-READ-1-live.png",
+        "LOCAL-GO-READ-1-outage.png",
+    ):
+        assert required in body
+
+
 def test_auth_systemd_unit_is_loopback_local_and_uses_mode_600_env():
     body = (LOCAL_DIR / "systemd" / "munbon-local-auth.service").read_text(
         encoding="utf-8"
@@ -173,7 +213,7 @@ def test_all_stages_runbook_locks_local_before_aws_and_documents_current_command
     body = (
         REPO_ROOT / "docs/operations/CONTROL_PLAN_ALL_STAGES_LOCAL_ACCEPTANCE.md"
     ).read_text(encoding="utf-8")
-    documented_candidate_commands = 7
+    documented_candidate_commands = 8
 
     for required in (
         "LOCAL-BASE-0",
@@ -187,6 +227,7 @@ def test_all_stages_runbook_locks_local_before_aws_and_documents_current_command
         "orchestrate.py run-stage --stage LOCAL-AC-1",
         "orchestrate.py run-stage --stage LOCAL-READ-ACT-1",
         "orchestrate.py run-stage --stage LOCAL-EVIDENCE-1",
+        "orchestrate.py run-stage --stage LOCAL-GO-READ-1",
         "orchestrate.py collect",
         "false → true → false",
         "bearer verification before `pm2 save`",
