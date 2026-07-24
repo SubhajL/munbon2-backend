@@ -57,8 +57,18 @@ function classifyProductRequest({
   };
 }
 
-async function login(page, baseUrl, email, password) {
+async function login(page, baseUrl, email, password, redirectPath) {
+  assert(
+    /^\/smart-water\/control-plans\/[0-9a-f-]+\/versions\/[1-9][0-9]*$/.test(
+      redirectPath,
+    ),
+    "login_redirect_invalid",
+  );
   await page.goto(`${baseUrl}/login`, { waitUntil: "domcontentloaded" });
+  await page.evaluate(
+    (path) => localStorage.setItem("redirectAfterLogin", path),
+    redirectPath,
+  );
   await page.locator("#email").fill(email);
   await page.locator("#password").fill(password);
   const response = page.waitForResponse(
@@ -201,7 +211,7 @@ async function main() {
   try {
     const page = await context.newPage();
     checkpoint = "login";
-    await login(page, baseUrl, email, password);
+    await login(page, baseUrl, email, password, detailPath);
 
     checkpoint = "present_held";
     await page.goto(`${baseUrl}${detailPath}`, {
@@ -360,7 +370,7 @@ async function main() {
   }
 }
 
-module.exports = { classifyProductRequest };
+module.exports = { classifyProductRequest, login };
 
 if (require.main === module) {
   main().catch((error) => {

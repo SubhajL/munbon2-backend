@@ -1106,6 +1106,17 @@ def _utc_timestamp() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def safe_subprocess_failure_code(stderr: str, prefix: str) -> str | None:
+    matches = []
+    for line in stderr.splitlines():
+        if not line.startswith(prefix):
+            continue
+        code = line.removeprefix(prefix)
+        if re.fullmatch(r"[a-z][a-z0-9_]{0,127}", code):
+            matches.append(code)
+    return matches[0] if len(matches) == 1 else None
+
+
 def _run_checked(
     code: str,
     argv: list[str],
@@ -1113,6 +1124,7 @@ def _run_checked(
     cwd: Path | None = None,
     env: dict[str, str] | None = None,
     timeout: int = 600,
+    safe_error_prefix: str | None = None,
 ) -> str:
     try:
         result = subprocess.run(
@@ -1127,6 +1139,13 @@ def _run_checked(
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise StageGateError(f"{code}_failed") from exc
     if result.returncode != 0:
+        if safe_error_prefix is not None:
+            safe_code = safe_subprocess_failure_code(
+                result.stderr,
+                safe_error_prefix,
+            )
+            if safe_code is not None:
+                raise StageGateError(safe_code)
         raise StageGateError(f"{code}_failed")
     print(f"PASS {code}")
     return result.stdout
@@ -2528,6 +2547,7 @@ def _run_evidence_browser(
             "LOCAL_GATE_ID": gate_id,
         },
         timeout=300,
+        safe_error_prefix="FAIL evidence_browser: ",
     )
     try:
         body = json.loads(output)
