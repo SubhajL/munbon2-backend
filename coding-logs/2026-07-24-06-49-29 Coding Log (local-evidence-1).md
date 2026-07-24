@@ -443,3 +443,78 @@ LOW
 
 - This changes only a fail-closed source verifier and its tests. Runtime
   services, flags, authority, commands, and AWS remain untouched.
+
+## Exact-main runtime attempt 2 and refused-Modbus cleanup
+
+Backend `a31bdd4a4d87c440f0bb2cf14bf640f3c886981a` and the accepted frontend were
+reprovisioned from disposable state. The first five stages passed.
+`LOCAL-GO-READ-1` completed its build and stability work but stopped at
+`go_read_status_result_not_accepted`. Its failure manifest proved complete
+restoration: no temporary listener, unchanged PM2 identity, ready Auth, both
+frontend flags false, and the full dark contract unchanged.
+
+A guest-local diagnostic reproduced the exact API response without exposing
+credentials: the gate was correctly offline/red with null observations, but
+the aggregate and point `lastError` values remained null after minutes. The
+real `modbus-serial` TCP client emits its close event when connection is
+refused; the transport then called `close()` and awaited a callback registered
+after that event, leaving the controller's first poll unresolved.
+
+A real refused-TCP test was added first and failed at its two-second cleanup
+deadline. `ModbusClientLike` now exposes the library's abortive `destroy()`
+operation, and failed connect/read/write cleanup uses it before the next retry.
+The regression now rejects in about 70 ms and the existing lifecycle tests
+prove failed clients are destroyed and replaced.
+
+Final validation passed three consecutive times: `424` SCADA tests with the
+seven existing Postgres-gated skips, `100` harness tests, SCADA typecheck, lint,
+production build, Prettier, and diff checks. Independent QCHECK found no
+actionable issue.
+
+## Review (2026-07-24 10:22:24 +07) - Modbus refused-connect cleanup
+
+### Reviewed
+
+- Repo: `/Users/subhajlimanond/dev/munbon2-backend-go-read-modbus-fix`
+- Branch: `fix/go-read-modbus-connect-cleanup`
+- Scope: SCADA transport and colocated test based on
+  `a31bdd4a4d87c440f0bb2cf14bf640f3c886981a`
+- Commands Run: sanitized failure-manifest inspection; guest-local direct API
+  diagnostic; focused RED/GREEN Vitest; full SCADA and harness suites three
+  times; typecheck; lint; build; Prettier; diff checks; independent Terra
+  QCHECK
+
+### Findings
+
+CRITICAL
+
+- No findings.
+
+HIGH
+
+- No findings.
+
+MEDIUM
+
+- No findings.
+
+LOW
+
+- No findings.
+
+### Open Questions / Assumptions
+
+- Exact-main acceptance must restart from provisioning after this product fix;
+  the failed predecessor-SHA evidence is not reusable.
+
+### Recommended Tests / Validation
+
+- Rerun all six stages and require the real offline response to contain the
+  refused-connection error before starting Chromium.
+- Confirm the browser's live, unknown-gate, and post-SCADA-stop outage states,
+  then verify restoration and archive checksums.
+
+### Rollout Notes
+
+- This changes only failed-socket cleanup. It does not enable command routes,
+  service auth, approved authority, machine commands, or AWS access.
