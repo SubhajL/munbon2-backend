@@ -381,3 +381,65 @@ LOW
   permission, or authority configuration is part of this slice.
 - Runtime processes are temporary and loopback-only. The accepted PM2 process
   set is neither changed nor saved by this stage.
+
+## Exact-main runtime attempt 1 and evidence-source unblock
+
+Backend `383406d2ca1657ae3463041381c1ac851b0fb6b8` and the accepted frontend were
+provisioned from disposable state. `LOCAL-BASE-0`, `LOCAL-RTA-1`,
+`LOCAL-AC-1`, and `LOCAL-READ-ACT-1` passed. `LOCAL-EVIDENCE-1` stopped at
+`read_only_gate_source_invalid`, so `LOCAL-GO-READ-1` did not start.
+
+The source guard still required the legacy direct `/api/gates/` browser path,
+while the accepted runtime prerequisite correctly moved the client to the
+same-origin `/api/read-only/gates/` proxy. A focused test reproduced the
+failure. The guard now requires the same-origin path and explicitly rejects any
+legacy direct path, including a source that contains both paths as a fallback.
+
+Final validation passed three consecutive times: `100` Python tests, Ruff,
+Black, Python compilation, and diff checks. Independent QCHECK's both-path
+fallback finding was reproduced and closed; final verdict is clean.
+
+## Review (2026-07-24 10:00:36 +07) - evidence source boundary
+
+### Reviewed
+
+- Repo: `/Users/subhajlimanond/dev/munbon2-backend-go-read-evidence-fix`
+- Branch: `fix/go-read-evidence-source-boundary`
+- Scope: two-file staged fix based on
+  `383406d2ca1657ae3463041381c1ac851b0fb6b8`
+- Commands Run: exact failure manifest inspection; focused RED/GREEN test;
+  actual-source invocation; full harness tests three times; Ruff; Black; Python
+  compilation; diff checks; independent Terra QCHECK
+
+### Findings
+
+CRITICAL
+
+- No findings.
+
+HIGH
+
+- No findings.
+
+MEDIUM
+
+- No findings.
+
+LOW
+
+- No findings.
+
+### Open Questions / Assumptions
+
+- The failed attempt is not reusable because acceptance evidence is
+  release-SHA-bound. All six stages must run again after this fix merges.
+
+### Recommended Tests / Validation
+
+- Reprovision the exact new merged-main SHA and rerun the complete six-stage
+  sequence from disposable state.
+
+### Rollout Notes
+
+- This changes only a fail-closed source verifier and its tests. Runtime
+  services, flags, authority, commands, and AWS remain untouched.

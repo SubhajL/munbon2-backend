@@ -862,7 +862,8 @@ def verify_read_only_gate_source(repo_root: Path) -> dict:
             or "import(" in client_source
             or "require(" in page_source
             or "require(" in client_source
-            or "/api/gates/" not in client_source
+            or "/api/read-only/gates/" not in client_source
+            or "/api/gates/" in client_source
             or "/status" not in client_source
             or any(name in page_source for name in forbidden_imports)
             or any(name in client_source for name in forbidden_imports)
