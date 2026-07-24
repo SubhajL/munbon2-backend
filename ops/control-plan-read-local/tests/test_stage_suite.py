@@ -1,5 +1,6 @@
 import importlib.util
 import hashlib
+import inspect
 import json
 import os
 from pathlib import Path
@@ -28,6 +29,96 @@ def test_validate_runtime_urls_accepts_only_exact_loopback_http_endpoints():
     }
 
     assert stage_suite.validate_runtime_urls(urls) == urls
+
+
+def test_safe_subprocess_failure_code_accepts_one_code_only_line():
+    assert (
+        stage_suite.safe_subprocess_failure_code(
+            "browser noise\nFAIL evidence_browser: forbidden_product_request_observed\n",
+            "FAIL evidence_browser: ",
+        )
+        == "forbidden_product_request_observed"
+    )
+    assert (
+        stage_suite.safe_subprocess_failure_code(
+            "FAIL evidence_browser: invalid code with spaces\n",
+            "FAIL evidence_browser: ",
+        )
+        is None
+    )
+    assert (
+        stage_suite.safe_subprocess_failure_code(
+            "FAIL evidence_browser: first_failure\n"
+            "FAIL evidence_browser: second_failure\n",
+            "FAIL evidence_browser: ",
+        )
+        is None
+    )
+
+
+def test_only_evidence_browser_propagates_validated_child_failure_codes():
+    evidence_source = inspect.getsource(stage_suite._run_evidence_browser)
+    read_source = inspect.getsource(stage_suite._run_read_browser)
+
+    assert 'safe_error_prefix="FAIL evidence_browser: "' in evidence_source
+    assert "safe_error_prefix" not in read_source
+
+
+def test_run_checked_propagates_one_validated_child_failure_code(monkeypatch):
+    monkeypatch.setattr(
+        stage_suite.subprocess,
+        "run",
+        lambda *_args, **_kwargs: stage_suite.subprocess.CompletedProcess(
+            args=["node"],
+            returncode=1,
+            stdout="",
+            stderr="FAIL evidence_browser: forbidden_product_request_observed\n",
+        ),
+    )
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="^forbidden_product_request_observed$",
+    ):
+        stage_suite._run_checked(
+            "evidence_browser_visible",
+            ["node"],
+            safe_error_prefix="FAIL evidence_browser: ",
+        )
+
+
+@pytest.mark.parametrize(
+    "stderr",
+    [
+        "FAIL evidence_browser: invalid code\n",
+        (
+            "FAIL evidence_browser: first_failure\n"
+            "FAIL evidence_browser: second_failure\n"
+        ),
+        "secret=value\n",
+    ],
+)
+def test_run_checked_falls_back_for_unaccepted_child_stderr(monkeypatch, stderr):
+    monkeypatch.setattr(
+        stage_suite.subprocess,
+        "run",
+        lambda *_args, **_kwargs: stage_suite.subprocess.CompletedProcess(
+            args=["node"],
+            returncode=1,
+            stdout="",
+            stderr=stderr,
+        ),
+    )
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="^evidence_browser_visible_failed$",
+    ):
+        stage_suite._run_checked(
+            "evidence_browser_visible",
+            ["node"],
+            safe_error_prefix="FAIL evidence_browser: ",
+        )
 
 
 @pytest.mark.parametrize(

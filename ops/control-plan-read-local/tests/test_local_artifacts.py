@@ -122,6 +122,7 @@ def test_evidence_browser_runner_covers_machine_evidence_and_gate_boundary():
         "product_mutation_requests",
         "classifyProductRequest",
         "unexpectedApi",
+        "redirectAfterLogin",
         "No command intents are recorded.",
         "Empty intent history does not claim execution.",
     ):

@@ -95,6 +95,36 @@ Final disposition: no remaining severity findings. The complete post-review
 gate is `86` Python tests, `4` Node tests, Ruff, Black, Python compilation,
 Bash syntax, Node syntax, and `git diff --check`.
 
+## Exact-SHA runtime attempt 1
+
+Backend `0c71e98edcd77a974102f7c2ebc975eecc193330` and frontend
+`fbd4ce4df0bb0476b7cd402ac1a4e180a91a7792` were provisioned cleanly.
+`LOCAL-BASE-0`, `LOCAL-RTA-1`, `LOCAL-AC-1`, and `LOCAL-READ-ACT-1` passed.
+`LOCAL-EVIDENCE-1` stopped at `evidence_browser_visible_failed`; the healthy
+frontend log ruled out a server-start failure.
+
+The browser had logged in without the scoped `redirectAfterLogin` used by the
+predecessor read-activation runner. The login page therefore entered the Smart
+Water dashboard before the plan-detail navigation, and the dashboard's
+unrelated API inventory correctly violated the exact evidence allowlist. The
+browser now redirects directly to the accepted plan detail. The stage runner
+also propagates only a single validated lowercase browser failure code, keeping
+future failure manifests diagnostic without exposing raw stderr.
+
+The fix passes `92` Python tests and `5` Node tests plus Ruff, Black, Python
+compilation, Bash syntax, Node syntax, and `git diff --check`. Primary review
+also corrected the safe-error prefix to the evidence browser caller and added a
+source-level regression test that prevents it from being attached to the
+predecessor read browser.
+
+Independent QCHECK reported two low-severity test gaps and no high/medium
+findings. Both are closed: `_run_checked` now has nonzero-process tests for
+accepted, duplicate, invalid, and secret-bearing stderr, while a Node behavior
+test proves the exact plan-detail redirect is stored before credential
+submission and rejects a dashboard redirect.
+
+Post-remediation formal g-check disposition: no remaining severity findings.
+
 ## Design boundary
 
 The three present projections and held/unavailable evidence come from real
