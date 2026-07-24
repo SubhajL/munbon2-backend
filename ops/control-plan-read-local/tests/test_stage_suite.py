@@ -1,4 +1,5 @@
 import importlib.util
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -52,6 +53,15 @@ def test_stage_transition_requires_each_progressive_local_gate():
         ("LOCAL-BASE-0", "LOCAL-RTA-1", "LOCAL-AC-1"),
         "LOCAL-READ-ACT-1",
     )
+    stage_suite.validate_stage_transition(
+        (
+            "LOCAL-BASE-0",
+            "LOCAL-RTA-1",
+            "LOCAL-AC-1",
+            "LOCAL-READ-ACT-1",
+        ),
+        "LOCAL-EVIDENCE-1",
+    )
 
     with pytest.raises(stage_suite.StageGateError, match="stage_transition_invalid"):
         stage_suite.validate_stage_transition((), "LOCAL-RTA-1")
@@ -81,6 +91,14 @@ def test_read_activation_build_sequence_is_false_true_false():
     assert stage_suite.read_activation_flag_sequence() == (False, True, False)
 
 
+def test_evidence_activation_sequence_ends_fully_dark():
+    assert stage_suite.evidence_activation_flag_sequence() == (
+        (True, False),
+        (True, True),
+        (False, False),
+    )
+
+
 def test_frontend_process_environment_keeps_other_activation_gates_dark(tmp_path):
     (tmp_path / "auth.env").write_text(
         "\n".join(
@@ -103,6 +121,7 @@ def test_frontend_process_environment_keeps_other_activation_gates_dark(tmp_path
         key: environment[key]
         for key in (
             "NEXT_PUBLIC_CONTROL_PLAN_READS",
+            "NEXT_PUBLIC_CONTROL_PLAN_EVIDENCE_READS",
             "NEXT_PUBLIC_WATER_PLANNING_V2",
             "NEXT_PUBLIC_WATER_PLANNING_SUBMIT_ENABLED",
             "CENTRAL_AUTH_URL",
@@ -113,6 +132,7 @@ def test_frontend_process_environment_keeps_other_activation_gates_dark(tmp_path
         )
     } == {
         "NEXT_PUBLIC_CONTROL_PLAN_READS": "true",
+        "NEXT_PUBLIC_CONTROL_PLAN_EVIDENCE_READS": "false",
         "NEXT_PUBLIC_WATER_PLANNING_V2": "false",
         "NEXT_PUBLIC_WATER_PLANNING_SUBMIT_ENABLED": "false",
         "CENTRAL_AUTH_URL": "http://127.0.0.1:3005",
@@ -123,9 +143,388 @@ def test_frontend_process_environment_keeps_other_activation_gates_dark(tmp_path
     }
     assert stage_suite.project_frontend_activation_gates(environment) == {
         "control_plan_reads": True,
+        "control_plan_evidence_reads": False,
         "water_planning_v2": False,
         "water_planning_submit": False,
     }
+
+
+def test_frontend_evidence_environment_requires_exact_loopback_read_only_gate_url(
+    tmp_path,
+):
+    (tmp_path / "auth.env").write_text(
+        "\n".join(
+            (
+                "JWT_SECRET=local-signing-value",
+                "JWT_ISSUER=munbon-auth",
+                "JWT_AUDIENCE=munbon-services",
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    environment = stage_suite.frontend_process_environment(
+        tmp_path,
+        control_plan_reads=True,
+        control_plan_evidence_reads=True,
+        gate_operations_base_url="http://127.0.0.1:9998/read-only/gates",
+    )
+
+    assert environment["NEXT_PUBLIC_CONTROL_PLAN_EVIDENCE_READS"] == "true"
+    assert (
+        environment["NEXT_PUBLIC_GATE_OPERATIONS_URL"]
+        == "http://127.0.0.1:9998/read-only/gates"
+    )
+    assert stage_suite.project_frontend_activation_gates(environment) == {
+        "control_plan_reads": True,
+        "control_plan_evidence_reads": True,
+        "water_planning_v2": False,
+        "water_planning_submit": False,
+    }
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="gate_operations_url_invalid",
+    ):
+        stage_suite.frontend_process_environment(
+            tmp_path,
+            control_plan_reads=True,
+            control_plan_evidence_reads=True,
+            gate_operations_base_url="http://127.0.0.1:9998/gates",
+        )
+
+
+def test_verify_evidence_contract_parity_requires_exact_roster_hashes_and_bytes(
+    tmp_path,
+):
+    backend = tmp_path / "backend"
+    frontend = tmp_path / "frontend"
+    backend.mkdir()
+    frontend.mkdir()
+    schema = '{"type":"object"}\n'
+    schema_sha = hashlib.sha256(schema.encode()).hexdigest()
+    records = [{"relative_path": "projection.schema.json", "sha256": schema_sha}]
+    aggregate = hashlib.sha256(
+        json.dumps(records, separators=(",", ":")).encode()
+    ).hexdigest()
+    manifest = {
+        "contract_family": "control-plan-evidence",
+        "contract_version": 1,
+        "contract_set_sha256": aggregate,
+        "schemas": records,
+        "fixtures": [],
+    }
+    for root in (backend, frontend):
+        (root / "projection.schema.json").write_text(schema, encoding="utf-8")
+        (root / "manifest.json").write_text(
+            json.dumps(manifest, separators=(",", ":")) + "\n",
+            encoding="utf-8",
+        )
+
+    assert stage_suite.verify_evidence_contract_parity(backend, frontend) == {
+        "contract_version": 1,
+        "file_count": 2,
+        "contract_set_sha256": aggregate,
+        "exact_bytes": True,
+    }
+
+    (frontend / "projection.schema.json").write_text(
+        '{"type":"array"}\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="evidence_contract_parity_failed",
+    ):
+        stage_suite.verify_evidence_contract_parity(backend, frontend)
+
+
+def test_evidence_seed_sql_adds_only_append_only_held_and_unavailable_readback():
+    plan_id = str(uuid4())
+
+    sql = stage_suite.build_evidence_seed_sql(plan_id, 3)
+
+    for required in (
+        "INSERT INTO scheduler.control_command_execution_events",
+        "'held'",
+        "INSERT INTO scheduler.control_gate_readback_observations",
+        "'waste-way'",
+        "'unavailable'",
+        f"'{plan_id}'::uuid",
+    ):
+        assert required in sql
+    assert "UPDATE " not in sql
+    assert "DELETE " not in sql
+
+
+def test_restore_evidence_safety_attempts_dark_build_when_resume_fails(
+    monkeypatch,
+):
+    calls = []
+
+    def fail_resume(*_args, **_kwargs):
+        calls.append("resume")
+        raise stage_suite.StageGateError("postgres_probe_failed")
+
+    def record_dark_build(*_args, **kwargs):
+        calls.append(
+            (
+                kwargs["control_plan_reads"],
+                kwargs["control_plan_evidence_reads"],
+                kwargs["build_label"],
+            )
+        )
+
+    monkeypatch.setattr(stage_suite, "_psql", fail_resume)
+    monkeypatch.setattr(stage_suite, "_build_frontend", record_dark_build)
+
+    with pytest.raises(stage_suite.StageGateError, match="evidence_resume_failed"):
+        stage_suite.restore_evidence_safety(
+            object(),
+            plan_id=str(uuid4()),
+            plan_version=3,
+            resume_required=True,
+            dark_build_required=True,
+        )
+
+    assert calls == ["resume", (False, False, "evidence-emergency-dark")]
+
+
+def test_validate_evidence_browser_result_locks_all_read_only_proofs():
+    plan_id = str(uuid4())
+    projection_paths = [
+        f"/api/smart-water-backend/control-plans/{plan_id}/versions/3/{name}"
+        for name in (
+            "execution-state",
+            "intent-timeline",
+            "readback-observations",
+        )
+    ]
+    body = {
+        "mode": "evidence-visible",
+        "projection_statuses": {
+            "execution-state": 200,
+            "intent-timeline": 200,
+            "readback-observations": 200,
+        },
+        "projection_no_store_count": 3,
+        "evidence_panel_count": 3,
+        "absent_projection_alerts": 3,
+        "unavailable_projection": "readback-observations",
+        "malformed_projection": "intent-timeline",
+        "intent_timeline_state": "empty-not-execution",
+        "held_state": True,
+        "gate_link": "http://127.0.0.1:9998/read-only/gates/waste-way",
+        "gate_operations_navigation_requests": 0,
+        "evidence_request_paths": projection_paths,
+        "forbidden_product_requests": [],
+        "product_mutation_requests": 0,
+    }
+
+    assert stage_suite.validate_evidence_browser_result(
+        body,
+        plan_id=plan_id,
+        plan_version=3,
+        gate_id="waste-way",
+    ) == body
+
+    body["product_mutation_requests"] = 1
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="evidence_browser_result_not_accepted",
+    ):
+        stage_suite.validate_evidence_browser_result(
+            body,
+            plan_id=plan_id,
+            plan_version=3,
+            gate_id="waste-way",
+        )
+
+
+def test_validate_evidence_projection_results_requires_real_held_and_unavailable_data():
+    plan_id = str(uuid4())
+    headers = {"cache-control": "private, no-store"}
+    results = {
+        "intent-timeline": stage_suite.HttpResult(
+            200,
+            {"plan_id": plan_id, "plan_version": 3, "intents": []},
+            headers,
+        ),
+        "readback-observations": stage_suite.HttpResult(
+            200,
+            {
+                "plan_id": plan_id,
+                "plan_version": 3,
+                "observations": [
+                    {
+                        "canonical_gate_id": "waste-way",
+                        "observed_level": None,
+                        "verdict": "unavailable",
+                    }
+                ],
+            },
+            headers,
+        ),
+        "execution-state": stage_suite.HttpResult(
+            200,
+            {
+                "plan_id": plan_id,
+                "plan_version": 3,
+                "is_held": True,
+                "hold_events": [{"event_type": "held"}],
+            },
+            headers,
+        ),
+    }
+    absent = {name: 404 for name in results}
+
+    assert stage_suite.validate_evidence_projection_results(
+        results,
+        absent_statuses=absent,
+        plan_id=plan_id,
+        plan_version=3,
+    ) == {
+        "statuses": {name: 200 for name in results},
+        "no_store_count": 3,
+        "intent_count": 0,
+        "observation_count": 1,
+        "unavailable_observation_count": 1,
+        "is_held": True,
+        "hold_event_count": 1,
+        "absent_statuses": absent,
+    }
+
+    results["execution-state"] = stage_suite.HttpResult(
+        200,
+        {
+            "plan_id": plan_id,
+            "plan_version": 3,
+            "is_held": False,
+            "hold_events": [],
+        },
+        headers,
+    )
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="evidence_projection_result_not_accepted",
+    ):
+        stage_suite.validate_evidence_projection_results(
+            results,
+            absent_statuses=absent,
+            plan_id=plan_id,
+            plan_version=3,
+        )
+
+
+def test_verify_read_only_gate_source_rejects_command_capable_imports(tmp_path):
+    service = tmp_path / "services/scada-gate-control-web"
+    route = service / "src/app/read-only/gates/[id]"
+    library = service / "src/lib"
+    route.mkdir(parents=True)
+    library.mkdir(parents=True)
+    (route / "page.tsx").write_text(
+        "\n".join(
+            (
+                'import { RequireAuth } from "@/components/RequireAuth";',
+                'import { createReadOnlyGateStatusClient } from "@/lib/read-only-gate-status";',
+                "export default function Page() { return <RequireAuth>read only</RequireAuth>; }",
+            )
+        ),
+        encoding="utf-8",
+    )
+    (library / "read-only-gate-status.ts").write_text(
+        "export const getGateStatus = () => fetch('/api/gates/id/status');\n",
+        encoding="utf-8",
+    )
+
+    assert stage_suite.verify_read_only_gate_source(tmp_path) == {
+        "route": "/read-only/gates/[id]",
+        "command_capable_imports": 0,
+        "mutation_methods": 0,
+    }
+
+    (route / "page.tsx").write_text(
+        'import { ConfirmCommandModal } from "@/components/ConfirmCommandModal";\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="read_only_gate_source_invalid",
+    ):
+        stage_suite.verify_read_only_gate_source(tmp_path)
+
+    (library / "read-only-gate-status.ts").write_text(
+        "export const getGateStatus = () => fetch('/api/gates/id/status');\n",
+        encoding="utf-8",
+    )
+    (route / "page.tsx").write_text(
+        "\n".join(
+            (
+                'import { RequireAuth } from "@/components/RequireAuth";',
+                'import { createReadOnlyGateStatusClient } from "@/lib/read-only-gate-status";',
+            )
+        ),
+        encoding="utf-8",
+    )
+    (library / "read-only-gate-status.ts").write_text(
+        "\n".join(
+            (
+                'import { GateStatus } from "./api";',
+                "fetch('/api/gates/id/status');",
+            )
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="read_only_gate_source_invalid",
+    ):
+        stage_suite.verify_read_only_gate_source(tmp_path)
+
+    (library / "read-only-gate-status.ts").write_text(
+        "export const getGateStatus = () => fetch('/api/gates/id/status');\n",
+        encoding="utf-8",
+    )
+    (route / "page.tsx").write_text(
+        "\n".join(
+            (
+                'import { RequireAuth } from "@/components/RequireAuth";',
+                'import { createReadOnlyGateStatusClient } from "@/lib/read-only-gate-status";',
+                'import { helper } from "@/lib/command-helper";',
+            )
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="read_only_gate_source_invalid",
+    ):
+        stage_suite.verify_read_only_gate_source(tmp_path)
+
+    (route / "page.tsx").write_text(
+        "\n".join(
+            (
+                'import { RequireAuth } from "@/components/RequireAuth";',
+                'import { createReadOnlyGateStatusClient } from "@/lib/read-only-gate-status";',
+            )
+        ),
+        encoding="utf-8",
+    )
+    (library / "read-only-gate-status.ts").write_text(
+        "\n".join(
+            (
+                'import type { GateStatus } from "./api";',
+                "fetch('/api/gates/id/status', { method: 'PATCH' });",
+            )
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="read_only_gate_source_invalid",
+    ):
+        stage_suite.verify_read_only_gate_source(tmp_path)
 
 
 @pytest.mark.parametrize(
@@ -758,7 +1157,7 @@ def test_unexpected_non_loopback_listeners_rejects_wildcard_services():
     assert stage_suite.unexpected_non_loopback_listeners(listeners) == [9090, 9100]
 
 
-def test_validate_migration_parity_requires_scheduler_0013_ros_0003_and_bff_009():
+def test_validate_migration_parity_requires_scheduler_0013_ros_0003_and_bff_010():
     scheduler = [f"{index:04d}_migration" for index in range(1, 13)] + [
         "0013_operator_approved_execution"
     ]
@@ -767,29 +1166,38 @@ def test_validate_migration_parity_requires_scheduler_0013_ros_0003_and_bff_009(
         "0002_water_requirement_publication",
         "0003_daily_requirement_producer",
     ]
+    bff = [
+        "009_crop_registry",
+        "010_planning_depth_submissions",
+    ]
 
-    assert stage_suite.validate_migration_parity(scheduler, ros, True) == {
+    assert stage_suite.validate_migration_parity(scheduler, ros, bff) == {
         "scheduler_latest": "0013_operator_approved_execution",
         "scheduler_count": 13,
         "ros_latest": "0003_daily_requirement_producer",
         "ros_count": 3,
-        "bff_latest": "009_crop_registry",
+        "bff_latest": "010_planning_depth_submissions",
+        "bff_count": 2,
     }
 
 
 @pytest.mark.parametrize(
     "scheduler,ros,bff",
     [
-        (["0012_authority_grants"], ["0003_daily_requirement_producer"], True),
+        (
+            ["0012_authority_grants"],
+            ["0003_daily_requirement_producer"],
+            ["009_crop_registry", "010_planning_depth_submissions"],
+        ),
         (
             ["0013_operator_approved_execution"],
             ["0002_water_requirement_publication"],
-            True,
+            ["009_crop_registry", "010_planning_depth_submissions"],
         ),
         (
             ["0013_operator_approved_execution"],
             ["0003_daily_requirement_producer"],
-            False,
+            ["009_crop_registry"],
         ),
     ],
 )

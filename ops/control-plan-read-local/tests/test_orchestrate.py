@@ -219,8 +219,8 @@ def test_build_isolated_write_command_targets_only_fixed_guest_directory():
         orchestrate.build_isolated_write_command("/home/munbonlocal/source.bundle")
 
 
-def test_parser_and_stage_runner_accept_ac_and_read_activation_gates():
-    for stage in ("LOCAL-AC-1", "LOCAL-READ-ACT-1"):
+def test_parser_and_stage_runner_accept_completed_local_gates():
+    for stage in ("LOCAL-AC-1", "LOCAL-READ-ACT-1", "LOCAL-EVIDENCE-1"):
         args = orchestrate._parse_args(
             [
                 "run-stage",
