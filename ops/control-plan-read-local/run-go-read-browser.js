@@ -386,7 +386,7 @@ async function main() {
     const unknownProof = await responseProof(await unknownResponse);
     assert(unknownProof.status === 404, "unknown_gate_status_invalid");
     assert(unknownProof.noStore, "unknown_gate_cache_control_invalid");
-    await page.getByRole("alert").waitFor({
+    await page.locator('main [role="alert"]').waitFor({
       state: "visible",
       timeout: 30000,
     });
@@ -421,7 +421,7 @@ async function main() {
     await waitForFile(outageReleasePath, "outage_release_missing");
     const outageProof = await responseProof(await outageResponse);
     assert(outageProof.noStore, "outage_cache_control_invalid");
-    await page.getByRole("alert").waitFor({
+    await page.locator('main [role="alert"]').waitFor({
       state: "visible",
       timeout: 30000,
     });
