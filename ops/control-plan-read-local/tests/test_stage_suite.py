@@ -539,7 +539,7 @@ def test_verify_read_only_gate_source_rejects_command_capable_imports(tmp_path):
         encoding="utf-8",
     )
     (library / "read-only-gate-status.ts").write_text(
-        "export const getGateStatus = () => fetch('/api/gates/id/status');\n",
+        "export const getGateStatus = () => fetch('/api/read-only/gates/id/status');\n",
         encoding="utf-8",
     )
 
@@ -560,7 +560,7 @@ def test_verify_read_only_gate_source_rejects_command_capable_imports(tmp_path):
         stage_suite.verify_read_only_gate_source(tmp_path)
 
     (library / "read-only-gate-status.ts").write_text(
-        "export const getGateStatus = () => fetch('/api/gates/id/status');\n",
+        "export const getGateStatus = () => fetch('/api/read-only/gates/id/status');\n",
         encoding="utf-8",
     )
     (route / "page.tsx").write_text(
@@ -576,7 +576,27 @@ def test_verify_read_only_gate_source_rejects_command_capable_imports(tmp_path):
         "\n".join(
             (
                 'import { GateStatus } from "./api";',
-                "fetch('/api/gates/id/status');",
+                "fetch('/api/read-only/gates/id/status');",
+            )
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="read_only_gate_source_invalid",
+    ):
+        stage_suite.verify_read_only_gate_source(tmp_path)
+
+    (library / "read-only-gate-status.ts").write_text(
+        "export const getGateStatus = () => fetch('/api/read-only/gates/id/status');\n",
+        encoding="utf-8",
+    )
+    (route / "page.tsx").write_text(
+        "\n".join(
+            (
+                'import { RequireAuth } from "@/components/RequireAuth";',
+                'import { createReadOnlyGateStatusClient } from "@/lib/read-only-gate-status";',
+                'import { helper } from "@/lib/command-helper";',
             )
         ),
         encoding="utf-8",
@@ -596,7 +616,21 @@ def test_verify_read_only_gate_source_rejects_command_capable_imports(tmp_path):
             (
                 'import { RequireAuth } from "@/components/RequireAuth";',
                 'import { createReadOnlyGateStatusClient } from "@/lib/read-only-gate-status";',
-                'import { helper } from "@/lib/command-helper";',
+            )
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="read_only_gate_source_invalid",
+    ):
+        stage_suite.verify_read_only_gate_source(tmp_path)
+
+    (library / "read-only-gate-status.ts").write_text(
+        "\n".join(
+            (
+                "fetch('/api/read-only/gates/id/status');",
+                "fetch('/api/gates/id/status');",
             )
         ),
         encoding="utf-8",
@@ -620,7 +654,7 @@ def test_verify_read_only_gate_source_rejects_command_capable_imports(tmp_path):
         "\n".join(
             (
                 'import type { GateStatus } from "./api";',
-                "fetch('/api/gates/id/status', { method: 'PATCH' });",
+                "fetch('/api/read-only/gates/id/status', { method: 'PATCH' });",
             )
         ),
         encoding="utf-8",
