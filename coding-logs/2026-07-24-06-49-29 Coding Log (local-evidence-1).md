@@ -283,3 +283,101 @@ scope of the next dedicated stage: it must validate the configured URL before
 launch, prove actual `127.0.0.1` sockets, exercise real navigation and outage
 behavior, inventory requests, and verify cleanup. No product-code severity
 finding remains open in this prerequisite.
+
+## GO-READ-1 dedicated local acceptance implementation
+
+The sixth local stage is implemented on exact prerequisite main
+`c4b266f59fca549b09837a85dc30a4da746e224d`. Tests were written first for stage
+ordering and state binding, harness provisioning, runtime-environment
+sanitization, exact loopback listeners, direct status semantics, browser result
+shape, request classification, login ordering, outage coordination, checksum
+indexing, and failure-path restoration. The initial RED run produced ten Python
+failures and a missing Node module; later review-specific RED runs reproduced
+blank authority-environment acceptance, incomplete offline observation checks,
+permissive request queries and mutations, absent restoration wiring, and
+unrecorded external requests.
+
+`LOCAL-GO-READ-1` now builds and gates SCADA and Gate Web, starts both as
+temporary production processes on `127.0.0.1`, proves the actual process
+environment and sockets, holds readiness for 300 seconds, exercises real
+operator-authenticated known and unknown direct SCADA reads, and launches real
+Chromium through the same-origin read-only proxy. The browser requires three
+successful status responses, zero action controls, a 404 unknown-gate state,
+and a 503/no-store stale-data-clearing state after the runner terminates SCADA.
+Only explicit auth posts, three documents, Next static assets, framework RSC
+reads, and two exact query-free status GETs are allowed; every other attempted
+request is recorded and rejected.
+
+SCADA authority, approved-bundle, registry, lineage-anchor, and service-auth
+configuration is removed from the inherited environment rather than assigned
+blank values. Cleanup and restoration verification runs on success and on
+readiness/browser/outage failure. Failure manifests preserve the primary gate
+code and include a sanitized restoration result. Final state requires no
+temporary listeners, unchanged PM2 identity, ready central Auth, unchanged dark
+contract, both Smart CMS flags false, and no AWS action.
+
+Independent QCHECK found four material gaps in the first implementation:
+blank artifact environment variables that prevented SCADA startup, an ignored
+behavioral Node test, a non-exact browser allowlist, and absent failure-path
+restoration proof. Follow-up review found that blocked external traffic was not
+inventoried. All findings were reproduced, remediated, and regression-tested.
+The force-added Node test is present in the staged index. Final independent
+QCHECK verdict: no remaining actionable findings.
+
+Final validation passed three consecutive times: `100` Python tests, `5` Node
+tests, Ruff, Black, Python compilation, Bash syntax, Node syntax, and staged
+diff validation. This implementation does not yet claim runtime acceptance;
+that requires the exact merged-main six-stage run and checksum-verified browser
+evidence.
+
+## Review (2026-07-24 09:45:51 +07) - GO-READ-1 acceptance harness
+
+### Reviewed
+
+- Repo: `/Users/subhajlimanond/dev/munbon2-backend-go-read-1-acceptance`
+- Branch: `feature/go-read-1-local-acceptance`
+- Scope: staged acceptance harness and runbook based on
+  `c4b266f59fca549b09837a85dc30a4da746e224d`
+- Commands Run: staged name/stat/targeted diffs; focused RED/GREEN Pytest and
+  Node tests; full harness suites three times; Ruff; Black; Python compilation;
+  Bash and Node syntax; staged diff checks; independent Terra QCHECK
+
+### Findings
+
+CRITICAL
+
+- No findings.
+
+HIGH
+
+- No findings.
+
+MEDIUM
+
+- No findings.
+
+LOW
+
+- No findings.
+
+### Open Questions / Assumptions
+
+- This review covers implementation correctness, not an unexecuted acceptance
+  claim. Exact-main runtime evidence remains mandatory after merge.
+- Framework `_rsc` requests are accepted only for the two allowlisted gate
+  documents and only as a single non-empty query parameter.
+
+### Recommended Tests / Validation
+
+- Merge the harness, provision the exact merged backend SHA and accepted
+  frontend SHA into the isolated OrbStack guest, and run all six stages in
+  order from disposable state.
+- Inspect both screenshots, verify every checksum, scan the collected archive
+  for credential-shaped material, and rerun final dark/listener/source checks.
+
+### Rollout Notes
+
+- No production deploy, AWS access, execution enablement, machine-command
+  permission, or authority configuration is part of this slice.
+- Runtime processes are temporary and loopback-only. The accepted PM2 process
+  set is neither changed nor saved by this stage.

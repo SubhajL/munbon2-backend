@@ -220,7 +220,12 @@ def test_build_isolated_write_command_targets_only_fixed_guest_directory():
 
 
 def test_parser_and_stage_runner_accept_completed_local_gates():
-    for stage in ("LOCAL-AC-1", "LOCAL-READ-ACT-1", "LOCAL-EVIDENCE-1"):
+    for stage in (
+        "LOCAL-AC-1",
+        "LOCAL-READ-ACT-1",
+        "LOCAL-EVIDENCE-1",
+        "LOCAL-GO-READ-1",
+    ):
         args = orchestrate._parse_args(
             [
                 "run-stage",

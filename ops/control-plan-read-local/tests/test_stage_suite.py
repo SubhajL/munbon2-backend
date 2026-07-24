@@ -153,6 +153,16 @@ def test_stage_transition_requires_each_progressive_local_gate():
         ),
         "LOCAL-EVIDENCE-1",
     )
+    stage_suite.validate_stage_transition(
+        (
+            "LOCAL-BASE-0",
+            "LOCAL-RTA-1",
+            "LOCAL-AC-1",
+            "LOCAL-READ-ACT-1",
+            "LOCAL-EVIDENCE-1",
+        ),
+        "LOCAL-GO-READ-1",
+    )
 
     with pytest.raises(stage_suite.StageGateError, match="stage_transition_invalid"):
         stage_suite.validate_stage_transition((), "LOCAL-RTA-1")
@@ -414,12 +424,15 @@ def test_validate_evidence_browser_result_locks_all_read_only_proofs():
         "product_mutation_requests": 0,
     }
 
-    assert stage_suite.validate_evidence_browser_result(
-        body,
-        plan_id=plan_id,
-        plan_version=3,
-        gate_id="waste-way",
-    ) == body
+    assert (
+        stage_suite.validate_evidence_browser_result(
+            body,
+            plan_id=plan_id,
+            plan_version=3,
+            gate_id="waste-way",
+        )
+        == body
+    )
 
     body["product_mutation_requests"] = 1
     with pytest.raises(
@@ -728,6 +741,283 @@ def test_collect_dark_runtime_contract_fails_when_any_gate_is_armed():
         stage_suite.StageGateError, match="dark_runtime_contract_failed"
     ):
         stage_suite.collect_dark_runtime_contract(raw, {"commandable": False})
+
+
+def test_validate_go_read_runtime_environment_requires_loopback_and_dark_commands():
+    scada = {
+        "NODE_ENV": "production",
+        "HTTP_HOST": "127.0.0.1",
+        "PORT": "3030",
+        "MODBUS_HOST": "127.0.0.1",
+        "MODBUS_PORT": "65534",
+        "ALLOW_IN_MEMORY_AUDIT": "false",
+        "ALLOW_MACHINE_COMMANDS": "false",
+        "DATABASE_URL": "postgresql://local:redacted@127.0.0.1/munbon_local",
+        "JWT_SECRET": "not-for-evidence",
+    }
+    gate_web = {
+        "NODE_ENV": "production",
+        "AUTH_SERVICE_URL": "http://127.0.0.1:3005",
+        "SCADA_GATE_CONTROL_URL": "http://127.0.0.1:3030",
+        "NEXT_PUBLIC_DEV_TOKEN": "",
+        "NEXT_PUBLIC_API_BASE_URL": "",
+    }
+
+    assert stage_suite.validate_go_read_runtime_environment(scada, gate_web) == {
+        "scada_bind": "127.0.0.1:3030",
+        "modbus_target": "127.0.0.1:65534",
+        "machine_commands": False,
+        "durable_audit": True,
+        "service_auth": "dark",
+        "gate_web_bind": "127.0.0.1:9998",
+        "auth_origin": "http://127.0.0.1:3005",
+        "scada_origin": "http://127.0.0.1:3030",
+        "dev_bypass": False,
+        "legacy_direct_scada": False,
+    }
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="go_read_runtime_environment_invalid"
+    ):
+        stage_suite.validate_go_read_runtime_environment(
+            {**scada, "ALLOW_MACHINE_COMMANDS": "true"},
+            gate_web,
+        )
+
+    for forbidden_name in (
+        "SCHEDULER_SERVICE_JWT_SECRET",
+        "SCADA_SITE_CANONICAL_GATE_ID",
+        "SCADA_APPROVED_FIELD_BUNDLE_PATH",
+        "SCADA_DEVICE_REGISTRY_PATH",
+        "SCADA_APPROVED_LINEAGE_ANCHOR_PATH",
+    ):
+        with pytest.raises(
+            stage_suite.StageGateError,
+            match="go_read_runtime_environment_invalid",
+        ):
+            stage_suite.validate_go_read_runtime_environment(
+                {**scada, forbidden_name: ""},
+                gate_web,
+            )
+
+
+def test_go_read_runtime_environment_removes_inherited_authority_configuration(
+    tmp_path,
+    monkeypatch,
+):
+    forbidden_names = (
+        "SCHEDULER_SERVICE_JWT_SECRET",
+        "SCADA_SITE_CANONICAL_GATE_ID",
+        "SCADA_APPROVED_FIELD_BUNDLE_PATH",
+        "SCADA_DEVICE_REGISTRY_PATH",
+        "SCADA_APPROVED_LINEAGE_ANCHOR_PATH",
+    )
+    for name in forbidden_names:
+        monkeypatch.setenv(name, "inherited-value")
+    runtime_env_dir = tmp_path / "runtime"
+    runtime_env_dir.mkdir()
+    (runtime_env_dir / "auth.env").write_text(
+        "\n".join(
+            (
+                "JWT_SECRET=local-test-value",
+                "JWT_ISSUER=munbon-local",
+                "JWT_AUDIENCE=munbon-local-services",
+            )
+        ),
+        encoding="utf-8",
+    )
+    (runtime_env_dir / "bff.env").write_text(
+        "POSTGRES_URL=postgresql://local:test@127.0.0.1/munbon_local\n",
+        encoding="utf-8",
+    )
+    context = stage_suite.StageContext(
+        release_sha="8" * 40,
+        frontend_sha="9" * 40,
+        repo_root=tmp_path / "repo",
+        harness_root=tmp_path / "harness",
+        evidence_root=tmp_path / "evidence",
+        runtime_env_dir=runtime_env_dir,
+    )
+
+    scada, _gate_web, projection = stage_suite._go_read_runtime_environments(context)
+
+    assert all(name not in scada for name in forbidden_names)
+    assert projection["service_auth"] == "dark"
+
+
+def test_go_read_restoration_guard_preserves_primary_failure_and_records_cleanup(
+    monkeypatch,
+):
+    calls = []
+
+    def verify(*_args):
+        calls.append("verify")
+        return {"verified": True, "temporary_processes": 0}
+
+    monkeypatch.setattr(stage_suite, "_verify_go_read_restoration", verify)
+
+    with pytest.raises(stage_suite.StageGateError, match="browser_failed") as error:
+        with stage_suite._go_read_restoration_guard(
+            object(),
+            before_pm2={},
+            before_dark={},
+            model_release={},
+        ):
+            raise stage_suite.StageGateError("browser_failed")
+
+    assert calls == ["verify"]
+    assert error.value.restoration == {
+        "verified": True,
+        "temporary_processes": 0,
+    }
+
+
+def test_go_read_failure_manifest_preserves_primary_gate_and_restoration_proof(
+    tmp_path,
+    monkeypatch,
+):
+    evidence_root = tmp_path / "evidence"
+    evidence_root.mkdir()
+    args = stage_suite.argparse.Namespace(
+        stage="LOCAL-GO-READ-1",
+        release_sha="8" * 40,
+        frontend_sha="9" * 40,
+        repo_root=tmp_path / "repo",
+        frontend_root=tmp_path / "frontend",
+        harness_root=tmp_path / "harness",
+        evidence_root=evidence_root,
+        runtime_env_dir=tmp_path / "runtime",
+        as_of_date=stage_suite.date(2026, 7, 24),
+    )
+
+    def fail_with_restoration(_context):
+        error = stage_suite.StageGateError("browser_failed")
+        error.restoration = {
+            "verified": True,
+            "reserved_listeners": [],
+            "temporary_processes": 0,
+        }
+        raise error
+
+    monkeypatch.setattr(stage_suite, "_parse_args", lambda _argv: args)
+    monkeypatch.setattr(stage_suite, "run_local_go_read", fail_with_restoration)
+
+    assert stage_suite.main([]) == 1
+    failure = json.loads(
+        (evidence_root / "LOCAL-GO-READ-1-failure.json").read_text(encoding="utf-8")
+    )
+    assert failure.pop("failed_at").endswith("Z")
+    assert failure == {
+        "stage": "LOCAL-GO-READ-1",
+        "verdict": "FAIL",
+        "release_sha": "8" * 40,
+        "failed_gate": "browser_failed",
+        "restoration": {
+            "verified": True,
+            "reserved_listeners": [],
+            "temporary_processes": 0,
+        },
+    }
+
+
+def test_go_read_listener_projection_requires_exact_loopback_bindings():
+    listeners = [
+        {"address": "127.0.0.1", "port": 3030},
+        {"address": "127.0.0.1", "port": 9998},
+        {"address": "127.0.0.1", "port": 5432},
+    ]
+
+    assert stage_suite.go_read_listener_projection(listeners) == {
+        "3030": ["127.0.0.1"],
+        "9998": ["127.0.0.1"],
+    }
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="go_read_listener_binding_invalid"
+    ):
+        stage_suite.go_read_listener_projection(
+            [*listeners, {"address": "0.0.0.0", "port": 3030}]
+        )
+
+
+def test_validate_go_read_status_results_requires_exact_offline_gate_and_no_store():
+    point = {
+        "raw": None,
+        "value": None,
+        "quality": "offline",
+        "lastUpdated": None,
+        "lastError": "connect ECONNREFUSED",
+    }
+    known = stage_suite.HttpResult(
+        status=200,
+        headers={"cache-control": "no-store"},
+        body={
+            "id": "waste-way",
+            "name": "Waste Way",
+            "endpoint": {"host": "127.0.0.1", "port": 65534, "unitId": 1},
+            "connection": "offline",
+            "markerColor": "red",
+            "lastUpdated": None,
+            "lastError": "connect ECONNREFUSED",
+            "gateLevel": point,
+            "doorSw": point,
+            "horn": point,
+            "gateCf": point,
+        },
+    )
+    unknown = stage_suite.HttpResult(
+        status=404,
+        headers={"cache-control": "no-store"},
+        body={"error": "unknown gate"},
+    )
+
+    assert stage_suite.validate_go_read_status_results(known, unknown) == {
+        "known_gate_status": 200,
+        "known_gate_no_store": True,
+        "gate_id": "waste-way",
+        "gate_name": "Waste Way",
+        "connection": "offline",
+        "endpoint": {"host": "127.0.0.1", "port": 65534, "unit_id": 1},
+        "null_observations": 4,
+        "unknown_gate_status": 404,
+        "unknown_gate_no_store": True,
+        "http_methods": ["GET", "GET"],
+        "product_mutations": 0,
+    }
+
+    for field, value in (
+        ("markerColor", "green"),
+        ("lastUpdated", "2026-07-24T00:00:00.000Z"),
+        ("lastError", None),
+    ):
+        with pytest.raises(
+            stage_suite.StageGateError,
+            match="go_read_status_result_not_accepted",
+        ):
+            stage_suite.validate_go_read_status_results(
+                stage_suite.HttpResult(
+                    status=known.status,
+                    headers=known.headers,
+                    body={**known.body, field: value},
+                ),
+                unknown,
+            )
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="go_read_status_result_not_accepted",
+    ):
+        stage_suite.validate_go_read_status_results(
+            stage_suite.HttpResult(
+                status=known.status,
+                headers=known.headers,
+                body={
+                    **known.body,
+                    "gateLevel": {**point, "raw": 0},
+                },
+            ),
+            unknown,
+        )
 
 
 def test_validate_ros_lifecycle_accepts_manual_only_and_restored_dark_states():
@@ -1086,6 +1376,49 @@ def test_validate_read_browser_result_rejects_partial_or_wrong_plan_evidence():
             mode="visible",
             plan_id=plan_id,
             plan_version=1,
+        )
+
+
+def test_validate_go_read_browser_result_requires_live_outage_and_zero_mutations():
+    body = {
+        "mode": "go-read",
+        "signed_out_redirect": "/login",
+        "signed_out_status_requests": 0,
+        "login_status": 200,
+        "gate_id": "waste-way",
+        "gate_name": "Waste Way",
+        "connection": "offline",
+        "read_status": 200,
+        "read_no_store": True,
+        "live_status_responses": 3,
+        "unknown_gate_status": 404,
+        "unknown_gate_no_store": True,
+        "outage_status": 503,
+        "outage_no_store": True,
+        "outage_alert_visible": True,
+        "stale_status_hidden": True,
+        "action_controls": 0,
+        "same_origin_status_path": "/api/read-only/gates/waste-way/status",
+        "direct_scada_browser_requests": 0,
+        "forbidden_product_requests": [],
+        "product_mutation_requests": 0,
+        "request_inventory_scope": "full-signed-out-through-outage",
+        "screenshots": [
+            "LOCAL-GO-READ-1-live.png",
+            "LOCAL-GO-READ-1-outage.png",
+        ],
+    }
+
+    assert (
+        stage_suite.validate_go_read_browser_result(body, gate_id="waste-way") == body
+    )
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="go_read_browser_result_not_accepted"
+    ):
+        stage_suite.validate_go_read_browser_result(
+            {**body, "product_mutation_requests": 1},
+            gate_id="waste-way",
         )
 
 

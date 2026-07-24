@@ -121,6 +121,7 @@ for artifact in \
   run-ros-manual-producer.sh \
   run-read-browser.js \
   run-evidence-browser.js \
+  run-go-read-browser.js \
   seed-local-operators.js \
   verify_bearer.py; do
   install -o munbon -g munbon -m 0750 "${INPUT_DIR}/${artifact}" "${HARNESS_ROOT}/${artifact}"
@@ -347,6 +348,14 @@ chown -h munbon:munbon "${REPO_ROOT}/services/flow-monitoring/venv" \
   "${REPO_ROOT}/services/scheduler/venv"
 runuser -u munbon -- npm --prefix "${REPO_ROOT}/services/auth" ci --omit=dev --silent
 runuser -u munbon -- npm --prefix "${REPO_ROOT}/infra/pm2" ci --silent
+runuser -u munbon -- env \
+  PATH="${NODE_ROOT}/bin:/usr/bin:/bin" \
+  "${NODE_ROOT}/bin/npm" --prefix \
+  "${REPO_ROOT}/services/scada-gate-control" ci --silent
+runuser -u munbon -- env \
+  PATH="${NODE_ROOT}/bin:/usr/bin:/bin" \
+  "${NODE_ROOT}/bin/npm" --prefix \
+  "${REPO_ROOT}/services/scada-gate-control-web" ci --silent
 runuser -u munbon -- env \
   PATH="${NODE_ROOT}/bin:/usr/bin:/bin" \
   "${NODE_ROOT}/bin/npm" --prefix "${FRONTEND_ROOT}" ci --silent
