@@ -90,9 +90,18 @@ function classifyGateRequest({
     !parsed.search &&
     (parsed.pathname.startsWith("/_next/static/") ||
       parsed.pathname === "/favicon.ico");
+  const allowedRootRsc =
+    sameOrigin &&
+    normalizedMethod === "GET" &&
+    parsed.pathname === "/" &&
+    hasOnlyRscQuery(parsed);
   const allowed =
     sameOrigin &&
-    (allowedAuth || allowedStatus || allowedDocument || allowedAsset);
+    (allowedAuth ||
+      allowedStatus ||
+      allowedDocument ||
+      allowedAsset ||
+      allowedRootRsc);
   const unallowlisted = !allowed && !directScada;
   const mutation =
     sameOrigin &&

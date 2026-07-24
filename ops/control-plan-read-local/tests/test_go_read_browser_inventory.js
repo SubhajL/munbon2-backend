@@ -41,6 +41,7 @@ test("allows only exact auth, status, document, and static asset requests", () =
     true,
   );
   assert.equal(classify("/_next/static/chunks/app.js").allowed, true);
+  assert.equal(classify("/?_rsc=backLinkPrefetch").allowed, true);
 });
 
 test("blocks queries, mutations, unknown routes, controls, and direct SCADA", () => {
@@ -50,6 +51,9 @@ test("blocks queries, mutations, unknown routes, controls, and direct SCADA", ()
     classify("/api/auth/login?unexpected=1", "POST"),
     classify("/unexpected-write", "POST"),
     classify("/unexpected-read"),
+    classify("/"),
+    classify("/?extra=1"),
+    classify("/?_rsc=expected&extra=1"),
     classify(`${gatePath}?extra=1`),
     classify(`${gatePath}?_rsc=abc123&extra=1`),
     classify("/api/control-authority", "GET"),
@@ -62,8 +66,8 @@ test("blocks queries, mutations, unknown routes, controls, and direct SCADA", ()
   for (const result of cases) assert.equal(result.allowed, false);
   assert.equal(cases[0].mutation, true);
   assert.equal(cases[3].mutation, true);
-  assert.equal(cases[7].forbiddenPath, true);
-  assert.equal(cases[8].forbiddenPath, true);
+  assert.equal(cases[10].forbiddenPath, true);
+  assert.equal(cases[11].forbiddenPath, true);
   assert.equal(cases.at(-1).directScada, true);
 });
 
