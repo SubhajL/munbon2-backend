@@ -518,3 +518,67 @@ LOW
 
 - This changes only failed-socket cleanup. It does not enable command routes,
   service auth, approved authority, machine commands, or AWS access.
+
+## Exact-main runtime attempt 3 and browser alert scope
+
+Backend `fcd55fa40afbe5ba9c3ac29bd0e9d9f5e63ed178` and the accepted frontend were
+reprovisioned from disposable state. The first five stages passed.
+`LOCAL-GO-READ-1` cleared the fixed direct-status validation and stopped at
+`go_read_browser_unknown_gate_failed`. The failure manifest again proved full
+restoration and an unchanged dark contract.
+
+A request-level Playwright diagnostic proved that the unknown gate returned
+`404/no-store`, the intended unavailable alert was visible, and no data list
+remained. Next.js also injects an empty route-announcer with `role="alert"`, so
+the page-wide Playwright locator had two matches and failed strictness.
+Unknown-gate and outage waits now target `main [role="alert"]`, excluding the
+framework announcer while retaining the product-state assertion.
+
+Final validation passed three consecutive times: `100` Python tests, `5` Node
+behavior tests, Ruff, Black, Node syntax, and diff checks. Independent QCHECK
+found no actionable issue.
+
+## Review (2026-07-24 10:43:54 +07) - GO-READ browser alert scope
+
+### Reviewed
+
+- Repo: `/Users/subhajlimanond/dev/munbon2-backend-go-read-alert-fix`
+- Branch: `fix/go-read-browser-alert-scope`
+- Scope: browser runner and source regression based on
+  `fcd55fa40afbe5ba9c3ac29bd0e9d9f5e63ed178`
+- Commands Run: failure-manifest and screenshot inspection; request-level
+  Playwright diagnostic; focused RED/GREEN Pytest; full Python and Node suites
+  three times; Ruff; Black; Node syntax; diff checks; independent Terra QCHECK
+
+### Findings
+
+CRITICAL
+
+- No findings.
+
+HIGH
+
+- No findings.
+
+MEDIUM
+
+- No findings.
+
+LOW
+
+- No findings.
+
+### Open Questions / Assumptions
+
+- Acceptance evidence remains unclaimed. The exact merged-main SHA must be
+  provisioned and all six stages rerun.
+
+### Recommended Tests / Validation
+
+- Require both the unknown-gate and post-SCADA-stop main alerts, verify no data
+  list remains, and inspect both screenshots after a complete PASS.
+
+### Rollout Notes
+
+- This is a locator-scope correction only. Runtime configuration, flags,
+  authority, machine commands, and AWS remain unchanged.

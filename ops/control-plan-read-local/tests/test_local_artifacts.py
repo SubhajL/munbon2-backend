@@ -172,6 +172,7 @@ def test_go_read_browser_runner_covers_real_status_outage_and_request_inventory(
         "LOCAL-GO-READ-1-outage.png",
     ):
         assert required in body
+    assert body.count('main [role="alert"]') == 2
 
 
 def test_auth_systemd_unit_is_loopback_local_and_uses_mode_600_env():
