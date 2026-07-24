@@ -514,6 +514,7 @@ def validate_evidence_browser_result(
             "held_state": True,
             "gate_link": (f"http://127.0.0.1:9998/read-only/gates/{gate_id}"),
             "gate_operations_navigation_requests": 0,
+            "request_inventory_scope": "post-auth-plan-detail",
             "evidence_request_paths": [
                 (
                     "/api/smart-water-backend/control-plans/"

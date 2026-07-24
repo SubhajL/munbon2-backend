@@ -408,6 +408,7 @@ def test_validate_evidence_browser_result_locks_all_read_only_proofs():
         "held_state": True,
         "gate_link": "http://127.0.0.1:9998/read-only/gates/waste-way",
         "gate_operations_navigation_requests": 0,
+        "request_inventory_scope": "post-auth-plan-detail",
         "evidence_request_paths": projection_paths,
         "forbidden_product_requests": [],
         "product_mutation_requests": 0,

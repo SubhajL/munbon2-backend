@@ -125,6 +125,33 @@ submission and rejects a dashboard redirect.
 
 Post-remediation formal g-check disposition: no remaining severity findings.
 
+## Exact-SHA runtime attempt 2
+
+Backend `ab91271f7f780c7911eb336d27909d957f170ace` and the accepted frontend were
+reprovisioned from clean disposable state. The first four stages passed again.
+`LOCAL-EVIDENCE-1` returned the newly surfaced exact code
+`forbidden_product_request_observed`.
+
+The scoped redirect alone did not eliminate a login-page race: both the submit
+handler and authentication effect can consume and remove the same redirect
+value, allowing the other path to fall back to the Smart Water dashboard during
+the harness's post-login 500 ms pause. The harness now proceeds immediately to
+the accepted detail route after the 200 response; the refresh cookie preserves
+authentication across that navigation. Future inventory stops distinguish an
+unexpected allowlist API from an explicitly forbidden control-path request.
+The request inventory is explicitly scoped from the post-authentication
+plan-detail navigation onward; login uses `noWaitAfter` so the harness can move
+to that detail as soon as the 200 response is observed.
+
+Independent QCHECK identified a medium cookie race in that transition: the
+login page's mount-time anonymous refresh can return a clearing cookie after
+the login response. The harness now registers and requires that bootstrap
+refresh's expected 401 before submitting credentials, so its `Set-Cookie`
+cleanup is settled before the login issues the valid refresh cookie.
+
+Post-remediation gates remain `92` Python and `5` Node tests with all static
+checks green. Primary formal g-check finds no remaining severity findings.
+
 ## Design boundary
 
 The three present projections and held/unavailable evidence come from real
