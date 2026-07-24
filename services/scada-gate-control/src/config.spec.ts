@@ -27,9 +27,14 @@ describe('loadConfig', () => {
 
   test('defaults rate limit and disallows in-memory audit by default', () => {
     const cfg = loadConfig(withHost());
+    expect(cfg.httpHost).toBe('0.0.0.0');
     expect(cfg.rateLimit).toEqual({ windowMs: 60_000, max: 30 });
     expect(cfg.allowInMemoryAudit).toBe(false);
     expect(cfg.allowMachineCommands).toBe(false);
+  });
+
+  test('accepts a loopback-only HTTP bind host', () => {
+    expect(loadConfig(withHost({ HTTP_HOST: '127.0.0.1' })).httpHost).toBe('127.0.0.1');
   });
 
   test('ALLOW_MACHINE_COMMANDS accepts only explicit true or false', () => {

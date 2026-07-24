@@ -55,6 +55,7 @@ hook). Set these in your `.env`:
 | --------------------------------------------- | ------------------------------- | -------------------------------------------------------------------- |
 | `LOG_LEVEL`                                   | `info`                          | pino log level                                                       |
 | `TZ`                                          | `Asia/Bangkok`                  | timezone                                                             |
+| `HTTP_HOST`                                   | `0.0.0.0`                       | HTTP bind host; use `127.0.0.1` for loopback-only local acceptance   |
 | `PORT`                                        | `3030`                          | HTTP API port (Slice 3)                                              |
 | `MODBUS_HOST`                                 | **required**                    | PLC address (no default — fails fast if unset; see note below)       |
 | `MODBUS_PORT`                                 | `502`                           | Modbus TCP port                                                      |

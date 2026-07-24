@@ -6,7 +6,6 @@ import { useAuth } from "@/components/AuthProvider";
 import { GateDetailHeader } from "@/components/GateDetailHeader";
 import { RequireAuth } from "@/components/RequireAuth";
 import { usePolling } from "@/hooks/usePolling";
-import { API_BASE } from "@/lib/config";
 import { createReadOnlyGateStatusClient } from "@/lib/read-only-gate-status";
 
 const POLL_MS = 3000;
@@ -25,17 +24,13 @@ function ReadOnlyGateContent() {
   const client = useMemo(
     () =>
       createReadOnlyGateStatusClient({
-        baseUrl: API_BASE,
         getToken,
         onUnauthorized: refresh,
       }),
     [getToken, refresh],
   );
-  const statusPoll = usePolling(
-    () => client.getGateStatus(gateId),
-    POLL_MS,
-  );
-  const status = statusPoll.data;
+  const statusPoll = usePolling(() => client.getGateStatus(gateId), POLL_MS);
+  const status = statusPoll.error ? null : statusPoll.data;
 
   return (
     <main className="flex min-h-dvh flex-col bg-surface-low">
@@ -95,7 +90,9 @@ function ReadOnlyGateContent() {
               </dd>
             </div>
             <div>
-              <dt className="text-xs text-fg-muted">ไซเรนที่สังเกตได้ (Horn)</dt>
+              <dt className="text-xs text-fg-muted">
+                ไซเรนที่สังเกตได้ (Horn)
+              </dt>
               <dd className="mt-1 text-sm text-fg">
                 {status.horn.value?.thaiLabel ?? "—"}
               </dd>

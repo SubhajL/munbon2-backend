@@ -60,7 +60,6 @@ describe("createReadOnlyGateStatusClient", () => {
   test("fetches only the exact encoded gate-status path with bearer auth", async () => {
     const fetchImpl = vi.fn(async () => jsonResponse(gateStatus));
     const client = createReadOnlyGateStatusClient({
-      baseUrl: "http://scada",
       getToken: () => "viewer-token",
       fetchImpl,
     });
@@ -70,8 +69,12 @@ describe("createReadOnlyGateStatusClient", () => {
     );
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(fetchImpl).toHaveBeenCalledWith(
-      "http://scada/api/gates/gate%207%2F%E0%B8%9D%E0%B8%B2%E0%B8%A2/status",
-      { headers: { authorization: "Bearer viewer-token" } },
+      "/api/read-only/gates/gate%207%2F%E0%B8%9D%E0%B8%B2%E0%B8%A2/status",
+      {
+        method: "GET",
+        cache: "no-store",
+        headers: { authorization: "Bearer viewer-token" },
+      },
     );
   });
 
@@ -79,26 +82,36 @@ describe("createReadOnlyGateStatusClient", () => {
     const fetchImpl = vi
       .fn()
       .mockResolvedValueOnce(jsonResponse({ error: "unauthorized" }, 401))
-      .mockResolvedValueOnce(jsonResponse(gateStatus));
+      .mockResolvedValueOnce(jsonResponse({ ...gateStatus, id: "gate-7" }));
     const onUnauthorized = vi.fn(async () => "fresh-token");
     const client = createReadOnlyGateStatusClient({
-      baseUrl: "http://scada",
       getToken: () => "expired-token",
       onUnauthorized,
       fetchImpl,
     });
 
-    await expect(client.getGateStatus("gate-7")).resolves.toEqual(gateStatus);
+    await expect(client.getGateStatus("gate-7")).resolves.toEqual({
+      ...gateStatus,
+      id: "gate-7",
+    });
     expect(onUnauthorized).toHaveBeenCalledTimes(1);
     expect(fetchImpl).toHaveBeenNthCalledWith(
       1,
-      "http://scada/api/gates/gate-7/status",
-      { headers: { authorization: "Bearer expired-token" } },
+      "/api/read-only/gates/gate-7/status",
+      {
+        method: "GET",
+        cache: "no-store",
+        headers: { authorization: "Bearer expired-token" },
+      },
     );
     expect(fetchImpl).toHaveBeenNthCalledWith(
       2,
-      "http://scada/api/gates/gate-7/status",
-      { headers: { authorization: "Bearer fresh-token" } },
+      "/api/read-only/gates/gate-7/status",
+      {
+        method: "GET",
+        cache: "no-store",
+        headers: { authorization: "Bearer fresh-token" },
+      },
     );
   });
 
@@ -107,7 +120,6 @@ describe("createReadOnlyGateStatusClient", () => {
       jsonResponse({ error: "unauthorized" }, 401),
     );
     const client = createReadOnlyGateStatusClient({
-      baseUrl: "http://scada",
       getToken: () => "expired-token",
       onUnauthorized: vi.fn(async () => null),
       fetchImpl,
@@ -122,7 +134,6 @@ describe("createReadOnlyGateStatusClient", () => {
   test("fails closed without making a request when the initial bearer is absent", async () => {
     const fetchImpl = vi.fn(async () => jsonResponse(gateStatus));
     const client = createReadOnlyGateStatusClient({
-      baseUrl: "http://scada",
       getToken: () => undefined,
       fetchImpl,
     });
@@ -138,12 +149,25 @@ describe("createReadOnlyGateStatusClient", () => {
       jsonResponse({ id: "gate-7", name: "incomplete" }),
     );
     const client = createReadOnlyGateStatusClient({
-      baseUrl: "http://scada",
       getToken: () => "viewer-token",
       fetchImpl,
     });
 
     await expect(client.getGateStatus("gate-7")).rejects.toMatchObject({
+      status: 502,
+    });
+  });
+
+  test("rejects a valid status document for a different gate ID", async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({ ...gateStatus, id: "another-gate" }),
+    );
+    const client = createReadOnlyGateStatusClient({
+      getToken: () => "viewer-token",
+      fetchImpl,
+    });
+
+    await expect(client.getGateStatus("gate 7/ฝาย")).rejects.toMatchObject({
       status: 502,
     });
   });

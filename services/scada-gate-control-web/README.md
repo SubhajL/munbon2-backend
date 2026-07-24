@@ -43,16 +43,20 @@ npm run build
 
 ## Configuration (env)
 
-| Var | Default | Scope | Meaning |
-| --- | --- | --- | --- |
-| `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:3030` | client | scada-gate-control backend base URL |
-| `AUTH_SERVICE_URL` | `http://localhost:3001` | **server** | `services/auth` base URL the auth BFF proxies to (never exposed to the browser) |
-| `SCHEDULER_URL` | `http://localhost:3021` | **server** | Scheduler base URL for authority applicability and lifecycle/grant mutations |
-| `SCADA_GATE_CONTROL_URL` | `http://localhost:3030` | **server** | SCADA base URL for health and capability evidence reads only |
-| `NEXT_PUBLIC_DEV_TOKEN` | — | client | dev-only JWT (Bearer); when set, skips the login flow entirely |
+| Var                        | Default                 | Scope      | Meaning                                                                         |
+| -------------------------- | ----------------------- | ---------- | ------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:3030` | client     | legacy command-capable screens' direct scada-gate-control base URL              |
+| `AUTH_SERVICE_URL`         | `http://localhost:3001` | **server** | `services/auth` base URL the auth BFF proxies to (never exposed to the browser) |
+| `SCHEDULER_URL`            | `http://localhost:3021` | **server** | Scheduler base URL for authority applicability and lifecycle/grant mutations    |
+| `SCADA_GATE_CONTROL_URL`   | `http://localhost:3030` | **server** | SCADA base URL for health, capability, and the GET-only gate-status proxy       |
+| `NEXT_PUBLIC_DEV_TOKEN`    | —                       | client     | dev-only JWT (Bearer); when set, skips the login flow entirely                  |
 
 The three server URLs are used only by App Router handlers; do not give them a
 `NEXT_PUBLIC_` prefix. All must be host-only HTTP(S) origins.
+
+`/read-only/gates/[id]` uses the same-origin
+`/api/read-only/gates/[id]/status` GET proxy and never uses the public direct
+SCADA URL.
 
 ## Notes
 
