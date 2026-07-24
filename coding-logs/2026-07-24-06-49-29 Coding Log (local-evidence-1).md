@@ -152,6 +152,32 @@ cleanup is settled before the login issues the valid refresh cookie.
 Post-remediation gates remain `92` Python and `5` Node tests with all static
 checks green. Primary formal g-check finds no remaining severity findings.
 
+## Exact-SHA runtime attempt 3 — PASS
+
+Backend `8ce28a8a0bfd5a3127a213abdde8d6939cacb123` and frontend
+`fbd4ce4df0bb0476b7cd402ac1a4e180a91a7792` were provisioned from clean
+disposable state. All five stages passed in order:
+
+- `LOCAL-BASE-0`
+- `LOCAL-RTA-1`
+- `LOCAL-AC-1`
+- `LOCAL-READ-ACT-1`
+- `LOCAL-EVIDENCE-1`
+
+The checksum-verified sanitized archive is
+`coding-logs/evidence/2026-07-24-local-evidence-main-8ce28a8a/`.
+The evidence manifest records 17 exact ME-1 contract files, all three real
+bearer projections at 200/no-store, three missing-plan 404s, held and
+unavailable durable evidence, visible present/absent/unavailable/held/malformed
+cases, zero Gate Operations navigation, zero forbidden or mutation requests,
+and a final resumed state. Both frontend flags are false afterward;
+`CONTROL_EXECUTION_MODE` remains `disabled`, Scheduler SCADA is unconfigured,
+machine commands are unconfigured, and model authority remains non-commandable.
+No AWS action occurred.
+
+Archive formal g-check: checksums and redaction scans pass; no severity
+findings remain.
+
 ## Design boundary
 
 The three present projections and held/unavailable evidence come from real
