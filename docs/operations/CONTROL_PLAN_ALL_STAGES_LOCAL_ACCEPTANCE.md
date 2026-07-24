@@ -28,7 +28,7 @@ bundle; the runtime checkout must remain at the accepted 40-character SHA.
 | RTA-1              | `LOCAL-RTA-1`              | Implemented and passed       |
 | AC-1               | `LOCAL-AC-1`               | Implemented and passed       |
 | READ-ACT-1         | `LOCAL-READ-ACT-1`         | Implemented and passed       |
-| ME-1 / FE-8        | `LOCAL-EVIDENCE-1`         | Implemented; exact-SHA run required |
+| ME-1 / FE-8        | `LOCAL-EVIDENCE-1`         | Implemented and passed       |
 | W1 / W2            | `LOCAL-WRITE-FOUNDATION-1` | Planned; not yet implemented |
 | FE-5 / FE-6        | `LOCAL-WRITE-UI-1`         | Planned; not yet implemented |
 | DEC-W4             | `LOCAL-PERSIST-ONLY-1`     | Planned; persist-only        |
@@ -176,21 +176,33 @@ The 2026-07-23 rehearsal preserved its first otherwise-successful attempt as
 Prometheus services on ports 9090 and 9100. Those services were disabled, the
 gate was strengthened, and Stage 0/1 were rerun from a new evidence directory.
 
-## Last completed local result
+## Current local result
 
-- Backend: the exact accepted 40-character candidate SHA
-- Frontend: `3a16498a60927996ac38e741b276150968d0cadc`
+- Backend: `8ce28a8a0bfd5a3127a213abdde8d6939cacb123`
+- Frontend: `fbd4ce4df0bb0476b7cd402ac1a4e180a91a7792`
 - `LOCAL-BASE-0`: PASS
 - `LOCAL-RTA-1`: PASS
 - `LOCAL-AC-1`: PASS
 - `LOCAL-READ-ACT-1`: PASS
+- `LOCAL-EVIDENCE-1`: PASS
 - Stability: 300 seconds, restart-count equality
 - Final application listeners: loopback only
-- Frontend build sequence: false → true → false
+- Evidence contract: 17 exact files, aggregate SHA-256
+  `67bacfee2c975302cf478c1caf2ee9f5991552fcbe0d5a771c09ec96f8192742`
+- Evidence projections: three real bearer-path 200/no-store responses; three
+  missing-plan 404 responses
+- Browser cases: present, absent, unavailable, held, malformed, and explicit
+  empty-intent-is-not-execution
+- Gate Operations boundary: exact read-only href, zero navigation requests
+- Product request inventory: zero forbidden or mutation requests
+- Evidence state: held during visible proof, then resumed
+- Final frontend flags: control-plan reads false, evidence reads false
 - PM2 saved only after bearer success
 - Final execution, producer, write, visibility, authority, and machine-command
   gates: dark
 - AWS actions: none
+- Sanitized archive:
+  `coding-logs/evidence/2026-07-24-local-evidence-main-8ce28a8a/`
 
 Every new candidate must be provisioned cleanly and rerun through all five
 implemented stages at its exact SHA. Evidence from a predecessor or a
@@ -200,8 +212,7 @@ or runtime state.
 
 ## Next local work
 
-Run and pass `LOCAL-EVIDENCE-1` at the exact merged backend and frontend SHAs,
-then continue through the historical write-foundation roadmap with all write
-and authority gates dark by default. Rebuild disposable state and pass
-`LOCAL-RC-1` after every named local gate. Only that final pass allows a
-separately authorized AWS promotion turn to begin.
+Continue through the historical write-foundation roadmap with all write and
+authority gates dark by default. Rebuild disposable state and pass `LOCAL-RC-1`
+after every named local gate. Only that final pass allows a separately
+authorized AWS promotion turn to begin.

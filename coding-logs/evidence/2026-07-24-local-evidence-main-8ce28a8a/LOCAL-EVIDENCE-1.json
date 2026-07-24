@@ -1,0 +1,191 @@
+{
+  "completed_at": "2026-07-24T01:09:03.390272Z",
+  "frontend_sha": "fbd4ce4df0bb0476b7cd402ac1a4e180a91a7792",
+  "release_sha": "8ce28a8a0bfd5a3127a213abdde8d6939cacb123",
+  "stage": "LOCAL-EVIDENCE-1",
+  "steps": {
+    "accepted_plan": {
+      "plan_id": "77a38d9d-5243-4c73-adcd-5646692873f2",
+      "plan_version": 1
+    },
+    "activation_sequence": [
+      {
+        "control_plan_evidence_reads": false,
+        "control_plan_reads": true
+      },
+      {
+        "control_plan_evidence_reads": true,
+        "control_plan_reads": true
+      },
+      {
+        "control_plan_evidence_reads": false,
+        "control_plan_reads": false
+      }
+    ],
+    "builds": [
+      {
+        "activation_gates": {
+          "control_plan_evidence_reads": false,
+          "control_plan_reads": true,
+          "water_planning_submit": false,
+          "water_planning_v2": false
+        },
+        "focused_tests": "PASS",
+        "production_build": "PASS"
+      },
+      {
+        "activation_gates": {
+          "control_plan_evidence_reads": true,
+          "control_plan_reads": true,
+          "water_planning_submit": false,
+          "water_planning_v2": false
+        },
+        "focused_tests": "PASS",
+        "production_build": "PASS"
+      },
+      {
+        "activation_gates": {
+          "control_plan_evidence_reads": false,
+          "control_plan_reads": false,
+          "water_planning_submit": false,
+          "water_planning_v2": false
+        },
+        "focused_tests": "PASS",
+        "production_build": "PASS"
+      }
+    ],
+    "contract_parity": {
+      "contract_set_sha256": "67bacfee2c975302cf478c1caf2ee9f5991552fcbe0d5a771c09ec96f8192742",
+      "contract_version": 1,
+      "exact_bytes": true,
+      "file_count": 17
+    },
+    "dark_contract_after": {
+      "control_plan_reads_visible": false,
+      "flow_gates_api": false,
+      "machine_commands_configured": false,
+      "model_release_commandable": false,
+      "planning_depth_writes": false,
+      "planning_depth_writes_visible": false,
+      "ros_manual_producer": false,
+      "ros_recurring_producer": false,
+      "ros_source_configured": false,
+      "ros_startup_producer": false,
+      "scheduler_execution": "disabled",
+      "scheduler_readback": "off",
+      "scheduler_scada_configured": false
+    },
+    "dark_contract_before": {
+      "control_plan_reads_visible": false,
+      "flow_gates_api": false,
+      "machine_commands_configured": false,
+      "model_release_commandable": false,
+      "planning_depth_writes": false,
+      "planning_depth_writes_visible": false,
+      "ros_manual_producer": false,
+      "ros_recurring_producer": false,
+      "ros_source_configured": false,
+      "ros_startup_producer": false,
+      "scheduler_execution": "disabled",
+      "scheduler_readback": "off",
+      "scheduler_scada_configured": false
+    },
+    "durable_evidence_preparation": {
+      "hold_event": "held",
+      "method": "append-only disposable-local SQL",
+      "product_http_mutations": 0,
+      "readback_gate_id": "waste-way",
+      "readback_verdict": "unavailable"
+    },
+    "final_activation_gates": {
+      "control_plan_evidence_reads": false,
+      "control_plan_reads": false,
+      "water_planning_submit": false,
+      "water_planning_v2": false
+    },
+    "frontend_source": {
+      "sha": "fbd4ce4df0bb0476b7cd402ac1a4e180a91a7792",
+      "tracked_tree_clean": true
+    },
+    "frontend_source_after": {
+      "sha": "fbd4ce4df0bb0476b7cd402ac1a4e180a91a7792",
+      "tracked_tree_clean": true
+    },
+    "initial_evidence_dark_routes": {
+      "no_store_count": 3,
+      "statuses": {
+        "execution-state": 404,
+        "intent-timeline": 404,
+        "readback-observations": 404
+      }
+    },
+    "read_only_gate_source": {
+      "command_capable_imports": 0,
+      "mutation_methods": 0,
+      "route": "/read-only/gates/[id]"
+    },
+    "real_bearer_projections": {
+      "absent_statuses": {
+        "execution-state": 404,
+        "intent-timeline": 404,
+        "readback-observations": 404
+      },
+      "hold_event_count": 1,
+      "intent_count": 0,
+      "is_held": true,
+      "login": {
+        "claims": "valid",
+        "status": 200
+      },
+      "no_store_count": 3,
+      "observation_count": 1,
+      "statuses": {
+        "execution-state": 200,
+        "intent-timeline": 200,
+        "readback-observations": 200
+      },
+      "unavailable_observation_count": 1
+    },
+    "resumed_state": {
+      "hold_event_count": 2,
+      "is_held": false,
+      "latest_event": "resumed",
+      "no_store": true,
+      "status": 200
+    },
+    "rollback_dark_routes": {
+      "no_store_count": 3,
+      "statuses": {
+        "execution-state": 404,
+        "intent-timeline": 404,
+        "readback-observations": 404
+      }
+    },
+    "visible_browser": {
+      "absent_projection_alerts": 3,
+      "evidence_panel_count": 3,
+      "evidence_request_paths": [
+        "/api/smart-water-backend/control-plans/77a38d9d-5243-4c73-adcd-5646692873f2/versions/1/execution-state",
+        "/api/smart-water-backend/control-plans/77a38d9d-5243-4c73-adcd-5646692873f2/versions/1/intent-timeline",
+        "/api/smart-water-backend/control-plans/77a38d9d-5243-4c73-adcd-5646692873f2/versions/1/readback-observations"
+      ],
+      "forbidden_product_requests": [],
+      "gate_link": "http://127.0.0.1:9998/read-only/gates/waste-way",
+      "gate_operations_navigation_requests": 0,
+      "held_state": true,
+      "intent_timeline_state": "empty-not-execution",
+      "malformed_projection": "intent-timeline",
+      "mode": "evidence-visible",
+      "product_mutation_requests": 0,
+      "projection_no_store_count": 3,
+      "projection_statuses": {
+        "execution-state": 200,
+        "intent-timeline": 200,
+        "readback-observations": 200
+      },
+      "request_inventory_scope": "post-auth-plan-detail",
+      "unavailable_projection": "readback-observations"
+    }
+  },
+  "verdict": "PASS"
+}

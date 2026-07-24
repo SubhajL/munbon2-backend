@@ -1,0 +1,260 @@
+{
+  "completed_at": "2026-07-24T01:06:38.675116Z",
+  "frontend_sha": "fbd4ce4df0bb0476b7cd402ac1a4e180a91a7792",
+  "release_sha": "8ce28a8a0bfd5a3127a213abdde8d6939cacb123",
+  "stage": "LOCAL-AC-1",
+  "steps": {
+    "approved_sources": {
+      "content_sha256": "b9ee0a074f18beb066799ff3e6411dafc3e1c907045638f19cd8d05e3d6c9338",
+      "scenario_version": "local-ac-1-v4",
+      "section_count": 41,
+      "tables": [
+        "gis.zone",
+        "water_planning.zone_planting_dates",
+        "ros_gis.section_crop_settings",
+        "ros.eto_monthly",
+        "ros.kc_weekly",
+        "ros.effective_rainfall_monthly"
+      ],
+      "total_area_rai": "47385"
+    },
+    "bff_projections": {
+      "/api/v1/control-plans": {
+        "no_store": true,
+        "plan_id": "77a38d9d-5243-4c73-adcd-5646692873f2",
+        "plan_version": 1,
+        "status": 200,
+        "top_level_keys": [
+          "items",
+          "next_cursor",
+          "projection_schema_version"
+        ]
+      },
+      "/api/v1/control-plans/77a38d9d-5243-4c73-adcd-5646692873f2/versions/1": {
+        "no_store": true,
+        "plan_id": "77a38d9d-5243-4c73-adcd-5646692873f2",
+        "plan_version": 1,
+        "status": 200,
+        "top_level_keys": [
+          "campaign_id",
+          "created_at",
+          "created_by_subject",
+          "draft_content_hash",
+          "events",
+          "horizon_end",
+          "horizon_start",
+          "input_content_hash",
+          "lifecycle_state",
+          "max_intermediate_trims",
+          "model_release_content_hash",
+          "model_release_id",
+          "model_snapshot_id",
+          "model_step_seconds",
+          "optimizer_result",
+          "optimizer_status",
+          "plan_id",
+          "plan_version",
+          "prediction_member_statuses",
+          "prediction_run_id",
+          "prediction_status",
+          "requirement_run_id",
+          "requirement_version",
+          "requirements",
+          "transitions"
+        ]
+      },
+      "/api/v1/control-plans/77a38d9d-5243-4c73-adcd-5646692873f2/versions/1/execution-state": {
+        "no_store": true,
+        "plan_id": "77a38d9d-5243-4c73-adcd-5646692873f2",
+        "plan_version": 1,
+        "status": 200,
+        "top_level_keys": [
+          "hold_events",
+          "is_held",
+          "plan_id",
+          "plan_version"
+        ]
+      },
+      "/api/v1/control-plans/77a38d9d-5243-4c73-adcd-5646692873f2/versions/1/intent-timeline": {
+        "no_store": true,
+        "plan_id": "77a38d9d-5243-4c73-adcd-5646692873f2",
+        "plan_version": 1,
+        "status": 200,
+        "top_level_keys": [
+          "intents",
+          "plan_id",
+          "plan_version"
+        ]
+      },
+      "/api/v1/control-plans/77a38d9d-5243-4c73-adcd-5646692873f2/versions/1/ledger": {
+        "no_store": true,
+        "plan_id": "77a38d9d-5243-4c73-adcd-5646692873f2",
+        "plan_version": 1,
+        "status": 200,
+        "top_level_keys": [
+          "entries",
+          "handover",
+          "ledger_sha256",
+          "plan_id",
+          "plan_version",
+          "prediction_run_id",
+          "prediction_status"
+        ]
+      },
+      "/api/v1/control-plans/77a38d9d-5243-4c73-adcd-5646692873f2/versions/1/lifecycle-history": {
+        "no_store": true,
+        "plan_id": "77a38d9d-5243-4c73-adcd-5646692873f2",
+        "plan_version": 1,
+        "status": 200,
+        "top_level_keys": [
+          "created_at",
+          "created_by_subject",
+          "lifecycle_state",
+          "plan_id",
+          "plan_version",
+          "transitions"
+        ]
+      },
+      "/api/v1/control-plans/77a38d9d-5243-4c73-adcd-5646692873f2/versions/1/prediction-coverage": {
+        "no_store": true,
+        "plan_id": "77a38d9d-5243-4c73-adcd-5646692873f2",
+        "plan_version": 1,
+        "status": 200,
+        "top_level_keys": [
+          "campaign_id",
+          "draft_content_hash",
+          "input_content_hash",
+          "model_release_content_hash",
+          "model_release_id",
+          "model_snapshot_id",
+          "optimizer_status",
+          "plan_id",
+          "plan_version",
+          "prediction_member_statuses",
+          "prediction_run_id",
+          "prediction_status",
+          "requirement_run_id",
+          "requirement_version"
+        ]
+      },
+      "/api/v1/control-plans/77a38d9d-5243-4c73-adcd-5646692873f2/versions/1/readback-observations": {
+        "no_store": true,
+        "plan_id": "77a38d9d-5243-4c73-adcd-5646692873f2",
+        "plan_version": 1,
+        "status": 200,
+        "top_level_keys": [
+          "observations",
+          "plan_id",
+          "plan_version"
+        ]
+      }
+    },
+    "dark_contract_after": {
+      "control_plan_reads_visible": false,
+      "flow_gates_api": false,
+      "machine_commands_configured": false,
+      "model_release_commandable": false,
+      "planning_depth_writes": false,
+      "planning_depth_writes_visible": false,
+      "ros_manual_producer": false,
+      "ros_recurring_producer": false,
+      "ros_source_configured": false,
+      "ros_startup_producer": false,
+      "scheduler_execution": "disabled",
+      "scheduler_readback": "off",
+      "scheduler_scada_configured": false
+    },
+    "dark_contract_before": {
+      "control_plan_reads_visible": false,
+      "flow_gates_api": false,
+      "machine_commands_configured": false,
+      "model_release_commandable": false,
+      "planning_depth_writes": false,
+      "planning_depth_writes_visible": false,
+      "ros_manual_producer": false,
+      "ros_recurring_producer": false,
+      "ros_source_configured": false,
+      "ros_startup_producer": false,
+      "scheduler_execution": "disabled",
+      "scheduler_readback": "off",
+      "scheduler_scada_configured": false
+    },
+    "flow_publication": {
+      "kind": "demand",
+      "published_record_count": 287,
+      "source_service": "ros-gis-integration",
+      "status": 200,
+      "synthetic": false
+    },
+    "manual_requirement_run": {
+      "as_of_date": "2026-07-24",
+      "invalid_header_status": 403,
+      "lineage": {
+        "approved_source_content_sha256": "b9ee0a074f18beb066799ff3e6411dafc3e1c907045638f19cd8d05e3d6c9338",
+        "crop_register_version": "64f83701b484b7929fd36fe30a2cd24c40c805dd9c417a89130068bf7adb9d27",
+        "gate_mapping_dataset": {
+          "source_sha256": "9b9ac16f0c11ea9bfdb78c86848a072ce6a07a0164fa8bab2f0814ecb2f66ef9",
+          "version_id": 2
+        },
+        "method_version": "daily-requirement-v1",
+        "run_content_sha256": "8f966757415b72dec2e8e463a7f83289adf6b7d23eb3b99a64a4c23631f2129f",
+        "run_id": "8596c89d-5dff-4bbc-96db-04ac774f4a91",
+        "section_dataset": {
+          "source_sha256": "a223c95a0515df18e279779bcb770feaf0e4509422723a19e13ca1aa7909dc0b",
+          "version_id": 1
+        },
+        "weather_version": "62348341ed27478921f341be6545ed6bdd1aa008d5484b04e10270e690d67bbc"
+      },
+      "missing_header_status": 403,
+      "requirement_count": 287,
+      "route_authentication": "local_internal_header",
+      "run_id": "8596c89d-5dff-4bbc-96db-04ac774f4a91",
+      "status": "published"
+    },
+    "manual_ros_lifecycle": {
+      "enabled": true,
+      "schedule_enabled": false,
+      "schedule_running": false,
+      "startup_catchup_enabled": false
+    },
+    "missing_plan": {
+      "no_store": true,
+      "status": 404
+    },
+    "operator_login": {
+      "claims": "valid",
+      "status": 200
+    },
+    "operator_logout": {
+      "refresh_reuse": 401,
+      "status": 200
+    },
+    "restored_ros_lifecycle": {
+      "enabled": false,
+      "schedule_enabled": false,
+      "schedule_running": false,
+      "startup_catchup_enabled": false
+    },
+    "scheduler_draft": {
+      "event_count": 2,
+      "lifecycle_state": "draft",
+      "optimizer_status": "feasible",
+      "plan_id": "77a38d9d-5243-4c73-adcd-5646692873f2",
+      "plan_version": 1,
+      "prediction_status": "completed",
+      "requirement_count": 9,
+      "status": 201,
+      "transition_count": 1
+    },
+    "zone_requirements": {
+      "data_status": "published",
+      "positive_requirement_count": 1,
+      "requirement_count": 9,
+      "run_id": "8596c89d-5dff-4bbc-96db-04ac774f4a91",
+      "service_date": "2026-07-24",
+      "version": 1,
+      "zone": 6
+    }
+  },
+  "verdict": "PASS"
+}
