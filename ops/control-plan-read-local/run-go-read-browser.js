@@ -49,11 +49,20 @@ function isAllowedDocumentRequest(parsed, method, allowedDocumentPaths) {
   if (!parsed.search) return true;
   if (parsed.pathname === "/login") {
     const next = parsed.searchParams.get("next");
+    if (
+      next === null ||
+      next === "/login" ||
+      !allowedDocumentPaths.has(next)
+    ) {
+      return false;
+    }
+    if (parsed.searchParams.size === 1) return true;
+    const rsc = parsed.searchParams.get("_rsc");
     return (
-      parsed.searchParams.size === 1 &&
-      next !== null &&
-      next !== "/login" &&
-      allowedDocumentPaths.has(next)
+      method === "GET" &&
+      parsed.searchParams.size === 2 &&
+      rsc !== null &&
+      rsc.length > 0
     );
   }
   return hasOnlyRscQuery(parsed);

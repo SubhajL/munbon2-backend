@@ -40,6 +40,12 @@ test("allows only exact auth, status, document, and static asset requests", () =
     classify(`/login?next=${encodeURIComponent(gatePath)}`).allowed,
     true,
   );
+  assert.equal(
+    classify(
+      `/login?next=${encodeURIComponent(gatePath)}&_rsc=signedOutRedirect`,
+    ).allowed,
+    true,
+  );
   assert.equal(classify("/_next/static/chunks/app.js").allowed, true);
   assert.equal(classify("/?_rsc=backLinkPrefetch").allowed, true);
 });
@@ -56,6 +62,15 @@ test("blocks queries, mutations, unknown routes, controls, and direct SCADA", ()
     classify("/?_rsc=expected&extra=1"),
     classify(`${gatePath}?extra=1`),
     classify(`${gatePath}?_rsc=abc123&extra=1`),
+    classify(
+      `/login?next=${encodeURIComponent(gatePath)}&_rsc=signedOutRedirect`,
+      "HEAD",
+    ),
+    classify(`/login?next=${encodeURIComponent(gatePath)}&_rsc=`),
+    classify("/login?next=%2Funexpected&_rsc=signedOutRedirect"),
+    classify(
+      `/login?next=${encodeURIComponent(gatePath)}&_rsc=signedOutRedirect&extra=1`,
+    ),
     classify("/api/control-authority", "GET"),
     classify("/api/gates/waste-way/command-level", "POST"),
     classify("/api/gates/waste-way/horn", "POST"),
@@ -66,8 +81,8 @@ test("blocks queries, mutations, unknown routes, controls, and direct SCADA", ()
   for (const result of cases) assert.equal(result.allowed, false);
   assert.equal(cases[0].mutation, true);
   assert.equal(cases[3].mutation, true);
-  assert.equal(cases[10].forbiddenPath, true);
-  assert.equal(cases[11].forbiddenPath, true);
+  assert.equal(cases[14].forbiddenPath, true);
+  assert.equal(cases[15].forbiddenPath, true);
   assert.equal(cases.at(-1).directScada, true);
 });
 
