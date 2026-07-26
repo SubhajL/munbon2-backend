@@ -1,0 +1,306 @@
+{
+  "completed_at": "2026-07-26T02:29:07.981845Z",
+  "release_sha": "d47db8e3e61219ac6ff791a7b2e6642c5ae2cf70",
+  "stage": "LOCAL-RTA-1",
+  "step_order": [
+    "capture_baseline",
+    "verify_source_sha",
+    "capacity_gate",
+    "capacity_stop_rule",
+    "install_manifests",
+    "migration_parity",
+    "monitoring_preflight",
+    "start_four_processes",
+    "verify_dark_flags",
+    "five_minute_stability",
+    "bearer_lifecycle",
+    "pm2_save_and_evidence"
+  ],
+  "steps": {
+    "bearer_lifecycle": {
+      "login": {
+        "claims": "valid",
+        "status": 200
+      },
+      "logout": {
+        "refresh_reuse": 401,
+        "status": 200
+      },
+      "malformed_bearer": {
+        "bff": 401,
+        "bff_no_store": true,
+        "scheduler": 401
+      },
+      "missing_bearer": {
+        "bff": 403,
+        "bff_no_store": true,
+        "scheduler": 403
+      },
+      "missing_detail": {
+        "bff": 404,
+        "bff_no_store": true,
+        "scheduler": 404
+      },
+      "operator_list": {
+        "bff": 200,
+        "bff_no_store": true,
+        "scheduler": 200
+      }
+    },
+    "capacity_gate": {
+      "mem_available_mib": 9762,
+      "non_loopback_ports": [],
+      "port_conflicts": [],
+      "swap_used_mib": 0
+    },
+    "capacity_stop_rule": {
+      "gate_lowered": false,
+      "triggered": false
+    },
+    "capture_baseline": {
+      "capacity": {
+        "mem_available_mib": 9762,
+        "swap_used_mib": 0
+      },
+      "captured_at": "2026-07-26T02:23:37.307821Z",
+      "hostname": "munbon-control-plan-local",
+      "kernel_machine": "aarch64",
+      "listeners": [
+        {
+          "address": "127.0.0.1",
+          "port": 5432
+        },
+        {
+          "address": "127.0.0.1",
+          "port": 6379
+        },
+        {
+          "address": "127.0.0.1",
+          "port": 8086
+        },
+        {
+          "address": "127.0.0.1",
+          "port": 3005
+        },
+        {
+          "address": "::1",
+          "port": 5432
+        },
+        {
+          "address": "::1",
+          "port": 6379
+        }
+      ],
+      "pm2": [],
+      "release_sha": "d47db8e3e61219ac6ff791a7b2e6642c5ae2cf70"
+    },
+    "five_minute_stability": {
+      "duration_seconds": 300,
+      "pm2": [
+        {
+          "cpu_percent": 0,
+          "memory_bytes": 125829120,
+          "name": "bff-water-planning",
+          "pid": 170388,
+          "restarts": 0,
+          "status": "online"
+        },
+        {
+          "cpu_percent": 8.3,
+          "memory_bytes": 111624192,
+          "name": "flow-monitoring",
+          "pid": 170365,
+          "restarts": 0,
+          "status": "online"
+        },
+        {
+          "cpu_percent": 0,
+          "memory_bytes": 112279552,
+          "name": "ros-gis-integration",
+          "pid": 170383,
+          "restarts": 0,
+          "status": "online"
+        },
+        {
+          "cpu_percent": 8.3,
+          "memory_bytes": 162525184,
+          "name": "scheduler",
+          "pid": 170373,
+          "restarts": 0,
+          "status": "online"
+        }
+      ],
+      "readiness": {
+        "bff-water-planning": {
+          "checks": {
+            "flow_monitoring": "ok",
+            "ros": "ok",
+            "scheduler": "ok"
+          },
+          "status": "ready",
+          "status_code": 200
+        },
+        "flow-monitoring": {
+          "checks": {
+            "commandability_approval": "unconfigured",
+            "database": "ok",
+            "model_release": "ok",
+            "prediction_persistence": "ok",
+            "prediction_service": "ok"
+          },
+          "status": "ready",
+          "status_code": 200
+        },
+        "ros-gis-integration": {
+          "checks": {
+            "postgres": "ok",
+            "redis": "ok"
+          },
+          "status": "ready",
+          "status_code": 200
+        },
+        "scheduler": {
+          "checks": {
+            "control_tables": "ok",
+            "migrations": "ok",
+            "redis": "ok"
+          },
+          "status": "ready",
+          "status_code": 200
+        }
+      },
+      "restart_counts_unchanged": true
+    },
+    "install_manifests": {
+      "bff-water-planning": "manifest-installed-pip-check-pass",
+      "flow-monitoring": "manifest-installed-pip-check-pass",
+      "ros-gis-integration": "manifest-installed-pip-check-pass",
+      "scheduler": "manifest-installed-pip-check-pass"
+    },
+    "migration_parity": {
+      "bff_count": 2,
+      "bff_latest": "010_planning_depth_submissions",
+      "bff_migration_sha256": {
+        "009_crop_registry": "060062baf15d384730ec1284abb7fb8a39eaa86d238d63140a4648afc79f7d82",
+        "010_planning_depth_submissions": "c904510204c97269a73ee4592c06c1a35c1fd8f13b53b47885a21b4c5a5c62f6"
+      },
+      "bff_migrations": [
+        "009_crop_registry",
+        "010_planning_depth_submissions"
+      ],
+      "ros_count": 3,
+      "ros_latest": "0003_daily_requirement_producer",
+      "ros_migrations": [
+        "0001_dataset_version_parent",
+        "0002_water_requirement_publication",
+        "0003_daily_requirement_producer"
+      ],
+      "scheduler_count": 13,
+      "scheduler_latest": "0013_operator_approved_execution",
+      "scheduler_migrations": [
+        "0001_control_plan_drafts",
+        "0002_predicted_delivery_ledger",
+        "0003_control_plan_review_lifecycle",
+        "0004_control_plan_list_indexes",
+        "0005_control_plan_provenance_v2",
+        "0006_control_plan_campaign_identity",
+        "0007_control_plan_shadow_activation",
+        "0008_control_plan_active_supersede",
+        "0009_open_loop_execution",
+        "0010_shadow_dispatch_receipts",
+        "0011_gate_readback_observations",
+        "0012_authority_grants",
+        "0013_operator_approved_execution"
+      ]
+    },
+    "monitoring_preflight": {
+      "approved": true,
+      "command_gates": {
+        "CONTROL_EXECUTION_MODE": "disabled"
+      },
+      "commit": "d47db8e3e61219ac6ff791a7b2e6642c5ae2cf70",
+      "latest_migration": "0013_operator_approved_execution",
+      "process_names": [
+        "scheduler",
+        "scheduler-control-dispatch"
+      ],
+      "promtool": "PASS"
+    },
+    "pm2_save_and_evidence": {
+      "application_listeners": [
+        {
+          "address": "127.0.0.1",
+          "port": 5432
+        },
+        {
+          "address": "127.0.0.1",
+          "port": 6379
+        },
+        {
+          "address": "127.0.0.1",
+          "port": 8086
+        },
+        {
+          "address": "127.0.0.1",
+          "port": 3011
+        },
+        {
+          "address": "127.0.0.1",
+          "port": 3022
+        },
+        {
+          "address": "127.0.0.1",
+          "port": 3021
+        },
+        {
+          "address": "127.0.0.1",
+          "port": 3047
+        },
+        {
+          "address": "127.0.0.1",
+          "port": 3005
+        },
+        {
+          "address": "::1",
+          "port": 5432
+        },
+        {
+          "address": "::1",
+          "port": 6379
+        }
+      ],
+      "capacity_after_startup": {
+        "mem_available_mib": 9325,
+        "swap_used_mib": 0
+      },
+      "saved": true
+    },
+    "start_four_processes": {
+      "restart_baseline": {
+        "bff-water-planning": 0,
+        "flow-monitoring": 0,
+        "ros-gis-integration": 0,
+        "scheduler": 0
+      }
+    },
+    "verify_dark_flags": {
+      "control_plan_reads_visible": false,
+      "flow_gates_api": false,
+      "machine_commands_configured": false,
+      "model_release_commandable": false,
+      "planning_depth_writes": false,
+      "planning_depth_writes_visible": false,
+      "ros_manual_producer": false,
+      "ros_recurring_producer": false,
+      "ros_source_configured": false,
+      "ros_startup_producer": false,
+      "scheduler_execution": "disabled",
+      "scheduler_readback": "off",
+      "scheduler_scada_configured": false
+    },
+    "verify_source_sha": {
+      "actual_sha": "d47db8e3e61219ac6ff791a7b2e6642c5ae2cf70"
+    }
+  },
+  "verdict": "PASS"
+}
