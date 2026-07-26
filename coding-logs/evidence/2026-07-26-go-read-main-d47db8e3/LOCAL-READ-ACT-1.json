@@ -1,0 +1,115 @@
+{
+  "completed_at": "2026-07-26T02:30:29.672170Z",
+  "frontend_sha": "fbd4ce4df0bb0476b7cd402ac1a4e180a91a7792",
+  "release_sha": "d47db8e3e61219ac6ff791a7b2e6642c5ae2cf70",
+  "stage": "LOCAL-READ-ACT-1",
+  "steps": {
+    "accepted_plan": {
+      "plan_id": "bf15b53d-d47c-4f44-b227-4e72ea3c798d",
+      "plan_version": 1
+    },
+    "activation_sequence": [
+      false,
+      true,
+      false
+    ],
+    "builds": [
+      {
+        "activation_gates": {
+          "control_plan_evidence_reads": false,
+          "control_plan_reads": false,
+          "water_planning_submit": false,
+          "water_planning_v2": false
+        },
+        "focused_tests": "PASS",
+        "production_build": "PASS"
+      },
+      {
+        "activation_gates": {
+          "control_plan_evidence_reads": false,
+          "control_plan_reads": true,
+          "water_planning_submit": false,
+          "water_planning_v2": false
+        },
+        "focused_tests": "PASS",
+        "production_build": "PASS"
+      },
+      {
+        "activation_gates": {
+          "control_plan_evidence_reads": false,
+          "control_plan_reads": false,
+          "water_planning_submit": false,
+          "water_planning_v2": false
+        },
+        "focused_tests": "PASS",
+        "production_build": "PASS"
+      }
+    ],
+    "dark_contract_after": {
+      "control_plan_reads_visible": false,
+      "flow_gates_api": false,
+      "machine_commands_configured": false,
+      "model_release_commandable": false,
+      "planning_depth_writes": false,
+      "planning_depth_writes_visible": false,
+      "ros_manual_producer": false,
+      "ros_recurring_producer": false,
+      "ros_source_configured": false,
+      "ros_startup_producer": false,
+      "scheduler_execution": "disabled",
+      "scheduler_readback": "off",
+      "scheduler_scada_configured": false
+    },
+    "dark_contract_before": {
+      "control_plan_reads_visible": false,
+      "flow_gates_api": false,
+      "machine_commands_configured": false,
+      "model_release_commandable": false,
+      "planning_depth_writes": false,
+      "planning_depth_writes_visible": false,
+      "ros_manual_producer": false,
+      "ros_recurring_producer": false,
+      "ros_source_configured": false,
+      "ros_startup_producer": false,
+      "scheduler_execution": "disabled",
+      "scheduler_readback": "off",
+      "scheduler_scada_configured": false
+    },
+    "frontend_source": {
+      "sha": "fbd4ce4df0bb0476b7cd402ac1a4e180a91a7792",
+      "tracked_tree_clean": true
+    },
+    "frontend_source_after": {
+      "sha": "fbd4ce4df0bb0476b7cd402ac1a4e180a91a7792",
+      "tracked_tree_clean": true
+    },
+    "initial_dark_browser": {
+      "mode": "dark",
+      "navigation_link_count": 0,
+      "route_status": 404,
+      "signed_in": true
+    },
+    "rollback_dark_browser": {
+      "mode": "dark",
+      "navigation_link_count": 0,
+      "route_status": 404,
+      "signed_in": true
+    },
+    "visible_browser": {
+      "action_controls": 0,
+      "deep_link_loaded": true,
+      "detail_plan_id": "bf15b53d-d47c-4f44-b227-4e72ea3c798d",
+      "detail_plan_version": 1,
+      "independent_panel_failure": "ledger-only",
+      "list_plan_found": true,
+      "missing_plan_alerts": 4,
+      "mode": "visible",
+      "mutation_route_denial_count": 5,
+      "navigation_link_count": 1,
+      "refresh_preserved_detail": true,
+      "signed_out_redirect": "/login",
+      "unexpected_control_plan_mutations": 0
+    }
+  },
+  "verdict": "PASS"
+}

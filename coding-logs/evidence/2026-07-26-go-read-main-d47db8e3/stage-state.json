@@ -1,0 +1,23 @@
+{
+  "completed": [
+    "LOCAL-BASE-0",
+    "LOCAL-RTA-1",
+    "LOCAL-AC-1",
+    "LOCAL-READ-ACT-1",
+    "LOCAL-EVIDENCE-1",
+    "LOCAL-GO-READ-1"
+  ],
+  "frontend_sha": "fbd4ce4df0bb0476b7cd402ac1a4e180a91a7792",
+  "harness_hashes": {
+    "local-ac1.py": "94310e200216205552fb19a6470d1bd8aadfd9f245239b533e49fafbbef74e82",
+    "run-evidence-browser.js": "a1d539a9d3ca50cb7f17b5f59714f5754617fe8d793ab8272e659aecfa51f8a9",
+    "run-go-read-browser.js": "28a4d5efff5bfb96d56d4ed04ac59e9e894a6a2367b026c2aad6e3bfe08df1bf",
+    "run-read-browser.js": "82bb79570bfa66e9b47a343166be659d1efc0c457ed2faba7614cb787b08e433",
+    "run-ros-manual-producer.sh": "41c52f4ab359595ecda4794bfa7da5b61c9950c2c69aff22841db3122a889704",
+    "run-stage-suite.py": "1fb1c2cafcc69dcb502a12e082f6bec12cff986564f99338319d07eb36629ea5",
+    "seed-approved-sources.py": "59de1bda054e9c583b6343bbac05e4044bbfb4ace18399f1bc53f68a6b5d8ec4",
+    "seed-local-operators.js": "04ea3b8396e81c9dd6b4151bf7c07a2307bcc1073a1f67f62cc574a634b5f5ce",
+    "verify_bearer.py": "250b9a420515e91f3c7a65cb884b071893f735dfada65c3ec6a9b74a77fe3db4"
+  },
+  "release_sha": "d47db8e3e61219ac6ff791a7b2e6642c5ae2cf70"
+}

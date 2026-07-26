@@ -1,0 +1,202 @@
+{
+  "completed_at": "2026-07-26T02:39:39.647668Z",
+  "frontend_sha": "fbd4ce4df0bb0476b7cd402ac1a4e180a91a7792",
+  "release_sha": "d47db8e3e61219ac6ff791a7b2e6642c5ae2cf70",
+  "stage": "LOCAL-GO-READ-1",
+  "steps": {
+    "actual_runtime_environment": {
+      "auth_origin": "http://127.0.0.1:3005",
+      "dev_bypass": false,
+      "durable_audit": true,
+      "gate_web_bind": "127.0.0.1:9998",
+      "legacy_direct_scada": false,
+      "machine_commands": false,
+      "modbus_target": "127.0.0.1:65534",
+      "scada_bind": "127.0.0.1:3030",
+      "scada_origin": "http://127.0.0.1:3030",
+      "service_auth": "dark"
+    },
+    "aws_actions": false,
+    "browser": {
+      "action_controls": 0,
+      "connection": "offline",
+      "direct_scada_browser_requests": 0,
+      "forbidden_product_requests": [],
+      "gate_id": "waste-way",
+      "gate_name": "Waste Way",
+      "live_status_responses": 4,
+      "login_status": 200,
+      "mode": "go-read",
+      "outage_alert_visible": true,
+      "outage_no_store": true,
+      "outage_status": 503,
+      "product_mutation_requests": 0,
+      "read_no_store": true,
+      "read_status": 200,
+      "request_inventory_scope": "full-signed-out-through-outage",
+      "same_origin_status_path": "/api/read-only/gates/waste-way/status",
+      "screenshots": [
+        "LOCAL-GO-READ-1-live.png",
+        "LOCAL-GO-READ-1-outage.png"
+      ],
+      "signed_out_redirect": "/login",
+      "signed_out_status_requests": 0,
+      "stale_status_hidden": true,
+      "unknown_gate_no_store": true,
+      "unknown_gate_status": 404
+    },
+    "builds": {
+      "gate_web": {
+        "lint": "PASS",
+        "production_build": "PASS",
+        "tests": "PASS",
+        "typecheck": "PASS"
+      },
+      "scada": {
+        "lint": "PASS",
+        "production_build": "PASS",
+        "tests": "PASS",
+        "typecheck": "PASS"
+      }
+    },
+    "cleanup": {
+      "auth_ready": true,
+      "pm2_unchanged": true,
+      "reserved_listeners": [],
+      "temporary_processes": 0,
+      "verified": true
+    },
+    "dark_contract_after": {
+      "control_plan_reads_visible": false,
+      "flow_gates_api": false,
+      "machine_commands_configured": false,
+      "model_release_commandable": false,
+      "planning_depth_writes": false,
+      "planning_depth_writes_visible": false,
+      "ros_manual_producer": false,
+      "ros_recurring_producer": false,
+      "ros_source_configured": false,
+      "ros_startup_producer": false,
+      "scheduler_execution": "disabled",
+      "scheduler_readback": "off",
+      "scheduler_scada_configured": false
+    },
+    "dark_contract_before": {
+      "control_plan_reads_visible": false,
+      "flow_gates_api": false,
+      "machine_commands_configured": false,
+      "model_release_commandable": false,
+      "planning_depth_writes": false,
+      "planning_depth_writes_visible": false,
+      "ros_manual_producer": false,
+      "ros_recurring_producer": false,
+      "ros_source_configured": false,
+      "ros_startup_producer": false,
+      "scheduler_execution": "disabled",
+      "scheduler_readback": "off",
+      "scheduler_scada_configured": false
+    },
+    "direct_scada_reads": {
+      "connection": "offline",
+      "endpoint": {
+        "host": "127.0.0.1",
+        "port": 65534,
+        "unit_id": 1
+      },
+      "gate_id": "waste-way",
+      "gate_name": "Waste Way",
+      "http_methods": [
+        "GET",
+        "GET"
+      ],
+      "known_gate_no_store": true,
+      "known_gate_status": 200,
+      "login": {
+        "claims": "valid",
+        "status": 200
+      },
+      "null_observations": 4,
+      "product_mutations": 0,
+      "unknown_gate_no_store": true,
+      "unknown_gate_status": 404
+    },
+    "final_activation_gates": {
+      "control_plan_evidence_reads": false,
+      "control_plan_reads": false,
+      "water_planning_submit": false,
+      "water_planning_v2": false
+    },
+    "five_minute_stability": {
+      "duration_seconds": 300,
+      "processes_stable": true,
+      "readiness": {
+        "gate_web_login": 200,
+        "scada_health": 200
+      },
+      "samples": 61
+    },
+    "loopback_listeners": {
+      "3030": [
+        "127.0.0.1"
+      ],
+      "9998": [
+        "127.0.0.1"
+      ]
+    },
+    "pm2_before": [
+      {
+        "name": "bff-water-planning",
+        "pid": 170388,
+        "restarts": 0,
+        "status": "online"
+      },
+      {
+        "name": "flow-monitoring",
+        "pid": 170365,
+        "restarts": 0,
+        "status": "online"
+      },
+      {
+        "name": "ros-gis-integration",
+        "pid": 171166,
+        "restarts": 0,
+        "status": "online"
+      },
+      {
+        "name": "scheduler",
+        "pid": 170373,
+        "restarts": 0,
+        "status": "online"
+      }
+    ],
+    "reserved_ports_before": [],
+    "runtime_environment": {
+      "auth_origin": "http://127.0.0.1:3005",
+      "dev_bypass": false,
+      "durable_audit": true,
+      "gate_web_bind": "127.0.0.1:9998",
+      "legacy_direct_scada": false,
+      "machine_commands": false,
+      "modbus_target": "127.0.0.1:65534",
+      "scada_bind": "127.0.0.1:3030",
+      "scada_origin": "http://127.0.0.1:3030",
+      "service_auth": "dark"
+    },
+    "screenshots": {
+      "LOCAL-GO-READ-1-live.png": {
+        "bytes": 41009,
+        "sha256": "a699595979da35b2945ef8383c1c97ec7f9d1d84aa2dad87003f69653a6cf4f9"
+      },
+      "LOCAL-GO-READ-1-outage.png": {
+        "bytes": 31491,
+        "sha256": "6c6b4d14cca0098e63ad35032259cce271e6007abd2c942f8072d20b181be429"
+      }
+    },
+    "source": {
+      "backend_sha": "d47db8e3e61219ac6ff791a7b2e6642c5ae2cf70",
+      "frontend_sha": "fbd4ce4df0bb0476b7cd402ac1a4e180a91a7792",
+      "tracked_trees_clean": true
+    }
+  },
+  "verdict": "PASS"
+}

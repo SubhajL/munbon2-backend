@@ -717,3 +717,132 @@ LOW
 
 - The exception is limited to Next's signed-out read-only navigation. It adds
   no API, write method, authority, machine-command permission, or AWS action.
+
+## GO-READ-1 exact-main acceptance and recovery (2026-07-26 09:42:44 +07)
+
+### Goal
+
+Complete the dedicated GO-READ runtime/browser acceptance on the exact merged
+backend and accepted frontend, preserve fail-closed runtime defaults, collect
+checksum-bound evidence, and archive the result separately from product code.
+
+### Recovery and changes
+
+- A transport interruption cut off the first clean attempt during the
+  `LOCAL-EVIDENCE-1` rollback build. Its failure manifest recorded
+  `frontend_dark_rollback_failed`; an exact dark rebuild then passed.
+- Retrying only the interrupted stage correctly failed
+  `evidence_browser_present_held_failed` because the first attempt had already
+  appended held/resumed evidence to the disposable database.
+- The guest was therefore reprovisioned from clean source bundles and a reset
+  database. The full six-stage run was moved into a detached session so chat
+  transport loss could not signal the acceptance processes.
+- `docs/operations/CONTROL_PLAN_ALL_STAGES_LOCAL_ACCEPTANCE.md` now records the
+  exact six-stage PASS, runtime/browser boundary, final dark gates, archive
+  location, and aggregate checksum.
+- `coding-logs/evidence/2026-07-26-go-read-main-d47db8e3/` contains the six
+  stage manifests, stage state, live and outage screenshots, and
+  `SHA256SUMS`.
+
+### TDD and runtime evidence
+
+- No product or harness code changed in this archival unit, so no new
+  test-first RED/GREEN cycle applies. The signed-out RSC production fix was
+  already developed RED/GREEN and landed in PR #136.
+- Runtime RED:
+  `python3 ops/control-plan-read-local/orchestrate.py run-stage --stage
+  LOCAL-EVIDENCE-1 ...` failed after the interrupted partial run with
+  `evidence_browser_present_held_failed`, proving partial-stage evidence is not
+  reusable.
+- Runtime GREEN:
+  `python3 ops/control-plan-read-local/orchestrate.py run-all --release-sha
+  d47db8e3e61219ac6ff791a7b2e6642c5ae2cf70 --frontend-sha
+  fbd4ce4df0bb0476b7cd402ac1a4e180a91a7792
+  --accept-later-origin-main` passed all six stages after clean provisioning.
+- `LOCAL-GO-READ-1` ran SCADA and Gate Web tests, typechecks, lints, and
+  production builds; both temporary services held loopback readiness for 300
+  seconds over 61 samples.
+- Chromium proved signed-out redirect, login 200, four authenticated live
+  responses, known-gate 200/no-store, unknown-gate 404/no-store, post-SCADA
+  outage 503/no-store, the outage alert, and stale observation removal.
+- Browser inventory recorded zero direct-SCADA requests, zero forbidden
+  product requests, zero product mutations, and zero action controls.
+- `shasum -a 256 -c SHA256SUMS` passed for every collected manifest and
+  screenshot. The SHA-256 of the checksum index is
+  `ab1a19dd4fdc45954569448fdca4db2ede5b208457a2f2cf7c09414a37cde16c`.
+
+### Wiring verification
+
+- `orchestrate.py run-all` invoked `LOCAL-GO-READ-1` only after the five
+  predecessor manifests passed.
+- `run-stage-suite.py` started the exact built SCADA and Gate Web entry points,
+  then invoked the tracked `run-go-read-browser.js`.
+- Stage state binds the completed sequence to backend
+  `d47db8e3e61219ac6ff791a7b2e6642c5ae2cf70`, frontend
+  `fbd4ce4df0bb0476b7cd402ac1a4e180a91a7792`, and every installed harness
+  hash.
+
+### Safety and residual scope
+
+- Cleanup removed ports 3030, 9998, 9999, and 65534; PM2 identity was
+  unchanged and central auth remained ready.
+- Final control-plan reads, evidence reads, Water Planning V2, and submit flags
+  are false. Scheduler execution is disabled, model release is not
+  commandable, machine commands are not configured, and service auth remains
+  dark.
+- No AWS action occurred.
+- This acceptance authorizes the local read-only result only. It does not
+  authorize write UI, command authority, machine execution, or AWS promotion.
+- Auggie was skipped because the available interface could not enforce the
+  required two-second timeout; the recovery used exact manifests, source
+  inspection, and runtime evidence.
+
+## Review (2026-07-26 09:44:35 +07) - GO-READ-1 final evidence archive
+
+### Reviewed
+
+- Repo: `/Users/subhajlimanond/dev/munbon2-backend-go-read-archive`
+- Branch: `ops/archive-go-read-1-20260726`
+- Scope: staged evidence archive, exact-main runbook result, and acceptance-log
+  summary based on `d47db8e3e61219ac6ff791a7b2e6642c5ae2cf70`
+- Commands Run: staged status/stat/check; collected and guest checksum
+  verification; JSON identity and stage-order audit; targeted RTA, Evidence,
+  GO-READ browser, cleanup, activation-gate, and dark-contract inspection;
+  original-resolution inspection of both screenshots; listener audit
+
+### Findings
+
+CRITICAL
+
+- No findings.
+
+HIGH
+
+- No findings.
+
+MEDIUM
+
+- No findings.
+
+LOW
+
+- No findings.
+
+### Open Questions / Assumptions
+
+- GitHub Actions may again be unable to start because of the existing account
+  billing lock. Any such zero-step result must be distinguished from local
+  acceptance and documented before merge.
+
+### Recommended Tests / Validation
+
+- Require the archival PR to contain exactly the ten collected files plus the
+  runbook and coding-log changes.
+- Reverify all checksum entries after commit and confirm the PR merge commit is
+  landed on both `origin/main` and local `main`.
+
+### Rollout Notes
+
+- The evidence is local-only and SHA-bound. All read/write/authority gates
+  remain dark, machine execution remains disabled, and no AWS action is
+  authorized or performed.

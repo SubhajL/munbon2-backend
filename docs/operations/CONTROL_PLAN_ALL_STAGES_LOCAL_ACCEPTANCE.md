@@ -29,7 +29,7 @@ bundle; the runtime checkout must remain at the accepted 40-character SHA.
 | AC-1               | `LOCAL-AC-1`               | Implemented and passed       |
 | READ-ACT-1         | `LOCAL-READ-ACT-1`         | Implemented and passed       |
 | ME-1 / FE-8        | `LOCAL-EVIDENCE-1`         | Implemented and passed       |
-| GO-READ-1          | `LOCAL-GO-READ-1`          | Implemented; exact run due   |
+| GO-READ-1          | `LOCAL-GO-READ-1`          | Implemented and passed       |
 | W1 / W2            | `LOCAL-WRITE-FOUNDATION-1` | Planned; not yet implemented |
 | FE-5 / FE-6        | `LOCAL-WRITE-UI-1`         | Planned; not yet implemented |
 | DEC-W4             | `LOCAL-PERSIST-ONLY-1`     | Planned; persist-only        |
@@ -204,32 +204,36 @@ gate was strengthened, and Stage 0/1 were rerun from a new evidence directory.
 
 ## Current local result
 
-- Backend: `8ce28a8a0bfd5a3127a213abdde8d6939cacb123`
+- Backend: `d47db8e3e61219ac6ff791a7b2e6642c5ae2cf70`
 - Frontend: `fbd4ce4df0bb0476b7cd402ac1a4e180a91a7792`
 - `LOCAL-BASE-0`: PASS
 - `LOCAL-RTA-1`: PASS
 - `LOCAL-AC-1`: PASS
 - `LOCAL-READ-ACT-1`: PASS
 - `LOCAL-EVIDENCE-1`: PASS
-- `LOCAL-GO-READ-1`: pending exact-main run
-- Stability: 300 seconds, restart-count equality
+- `LOCAL-GO-READ-1`: PASS
+- Stability: 300 seconds for RTA and GO-READ, restart-count equality
 - Final application listeners: loopback only
-- Evidence contract: 17 exact files, aggregate SHA-256
-  `67bacfee2c975302cf478c1caf2ee9f5991552fcbe0d5a771c09ec96f8192742`
+- Evidence contract: 10 exact files, aggregate SHA-256
+  `ab1a19dd4fdc45954569448fdca4db2ede5b208457a2f2cf7c09414a37cde16c`
 - Evidence projections: three real bearer-path 200/no-store responses; three
   missing-plan 404 responses
 - Browser cases: present, absent, unavailable, held, malformed, and explicit
   empty-intent-is-not-execution
-- Gate Operations boundary: exact read-only href, zero navigation requests
-- Product request inventory: zero forbidden or mutation requests
+- Gate Operations boundary: signed-out deep-link protection, authenticated
+  same-origin status GET, four live responses, unknown-gate 404, forced-outage
+  503, and stale-status removal
+- Product request inventory: zero forbidden, mutation, or direct-SCADA browser
+  requests; zero action controls
 - Evidence state: held during visible proof, then resumed
-- Final frontend flags: control-plan reads false, evidence reads false
+- Final frontend flags: control-plan reads false, evidence reads false, Water
+  Planning V2 false, and submit false
 - PM2 saved only after bearer success
 - Final execution, producer, write, visibility, authority, and machine-command
   gates: dark
 - AWS actions: none
 - Sanitized archive:
-  `coding-logs/evidence/2026-07-24-local-evidence-main-8ce28a8a/`
+  `coding-logs/evidence/2026-07-26-go-read-main-d47db8e3/`
 
 Every new candidate must be provisioned cleanly and rerun through all six
 implemented stages at its exact SHA. Evidence from a predecessor or a
