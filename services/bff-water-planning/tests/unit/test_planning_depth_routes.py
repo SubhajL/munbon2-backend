@@ -39,7 +39,7 @@ def _roster():
             RosterSection(
                 section_id=f"01-{zone_number:02d}-01-{section_number:02d}",
                 zone_id=f"01-{zone_number:02d}",
-                area_rai=Decimal("7385") if section_number == 43 else Decimal("1000"),
+                area_rai=Decimal("5204") if section_number == 43 else Decimal("1000"),
             )
         )
     return sections

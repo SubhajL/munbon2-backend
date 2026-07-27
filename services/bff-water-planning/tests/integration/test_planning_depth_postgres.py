@@ -1,6 +1,7 @@
 import asyncio
 import os
 from datetime import date
+from decimal import Decimal
 from pathlib import Path
 from urllib.parse import urlparse
 from uuid import UUID, uuid4
@@ -15,6 +16,7 @@ from db.migration_runner import (
 )
 from db.planning_depth_repository import (
     PlanningDepthConflictError,
+    PlanningDepthRosterUnavailableError,
     create_planning_depth_submission,
     get_active_planning_depth_submission,
     load_planning_depth_roster,
@@ -26,6 +28,10 @@ from schemas.planning_depth import (
 
 TEST_URL = os.getenv("BFF_TEST_POSTGRES_URL")
 MIGRATIONS = Path(__file__).resolve().parents[2] / "migrations"
+ROS_SECTION_MIGRATION = (
+    Path(__file__).resolve().parents[3]
+    / "ros-gis-integration/migrations/0001_dataset_version_parent.up.sql"
+)
 
 pytestmark = pytest.mark.skipif(
     not TEST_URL,
@@ -46,29 +52,57 @@ def _assert_disposable_loopback_url() -> None:
 
 async def _reset_database(connection) -> None:
     await connection.execute("DROP SCHEMA IF EXISTS water_planning CASCADE")
-    await connection.execute("DROP SCHEMA IF EXISTS gis CASCADE")
+    await connection.execute("DROP SCHEMA IF EXISTS ros_gis CASCADE")
     await apply_migrations(connection, MIGRATIONS)
-    await connection.execute(
+    await connection.execute(ROS_SECTION_MIGRATION.read_text(encoding="utf-8"))
+    superseded_id = await connection.fetchval(
         """
-        CREATE TABLE gis.zone (
-            code TEXT PRIMARY KEY,
-            props JSONB NOT NULL
+        INSERT INTO ros_gis.dataset_versions (
+            dataset_kind, source_hash, source_description, status,
+            effective_from, effective_to
+        ) VALUES (
+            'section_master', repeat('0', 64), 'superseded test roster',
+            'superseded', now() - interval '2 days', now() - interval '1 day'
         )
+        RETURNING dataset_version_id
+        """
+    )
+    active_id = await connection.fetchval(
+        """
+        INSERT INTO ros_gis.dataset_versions (
+            dataset_kind, source_hash, source_description, status, effective_from
+        ) VALUES (
+            'section_master', repeat('1', 64), 'active V5 hybrid roster',
+            'active', now() - interval '1 day'
+        )
+        RETURNING dataset_version_id
         """
     )
     rows = []
     for index, section_number in enumerate(range(3, 44)):
         zone_number = min(index // 7 + 1, 6)
-        area_rai = "7385" if section_number == 43 else "1000"
+        area_rai = "5204" if section_number == 43 else "1000"
         rows.append(
-            (
-                f"01-{zone_number:02d}-01-{section_number:02d}",
-                f'{{"Zone":"{zone_number}","Area_Rai":"{area_rai}"}}',
-            )
+            (f"01-{zone_number:02d}-01-{section_number:02d}", zone_number, area_rai)
         )
     await connection.executemany(
-        "INSERT INTO gis.zone (code, props) VALUES ($1, $2::jsonb)",
-        rows,
+        """
+        INSERT INTO ros_gis.section_master_history (
+            dataset_version_id, section_id, valid_from, zone, area_rai
+        ) VALUES ($1, $2, now() - interval '1 day', $3, $4::numeric)
+        """,
+        [(active_id, *row) for row in rows],
+    )
+    await connection.executemany(
+        """
+        INSERT INTO ros_gis.section_master_history (
+            dataset_version_id, section_id, valid_from, valid_to, zone, area_rai
+        ) VALUES (
+            $1, $2, now() - interval '2 days', now() - interval '1 day',
+            $3, $4::numeric
+        )
+        """,
+        [(superseded_id, section_id, zone, "1") for section_id, zone, _ in rows],
     )
 
 
@@ -147,6 +181,24 @@ async def test_apply_reapply_and_checksum_drift_refusal(connection):
     )
     with pytest.raises(MigrationChecksumError):
         await apply_migrations(connection, MIGRATIONS)
+
+
+@pytest.mark.asyncio
+async def test_roster_projects_only_the_active_v5_hybrid_dataset(connection):
+    roster = await load_planning_depth_roster(connection)
+
+    assert (
+        len(roster),
+        {item.section_id for item in roster},
+        sum((item.area_rai for item in roster), Decimal("0")),
+    ) == (
+        41,
+        {
+            f"01-{min(index // 7 + 1, 6):02d}-01-{section_number:02d}"
+            for index, section_number in enumerate(range(3, 44))
+        },
+        Decimal("45204"),
+    )
 
 
 @pytest.mark.asyncio
@@ -232,6 +284,23 @@ async def test_replay_conflict_successor_and_active_projection(connection):
             roster,
         )
     assert str(stale.value) == "stale_active_submission"
+
+
+@pytest.mark.asyncio
+async def test_roster_requires_an_active_ros_gis_dataset(connection):
+    await connection.execute(
+        """
+        UPDATE ros_gis.dataset_versions
+        SET status = 'superseded', effective_to = now()
+        WHERE dataset_kind = 'section_master' AND status = 'active'
+        """
+    )
+
+    with pytest.raises(
+        PlanningDepthRosterUnavailableError,
+        match="canonical roster is unavailable",
+    ):
+        await load_planning_depth_roster(connection)
 
 
 @pytest.mark.asyncio

@@ -33,6 +33,11 @@ for any future Strawberry pin or GraphQL annotation change.
 - ⚠️ **Port is inconsistent**: `settings.py` default 4002, `.env.example` 3022, docker/README 3002, `start.sh` 3022 — **confirm the intended port before relying on it**.
 - `POSTGRES_URL` (main `munbon_dev`), `REDIS_URL` (db 2), `CORS_ORIGINS` (required; wildcard rejected in prod), `DEMAND_COMBINATION_STRATEGY=aquacrop_priority`. Service URLs are env-overridable (ROS/GIS/AWD/flow/scheduler…) and **differ between settings and .env.example**.
 - DBs: Postgres `munbon_dev` (BFF) + schema `ros_gis` (weekly demands) + GIS `munbon_gis`/`gis` (from scripts); Redis db 2.
+- Planning-depth writes additionally require the active 45,204-rai V5 hybrid
+  roster from `ros_gis.sections_current`. BFF `POSTGRES_URL` must identify the
+  same database as ros-gis-integration's local `POSTGRES_URL`. Use
+  `docs/operations/V5_HYBRID_SECTION_MASTER_ACTIVATION.md` before enabling the
+  write route; absence of an active exact roster fails closed.
 
 ## Integration
 Reads/writes `ros_gis.weekly_water_demands`, queries `gis.crop_registry`; talks to ROS/GIS/AWD/Flow/Scheduler/Weather/Sensor via `src/clients/`; publishes Redis demand events.

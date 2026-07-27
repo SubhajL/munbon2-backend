@@ -846,3 +846,152 @@ LOW
 - The evidence is local-only and SHA-bound. All read/write/authority gates
   remain dark, machine execution remains disabled, and no AWS action is
   authorized or performed.
+
+## Implementation (2026-07-27 11:23:35 +07) - V5 hybrid section-area authority
+
+### Scope and authority
+
+- Branch: `feature/v5-section-area-overlay`
+- Base: `3becd0a080393ddb75895a61de3c3269e5e121c7`
+- Pinned source: `SCADA Section Detailed Information 2026-07-24 V5.0 SL.xlsx`
+  with SHA-256
+  `bebf10a6b2b4ada2daac0615a453f38d374d9c84fcdc8d4d74983fc682589416`.
+- The effective section master uses V5 Excel Sheet1 rows for sections 03-34
+  and retains `gis.zone` areas for RMC/4L-RMC sections 35-43. The exact totals
+  are 40,120 + 5,084 = 45,204 rai across 41 sections.
+- This is an immutable `ros_gis` dataset overlay. It does not mutate the
+  source `gis.zone` table or any remote GIS.
+
+### Test-first implementation and wiring
+
+- RED tests first rejected the old 47,385-rai GIS-only roster, missing Excel
+  provenance, shifted tail areas, missing geometry projection, malformed
+  manifests, and the local acceptance fixture's synthetic equal-area split.
+- `requirement_sources.json` now records each approved Excel row, canal,
+  start/end chainage, and area for sections 03-34, plus exact GIS-area pins for
+  sections 35-43.
+- The ROS source loader keeps GIS identity and geometry, applies the authority
+  split fail closed, hashes raw GIS plus effective rows and authority metadata,
+  and writes geometry through `ST_GeomFromEWKB` into immutable history.
+- The BFF planning-depth roster now reads the active
+  `ros_gis.sections_current` projection and requires 41 sections totaling
+  45,204 rai.
+- LOCAL-AC source seeding now uses the exact hybrid roster and validates the
+  same duplicate, field, chainage, positivity, coverage, and total invariants
+  as production.
+- `docs/operations/V5_HYBRID_SECTION_MASTER_ACTIVATION.md` records the
+  shared-database prerequisite, manual-only activation, read-only acceptance
+  queries, rollback boundary, and hydraulic scope boundary.
+
+### Source and no-shift evidence
+
+- The workbook checksum test reads the tracked XLSX package directly and
+  compares all 32 approved Sheet1 source rows against the manifest across
+  section number (C), canal (B), chainage span (D), and area (Q).
+- Exact regression locks include section 21 = 38R-LMC 1+720-3+000 = 503 rai,
+  section 22 = 1R-38R-LMC 0+000-4+200 = 1,907 rai, and section 27 =
+  38R-LMC 3+000-4+500 = 139 rai.
+- A disposable PostGIS integration test exercised the real
+  `ST_Multi`/EWKB/history/current-view path and returned 41 MULTIPOLYGON rows
+  totaling 45,204 rai.
+- A separate disposable PostGIS BFF test applied the actual ROS
+  `0001_dataset_version_parent` migration and proved that the BFF reads only
+  the active dataset, ignores a superseded roster, and fails closed with no
+  active dataset.
+
+### Validation
+
+- Three consecutive full runs passed:
+  - ros-gis-integration: 204 passed, 3 environment-gated skips per run.
+  - bff-water-planning: 247 passed, 8 environment-gated skips per run.
+  - local control-plan harness: 109 passed per run.
+- Disposable PostGIS gates passed:
+  - ROS requirement integration: 2 passed with migrations 0001-0003.
+  - BFF planning-depth integration: 7 passed against the actual ROS view.
+- Black 23.11.0, Ruff, JSON parsing, and `git diff --check` passed.
+- Every disposable database and role was exact-name checked before creation
+  and removed after the gate.
+
+### Independent QCHECK disposition
+
+- Remediated: exact workbook-to-manifest proof, real active-dataset view test,
+  local/production manifest parity, canonical crosswalk channel retention,
+  fail-closed manifest-domain errors, and real PostGIS geometry evidence.
+- Accepted scope boundary: flow-monitoring hydraulic artifacts remain pinned
+  to V3. V5 has text-typed `q_max` cells that the existing fail-closed
+  generator rejects. V5 sill/FSL/calibration activation needs a separate
+  generator/artifact/runtime lifecycle and is not represented as complete.
+- Auggie semantic search returned HTTP 402, so exploration used exact-string
+  search and direct source reads.
+- The spreadsheet artifact runtime could not import `@oai/artifact-tool`;
+  workbook authority was therefore verified by checksum and direct OOXML
+  regression tests rather than an edited spreadsheet artifact.
+
+### Safety
+
+- No deployment, remote database write, GIS mutation, AWS action, or runtime
+  flag change occurred.
+- Execution remains disabled, machine commands remain false, command authority
+  remains dark, and all activation is still manual and separately gated.
+
+## Review (2026-07-27 11:26:33 +07) - V5 hybrid section-area authority
+
+### Reviewed
+
+- Repo:
+  `/Users/subhajlimanond/dev/munbon2-backend-v5-section-area-overlay`
+- Branch: `feature/v5-section-area-overlay`
+- Scope: complete staged tree for the V5 workbook pin, hybrid section-master
+  authority, ROS immutable activation, BFF roster projection, local acceptance
+  fixture, tests, and activation runbook.
+- Commands run: staged status/stat/check; complete staged source, manifest,
+  test, and runbook inspection; XLSX checksum verification; Black 23.11.0;
+  Ruff; three repeated full pytest gates; disposable ROS and BFF PostGIS
+  integration gates.
+
+### Findings
+
+CRITICAL
+
+- No findings.
+
+HIGH
+
+- No findings.
+
+MEDIUM
+
+- No findings.
+
+LOW
+
+- No findings.
+
+### Open Questions / Assumptions
+
+- The user-confirmed scope is the versioned section-area overlay: Excel
+  sections 03-34 and GIS sections 35-43. No remote `gis.zone` mutation is
+  authorized.
+- V5 hydraulic values are not activated by this change. The generator's
+  text-typed `q_max` incompatibility and regenerated hydraulic artifacts remain
+  a separate lifecycle.
+- Production activation remains pending and must follow the tracked runbook
+  only after the ROS and BFF local `POSTGRES_URL` targets are confirmed equal.
+
+### Recommended Tests / Validation
+
+- Require PR checks to start and complete when GitHub billing permits; if they
+  run zero steps, report the external block separately from the passing local
+  evidence.
+- At activation time, verify one active `section_master`, 41 current rows,
+  45,204 rai, and the section 21/22/35/43 spot values before accepting BFF
+  planning-depth writes.
+- Treat V5 sill/FSL/`q_max` generator support as a new test-first task with
+  independently regenerated artifact and runtime evidence.
+
+### Rollout Notes
+
+- The change is data-authority and read/write-input plumbing only. It performs
+  no deployment, remote GIS update, AWS action, machine command, or command
+  authority change.
+- Control execution remains disabled and all operational gates remain dark.

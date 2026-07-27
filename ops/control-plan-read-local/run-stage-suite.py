@@ -2202,9 +2202,9 @@ def _seed_approved_sources(context: StageContext) -> tuple[dict, dict[str, str]]
     try:
         evidence = json.loads(output)
         if (
-            evidence["scenario_version"] != "local-ac-1-v4"
+            evidence["scenario_version"] != "local-ac-1-v5"
             or evidence["section_count"] != 41
-            or evidence["total_area_rai"] != "47385"
+            or evidence["total_area_rai"] != "45204"
         ):
             raise ValueError
     except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:

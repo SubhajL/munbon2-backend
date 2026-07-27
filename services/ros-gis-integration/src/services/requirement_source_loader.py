@@ -6,6 +6,7 @@ from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+import re
 from typing import Mapping, Sequence
 
 from services.daily_requirement_producer import RequirementSnapshot, SectionCropInput
@@ -44,6 +45,7 @@ class AuthoritativeRequirementSourceLoader:
                        (props->>'Area_Rai')::numeric AS area_rai,
                        props->>'Crop_1' AS crop_type,
                        props->>'NameArea' AS name_area,
+                       ST_AsEWKB(ST_Multi(geom)) AS geometry_wkb,
                        create_date
                 FROM gis.zone
                 ORDER BY code
@@ -102,8 +104,9 @@ class AuthoritativeRequirementSourceLoader:
                 "zone planting-date inputs are older than "
                 f"{self.max_input_age_hours} hours for zones " + ", ".join(stale_zones)
             )
+        effective_sections = _effective_section_master(gis_sections, manifest)
         preliminary = build_requirement_snapshot(
-            gis_sections=gis_sections,
+            gis_sections=effective_sections,
             planting_dates=planting_dates,
             crop_settings=crop_settings,
             eto_rows=eto_rows,
@@ -114,23 +117,17 @@ class AuthoritativeRequirementSourceLoader:
             gate_mapping_dataset_version_id=1,
             input_cutoff_at=cutoff,
         )
-        section_hash = _hash(
-            [
-                {
-                    "area_rai": item["area_rai"],
-                    "code": item["code"],
-                    "name_area": item["name_area"],
-                    "zone": item["zone"],
-                }
-                for item in gis_sections
-            ]
+        section_hash = _section_dataset_hash(
+            gis_sections,
+            effective_sections,
+            manifest,
         )
         gate_hash = _hash(
             {"crosswalk": manifest["crosswalk"], "scada": manifest["scada"]}
         )
         section_dataset_version_id = await _activate_section_dataset(
             local_conn,
-            gis_sections,
+            effective_sections,
             manifest,
             section_hash,
             cutoff,
@@ -214,6 +211,8 @@ def _hash(value) -> str:
             return item.isoformat()
         if isinstance(item, Decimal):
             return str(item)
+        if isinstance(item, bytes):
+            return item.hex()
         raise TypeError(f"cannot hash {type(item).__name__}")
 
     return hashlib.sha256(
@@ -227,6 +226,263 @@ def _hash(value) -> str:
     ).hexdigest()
 
 
+def _section_authority_numbers(
+    manifest: Mapping,
+) -> tuple[Mapping, set[int], set[int], set[int]]:
+    try:
+        section_master = manifest["section_master"]
+        expected_count = int(section_master["section_count"])
+        expected_numbers = {
+            int(item["section_number"]) for item in manifest["crosswalk"]
+        }
+        excel_start, excel_end = (
+            int(value) for value in section_master["excel_section_range"]
+        )
+        gis_start, gis_end = (
+            int(value) for value in section_master["gis_section_range"]
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RequirementSourceError("approved section authority is invalid") from exc
+    excel_numbers = set(range(excel_start, excel_end + 1))
+    gis_numbers = set(range(gis_start, gis_end + 1))
+    if (
+        excel_numbers & gis_numbers
+        or excel_numbers | gis_numbers != expected_numbers
+        or len(expected_numbers) != expected_count
+    ):
+        raise RequirementSourceError("approved section authority is invalid")
+    return section_master, expected_numbers, excel_numbers, gis_numbers
+
+
+def _chainage_metres(value, field: str) -> int:
+    match = re.fullmatch(r"(\d+)\+(\d{3})", str(value))
+    if match is None:
+        raise RequirementSourceError(f"{field} is invalid")
+    return int(match.group(1)) * 1000 + int(match.group(2))
+
+
+def _raw_sections_by_number(
+    gis_sections: Sequence[Mapping],
+    expected_count: int,
+    expected_numbers: set[int],
+) -> dict[int, dict]:
+    raw_rows: dict[int, dict] = {}
+    try:
+        for source_row in gis_sections:
+            row = dict(source_row)
+            section_number = _section_number(row)
+            if section_number in raw_rows:
+                raise RequirementSourceError(
+                    "approved section master contains duplicate section identities"
+                )
+            raw_rows[section_number] = row
+    except (KeyError, TypeError) as exc:
+        raise RequirementSourceError(
+            "approved section master contains an invalid section identity"
+        ) from exc
+    if len(gis_sections) != expected_count or set(raw_rows) != expected_numbers:
+        raise RequirementSourceError(
+            "approved section master must contain exactly sections 03-43"
+        )
+    return raw_rows
+
+
+def _excel_section_overrides(
+    section_master: Mapping,
+    excel_numbers: set[int],
+) -> dict[int, Mapping]:
+    required_override_keys = {
+        "section_number",
+        "source_row",
+        "canal_name",
+        "start_km",
+        "end_km",
+        "area_rai",
+    }
+    override_rows: dict[int, Mapping] = {}
+    source_rows: set[int] = set()
+    try:
+        overrides = section_master["excel_overrides"]
+        for override in overrides:
+            if set(override) != required_override_keys:
+                raise RequirementSourceError(
+                    "Excel section overrides have invalid fields"
+                )
+            section_number = int(override["section_number"])
+            if section_number in override_rows:
+                raise RequirementSourceError(
+                    "Excel section overrides contain duplicate sections"
+                )
+            area_rai = _decimal(
+                override["area_rai"],
+                f"Excel section {section_number} area",
+            )
+            source_row = int(override["source_row"])
+            start_metres = _chainage_metres(
+                override["start_km"],
+                f"Excel section {section_number} start chainage",
+            )
+            end_metres = _chainage_metres(
+                override["end_km"],
+                f"Excel section {section_number} end chainage",
+            )
+            if (
+                area_rai <= 0
+                or source_row <= 0
+                or source_row in source_rows
+                or not str(override["canal_name"]).strip()
+                or start_metres >= end_metres
+            ):
+                raise RequirementSourceError(
+                    "Excel section overrides must contain positive areas and source rows"
+                )
+            source_rows.add(source_row)
+            override_rows[section_number] = override
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RequirementSourceError("Excel section overrides are invalid") from exc
+    if set(override_rows) != excel_numbers:
+        raise RequirementSourceError(
+            "Excel section overrides must contain every Excel-authoritative section"
+        )
+    return override_rows
+
+
+def _expected_gis_section_areas(
+    section_master: Mapping,
+    gis_numbers: set[int],
+) -> dict[int, Decimal]:
+    expected_gis_areas: dict[int, Decimal] = {}
+    try:
+        for expected in section_master["gis_expected_areas"]:
+            if set(expected) != {"section_number", "area_rai"}:
+                raise RequirementSourceError(
+                    "GIS-authoritative section area expectations have invalid fields"
+                )
+            section_number = int(expected["section_number"])
+            if section_number in expected_gis_areas:
+                raise RequirementSourceError(
+                    "GIS-authoritative section area expectations contain duplicates"
+                )
+            area_rai = _decimal(
+                expected["area_rai"],
+                f"GIS section {section_number} expected area",
+            )
+            if area_rai <= 0:
+                raise RequirementSourceError(
+                    "GIS-authoritative section area expectations must be positive"
+                )
+            expected_gis_areas[section_number] = area_rai
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RequirementSourceError(
+            "GIS-authoritative section area expectations are invalid"
+        ) from exc
+    if set(expected_gis_areas) != gis_numbers:
+        raise RequirementSourceError(
+            "GIS-authoritative section area expectations must cover every GIS section"
+        )
+    return expected_gis_areas
+
+
+def _effective_section_master(
+    gis_sections: Sequence[Mapping],
+    manifest: Mapping,
+) -> list[dict]:
+    (
+        section_master,
+        expected_numbers,
+        excel_numbers,
+        gis_numbers,
+    ) = _section_authority_numbers(manifest)
+    raw_rows = _raw_sections_by_number(
+        gis_sections,
+        int(section_master["section_count"]),
+        expected_numbers,
+    )
+    override_rows = _excel_section_overrides(section_master, excel_numbers)
+    expected_gis_areas = _expected_gis_section_areas(section_master, gis_numbers)
+
+    effective: list[dict] = []
+    for section_number in sorted(expected_numbers):
+        row = raw_rows[section_number]
+        if section_number in excel_numbers:
+            override = override_rows[section_number]
+            row.update(
+                area_rai=_decimal(
+                    override["area_rai"],
+                    f"Excel section {section_number} area",
+                ),
+                name_area=str(override["canal_name"]),
+                area_source="scada_excel",
+                source_row=int(override["source_row"]),
+                start_km=str(override["start_km"]),
+                end_km=str(override["end_km"]),
+            )
+        else:
+            area_rai = _decimal(row["area_rai"], f"GIS section {section_number} area")
+            if area_rai != expected_gis_areas[section_number]:
+                raise RequirementSourceError(
+                    f"GIS-authoritative section area mismatch for section {section_number}"
+                )
+            row.update(area_rai=area_rai, area_source="gis.zone")
+        effective.append(row)
+
+    expected_area = Decimal(section_master["total_area_rai"])
+    effective_area = sum(
+        (_decimal(row["area_rai"], "effective section area") for row in effective),
+        Decimal(0),
+    )
+    if effective_area != expected_area:
+        raise RequirementSourceError(
+            f"approved section master must total {expected_area} rai"
+        )
+    return effective
+
+
+def _section_dataset_hash(
+    gis_sections: Sequence[Mapping],
+    effective_sections: Sequence[Mapping],
+    manifest: Mapping,
+) -> str:
+    return _hash(
+        {
+            "authority": {
+                "section_master": manifest["section_master"],
+                "scada": manifest["scada"],
+                "crosswalk": manifest["crosswalk"],
+            },
+            "raw_gis": list(gis_sections),
+            "effective_sections": list(effective_sections),
+        }
+    )
+
+
+def _section_number(row: Mapping) -> int:
+    code = str(row["code"])
+    parts = code.split("-")
+    if len(parts) != 4:
+        raise RequirementSourceError(
+            "approved section master contains an invalid section code"
+        )
+    project, zone_text, canal, section_text = parts
+    try:
+        zone = int(zone_text)
+        section_number = int(section_text)
+    except ValueError as exc:
+        raise RequirementSourceError(
+            "approved section master contains an invalid section code"
+        ) from exc
+    if (
+        project != "01"
+        or canal != "01"
+        or code != f"01-{zone:02d}-01-{section_number:02d}"
+        or _zone(row["zone"]) != zone
+    ):
+        raise RequirementSourceError(
+            "approved section master contains an invalid section code"
+        )
+    return section_number
+
+
 def _validated_section_sources(
     gis_sections: Sequence[Mapping],
     planting_dates: Sequence[Mapping],
@@ -237,12 +493,7 @@ def _validated_section_sources(
     expected_area = Decimal(manifest["section_master"]["total_area_rai"])
     expected_numbers = {int(item["section_number"]) for item in manifest["crosswalk"]}
     section_codes = [str(item["code"]) for item in gis_sections]
-    try:
-        section_numbers = {int(code.rsplit("-", 1)[1]) for code in section_codes}
-    except (IndexError, ValueError) as exc:
-        raise RequirementSourceError(
-            "approved GIS section master contains an invalid section code"
-        ) from exc
+    section_numbers = {_section_number(item) for item in gis_sections}
     source_area = sum(
         (
             _decimal(item["area_rai"], f"section {item['code']} area")
@@ -257,7 +508,7 @@ def _validated_section_sources(
         or source_area != expected_area
     ):
         raise RequirementSourceError(
-            "approved GIS section master must contain exactly sections 03-43 "
+            "approved section master must contain exactly sections 03-43 "
             f"and total {expected_area} rai"
         )
     crosswalk = {int(item["section_number"]): item for item in manifest["crosswalk"]}
@@ -331,7 +582,7 @@ def _section_crop_inputs(
         )
         if area_rai <= 0 or area_rai > source_area_rai:
             raise RequirementSourceError(
-                f"section {section_id} planted area must be positive and not exceed GIS area"
+                f"section {section_id} planted area must be positive and not exceed effective section area"
             )
         expected_harvest_date = (
             setting.get("expected_harvest_date") if setting is not None else None
@@ -345,10 +596,11 @@ def _section_crop_inputs(
             expected_harvest_date = planting_date + timedelta(
                 days=crop_duration_weeks[crop_type] * 7 - 1
             )
+        default_area_source = str(row.get("area_source", "gis.zone"))
         source = (
             str(setting["source"])
             if setting is not None
-            else "gis.zone+water_planning.zone_planting_dates"
+            else f"{default_area_source}+water_planning.zone_planting_dates"
         )
         as_of_date = (
             setting["as_of_date"] if setting is not None else input_cutoff_at.date()
@@ -522,15 +774,20 @@ async def _activate_section_dataset(
             local_conn,
             "section_master",
             source_hash,
-            "postgres.gis.zone props.Area_Rai; approved total 47,385 rai",
+            (
+                f"{manifest['scada']['file']} Sheet1.Q sections 03-34; "
+                "postgres.gis.zone props.Area_Rai sections 35-43; "
+                f"approved total {manifest['section_master']['total_area_rai']} rai"
+            ),
             effective_from,
         )
         await local_conn.executemany(
             """
             INSERT INTO ros_gis.section_master_history (
                 dataset_version_id, section_id, valid_from, zone, source_code,
-                area_hectares, area_rai, irrigation_channel, delivery_gate
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                area_hectares, area_rai, irrigation_channel, delivery_gate, geometry
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
+                      ST_GeomFromEWKB($10))
             """,
             [
                 (
@@ -543,10 +800,9 @@ async def _activate_section_dataset(
                         _decimal(row["area_rai"], "section area") / Decimal("6.25")
                     ).quantize(Decimal("0.01")),
                     _decimal(row["area_rai"], "section area"),
-                    crosswalk[int(str(row["code"]).rsplit("-", 1)[1])][
-                        "irrigation_channel"
-                    ],
-                    crosswalk[int(str(row["code"]).rsplit("-", 1)[1])]["gate_id"],
+                    str(crosswalk[_section_number(row)]["irrigation_channel"]),
+                    crosswalk[_section_number(row)]["gate_id"],
+                    row.get("geometry_wkb"),
                 )
                 for row in sorted(gis_sections, key=lambda item: str(item["code"]))
             ],

@@ -25,7 +25,7 @@ def _roster():
             RosterSection(
                 section_id=f"01-{zone_number:02d}-01-{section_number:02d}",
                 zone_id=f"01-{zone_number:02d}",
-                area_rai=Decimal("7385") if section_number == 43 else Decimal("1000"),
+                area_rai=Decimal("5204") if section_number == 43 else Decimal("1000"),
             )
         )
     return sections
@@ -185,12 +185,12 @@ class TestValidatePlanningDepthRoster:
             "source_area_id": "01-01",
         }
 
-    def test_roster_requires_41_sections_six_zones_and_47385_rai(self):
+    def test_roster_requires_41_sections_six_zones_and_45204_rai(self):
         invalid = _roster()
         invalid[-1] = RosterSection(
             section_id=invalid[-1].section_id,
             zone_id=invalid[-1].zone_id,
-            area_rai=Decimal("7384"),
+            area_rai=Decimal("5203"),
         )
 
         with pytest.raises(PlanningDepthValidationError) as info:

@@ -11,10 +11,11 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 from urllib.parse import unquote, urlsplit
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-SCENARIO_VERSION = "local-ac-1-v4"
+SCENARIO_VERSION = "local-ac-1-v5"
 SOURCE_TABLES = (
     "gis.zone",
     "water_planning.zone_planting_dates",
@@ -34,6 +35,11 @@ def load_manifest(path: Path) -> dict:
         manifest = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise ApprovedSourceError("approved_manifest_invalid") from exc
+    validate_manifest(manifest)
+    return manifest
+
+
+def validate_manifest(manifest: dict) -> None:
     expected_keys = {
         "project_key",
         "section_master",
@@ -42,16 +48,79 @@ def load_manifest(path: Path) -> dict:
         "crosswalk",
     }
     crosswalk = manifest.get("crosswalk") if isinstance(manifest, dict) else None
+    section_master = (
+        manifest.get("section_master", {}) if isinstance(manifest, dict) else {}
+    )
+    excel_overrides = section_master.get("excel_overrides")
+    gis_expected_areas = section_master.get("gis_expected_areas")
+    try:
+        excel_numbers, excel_total = _validated_area_rows(
+            excel_overrides,
+            {
+                "section_number",
+                "source_row",
+                "canal_name",
+                "start_km",
+                "end_km",
+                "area_rai",
+            },
+        )
+        gis_numbers, gis_total = _validated_area_rows(
+            gis_expected_areas,
+            {"section_number", "area_rai"},
+        )
+        crosswalk_numbers = [int(row["section_number"]) for row in crosswalk]
+        source_rows = [int(row["source_row"]) for row in excel_overrides]
+    except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
+        raise ApprovedSourceError("approved_manifest_invalid") from exc
     if (
         set(manifest) != expected_keys
         or manifest.get("project_key") != "mun-bon"
-        or manifest.get("section_master", {}).get("section_count") != 41
-        or manifest.get("section_master", {}).get("total_area_rai") != "47385"
+        or section_master.get("section_count") != 41
+        or section_master.get("total_area_rai") != "45204"
         or not isinstance(crosswalk, list)
-        or {row.get("section_number") for row in crosswalk} != set(range(3, 44))
+        or len(crosswalk_numbers) != 41
+        or set(crosswalk_numbers) != set(range(3, 44))
+        or excel_numbers != set(range(3, 35))
+        or gis_numbers != set(range(35, 44))
+        or len(source_rows) != len(set(source_rows))
+        or excel_total != Decimal("40120")
+        or gis_total != Decimal("5084")
+        or excel_total + gis_total != Decimal("45204")
     ):
         raise ApprovedSourceError("approved_manifest_invalid")
-    return manifest
+
+
+def _validated_area_rows(rows, expected_keys: set[str]) -> tuple[set[int], Decimal]:
+    if not isinstance(rows, list):
+        raise ApprovedSourceError("approved_manifest_invalid")
+    section_numbers: list[int] = []
+    total = Decimal("0")
+    for row in rows:
+        if not isinstance(row, dict) or set(row) != expected_keys:
+            raise ApprovedSourceError("approved_manifest_invalid")
+        section_number = int(row["section_number"])
+        area_rai = Decimal(str(row["area_rai"]))
+        if area_rai <= 0:
+            raise ApprovedSourceError("approved_manifest_invalid")
+        if "source_row" in row:
+            start_match = re.fullmatch(r"(\d+)\+(\d{3})", str(row["start_km"]))
+            end_match = re.fullmatch(r"(\d+)\+(\d{3})", str(row["end_km"]))
+            if start_match is None or end_match is None:
+                raise ApprovedSourceError("approved_manifest_invalid")
+            start_metres = int(start_match.group(1)) * 1000 + int(start_match.group(2))
+            end_metres = int(end_match.group(1)) * 1000 + int(end_match.group(2))
+            if (
+                int(row["source_row"]) <= 0
+                or not str(row["canal_name"]).strip()
+                or start_metres >= end_metres
+            ):
+                raise ApprovedSourceError("approved_manifest_invalid")
+        section_numbers.append(section_number)
+        total += area_rai
+    if len(section_numbers) != len(set(section_numbers)):
+        raise ApprovedSourceError("approved_manifest_invalid")
+    return set(section_numbers), total
 
 
 def _zone_for_section(section_number: int) -> int:
@@ -59,14 +128,6 @@ def _zone_for_section(section_number: int) -> int:
         if section_number <= upper_bound:
             return zone
     return 6
-
-
-def _section_areas(section_numbers: list[int], total_area_rai: int) -> dict[int, int]:
-    base, remainder = divmod(total_area_rai, len(section_numbers))
-    return {
-        section_number: base + (index < remainder)
-        for index, section_number in enumerate(section_numbers)
-    }
 
 
 def _content_sha256(document: dict) -> str:
@@ -81,10 +142,11 @@ def _content_sha256(document: dict) -> str:
 
 def build_approved_source_scenario(manifest: dict, as_of_date: date) -> dict:
     crosswalk = sorted(manifest["crosswalk"], key=lambda row: row["section_number"])
-    section_numbers = [row["section_number"] for row in crosswalk]
-    areas = _section_areas(
-        section_numbers, int(manifest["section_master"]["total_area_rai"])
-    )
+    areas = {
+        int(row["section_number"]): int(row["area_rai"])
+        for source in ("excel_overrides", "gis_expected_areas")
+        for row in manifest["section_master"][source]
+    }
     captured_at = datetime.combine(
         as_of_date, time(hour=0), tzinfo=timezone.utc
     ).isoformat()
@@ -108,7 +170,7 @@ def build_approved_source_scenario(manifest: dict, as_of_date: date) -> dict:
                     "Zone": f"Zone{zone}",
                     "Area_Rai": area,
                     "Crop_1": "rice",
-                    "NameArea": f"local acceptance section {section_number:02d}",
+                    "NameArea": mapping["irrigation_channel"],
                     "GateId": mapping["gate_id"],
                     "IrrigationChannel": mapping["irrigation_channel"],
                 },
@@ -204,6 +266,8 @@ async def _seed_connection(connection, scenario: dict) -> None:
             props JSONB NOT NULL,
             create_date TIMESTAMPTZ NOT NULL
         );
+        ALTER TABLE gis.zone
+            ADD COLUMN IF NOT EXISTS geom geometry(MULTIPOLYGON, 4326);
         CREATE TABLE IF NOT EXISTS water_planning.zone_planting_dates (
             project_key TEXT NOT NULL,
             zone_number INTEGER NOT NULL CHECK (zone_number BETWEEN 1 AND 6),
