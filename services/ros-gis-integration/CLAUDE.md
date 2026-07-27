@@ -58,11 +58,23 @@ apply, rollback, reapply on disposable PostGIS before shipping.
 `0003_daily_requirement_producer` adds append-only, section-level FE crop settings
 and a database uniqueness guard for non-failed runs with the same operational day and
 input hash. The runtime source manifest in `data/requirement_sources.json` pins the
-approved SCADA V3 crosswalk, GIS 47,385-rai section master contract, and corrected
-annual-plan sheet/hash/unit. The source loader reads `gis.zone` and
+approved SCADA V5 crosswalk and section-area overlay, the GIS RMC/4L-RMC tail, the
+45,204-rai hybrid section master contract, and corrected annual-plan sheet/hash/unit.
+The source loader reads `gis.zone` and
 `water_planning.zone_planting_dates` from the separately configured `postgres`
 database, activates immutable local section/crosswalk datasets, and fails a run when
 crop, planting-date, area, mapping, ET0, Kc, or rainfall inputs are incomplete.
+V5 authority is currently limited to the section-master overlay: Excel Sheet1
+sections 03–34 and GIS sections 35–43. Flow-monitoring hydraulic configuration
+remains pinned to V3 because V5 contains text-typed `q_max` cells that the
+fail-closed generator rejects; do not describe V5 sill/FSL/calibration as active.
+
+The BFF planning-depth roster reads `ros_gis.sections_current`, so its
+`POSTGRES_URL` must resolve to the same database as this service's local
+`POSTGRES_URL`, not the separate `REQUIREMENT_SOURCE_POSTGRES_URL`. Before a
+planning-depth rollout, follow
+`docs/operations/V5_HYBRID_SECTION_MASTER_ACTIVATION.md`; an inactive or
+incomplete section dataset deliberately makes BFF writes unavailable.
 
 Canonical reads are served by `GET /api/v1/water-requirements/daily` and
 `GET /api/v1/water-requirements/sections/{section_id}`. Daily reads select the

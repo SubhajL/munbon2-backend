@@ -52,16 +52,14 @@ async def load_planning_depth_roster(connection) -> list[RosterSection]:
     try:
         rows = await connection.fetch(
             """
-            SELECT code,
-                   props->>'Zone' AS zone,
-                   (props->>'Area_Rai')::numeric AS area_rai
-            FROM gis.zone
-            ORDER BY code
+            SELECT section_id, zone, area_rai
+            FROM ros_gis.sections_current
+            ORDER BY section_id
             """
         )
         roster = [
             RosterSection(
-                section_id=str(row["code"]),
+                section_id=str(row["section_id"]),
                 zone_id=_zone_id(row["zone"]),
                 area_rai=Decimal(str(row["area_rai"])),
             )

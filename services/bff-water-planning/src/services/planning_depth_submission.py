@@ -101,7 +101,7 @@ def validate_canonical_roster(roster: Sequence[RosterSection]) -> None:
         or {item.zone_id for item in roster}
         != {f"01-{zone_number:02d}" for zone_number in range(1, 7)}
         or any(item.area_rai <= 0 for item in roster)
-        or sum((item.area_rai for item in roster), Decimal("0")) != Decimal("47385")
+        or sum((item.area_rai for item in roster), Decimal("0")) != Decimal("45204")
     ):
         raise PlanningDepthValidationError("invalid_canonical_roster")
 
