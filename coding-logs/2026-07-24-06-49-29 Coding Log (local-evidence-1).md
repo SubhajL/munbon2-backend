@@ -1235,3 +1235,78 @@ LOW
   environment-only gap is closed by the three complete Flow Monitoring runs in
   the declared service virtual environment (`1365 passed, 14 skipped` each)
   and the post-review directly affected slice (`108 passed`).
+
+## 2026-07-28 17:58:58 +07 - Final V5 hydraulic local acceptance
+
+### Exact release binding
+
+- Hydraulic PR `#140` merged to `main` as
+  `38ac545d1a4a3fe2c24a712b8fd0e0acb2ccb1d2`.
+- The isolated acceptance worktree, primary local `main`, and `origin/main`
+  were all verified at that exact backend SHA before provisioning.
+- Frontend SHA remained
+  `fbd4ce4df0bb0476b7cd402ac1a4e180a91a7792`.
+- Primary-checkout status hashing passed before/after the local-main
+  fast-forward, preserving user-owned untracked logs/evidence.
+
+### Single final acceptance run
+
+- Provision passed exact backend/frontend bundle and guest harness checks.
+- The requested final
+  `python3 ops/control-plan-read-local/orchestrate.py run-all ...`
+  was executed exactly once against the final merged SHA.
+- All six stages passed in order:
+  `LOCAL-BASE-0`, `LOCAL-RTA-1`, `LOCAL-AC-1`, `LOCAL-READ-ACT-1`,
+  `LOCAL-EVIDENCE-1`, and `LOCAL-GO-READ-1`.
+- No retry, second run, remedial mutation, deployment, AWS action, or database
+  activation was performed.
+
+### Collected evidence
+
+- Archive:
+  `coding-logs/evidence/2026-07-28-v5-hydraulic-final-38ac545d/`.
+- Exact ten-file contract passed: six stage JSON manifests, ordered stage
+  state, two GO-READ PNGs, and `SHA256SUMS`.
+- All nine indexed artifacts passed `shasum -a 256 -c SHA256SUMS`.
+- `SHA256SUMS` digest:
+  `4ef256209e99076cf16e9080e10517c4f43dc0f8c7682c1173229f054c2cf95c`.
+- All six verdicts are `PASS`; the stage state binds the exact backend/frontend
+  SHAs and the expected nine current harness hashes.
+- Final cleanup is verified: unchanged PM2, Auth ready, no reserved listener,
+  no temporary process, all four activation flags false, commandability false,
+  scheduler execution disabled, no configured machine commands, no planning
+  write, and `aws_actions=false`.
+- Browser evidence passed: known gate `200`, unknown gate `404`, forced outage
+  `503`, no-store headers, no stale value, zero direct-SCADA browser requests,
+  zero mutation requests, and zero action controls.
+- Value sanitization checks found no bearer value, credential-bearing URL, or
+  private-key marker.
+
+### Visual review
+
+- `LOCAL-GO-READ-1-live.png` shows Waste Way offline in the explicit
+  `READ ONLY` view with null observations and no command controls.
+- `LOCAL-GO-READ-1-outage.png` shows the gate-status-unavailable state with no
+  stale readings or controls.
+
+### Activation boundary
+
+- This is local read-only final-SHA acceptance evidence. It is not deployment,
+  AWS, command-authority, or dev-database activation evidence.
+- Dev activation remains separately governed by
+  `docs/operations/V5_HYBRID_SECTION_MASTER_ACTIVATION.md` and was not
+  authorized or executed.
+
+### Independent final-evidence audit
+
+- Result: PASS with no acceptance-evidence finding.
+- The reviewer independently repeated checksum validation; confirmed the exact
+  backend/frontend binding, ordered stages, six `PASS` verdicts, nine current
+  harness hashes, RTA/Evidence/GO-READ safeguards, cleanup/dark/no-AWS
+  contracts, browser status/no-mutation evidence, screenshot bytes/hashes and
+  visual semantics, and recursive sanitization.
+- Residual integrity risk: `SHA256SUMS` is not signed and does not checksum
+  itself. The aggregate digest above is therefore preserved in this Coding Log
+  and will be bound with the archive to a Git commit and PR.
+- The reviewer's noted tracked Coding Log modification is this intentional
+  final-acceptance record, not an unreviewed source or harness change.
