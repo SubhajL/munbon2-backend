@@ -2007,7 +2007,7 @@ def run_local_rta(context: StageContext) -> dict:
     running_pm2_json = _pm2_json()
     model_release = _read_json(
         context.repo_root
-        / "services/flow-monitoring/data/model-releases/engineering-prior-v3-v1.json"
+        / "services/flow-monitoring/data/model-releases/engineering-prior-v5-v1.json"
     )
     steps["verify_dark_flags"] = collect_dark_runtime_contract(
         _actual_gate_environment(running_pm2_json), model_release
@@ -2304,7 +2304,7 @@ def run_local_ac(context: StageContext) -> dict:
     validate_stage_transition(tuple(state["completed"]), "LOCAL-AC-1")
     model_release = _read_json(
         context.repo_root
-        / "services/flow-monitoring/data/model-releases/engineering-prior-v3-v1.json"
+        / "services/flow-monitoring/data/model-releases/engineering-prior-v5-v1.json"
     )
     before_dark = collect_dark_runtime_contract(
         _actual_gate_environment(_pm2_json()), model_release
@@ -3423,7 +3423,7 @@ def run_local_read_activation(context: StageContext) -> dict:
         raise StageGateError("local_ac_evidence_not_accepted") from exc
     model_release = _read_json(
         context.repo_root
-        / "services/flow-monitoring/data/model-releases/engineering-prior-v3-v1.json"
+        / "services/flow-monitoring/data/model-releases/engineering-prior-v5-v1.json"
     )
     before_dark = collect_dark_runtime_contract(
         _actual_gate_environment(_pm2_json()),
@@ -3519,7 +3519,7 @@ def run_local_evidence_activation(context: StageContext) -> dict:
 
     model_release = _read_json(
         context.repo_root
-        / "services/flow-monitoring/data/model-releases/engineering-prior-v3-v1.json"
+        / "services/flow-monitoring/data/model-releases/engineering-prior-v5-v1.json"
     )
     before_dark = collect_dark_runtime_contract(
         _actual_gate_environment(_pm2_json()),
@@ -3680,7 +3680,7 @@ def run_local_go_read(context: StageContext) -> dict:
     validate_stage_transition(tuple(state["completed"]), "LOCAL-GO-READ-1")
     model_release = _read_json(
         context.repo_root
-        / "services/flow-monitoring/data/model-releases/engineering-prior-v3-v1.json"
+        / "services/flow-monitoring/data/model-releases/engineering-prior-v5-v1.json"
     )
     before_pm2_json = _pm2_json()
     before_pm2 = _pm2_runtime_identity(before_pm2_json)
@@ -3696,9 +3696,11 @@ def run_local_go_read(context: StageContext) -> dict:
     if unexpected_non_loopback_listeners(before_listeners):
         raise StageGateError("unexpected_non_loopback_listener")
 
-    scada_environment, gate_web_environment, environment_projection = (
-        _go_read_runtime_environments(context)
-    )
+    (
+        scada_environment,
+        gate_web_environment,
+        environment_projection,
+    ) = _go_read_runtime_environments(context)
     steps: dict[str, Any] = {
         "source": {
             "backend_sha": context.release_sha,
@@ -3754,11 +3756,11 @@ def run_local_go_read(context: StageContext) -> dict:
                 process_code="go_read_gate_web_process_failed",
                 readiness_code="go_read_gate_web_readiness_failed",
             ) as gate_web_process:
-                steps["actual_runtime_environment"] = (
-                    validate_go_read_runtime_environment(
-                        _actual_process_environment(scada_process),
-                        _actual_process_environment(gate_web_process),
-                    )
+                steps[
+                    "actual_runtime_environment"
+                ] = validate_go_read_runtime_environment(
+                    _actual_process_environment(scada_process),
+                    _actual_process_environment(gate_web_process),
                 )
                 steps["loopback_listeners"] = go_read_listener_projection(
                     _listener_snapshot()

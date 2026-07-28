@@ -1,7 +1,7 @@
 {
   "metadata": {
-    "source_workbook": "SCADA Section Detailed Information 2026-07-14 V3.0 SL.xlsx",
-    "source_sha256": "528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
+    "source_workbook": "SCADA Section Detailed Information 2026-07-24 V5.0 SL.xlsx",
+    "source_sha256": "bebf10a6b2b4ada2daac0615a453f38d374d9c84fcdc8d4d74983fc682589416",
     "generator": "scripts/build_scada_config.py",
     "description": "Derived typed hydraulic-routing topology: boundary/transport/branch-structure/withdrawal-structure elements over the canonical network, with the single virtual junction J(LMC,0+170) splitting the composite M(0,0)->M(0,2) span. Generated — never hand-edit."
   },
@@ -12,17 +12,17 @@
       {
         "source_id": "network",
         "filename": "network.json",
-        "sha256": "c225f4a62dccf03d24ec9ecd7e9cd85b7a4e36ff9e408a1381a1bacf2d9d64e5"
+        "sha256": "393572e7adadcf492a7be36af3797669a0eb02b15a10686ab23ba0f2f2eaa6d9"
       },
       {
         "source_id": "geometry_coverage",
         "filename": "geometry_coverage.json",
-        "sha256": "a55d05cc90d743d388db8cdbd6cdd0c34d8c3b3c006bcb323759037c3744d974"
+        "sha256": "55e46522366229ce59831960fb713a300dbfe7c2a1b27a47b7e4293f75813dea"
       },
       {
         "source_id": "canal_geometry",
         "filename": "canal_geometry.json",
-        "sha256": "b7328a6a3c23d2af98075d275e93d4f4c35abbc476cc7d109b9df46478be5f0f"
+        "sha256": "68e1a9ee45b88050794b31a1b82264dd1766537cc9aab12364dfe1e4b49713d7"
       }
     ]
   },
@@ -775,7 +775,7 @@
         ]
       ],
       "canal": "2R-38R-LMC",
-      "span_m": 3310.0,
+      "span_m": 3110.0,
       "geometry_status": "surveyed",
       "located_at_km": null
     },
@@ -982,5 +982,5 @@
       "branch_structure": 13
     }
   },
-  "content_hash": "9af23c5c074fb5989de7ab0b018add94e6c9fd0b1dd194fac42db4761cb53600"
+  "content_hash": "529984fcccafd478f70e5c7616d7d338cf8ef1dc91fcd24a28612ee8ef16f707"
 }

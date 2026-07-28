@@ -264,8 +264,15 @@ def _artifacts(
         prediction_engine=build_prediction_engine_descriptor(SERVICE_ROOT),
     )
     if case_capacity is None:
+        authoritative_capacity = {
+            "M(0,0;1,0)": None,
+            "M(0,0;2,0;1,0)": 1.234,
+            "M(0,0;2,1;1,2;1,0)": 0.159,
+        }
         case_capacity = {
-            element.downstream_node_id: None
+            element.downstream_node_id: authoritative_capacity[
+                element.downstream_node_id
+            ]
             for element in topology.elements
             if element.role is RoutingRole.WITHDRAWAL_STRUCTURE
         }
@@ -296,10 +303,7 @@ def _artifacts(
             case,
             CANON_TOPOLOGY,
             perturb_reach_id,
-            {
-                event.structure_id: event.planned_flow_m3s
-                for event in withdrawal_events
-            },
+            {event.structure_id: event.planned_flow_m3s for event in withdrawal_events},
         ),
     )
     return {
@@ -354,18 +358,14 @@ def test_cli_runs_canonical_topology_and_writes_passing_golden_report(tmp_path):
 
     exit_code = CLI.main(_argv(artifacts))
     report = json.loads(artifacts["report"].read_text(encoding="utf-8"))
-    canonical_case = json.loads(
-        artifacts["canonical_case"].read_text(encoding="utf-8")
-    )
+    canonical_case = json.loads(artifacts["canonical_case"].read_text(encoding="utf-8"))
 
     assert (exit_code, report["status"], report["summary"]) == (
         0,
         "passed",
         {"compared_reaches": 42, "compared_samples": 84, "failing_reaches": []},
     )
-    assert canonical_case == json.loads(
-        artifacts["case"].read_text(encoding="utf-8")
-    )
+    assert canonical_case == json.loads(artifacts["case"].read_text(encoding="utf-8"))
 
 
 def test_cli_writes_failed_report_and_returns_nonzero_for_golden_drift(tmp_path):
@@ -461,14 +461,12 @@ def test_cli_rejects_withdrawal_capacity_drift_from_gate_calibrations(tmp_path):
         tmp_path,
         case_capacity={
             "M(0,0;1,0)": 5.0,
-            "M(0,0;2,0;1,0)": None,
-            "M(0,0;2,1;1,2;1,0)": None,
+            "M(0,0;2,0;1,0)": 1.234,
+            "M(0,0;2,1;1,2;1,0)": 0.159,
         },
     )
 
-    with pytest.raises(
-        OfflineModelComparisonError, match="withdrawal capacity"
-    ):
+    with pytest.raises(OfflineModelComparisonError, match="withdrawal capacity"):
         CLI.main(_argv(artifacts))
 
 

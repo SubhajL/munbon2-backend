@@ -42,13 +42,14 @@ from core.network_topology import edges_from_names
 SERVICE_ROOT = Path(__file__).resolve().parents[2]
 REPO_ROOT = SERVICE_ROOT.parents[1]
 WORKBOOK = (
-    SERVICE_ROOT
+    REPO_ROOT
+    / "services"
+    / "ros-gis-integration"
     / "data"
     / "sources"
-    / "scada"
-    / "SCADA Section Detailed Information 2026-07-14 V3.0 SL.xlsx"
+    / "SCADA Section Detailed Information 2026-07-24 V5.0 SL.xlsx"
 )
-WORKBOOK_SHA256 = "528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c"
+WORKBOOK_SHA256 = "bebf10a6b2b4ada2daac0615a453f38d374d9c84fcdc8d4d74983fc682589416"
 CONFIG_DIR = SERVICE_ROOT / "src" / "config"
 
 _SPEC = importlib.util.spec_from_file_location(
@@ -402,15 +403,34 @@ class TestExtractionValidation:
         with pytest.raises(bsc.WorkbookError):
             bsc.validate_survey_rows([_row(300, 0, length_m=300.0)])
 
-    def test_numeric_cell_holding_text_fails_closed(self):
-        # Excel type drift: a q_max/Qd cell stored as the TEXT '9.961' must halt
-        # generation, not silently become null and drop the capacity bound.
+    def test_generic_numeric_cell_holding_text_fails_closed(self):
         with pytest.raises(bsc.WorkbookError):
-            bsc.cell_number("9.961", "Sheet1 row 5 q_max")
+            bsc.cell_number("9.961", "Characteristics row 5 Qd")
         assert bsc.cell_number(None, "x") is None
         assert bsc.cell_number("-", "x") is None
         assert bsc.cell_number(" ", "x") is None
         assert bsc.cell_number(9.961, "x") == 9.961
+
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ("0.815", 0.815),
+            (" 0.670 ", 0.67),
+            (0.397, 0.397),
+            (None, None),
+            ("-", None),
+        ],
+    )
+    def test_q_max_numeric_text_is_strictly_normalized(self, raw, expected):
+        assert bsc.q_max_number(raw, "Sheet1 q_max") == expected
+
+    @pytest.mark.parametrize(
+        "raw",
+        [True, "0.815 m3/s", "1e3", "NaN", "--1", float("inf")],
+    )
+    def test_malformed_q_max_numeric_text_fails_closed(self, raw):
+        with pytest.raises(bsc.WorkbookError):
+            bsc.q_max_number(raw, "Sheet1 q_max")
 
     @pytest.mark.parametrize(
         "raw,expected",
@@ -638,7 +658,7 @@ def artifacts():
 
 
 class TestRealWorkbookGeneration:
-    def test_v3_source_path_and_hash_are_exact(self):
+    def test_v5_source_path_and_hash_are_exact(self):
         assert WORKBOOK.is_file()
         assert hashlib.sha256(WORKBOOK.read_bytes()).hexdigest() == WORKBOOK_SHA256
         assert bsc.DEFAULT_WORKBOOK == WORKBOOK
@@ -690,16 +710,34 @@ class TestRealWorkbookGeneration:
             assert len(gate_ids) == 58
             assert all(gate_id == normalize_gate_id(gate_id) for gate_id in gate_ids)
 
-    def test_eight_complete_rmc_controls_carry_exact_v3_structure_fields(
+    def test_known_v5_numeric_text_q_max_cells_are_normalized(self, artifacts):
+        gates = artifacts["network"]["gates"]
+
+        assert {
+            gate_id: gates[gate_id]["q_max"]
+            for gate_id in (
+                "M(0,0;2,1;1,0)",
+                "M(0,0;2,1;1,1)",
+                "M(0,0;2,1;1,2)",
+                "M(0,0;2,1;1,3)",
+            )
+        } == {
+            "M(0,0;2,1;1,0)": 0.815,
+            "M(0,0;2,1;1,1)": 0.67,
+            "M(0,0;2,1;1,2)": 0.397,
+            "M(0,0;2,1;1,3)": 0.205,
+        }
+
+    def test_eight_complete_rmc_controls_carry_exact_v5_structure_fields(
         self, artifacts
     ):
         gates = artifacts["gate_calibrations"]["gates"]
         expected = {
-            "M(0,0;2,0)": (205.561, 203.712, 1.2),
+            "M(0,0;2,0)": (205.561, 203.712, 1.375),
             "M(0,0;2,1)": (203.888, 202.938, 1.234),
-            "M(0,0;2,2)": (198.504, 197.954, 1.234),
-            "M(0,0;2,3)": (198.308, 197.258, 0.252),
-            "M(0,0;2,1;1,0)": (200.204, 199.404, 0.815),
+            "M(0,0;2,2)": (200.504, 199.554, 0.252),
+            "M(0,0;2,3)": (198.308, 197.758, 0.252),
+            "M(0,0;2,1;1,0)": (200.566, 199.636, 0.815),
             "M(0,0;2,1;1,1)": (200.054, 199.254, 0.67),
             "M(0,0;2,1;1,2)": (198.084, 197.334, 0.397),
             "M(0,0;2,1;1,3)": (196.934, 196.284, 0.205),
@@ -736,17 +774,17 @@ class TestRealWorkbookGeneration:
         } == {
             "M(0,0;2,1;1,4)": (
                 "tail",
-                "incomplete",
+                "complete",
                 195.354,
                 194.854,
-                None,
+                0.159,
             ),
             "M(0,0;2,1;1,2;1,0)": (
                 "turnout",
-                "unavailable",
-                None,
-                None,
-                None,
+                "complete",
+                196.988,
+                196.338,
+                0.159,
             ),
         }
 
@@ -808,9 +846,7 @@ class TestRealWorkbookGeneration:
         path = tmp_path / "canal_geometry.json"
         path.write_text(json.dumps(artifacts["canal_geometry"]), encoding="utf-8")
         data = load_canal_geometry_config(str(path))
-        # 99 survey rows - 1 flume (no cross-section) - 8 post-terminal tails
-        # + 4 split-at-gate pieces = 94 emitted segments.
-        assert data["summary"]["total_sections"] == len(data["canal_sections"]) == 94
+        assert data["summary"]["total_sections"] == len(data["canal_sections"]) == 93
 
     def test_network_passes_the_strict_runtime_loader(self, artifacts, tmp_path):
         path = tmp_path / "network.json"
@@ -885,7 +921,7 @@ class TestRealWorkbookGeneration:
 
     def test_skipped_rows_are_reported(self, artifacts):
         skipped = artifacts["geometry_coverage"]["summary"]["skipped_rows"]
-        assert skipped == {"missing_cross_section": 1, "beyond_last_gate": 8}
+        assert skipped == {"missing_cross_section": 1, "beyond_last_gate": 9}
 
     def test_structure_fields_are_scoped_to_the_planning_only_bundle(self, artifacts):
         for name in ("network", "canal_geometry", "geometry_coverage"):

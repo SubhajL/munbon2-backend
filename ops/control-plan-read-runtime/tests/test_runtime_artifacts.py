@@ -50,6 +50,13 @@ def test_wrappers_bind_exact_loopback_ports_and_run_migrations_before_start():
         subprocess.run(["bash", "-n", str(wrapper)], check=True)
 
 
+def test_flow_wrapper_uses_the_v5_hydraulic_release():
+    body = _text(RUNTIME_DIR / "run-flow.sh")
+
+    assert "engineering-prior-v5-v1.json" in body
+    assert "engineering-prior-v3-v1.json" not in body
+
+
 def test_ros_wrapper_applies_every_tracked_migration():
     body = _text(RUNTIME_DIR / "run-ros.sh")
     for migration_id in (

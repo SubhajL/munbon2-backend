@@ -322,7 +322,7 @@ describe('build-irrigation-config', () => {
     it('wires the committed non-commandable flow release path', () => {
       const flow = getIrrigationProcesses().find(p => p.name === 'flow-monitoring');
       const releasePath = flow?.env?.HYDRAULIC_MODEL_RELEASE_PATH;
-      expect(releasePath).toBe('data/model-releases/engineering-prior-v3-v1.json');
+      expect(releasePath).toBe('data/model-releases/engineering-prior-v5-v1.json');
 
       const absolute = path.join(REPO_ROOT, 'services', 'flow-monitoring', releasePath as string);
       const release = JSON.parse(fs.readFileSync(absolute, 'utf-8'));

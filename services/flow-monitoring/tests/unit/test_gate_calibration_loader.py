@@ -98,7 +98,11 @@ class TestGetCalibration:
             confidence=0.75,
             source_gate_ids=("M(0,0)", "M(0,2)"),
             source_version=gate["source_version"],
-            structure_data_status="unavailable",
+            design_fsl_msl_m=204.208,
+            sill_msl_m=202.378,
+            structure_max_flow_m3s=8.737,
+            design_fsl_reference_side="upstream",
+            structure_data_status="complete",
             structure_role="control",
             shape="rectangular",
             width_m=3.6,
@@ -135,12 +139,12 @@ class TestGetGateData:
     @pytest.mark.parametrize(
         "gate_id,sheet1_capacity,structure_capacity,binding_capacity",
         [
-            ("M(0,0;2,0)", 1.375, 1.2, 1.2),
-            ("M(0,0;2,3)", None, 0.252, 0.252),
-            ("M(0,0;2,1;1,1)", None, 0.67, 0.67),
+            ("M(0,0;2,0)", 1.375, 1.375, 1.375),
+            ("M(0,0;2,3)", 0.252, 0.252, 0.252),
+            ("M(0,0;2,1;1,1)", 0.67, 0.67, 0.67),
         ],
     )
-    def test_rated_capacity_binds_distinct_sheet1_and_structure_sources(
+    def test_rated_capacity_preserves_matching_v5_sources(
         self,
         loader,
         gate_id,
@@ -181,12 +185,12 @@ class TestBuildFlowCalibration:
     @pytest.mark.parametrize(
         "gate_id,expected_sill,expected_capacity",
         [
-            ("M(0,0;2,0)", 203.712, 1.2),
-            ("M(0,0;2,3)", 197.258, 0.252),
+            ("M(0,0;2,0)", 203.712, 1.375),
+            ("M(0,0;2,3)", 197.758, 0.252),
             ("M(0,0;2,1;1,1)", 199.254, 0.67),
         ],
     )
-    def test_v3_structure_data_supplies_real_sill_and_binding_capacity(
+    def test_v5_structure_data_supplies_real_sill_and_binding_capacity(
         self, loader, gate_id, expected_sill, expected_capacity
     ):
         calibration = loader.get_calibration(gate_id)

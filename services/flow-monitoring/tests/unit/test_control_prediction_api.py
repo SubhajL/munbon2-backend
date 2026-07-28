@@ -64,14 +64,12 @@ CALIBRATIONS = str(SERVICE_ROOT / "src" / "config" / "gate_calibrations.json")
 GEOMETRY_COVERAGE = str(SERVICE_ROOT / "src" / "config" / "geometry_coverage.json")
 ROUTING_TOPOLOGY = str(SERVICE_ROOT / "src" / "config" / "routing_topology.json")
 RELEASE_PATH = str(
-    SERVICE_ROOT / "data" / "model-releases" / "engineering-prior-v3-v1.json"
+    SERVICE_ROOT / "data" / "model-releases" / "engineering-prior-v5-v1.json"
 )
 CONTROL_PY = SERVICE_ROOT / "src" / "api" / "control.py"
 ENGINE_DESCRIPTOR = build_prediction_engine_descriptor(SERVICE_ROOT)
 
-TOPOLOGY = load_routing_topology(
-    ROUTING_TOPOLOGY, NETWORK, GEOMETRY_COVERAGE, GEOMETRY
-)
+TOPOLOGY = load_routing_topology(ROUTING_TOPOLOGY, NETWORK, GEOMETRY_COVERAGE, GEOMETRY)
 
 FLUME_REACH_ID = "C_M(0,0)_J(LMC,0+170)"
 WASTE_WAY_STRUCTURE_ID = "M(0,0;1,0)"
@@ -275,12 +273,8 @@ def _assert_member_series_aligned(member: dict) -> None:
 class TestPredictionDoneGate:
     def test_prediction_runs_three_members_from_exact_snapshot(self, real_setup):
         request = _base_request(real_setup)
-        first = real_setup["client"].post(
-            "/api/v1/control/predictions", json=request
-        )
-        second = real_setup["client"].post(
-            "/api/v1/control/predictions", json=request
-        )
+        first = real_setup["client"].post("/api/v1/control/predictions", json=request)
+        second = real_setup["client"].post("/api/v1/control/predictions", json=request)
 
         assert first.status_code == 200, first.text
         assert first.content == second.content  # byte-identical stored replay
@@ -296,10 +290,7 @@ class TestPredictionDoneGate:
         assert body["prediction_run_id"] == second.json()["prediction_run_id"]
         assert body["model_snapshot_id"] == real_setup["snapshot_id"]
         assert body["model_release_id"] == real_setup["release"].release_id
-        assert (
-            body["model_release_content_hash"]
-            == real_setup["release"].content_hash
-        )
+        assert body["model_release_content_hash"] == real_setup["release"].content_hash
         assert body["config_sha256"] == real_setup["config_sha256"]
 
         coverage = body["coverage"]
@@ -329,9 +320,7 @@ class TestPredictionDoneGate:
             ).isoformat().replace("+00:00", "Z")
             assert sampled_at[-1] == ENDS_AT.isoformat().replace("+00:00", "Z")
             reach_ids = [reach["reach_id"] for reach in timeline["reaches"]]
-            assert sorted(reach_ids) == sorted(
-                coverage["modeled_transport_reach_ids"]
-            )
+            assert sorted(reach_ids) == sorted(coverage["modeled_transport_reach_ids"])
             assert FLUME_REACH_ID not in reach_ids
             _assert_member_series_aligned(member)
             audit = timeline["mass_balance"]
@@ -379,15 +368,15 @@ class TestPredictionDoneGate:
 class TestPredictionFailClosed:
     def test_prediction_rejects_snapshot_or_release_drift(self, real_setup):
         drifted_snapshot = _base_request(real_setup)
-        drifted_snapshot["model_snapshot_id"] = (
-            "0" * 63 + ("1" if real_setup["snapshot_id"][63] != "1" else "2")
+        drifted_snapshot["model_snapshot_id"] = "0" * 63 + (
+            "1" if real_setup["snapshot_id"][63] != "1" else "2"
         )
         drifted_release_id = _base_request(
             real_setup, model_release_id="engineering-prior-v999"
         )
         drifted_hash = _base_request(real_setup)
-        drifted_hash["model_release_content_hash"] = (
-            "f" * 63 + ("0" if drifted_hash["model_release_content_hash"][63] != "0" else "1")
+        drifted_hash["model_release_content_hash"] = "f" * 63 + (
+            "0" if drifted_hash["model_release_content_hash"][63] != "0" else "1"
         )
 
         for request in (drifted_snapshot, drifted_release_id, drifted_hash):
@@ -517,7 +506,7 @@ class TestPredictionFailClosed:
 
 
 class TestPredictionHonesty:
-    def test_withdrawal_capacity_unknown_is_not_approved(self, real_setup):
+    def test_withdrawal_uses_v5_authoritative_capacity(self, real_setup):
         request = _base_request(
             real_setup,
             operator_withdrawal_events=[
@@ -541,17 +530,19 @@ class TestPredictionHonesty:
             capacity_violations = [
                 violation
                 for violation in member["violations"]
-                if violation["kind"] == "withdrawal_capacity_unavailable"
+                if violation["kind"]
+                in {
+                    "withdrawal_capacity_unavailable",
+                    "withdrawal_capacity_exceeded",
+                }
             ]
-            assert [
-                violation["structure_id"] for violation in capacity_violations
-            ] == [RMC_FTO_STRUCTURE_ID]
+            assert capacity_violations == []
             fto_series = next(
                 withdrawal
                 for withdrawal in member["timeline"]["withdrawals"]
                 if withdrawal["structure_id"] == RMC_FTO_STRUCTURE_ID
             )
-            assert set(fto_series["capacity_check_status"]) == {"unavailable"}
+            assert set(fto_series["capacity_check_status"]) == {"within_capacity"}
 
     def test_prediction_response_never_claims_actual_delivery(self, real_setup):
         response = real_setup["client"].post(
@@ -699,9 +690,7 @@ class TestPredictionMemberInfeasibility:
             ],
         }
 
-        response = TestClient(app).post(
-            "/api/v1/control/predictions", json=request
-        )
+        response = TestClient(app).post("/api/v1/control/predictions", json=request)
         assert response.status_code == 200, response.text
         members = response.json()["members"]
 
@@ -729,21 +718,15 @@ class TestPredictionPersistence:
         assert posted.status_code == 200, posted.text
         run_id = posted.json()["prediction_run_id"]
 
-        fetched = real_setup["client"].get(
-            f"/api/v1/control/predictions/{run_id}"
-        )
+        fetched = real_setup["client"].get(f"/api/v1/control/predictions/{run_id}")
         assert fetched.status_code == 200, fetched.text
         assert fetched.content == posted.content
 
     def test_prediction_get_unknown_or_malformed_run_id(self, real_setup):
-        unknown = real_setup["client"].get(
-            "/api/v1/control/predictions/" + "e" * 64
-        )
+        unknown = real_setup["client"].get("/api/v1/control/predictions/" + "e" * 64)
         assert unknown.status_code == 404, unknown.text
 
-        malformed = real_setup["client"].get(
-            "/api/v1/control/predictions/not-a-run-id"
-        )
+        malformed = real_setup["client"].get("/api/v1/control/predictions/not-a-run-id")
         assert malformed.status_code == 422, malformed.text
 
     def test_prediction_repository_not_wired_returns_503(self):
@@ -766,9 +749,7 @@ class TestPredictionPersistence:
             "config_sha256": app.state.model_config_sha256,
         }
 
-        posted = client.post(
-            "/api/v1/control/predictions", json=_base_request(setup)
-        )
+        posted = client.post("/api/v1/control/predictions", json=_base_request(setup))
         assert posted.status_code == 503, posted.text
         fetched = client.get("/api/v1/control/predictions/" + "e" * 64)
         assert fetched.status_code == 503, fetched.text
@@ -776,9 +757,7 @@ class TestPredictionPersistence:
     def test_prediction_get_corrupt_artifact_returns_503(self, real_setup):
         request = _base_request(real_setup)
         request["source_flow_events"][0]["flow_m3s"] = 0.3  # unique run id
-        posted = real_setup["client"].post(
-            "/api/v1/control/predictions", json=request
-        )
+        posted = real_setup["client"].post("/api/v1/control/predictions", json=request)
         assert posted.status_code == 200, posted.text
         run_id = posted.json()["prediction_run_id"]
 
@@ -791,9 +770,7 @@ class TestPredictionPersistence:
         )
         repository._runs[run_id] = replace(stored, artifact=tampered_artifact)
 
-        fetched = real_setup["client"].get(
-            f"/api/v1/control/predictions/{run_id}"
-        )
+        fetched = real_setup["client"].get(f"/api/v1/control/predictions/{run_id}")
         assert fetched.status_code == 503, fetched.text
 
     def test_prediction_same_id_different_request_returns_409(self, real_setup):
@@ -806,9 +783,7 @@ class TestPredictionPersistence:
             _normalized_payload(other)
         )
 
-        posted = real_setup["client"].post(
-            "/api/v1/control/predictions", json=request
-        )
+        posted = real_setup["client"].post("/api/v1/control/predictions", json=request)
         assert posted.status_code == 409, posted.text
 
     def test_prediction_compute_is_deterministic_across_fresh_stores(self):
@@ -833,12 +808,8 @@ class TestPredictionPersistence:
         }
         request = _base_request(setup)
 
-        first = TestClient(app_a).post(
-            "/api/v1/control/predictions", json=request
-        )
-        second = TestClient(app_b).post(
-            "/api/v1/control/predictions", json=request
-        )
+        first = TestClient(app_a).post("/api/v1/control/predictions", json=request)
+        second = TestClient(app_b).post("/api/v1/control/predictions", json=request)
         assert first.status_code == 200, first.text
         assert second.status_code == 200, second.text
         assert first.content == second.content
@@ -864,9 +835,7 @@ def _normalized_payload(request: dict) -> dict:
     in JSON mode — pinned here so identity can never silently drift."""
     from schemas.control import ControlPredictionRequest
 
-    return ControlPredictionRequest.model_validate(request).model_dump(
-        mode="json"
-    )
+    return ControlPredictionRequest.model_validate(request).model_dump(mode="json")
 
 
 def _record_for(payload: dict) -> PredictionRunRecord:
@@ -971,9 +940,7 @@ class TestPredictionIdentityV2:
     def test_artifact_and_identity_headers_match_stored_bytes(self, real_setup):
         request = _base_request(real_setup)
         request["source_flow_events"][0]["flow_m3s"] = 0.42  # unique run id
-        posted = real_setup["client"].post(
-            "/api/v1/control/predictions", json=request
-        )
+        posted = real_setup["client"].post("/api/v1/control/predictions", json=request)
         assert posted.status_code == 200, posted.text
 
         import hashlib
@@ -992,9 +959,7 @@ class TestPredictionIdentityV2:
         )
 
         run_id = posted.json()["prediction_run_id"]
-        fetched = real_setup["client"].get(
-            f"/api/v1/control/predictions/{run_id}"
-        )
+        fetched = real_setup["client"].get(f"/api/v1/control/predictions/{run_id}")
         assert fetched.status_code == 200, fetched.text
         # GET carries the SAME artifact + identity metadata as POST.
         for header in (
@@ -1008,9 +973,7 @@ class TestPredictionIdentityV2:
     def test_flow_header_persists_exact_engine_descriptor(self, real_setup):
         request = _base_request(real_setup)
         request["source_flow_events"][0]["flow_m3s"] = 0.43  # unique run id
-        posted = real_setup["client"].post(
-            "/api/v1/control/predictions", json=request
-        )
+        posted = real_setup["client"].post("/api/v1/control/predictions", json=request)
         assert posted.status_code == 200, posted.text
 
         assert posted.headers["X-Prediction-Engine-Id"] == (
@@ -1031,8 +994,11 @@ class TestPredictionIdentityV2:
         assert stored.request_payload["prediction_engine"] == {
             key: ENGINE_DESCRIPTOR[key]
             for key in (
-                "schema_version", "engine_id", "semantic_contract_version",
-                "build_digest", "content_hash",
+                "schema_version",
+                "engine_id",
+                "semantic_contract_version",
+                "build_digest",
+                "content_hash",
             )
         }
 
@@ -1068,10 +1034,7 @@ class TestPredictionIdentityV2:
         assert first.status_code == 200, first.text
         assert second.status_code == 200, second.text
         # Same hydraulic inputs, different engine -> different v2 run id.
-        assert (
-            first.json()["prediction_run_id"]
-            != second.json()["prediction_run_id"]
-        )
+        assert first.json()["prediction_run_id"] != second.json()["prediction_run_id"]
 
     def test_require_v2_rejects_missing_engine_descriptor(self):
         controller = _controller()
@@ -1107,9 +1070,7 @@ class TestPredictionIdentityV2:
         )
         mismatched_snapshot_id = _snapshot_id_for(app_other, release, controller)
 
-        app = _app(
-            _load_control(), controller, release, rollout_mode="require-v2"
-        )
+        app = _app(_load_control(), controller, release, rollout_mode="require-v2")
         setup = {
             "release": release,
             "snapshot_id": mismatched_snapshot_id,
@@ -1121,9 +1082,7 @@ class TestPredictionIdentityV2:
             "/api/v1/control/predictions",
             json=_base_request(setup),
             headers={
-                "X-Prediction-Engine-Content-Hash": ENGINE_DESCRIPTOR[
-                    "content_hash"
-                ]
+                "X-Prediction-Engine-Content-Hash": ENGINE_DESCRIPTOR["content_hash"]
             },
         )
         # The pinned snapshot no longer matches the served (current-engine) one.
@@ -1137,9 +1096,7 @@ class TestPredictionIdentityV2:
         release = load_configured_hydraulic_model_release(
             RELEASE_PATH, TOPOLOGY.transport_reach_ids()
         )
-        app = _app(
-            _load_control(), controller, release, rollout_mode="require-v2"
-        )
+        app = _app(_load_control(), controller, release, rollout_mode="require-v2")
         setup = {
             "release": release,
             "snapshot_id": _snapshot_id_for(app, release, controller),
@@ -1158,9 +1115,7 @@ class TestPredictionIdentityV2:
         release = load_configured_hydraulic_model_release(
             RELEASE_PATH, TOPOLOGY.transport_reach_ids()
         )
-        app = _app(
-            _load_control(), controller, release, rollout_mode="require-v2"
-        )
+        app = _app(_load_control(), controller, release, rollout_mode="require-v2")
         setup = {
             "release": release,
             "snapshot_id": _snapshot_id_for(app, release, controller),
@@ -1182,9 +1137,7 @@ class TestPredictionIdentityV2:
         release = load_configured_hydraulic_model_release(
             RELEASE_PATH, TOPOLOGY.transport_reach_ids()
         )
-        app = _app(
-            _load_control(), controller, release, rollout_mode="require-v2"
-        )
+        app = _app(_load_control(), controller, release, rollout_mode="require-v2")
         setup = {
             "release": release,
             "snapshot_id": _snapshot_id_for(app, release, controller),
@@ -1194,9 +1147,7 @@ class TestPredictionIdentityV2:
             "/api/v1/control/predictions",
             json=_base_request(setup),
             headers={
-                "X-Prediction-Engine-Content-Hash": ENGINE_DESCRIPTOR[
-                    "content_hash"
-                ]
+                "X-Prediction-Engine-Content-Hash": ENGINE_DESCRIPTOR["content_hash"]
             },
         )
         assert response.status_code == 200, response.text
@@ -1232,9 +1183,7 @@ class TestPredictionIdentityV2:
         request["source_flow_events"][0]["flow_m3s"] = 0.37  # unique run id
 
         # Compute a real, valid response, then re-stamp it with the v1 run id.
-        posted = real_setup["client"].post(
-            "/api/v1/control/predictions", json=request
-        )
+        posted = real_setup["client"].post("/api/v1/control/predictions", json=request)
         assert posted.status_code == 200, posted.text
         response_body = posted.json()
         normalized = ControlPredictionRequest.model_validate(request).model_dump(
@@ -1278,9 +1227,7 @@ class TestEngineDescriptorDriftFailsClosed:
     source must FAIL CLOSED (become unavailable), never warn-and-serve-stale —
     otherwise the server advertises engine A while running engine B."""
 
-    def test_load_descriptor_returns_none_on_source_drift(
-        self, tmp_path, monkeypatch
-    ):
+    def test_load_descriptor_returns_none_on_source_drift(self, tmp_path, monkeypatch):
         import main
         from core.prediction_engine import PredictionEngineError
 
@@ -1302,9 +1249,7 @@ class TestEngineDescriptorDriftFailsClosed:
         def _unbuildable(root):
             raise PredictionEngineError("a manifest file is unreadable")
 
-        monkeypatch.setattr(
-            main, "build_prediction_engine_descriptor", _unbuildable
-        )
+        monkeypatch.setattr(main, "build_prediction_engine_descriptor", _unbuildable)
         assert (
             main._load_prediction_engine_descriptor(str(path), str(SERVICE_ROOT))
             is None
@@ -1316,9 +1261,10 @@ class TestEngineDescriptorDriftFailsClosed:
             "build_prediction_engine_descriptor",
             lambda root: dict(ENGINE_DESCRIPTOR),
         )
-        assert main._load_prediction_engine_descriptor(
-            str(path), str(SERVICE_ROOT)
-        ) == ENGINE_DESCRIPTOR
+        assert (
+            main._load_prediction_engine_descriptor(str(path), str(SERVICE_ROOT))
+            == ENGINE_DESCRIPTOR
+        )
 
     def test_missing_committed_descriptor_returns_none(self, tmp_path):
         import main
@@ -1342,9 +1288,7 @@ class TestEngineDescriptorDriftFailsClosed:
         # so the runtime advertises NO engine.
         control = _load_control()
         controller = _controller()
-        app = _app(
-            control, controller, real_setup["release"], engine_descriptor=None
-        )
+        app = _app(control, controller, real_setup["release"], engine_descriptor=None)
         client = TestClient(app)
 
         # model-snapshot fails closed (no engine to fingerprint the snapshot).
@@ -1361,9 +1305,7 @@ class TestEngineDescriptorDriftFailsClosed:
         # current descriptor.
         request = _base_request(real_setup)
         request["source_flow_events"][0]["flow_m3s"] = 0.462  # unique run id
-        posted = real_setup["client"].post(
-            "/api/v1/control/predictions", json=request
-        )
+        posted = real_setup["client"].post("/api/v1/control/predictions", json=request)
         assert posted.status_code == 200, posted.text
         normalized = ControlPredictionRequest.model_validate(request).model_dump(
             mode="json"

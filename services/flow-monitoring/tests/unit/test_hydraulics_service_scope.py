@@ -337,6 +337,9 @@ class TestHonestCapacities:
     ):
         import services.hydraulic_service as hs
 
+        monkeypatch.setattr(
+            service.calibration_loader, "rated_q_max", lambda _gate: None
+        )
         warnings = []
         monkeypatch.setattr(
             hs.logger,
@@ -358,13 +361,13 @@ class TestHonestCapacities:
         ) == ("circular", 0.4, 0.4, 0.4)
 
     def test_circular_gate_bounds_max_opening_capacity_and_flow_to_diameter(
-        self, service
+        self, service, monkeypatch
     ):
-        # 2.3-retro HIGH: _build_gate_flow_cal forwarded the 0.4 m diameter as width
-        # but let max_opening_m default to 2.0 m, inflating the unrated gate's q_max
-        # to 2.4 m3/s and its full-open flow to 1.426 m3/s. Bounded to the diameter,
-        # the gate reports disc-area capacity and a far smaller, honest flow.
+        # Force the documented unrated fallback seam; V5 itself rates this gate.
         gate_id = "M(0,0;2,0;1,0)"
+        monkeypatch.setattr(
+            service.calibration_loader, "rated_q_max", lambda _gate: None
+        )
         calibration = service.calibration_loader.get_calibration(gate_id)
         cal = service._build_gate_flow_cal(gate_id, calibration)
         d = calibration.height_m
@@ -445,12 +448,7 @@ class TestHonestCapacities:
 
 
 class TestDualModeControllerHonestCircularCapacity:
-    def test_unrated_circular_gates_use_disc_area_capacity(self):
-        # QCHECK HIGH (workflow): the shape-aware disc-area fix must ALSO cover the
-        # parallel live caller (the /gates API path), not just hydraulic_service.
-        # Every unrated circular gate the controller builds must report π/4·d²·v
-        # capacity — not the width×opening bounding box that over-reports a small
-        # orifice by 4/π (2.3-retro HIGH).
+    def test_v5_circular_gates_use_authoritative_capacity(self):
         controller = DualModeGateController(
             DatabaseManager(), str(NETWORK), str(GEOMETRY)
         )
@@ -461,14 +459,11 @@ class TestDualModeControllerHonestCircularCapacity:
             calibration = loader.get_calibration(downstream)
             if calibration.shape != "circular":
                 continue
-            if loader.rated_q_max(downstream) is not None:
-                continue
-            diameter = calibration.width_m
-            assert props["flow_cal"].q_max_m3s == pytest.approx(
-                math.pi / 4 * diameter * diameter * NOMINAL_GATE_VELOCITY_MS
-            )
+            rated = loader.rated_q_max(downstream)
+            assert rated is not None
+            assert props["flow_cal"].q_max_m3s == pytest.approx(rated)
             checked += 1
-        assert checked > 0  # the canonical network really exercises this path
+        assert checked > 0
 
 
 class TestDependencyIsAppScoped:

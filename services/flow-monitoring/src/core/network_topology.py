@@ -3,7 +3,7 @@ core.network_topology — canonical network loading + connectivity guard (F-11).
 
 The wired topology (`munbon_network_final.json`) was ~76% wrong: most nodes were
 unreachable from the source. The canonical, validated topology is
-`src/config/network.json` (generated from the approved SCADA V3 workbook: a proper
+`src/config/network.json` (generated from the approved SCADA V5 workbook: a proper
 spanning tree, 59 nodes = 58 gates + source `S`, 58 edges, every node reachable).
 
 This module is PURE (stdlib only). `assert_connected` is the loader guard: it fails

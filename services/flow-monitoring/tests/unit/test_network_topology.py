@@ -223,7 +223,7 @@ class TestEdgesFromNamesRealNetwork:
         assert len(reachable_from(edges, "S")) == 59  # 58 gates + S
 
     def test_reproduces_the_surveyed_geometry_chain(self):
-        # Generated SCADA V3 geometry lists the surveyed serial reaches; every one must
+        # Generated SCADA V5 geometry lists the surveyed serial reaches; every one must
         # appear in the independently name-derived topology.
         import re
 

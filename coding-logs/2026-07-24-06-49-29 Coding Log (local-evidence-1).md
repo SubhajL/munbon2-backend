@@ -1067,3 +1067,171 @@ LOW
   `docs/operations/V5_HYBRID_SECTION_MASTER_ACTIVATION.md`.
 - Next: archive this evidence through its own PR/merge/local-main lifecycle,
   then branch the V5 hydraulic TDD change from the refreshed merged `main`.
+
+## 2026-07-28 17:24:00 +07 - V5 hydraulic support
+
+### Goal
+
+- Move Flow Monitoring's canonical hydraulic input from the V3 workbook and
+  engineering-prior release to the committed V5 workbook.
+- Accept the four known finite decimal-text `q_max` cells without weakening
+  validation for malformed text, then regenerate and bind all five hydraulic
+  artifacts and the planning-only model release.
+- Keep command authority dark and leave dev-database activation outside this
+  PR.
+
+### TDD evidence
+
+- Baseline:
+  `python -m pytest tests/unit/test_build_scada_config.py tests/unit/test_build_hydraulic_model_release.py tests/unit/test_model_release_wiring.py -q`
+  passed `129` tests against V3.
+- RED 1:
+  `python -m pytest tests/unit/test_build_scada_config.py -q -k 'q_max_numeric_text or v5_source_path'`
+  failed `12` tests because `q_max_number` was a stub and the generator still
+  selected V3.
+- GREEN 1: the same focused command passed `12` tests after implementing the
+  strict finite-decimal parser and selecting the canonical V5 workbook.
+- RED 2:
+  `python -m pytest tests/unit/test_build_hydraulic_model_release.py tests/unit/test_model_release_wiring.py -q`
+  failed `6` tests because the V5 release did not yet exist and runtime paths
+  still selected V3.
+- GREEN 2: the regenerated-release and wiring suites passed after producing
+  `engineering-prior-v5-v1.json` and updating every active local/runtime/PM2
+  reference.
+
+### Implementation and wiring
+
+- `build_scada_config.py` now reads the canonical V5 workbook from
+  `services/ros-gis-integration/data/sources/`, accepts only finite decimal
+  numeric text in the `q_max` column, and continues to reject units, exponent
+  notation, booleans, NaN, infinity, and malformed text.
+- The four V5 numeric-text values normalize to `0.815`, `0.670`, `0.397`, and
+  `0.205`.
+- Regenerated `canal_geometry.json`, `gate_calibrations.json`,
+  `geometry_coverage.json`, `network.json`, and `routing_topology.json`.
+- Generated `engineering-prior-v5-v1.json`; it covers `41` parameterized
+  reaches plus `1` explicitly unavailable reach and remains
+  `commandable=false`.
+- Updated local acceptance, runtime, PM2, model-snapshot, prediction, capacity,
+  provenance, and offline-comparison consumers to the V5 release. Historical
+  V3 artifacts remain available but no active runtime path selects them.
+- Regenerated the prediction-engine descriptor after the input closure changed.
+
+### Regeneration verification
+
+- `build_hydraulic_model_release.py --check` passed with byte-identical output.
+- `build_prediction_engine_descriptor.py --check` passed against the committed
+  prediction closure.
+- Artifact invariant checks passed: `58` gates, `58` edges, `93` geometry
+  sections, `59` routing elements, coverage `40` full / `1` partial / `17`
+  not-applicable, calibrations `10` measured / `48` inferred, and all five
+  source-lineage versions equal the V5 workbook SHA
+  `bebf10a6b2b4ada2daac0615a453f38d374d9c84fcdc8d4d74983fc682589416`.
+- SHA-256:
+  - `canal_geometry.json`:
+    `68e1a9ee45b88050794b31a1b82264dd1766537cc9aab12364dfe1e4b49713d7`
+  - `gate_calibrations.json`:
+    `aaf889ce928a312653222ab8c0e317d90eea55aae70e2661995ec21a4ca34768`
+  - `geometry_coverage.json`:
+    `55e46522366229ce59831960fb713a300dbfe7c2a1b27a47b7e4293f75813dea`
+  - `network.json`:
+    `393572e7adadcf492a7be36af3797669a0eb02b15a10686ab23ba0f2f2eaa6d9`
+  - `routing_topology.json`:
+    `15f2acd299970ac7b93fb200b63502745df330795232a2d4e83b28a93c6a01e6`
+  - `engineering-prior-v5-v1.json`:
+    `00ae8b11556186663ed2097120a3eb3ae04a1fa7feaf30e01d10431e022cfda0`
+
+### Quality gates
+
+- Full Flow Monitoring suite passed three consecutive identical runs:
+  `1365 passed, 14 skipped`, with `94%` core coverage. Skips are unchanged
+  environment-gated integrations; warnings are existing Pydantic deprecations.
+- Complete operations suites passed three consecutive runs:
+  `145 passed` each.
+- PM2 `npm run verify` passed Prettier, TypeScript, ESLint, and all `39` tests;
+  two additional full test runs also passed all `39`.
+- Changed Python files passed Black and Ruff; `git diff --check` and
+  `bash -n ops/control-plan-read-runtime/run-flow.sh` passed.
+- A full-tree Black check is not a usable repository gate: it reports `77`
+  unrelated pre-existing files that would be reformatted. Every Python file in
+  this change passed the formatter check.
+- One operations attempt under the Flow Monitoring virtual environment failed
+  a migration error-type assertion because that environment lacks `psycopg`.
+  The correct repository `python3` runtime has `psycopg`; the complete suite
+  then passed three times as recorded above.
+
+### Search and safety notes
+
+- Auggie semantic search could not be used within the skill's mandatory
+  two-second limit because the available deferred interface exposes no timeout.
+  Exploration used exact-string search and direct source/test reads instead.
+- No deployment, AWS action, database write, dataset activation, or command
+  authority change was performed.
+- Dev activation remains separately governed by
+  `docs/operations/V5_HYBRID_SECTION_MASTER_ACTIVATION.md`.
+
+## Review (2026-07-28 17:36:18 +07) - V5 hydraulic support working tree
+
+### Scope and evidence
+
+- Reviewed the complete staged change from archive-merged `main`
+  `ff64f7fb3197752b9642aa140c8bcfbe9792ed93` across generator behavior,
+  generated artifacts, engineering-prior release, prediction descriptor,
+  local/runtime/PM2 wiring, tests, and operational documentation.
+- Independently checked every active Flow Monitoring release-path reference,
+  V3 residue outside historical/synthetic fixtures, exact V5 workbook SHA,
+  normalized `q_max` outputs, five artifact hashes and lineage, release
+  commandability, deterministic regeneration, and affected runtime tests.
+
+### Findings
+
+- No unresolved `CRITICAL`, `HIGH`, `MEDIUM`, or `LOW` correctness finding.
+- Resolved `LOW` documentation consistency: corrected a stray indentation in
+  `core/network_topology.py` and the matching stale V3 test comment.
+- Resolved `LOW` operational-documentation consistency: replaced the stale
+  claim that `HYDRAULIC_MODEL_RELEASE_PATH` stays unset with the actual
+  fail-closed runtime wiring and separately dark
+  `HYDRAULIC_COMMANDABILITY_APPROVAL_PATH` boundary.
+- The source-byte documentation correction intentionally changed the
+  prediction-engine build digest. The descriptor was regenerated and
+  `build_prediction_engine_descriptor.py --check` plus the directly affected
+  `108` tests passed.
+
+### Checklist disposition
+
+- Function design: the shared finite-decimal parser is small, linear,
+  deterministic, side-effect free, uses existing `WorkbookError` vocabulary,
+  and is reused by exactly the two columns that permit decimal-text cells.
+  Generic numeric columns continue to fail closed on text.
+- Tests: focused RED/GREEN coverage exercises valid text, surrounding
+  whitespace, numeric cells, blanks, booleans, units, exponent notation,
+  malformed signs, NaN, infinity, the four real workbook cells, exact source
+  hash, full regenerated bytes, loader behavior, API projections, and active
+  runtime paths.
+- Implementation: the change is minimal to the source-selection and numeric
+  parsing seams, generated outputs are deterministic, all active consumers
+  select V5, historical V3 material is retained only for history or isolated
+  schema fixtures, and control/activation authority remains unchanged.
+
+### Residual risks
+
+- The canonical generator now depends on a committed workbook owned by the
+  sibling ROS-GIS service directory. This is an intentional single-source
+  authority but means sparse service-only checkouts cannot regenerate the
+  artifacts.
+- Hosted GitHub checks may again fail to start because of the known account
+  billing lock. Such a zero-step result is infrastructure/account blockage,
+  not a code-test failure; local gates above remain the code evidence.
+
+### Independent QCHECK
+
+- Result: PASS with no correctness, safety, or test-quality finding.
+- The reviewer independently confirmed the narrow finite-decimal normalization,
+  generic-column fail-closed behavior, V5 source/path/SHA locks, the four real
+  numeric-text cells, byte-exact five-artifact regeneration, release/runtime/
+  PM2/descriptor wiring, `41` parameterized plus `1` unavailable reach,
+  `commandable=false`, and withdrawal capacities `None` / `1.234` / `0.159`.
+- The reviewer's shell lacked `structlog` for a FastAPI prediction test. That
+  environment-only gap is closed by the three complete Flow Monitoring runs in
+  the declared service virtual environment (`1365 passed, 14 skipped` each)
+  and the post-review directly affected slice (`108 passed`).
