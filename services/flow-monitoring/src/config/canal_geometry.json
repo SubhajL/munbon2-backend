@@ -1,7 +1,7 @@
 {
   "metadata": {
-    "source_workbook": "SCADA Section Detailed Information 2026-07-14 V3.0 SL.xlsx",
-    "source_sha256": "528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
+    "source_workbook": "SCADA Section Detailed Information 2026-07-24 V5.0 SL.xlsx",
+    "source_sha256": "bebf10a6b2b4ada2daac0615a453f38d374d9c84fcdc8d4d74983fc682589416",
     "generator": "scripts/build_scada_config.py",
     "description": "Surveyed canal geometry (Characteristics sheet) cut into gate-to-gate reach segments at Sheet1 gate chainages (multi-segment reach model, Wave 2.1a/2.1b).",
     "notes": {
@@ -1824,31 +1824,6 @@
       }
     },
     {
-      "from_node": "M(0,12;1,1;1,1)",
-      "to_node": "M(0,12;1,1;1,2)",
-      "canal_name": "2R-38R-LMC",
-      "zone": 4,
-      "section_no": 6,
-      "from_km": "3+650",
-      "to_km": "3+850",
-      "geometry": {
-        "length_m": 200,
-        "cross_section": {
-          "type": "trapezoidal",
-          "bottom_width_m": 0.5,
-          "depth_m": 0.5,
-          "side_slope": 1.5
-        },
-        "hydraulic_params": {
-          "manning_n": 0.03,
-          "bed_slope": 0.0003,
-          "lining_type": "earth",
-          "q_max": 0.151,
-          "q_rotation_plan": 0.159
-        }
-      }
-    },
-    {
       "from_node": "M(0,12;1,1;1,0;1,0)",
       "to_node": "M(0,12;1,1;1,0;1,1)",
       "canal_name": "1R-2R-38R-LMC",
@@ -2690,11 +2665,11 @@
       "to_node": "M(0,12;1,1;1,2)",
       "canal_name": "2R-38R-LMC",
       "from_km": "0+540",
-      "to_km": "3+850",
-      "span_m": 3310,
-      "covered_m": 3310,
+      "to_km": "3+650",
+      "span_m": 3110,
+      "covered_m": 3110,
       "gap_m": 0,
-      "segments": 5
+      "segments": 4
     },
     {
       "from_node": "M(0,12;1,1;1,0;1,0)",
@@ -2775,13 +2750,13 @@
     }
   ],
   "summary": {
-    "total_sections": 94,
+    "total_sections": 93,
     "by_zone": {
       "zone_1": 5,
       "zone_2": 24,
       "zone_6": 12,
       "zone_3": 15,
-      "zone_4": 20,
+      "zone_4": 19,
       "zone_5": 18
     }
   }

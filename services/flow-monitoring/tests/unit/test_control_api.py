@@ -323,12 +323,7 @@ class TestDesignProfileEndpoint:
         assert [zone["zone"] for zone in body["zones"]] == [1, 2, 3, 4, 5, 6]
         assert [
             zone["zone"] for zone in body["zones"] if zone["status"] == "unavailable"
-        ] == [
-            2,
-            3,
-            4,
-            5,
-        ]
+        ] == []
 
     def test_subset_is_canonicalized_to_zone_order(self, design_client):
         response = design_client.post(

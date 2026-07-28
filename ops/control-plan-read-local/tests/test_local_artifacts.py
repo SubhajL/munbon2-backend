@@ -83,6 +83,13 @@ def test_every_completed_stage_is_added_to_the_checksum_index():
     assert "_save_state(context, list(STAGE_ORDER[:5]))" in body
 
 
+def test_stage_suite_uses_the_v5_hydraulic_release():
+    body = (LOCAL_DIR / "run-stage-suite.py").read_text(encoding="utf-8")
+
+    assert body.count("engineering-prior-v5-v1.json") == 5
+    assert "engineering-prior-v3-v1.json" not in body
+
+
 def test_read_browser_runner_covers_dark_visible_and_panel_failure_scenarios():
     body = (LOCAL_DIR / "run-read-browser.js").read_text(encoding="utf-8")
 

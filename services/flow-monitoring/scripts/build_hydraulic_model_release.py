@@ -36,15 +36,11 @@ DEFAULT_CONFIG_DIR = SERVICE_ROOT / "src" / "config"
 DEFAULT_POLICY = (
     SERVICE_ROOT / "data" / "model-releases" / "engineering-prior-policy-v1.json"
 )
-DEFAULT_OUT = (
-    SERVICE_ROOT / "data" / "model-releases" / "engineering-prior-v3-v1.json"
-)
+DEFAULT_OUT = SERVICE_ROOT / "data" / "model-releases" / "engineering-prior-v5-v1.json"
 
 
 def artifact_bytes(payload: dict) -> bytes:
-    return (json.dumps(payload, indent=2, ensure_ascii=False) + "\n").encode(
-        "utf-8"
-    )
+    return (json.dumps(payload, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
 
 
 def build_release_bytes(policy_path: Path, config_dir: Path) -> tuple[bytes, dict]:

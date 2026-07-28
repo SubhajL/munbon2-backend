@@ -80,8 +80,8 @@ def test_withdrawal_capacity_map_resolves_from_committed_artifacts():
 
     assert capacity == (
         ("M(0,0;1,0)", None),
-        ("M(0,0;2,0;1,0)", None),
-        ("M(0,0;2,1;1,2;1,0)", None),
+        ("M(0,0;2,0;1,0)", 1.234),
+        ("M(0,0;2,1;1,2;1,0)", 0.159),
     )
 
 
@@ -92,7 +92,7 @@ def test_committed_release_loads_through_real_configured_loader():
 
     config_dir = MAIN.parent / "config"
     release_path = (
-        MAIN.parents[1] / "data" / "model-releases" / "engineering-prior-v3-v1.json"
+        MAIN.parents[1] / "data" / "model-releases" / "engineering-prior-v5-v1.json"
     )
     topology = load_routing_topology(
         str(config_dir / "routing_topology.json"),

@@ -10,7 +10,7 @@ cd "${SERVICE_ROOT}"
 
 export PORT=3011 ENVIRONMENT=production LOG_LEVEL=INFO
 export GATES_API_ENABLED=false
-export HYDRAULIC_MODEL_RELEASE_PATH=data/model-releases/engineering-prior-v3-v1.json
+export HYDRAULIC_MODEL_RELEASE_PATH=data/model-releases/engineering-prior-v5-v1.json
 export CORS_ORIGINS=http://127.0.0.1:9999
 export PYTHONPATH="${SERVICE_ROOT}/src"
 

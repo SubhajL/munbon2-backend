@@ -550,7 +550,7 @@ def test_committed_release_snapshot_reports_partial_41_available_1_unavailable()
         str(config_dir / "canal_geometry.json"),
     )
     release = load_configured_hydraulic_model_release(
-        str(service_root / "data" / "model-releases" / "engineering-prior-v3-v1.json"),
+        str(service_root / "data" / "model-releases" / "engineering-prior-v5-v1.json"),
         topology.transport_reach_ids(),
     )
     config_sha256 = {

@@ -107,7 +107,7 @@ export function getIrrigationProcesses(): PM2ProcessConfig[] {
         // PR 4.4a-2: load the committed commandable=false engineering-prior
         // release (service-root-relative; the loader/validator are proven by the
         // flow suite). Never a commandable release — this plane is non-commanding.
-        HYDRAULIC_MODEL_RELEASE_PATH: 'data/model-releases/engineering-prior-v3-v1.json',
+        HYDRAULIC_MODEL_RELEASE_PATH: 'data/model-releases/engineering-prior-v5-v1.json',
         ...optionalHostEnv(['HYDRAULIC_COMMANDABILITY_APPROVAL_PATH']),
       },
     },

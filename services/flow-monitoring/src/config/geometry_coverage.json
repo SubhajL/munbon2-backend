@@ -1,7 +1,7 @@
 {
   "metadata": {
-    "source_workbook": "SCADA Section Detailed Information 2026-07-14 V3.0 SL.xlsx",
-    "source_sha256": "528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
+    "source_workbook": "SCADA Section Detailed Information 2026-07-24 V5.0 SL.xlsx",
+    "source_sha256": "bebf10a6b2b4ada2daac0615a453f38d374d9c84fcdc8d4d74983fc682589416",
     "generator": "scripts/build_scada_config.py",
     "description": "Per-edge survey coverage of the canonical network: which reaches carry geometry, which chainage is unmapped and why. Junction heads sit at their offtake (zero chainage span); offtakes (Waste Way, FTOs) have no surveyed canal of their own."
   },
@@ -498,10 +498,10 @@
       "upstream": "M(0,12;1,1;1,1)",
       "downstream": "M(0,12;1,1;1,2)",
       "category": "serial",
-      "span_m": 3310,
-      "covered_m": 3310,
+      "span_m": 3110,
+      "covered_m": 3110,
       "gap_m": 0,
-      "segments": 5,
+      "segments": 4,
       "status": "full",
       "missing": [],
       "canal": "2R-38R-LMC"
@@ -639,11 +639,11 @@
       "offtake": 3,
       "junction_head": 13
     },
-    "sections_emitted": 94,
+    "sections_emitted": 93,
     "survey_rows": 99,
     "skipped_rows": {
       "missing_cross_section": 1,
-      "beyond_last_gate": 8
+      "beyond_last_gate": 9
     },
     "skipped_row_detail": [
       {
@@ -687,6 +687,13 @@
         "from_km": "4+200",
         "to_km": "4+550",
         "excel_row": 67
+      },
+      {
+        "reason": "beyond_last_gate",
+        "canal": "2R-38R-LMC",
+        "from_km": "3+650",
+        "to_km": "3+850",
+        "excel_row": 74
       },
       {
         "reason": "beyond_last_gate",

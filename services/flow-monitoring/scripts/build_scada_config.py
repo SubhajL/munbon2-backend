@@ -7,7 +7,7 @@ KILOMETRES and was written straight into `length_m` (the 1000x bug), and whose
 missing survey columns silently became invented defaults (10 m widths, 0.5 m
 freeboards, fabricated sills).
 
-Sources (workbook `SCADA Section Detailed Information 2026-07-14 V3.0 SL.xlsx`):
+Sources (workbook `SCADA Section Detailed Information 2026-07-24 V5.0 SL.xlsx`):
 - Sheet1 — the gates: exact network ids, canal, zone, per-gate chainage
   (`km`), rated q_max, service area. The `km` column is the gate-position
   authority; the ระยะทาง column is validated against consecutive existing
@@ -51,6 +51,7 @@ import sys
 from pathlib import Path
 
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = SERVICE_ROOT.parents[1]
 sys.path.insert(0, str(SERVICE_ROOT / "src"))
 
 from core.conveyance_loss import parse_chainage_m  # noqa: E402
@@ -62,11 +63,12 @@ from core.routing_topology import (  # noqa: E402
 )
 
 DEFAULT_WORKBOOK = (
-    SERVICE_ROOT
+    REPO_ROOT
+    / "services"
+    / "ros-gis-integration"
     / "data"
     / "sources"
-    / "scada"
-    / "SCADA Section Detailed Information 2026-07-14 V3.0 SL.xlsx"
+    / "SCADA Section Detailed Information 2026-07-24 V5.0 SL.xlsx"
 )
 DEFAULT_OUT_DIR = SERVICE_ROOT / "src" / "config"
 GENERATOR = "scripts/build_scada_config.py"
@@ -117,7 +119,7 @@ SHAPE_SIMILARITY_WEIGHT = 0.45
 DIMENSION_SIMILARITY_WEIGHT = 0.35
 CANAL_CLASS_SIMILARITY_WEIGHT = 0.2
 DESIGN_FSL_REFERENCE_SIDE = "upstream"
-_STRUCTURE_NUMBER = re.compile(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)\Z")
+_DECIMAL_TEXT_NUMBER = re.compile(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)\Z")
 
 
 class WorkbookError(ValueError):
@@ -189,7 +191,7 @@ def cell_number(value, where: str):
     """A finite number from a numeric cell; blanks and '-' are None.
 
     ANY other text raises: a numeric column drifting to Excel text format
-    (a q_max stored as the TEXT '9.961') must halt generation, not silently
+    (a design Qd stored as the TEXT '9.961') must halt generation, not silently
     become null and drop a capacity bound."""
     if value is None:
         return None
@@ -202,31 +204,42 @@ def cell_number(value, where: str):
     raise WorkbookError(f"{where}: non-numeric cell {value!r} in a numeric column")
 
 
-def structure_number(value, where: str):
-    """Finite AH-AJ number, accepting the workbook's decimal-text cells."""
+def _decimal_text_number(value, where: str, column: str):
     if value is None:
         return None
     if isinstance(value, bool):
-        raise WorkbookError(f"{where}: boolean cell in a structure numeric column")
+        raise WorkbookError(f"{where}: boolean cell in a {column} numeric column")
     if isinstance(value, (int, float)):
         number = float(value)
     elif isinstance(value, str):
         text = value.strip()
         if text in ("", "-"):
             return None
-        if _STRUCTURE_NUMBER.fullmatch(text) is None:
-            raise WorkbookError(f"{where}: malformed structure numeric cell {value!r}")
+        if _DECIMAL_TEXT_NUMBER.fullmatch(text) is None:
+            raise WorkbookError(f"{where}: malformed {column} numeric cell {value!r}")
         number = float(text)
     else:
-        raise WorkbookError(f"{where}: invalid structure numeric cell {value!r}")
+        raise WorkbookError(f"{where}: invalid {column} numeric cell {value!r}")
     if not math.isfinite(number):
-        raise WorkbookError(f"{where}: non-finite structure numeric cell {value!r}")
+        raise WorkbookError(f"{where}: non-finite {column} numeric cell {value!r}")
     return number
+
+
+def q_max_number(value, where: str):
+    """Finite q_max number, accepting V5's known decimal-text cells."""
+    return _decimal_text_number(value, where, "q_max")
+
+
+def structure_number(value, where: str):
+    """Finite AH-AJ number, accepting the workbook's decimal-text cells."""
+    return _decimal_text_number(value, where, "structure")
 
 
 def classify_structure_role(
     gate_id: str, canal_class: str, section_number: float | None
 ) -> str:
+    if gate_id == "M(0,0)":
+        return "control"
     if canal_class == "FTO":
         return "turnout"
     if section_number is None and canal_class in {"PC", "SC", "TC", "QC"}:
@@ -275,7 +288,7 @@ def extract_gates(ws) -> list[dict]:
         canal_class = str(cell(15)).strip() if cell(15) is not None else None
         if not canal_class:
             raise WorkbookError(f"gate {gate_id}: missing canal class")
-        q_max = cell_number(cell(21), f"Sheet1 gate {gate_id} q_max")
+        q_max = q_max_number(cell(21), f"Sheet1 gate {gate_id} q_max")
         if q_max is not None and q_max <= 0:
             raise WorkbookError(f"gate {gate_id}: q_max must be > 0, got {q_max}")
         raw_width = cell(25)
@@ -763,9 +776,7 @@ def _metadata(workbook: Path, sha256: str, description: str) -> dict:
 def artifact_bytes(artifact: dict) -> bytes:
     """The exact bytes main() writes for an artifact — shared so lineage
     hashes always match the committed files."""
-    return (json.dumps(artifact, indent=2, ensure_ascii=False) + "\n").encode(
-        "utf-8"
-    )
+    return (json.dumps(artifact, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
 
 
 def calibration_similarity(target: dict, donor: dict) -> float:
@@ -1197,9 +1208,7 @@ def build_all(workbook_path) -> dict:
                 {
                     "source_id": name,
                     "filename": f"{name}.json",
-                    "sha256": hashlib.sha256(
-                        artifact_bytes(artifact)
-                    ).hexdigest(),
+                    "sha256": hashlib.sha256(artifact_bytes(artifact)).hexdigest(),
                 }
                 for name, artifact in (
                     ("network", network),
@@ -1211,8 +1220,7 @@ def build_all(workbook_path) -> dict:
         "elements": routing_payload["elements"],
         "summary": {
             "total_nodes": len(
-                {ROOT}
-                | {element.downstream_node_id for element in routing.elements}
+                {ROOT} | {element.downstream_node_id for element in routing.elements}
             ),
             "total_elements": len(routing.elements),
             "by_role": role_counts,

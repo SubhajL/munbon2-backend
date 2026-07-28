@@ -300,9 +300,8 @@ class TestLoadNetworkConfig:
 
 class TestLoadCanalGeometryConfig:
     def test_accepts_committed_canonical_file(self):
-        # 94 = 99 survey rows - one flume row - eight post-terminal tails + four splits.
         data = load_canal_geometry_config(GEOMETRY)
-        assert len(data["canal_sections"]) == 94
+        assert len(data["canal_sections"]) == 93
 
     def test_accepts_minimal_consistent_geometry(self, tmp_path):
         data = load_canal_geometry_config(_write(tmp_path, _valid_geometry()))
@@ -865,9 +864,7 @@ class TestLoadRoutingTopology:
         return load_routing_topology(path, NETWORK, GEOMETRY_COVERAGE, GEOMETRY)
 
     def test_rejects_content_hash_drift(self, tmp_path):
-        path = self._tampered(
-            tmp_path, lambda a: a.update(content_hash="0" * 64)
-        )
+        path = self._tampered(tmp_path, lambda a: a.update(content_hash="0" * 64))
         with pytest.raises(ConfigError, match="content_hash"):
             self._load_tampered(path)
 
@@ -887,9 +884,7 @@ class TestLoadRoutingTopology:
     def test_rejects_source_artifact_byte_drift(self, tmp_path):
         def stale_network_hash(artifact):
             sources = artifact["lineage"]["source_artifacts"]
-            network_entry = next(
-                s for s in sources if s["source_id"] == "network"
-            )
+            network_entry = next(s for s in sources if s["source_id"] == "network")
             network_entry["sha256"] = "f" * 64
 
         path = self._tampered(tmp_path, stale_network_hash)

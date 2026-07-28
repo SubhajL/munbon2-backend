@@ -19,7 +19,7 @@ POLICY_PATH = (
     SERVICE_ROOT / "data" / "model-releases" / "engineering-prior-policy-v1.json"
 )
 ARTIFACT_PATH = (
-    SERVICE_ROOT / "data" / "model-releases" / "engineering-prior-v3-v1.json"
+    SERVICE_ROOT / "data" / "model-releases" / "engineering-prior-v5-v1.json"
 )
 CONFIG_DIR = SERVICE_ROOT / "src" / "config"
 
@@ -49,6 +49,7 @@ def test_release_carries_no_wall_clock_timestamp():
     artifact = json.loads(ARTIFACT_PATH.read_text(encoding="utf-8"))
     policy = json.loads(POLICY_PATH.read_text(encoding="utf-8"))
 
+    assert artifact["release_id"] == "engineering-prior-v5-v1"
     assert artifact["generated_at"] == policy["release_generated_at"]
 
 

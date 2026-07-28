@@ -78,29 +78,32 @@ class TestDesignProfileService:
             "M(0,0;2,0)",
             "M(0,0;2,1)",
         )
-        assert zone["flow_m3s"] == pytest.approx(1.2)
-        assert zone["binding_capacity_m3s"] == pytest.approx(1.2)
+        assert zone["flow_m3s"] == pytest.approx(1.375)
+        assert zone["binding_capacity_m3s"] == pytest.approx(1.375)
         assert zone["forecast_level_msl_m"] == pytest.approx(205.561, abs=1e-9)
         assert zone["effective_bed_msl_m"] != pytest.approx(zone["sill_msl_m"])
 
-    def test_zone_1_reports_its_tighter_sheet1_capacity(self, service):
+    def test_zone_1_uses_its_v5_binding_capacity(self, service):
         [zone] = service.calculate([1], 1.0)["zones"]
-        assert zone["status"] == "over_capacity"
-        assert zone["reason"] == "flow_exceeds_binding_capacity"
-        assert zone["design_flow_m3s"] == pytest.approx(9.926)
+        assert zone["status"] == "available"
+        assert zone["reason"] is None
+        assert zone["design_flow_m3s"] == pytest.approx(8.737)
         assert zone["binding_capacity_m3s"] == pytest.approx(8.737)
-        assert zone["forecast_level_msl_m"] is None
+        assert zone["forecast_level_msl_m"] == pytest.approx(205.56)
 
-    def test_zones_without_v3_structure_datum_stay_unavailable(self, service):
+    def test_v5_structure_data_makes_every_lmc_zone_available(self, service):
         result = service.calculate([2, 3, 4, 5], 0.5)
         assert [
             (zone["zone"], zone["status"], zone["reason"]) for zone in result["zones"]
         ] == [
-            (2, "unavailable", "structure_data_unavailable"),
-            (3, "unavailable", "structure_data_unavailable"),
-            (4, "unavailable", "structure_data_unavailable"),
-            (5, "unavailable", "structure_data_unavailable"),
+            (2, "available", None),
+            (3, "available", None),
+            (4, "available", None),
+            (5, "available", None),
         ]
+        assert [zone["binding_capacity_m3s"] for zone in result["zones"]] == (
+            pytest.approx([5.43, 2.408, 3.652, 1.927])
+        )
 
     def test_response_is_provenanced_and_never_commandable(self, service):
         result = service.calculate([6], 0.5)
@@ -116,8 +119,8 @@ class TestDesignProfileService:
             "open_loop": True,
             "actual_state_known": False,
             "commandable": False,
-            "source_workbook": "SCADA Section Detailed Information 2026-07-14 V3.0 SL.xlsx",
-            "source_sha256": "528a3fe3978e916ce2048189239045c9ecae5d74f456a2100c9c946ca2787e1c",
+            "source_workbook": "SCADA Section Detailed Information 2026-07-24 V5.0 SL.xlsx",
+            "source_sha256": "bebf10a6b2b4ada2daac0615a453f38d374d9c84fcdc8d4d74983fc682589416",
         }
         assert set(result["config_sha256"]) == {
             "network",
