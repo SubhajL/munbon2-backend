@@ -995,3 +995,75 @@ LOW
   no deployment, remote GIS update, AWS action, machine command, or command
   authority change.
 - Control execution remains disabled and all operational gates remain dark.
+
+## 2026-07-28 16:53:26 +07 - V5 pre-hydraulic local acceptance
+
+### Goal
+
+- Reproduce the complete six-stage local read-only acceptance against backend
+  `0793d7b18bbcf2877f1226f46ca027a24910c13a` and frontend
+  `fbd4ce4df0bb0476b7cd402ac1a4e180a91a7792` before starting the separately
+  scoped V5 hydraulic PR.
+- Preserve the primary checkout's user-owned untracked logs/evidence by using
+  the detached
+  `/Users/subhajlimanond/dev/munbon2-backend-v5-acceptance` worktree.
+
+### What changed
+
+- Added the sanitized ten-file acceptance archive under
+  `coding-logs/evidence/2026-07-28-v5-pre-hydraulic-0793d7b1/`.
+- No product code, runtime configuration, database state, activation flag, AWS
+  resource, or deployment target changed.
+
+### TDD evidence
+
+- No RED run applies because this coherent unit only provisions the existing
+  exact-SHA harness, executes acceptance, and archives generated evidence; it
+  does not change product behavior.
+- Acceptance command that passed:
+  `python3 ops/control-plan-read-local/orchestrate.py run-all --release-sha 0793d7b18bbcf2877f1226f46ca027a24910c13a --frontend-sha fbd4ce4df0bb0476b7cd402ac1a4e180a91a7792 --accept-later-origin-main`.
+
+### Commands and results
+
+- `git fetch origin` - passed.
+- `git worktree add --detach ../munbon2-backend-v5-acceptance 0793d7b18bbcf2877f1226f46ca027a24910c13a`
+  - passed; primary worktree remained untouched.
+- `python3 ops/control-plan-read-local/orchestrate.py provision --release-sha 0793d7b18bbcf2877f1226f46ca027a24910c13a --frontend-sha fbd4ce4df0bb0476b7cd402ac1a4e180a91a7792 --accept-later-origin-main`
+  - passed exact backend/frontend bundle verification and guest bootstrap.
+- The full `run-all` command above passed, in order:
+  `LOCAL-BASE-0`, `LOCAL-RTA-1`, `LOCAL-AC-1`, `LOCAL-READ-ACT-1`,
+  `LOCAL-EVIDENCE-1`, and `LOCAL-GO-READ-1`.
+- `python3 ops/control-plan-read-local/orchestrate.py collect --release-sha 0793d7b18bbcf2877f1226f46ca027a24910c13a --frontend-sha fbd4ce4df0bb0476b7cd402ac1a4e180a91a7792 --accept-later-origin-main --evidence-dir coding-logs/evidence/2026-07-28-v5-pre-hydraulic-0793d7b1`
+  - passed evidence streaming and extraction.
+- `(cd coding-logs/evidence/2026-07-28-v5-pre-hydraulic-0793d7b1 && shasum -a 256 -c SHA256SUMS)`
+  - all nine indexed artifacts passed.
+- `shasum -a 256 SHA256SUMS`
+  - index digest
+    `b03300018ecc59ac876f55edfb445129eb27fb74b1f4de361280b162ba2537b1`.
+- Independent JSON contract checks passed: ten exact files, all six verdicts
+  `PASS`, exact ordered stage state, final cleanup verified, all final gates
+  dark, `aws_actions=false`, and no secret-shaped value keys.
+- Both screenshots were visually inspected:
+  - live: Waste Way read-only/offline state, null observations, no command
+    controls;
+  - outage: gate-status-unavailable state with no stale values or controls.
+
+### Independent evidence review
+
+- Result: PASS with no contract or safety finding.
+- The reviewer independently repeated checksum verification, confirmed all
+  nine installed harness hashes against the exact clean checkout, checked the
+  intentional backend/frontend field-shape differences, and verified browser,
+  cleanup, listener, PM2, Auth, dark-contract, no-mutation, and no-AWS evidence.
+- Residual risk: `SHA256SUMS` is not independently signed and does not checksum
+  itself. The archive therefore preserves its aggregate digest above and will
+  bind it to a Git commit and PR.
+
+### Safety and follow-up
+
+- This archive proves local read-only acceptance only. It is not AWS,
+  deployment, command-authority, or dev-database activation evidence.
+- Actual V5 dev activation remains separately authorized by
+  `docs/operations/V5_HYBRID_SECTION_MASTER_ACTIVATION.md`.
+- Next: archive this evidence through its own PR/merge/local-main lifecycle,
+  then branch the V5 hydraulic TDD change from the refreshed merged `main`.
