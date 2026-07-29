@@ -1665,3 +1665,196 @@ def test_validate_migration_parity_fails_closed_on_any_missing_tail(
 ):
     with pytest.raises(stage_suite.StageGateError, match="migration_parity_failed"):
         stage_suite.validate_migration_parity(scheduler, ros, bff)
+
+
+# --- LOCAL-WRITE-FOUNDATION-1 tests ---
+
+
+def test_stage_order_includes_local_write_foundation_after_go_read():
+    assert stage_suite.STAGE_ORDER[-1] == "LOCAL-WRITE-FOUNDATION-1"
+    assert stage_suite.STAGE_ORDER[-2] == "LOCAL-GO-READ-1"
+
+
+def test_stage_transition_accepts_write_foundation_after_all_six_prior_stages():
+    stage_suite.validate_stage_transition(
+        (
+            "LOCAL-BASE-0",
+            "LOCAL-RTA-1",
+            "LOCAL-AC-1",
+            "LOCAL-READ-ACT-1",
+            "LOCAL-EVIDENCE-1",
+            "LOCAL-GO-READ-1",
+        ),
+        "LOCAL-WRITE-FOUNDATION-1",
+    )
+
+
+def test_validate_w1_principal_result_accepts_valid_operator():
+    body = {"subject": "op1", "effective_roles": ["operator"]}
+    headers = {"cache-control": "no-store"}
+
+    result = stage_suite.validate_w1_principal_result(200, body, headers)
+
+    assert result["subject"] == "op1"
+    assert result["effective_roles"] == ["operator"]
+
+
+def test_validate_w1_principal_result_rejects_missing_operator_role():
+    body = {"subject": "ft1", "effective_roles": ["field_team"]}
+    headers = {"cache-control": "no-store"}
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="w1_principal_result_not_accepted",
+    ):
+        stage_suite.validate_w1_principal_result(200, body, headers)
+
+
+def test_validate_w1_principal_result_rejects_missing_no_store():
+    body = {"subject": "op1", "effective_roles": ["operator"]}
+    headers = {"cache-control": "max-age=60"}
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="w1_principal_result_not_accepted",
+    ):
+        stage_suite.validate_w1_principal_result(200, body, headers)
+
+
+def test_validate_w2_write_disabled_result_accepts_503_disabled():
+    body = {"detail": "planning_depth_writes_disabled"}
+    headers = {"cache-control": "no-store"}
+
+    result = stage_suite.validate_w2_write_disabled_result(503, body, headers)
+
+    assert result["status"] == 503
+    assert result["detail"] == "planning_depth_writes_disabled"
+
+
+def test_validate_w2_submission_result_accepts_201_create():
+    body = {
+        "submission_id": "sid-1",
+        "client_submission_id": "csid-1",
+        "request_sha256": "a" * 64,
+        "replayed": False,
+        "week_key": "2026-W31",
+        "project_key": "mun-bon",
+        "submitted_at": "2026-07-28T12:00:00+07:00",
+        "submitted_by": "op1",
+    }
+    headers = {"cache-control": "no-store"}
+
+    result = stage_suite.validate_w2_submission_result(
+        201, body, headers, expected_status=201
+    )
+
+    assert result["submission_id"] == "sid-1"
+    assert result["replayed"] is False
+
+
+def test_validate_w2_active_result_accepts_200_with_41_values():
+    body = {
+        "submission_id": "sid-1",
+        "levels": [{"section_id": f"s{i}"} for i in range(41)],
+    }
+    headers = {"cache-control": "no-store"}
+
+    result = stage_suite.validate_w2_active_result(
+        200, body, headers, submission_id="sid-1", expected_count=41
+    )
+
+    assert result["levels_count"] == 41
+
+
+def test_validate_w2_conflict_result_accepts_409():
+    body = {"detail": "stale_active_submission"}
+    headers = {"cache-control": "no-store"}
+
+    result = stage_suite.validate_w2_conflict_result(409, body, headers)
+
+    assert result["status"] == 409
+
+
+def test_validate_w2_not_found_result_accepts_404():
+    body = {"detail": "planning_depth_submission_not_found"}
+    headers = {"cache-control": "no-store"}
+
+    result = stage_suite.validate_w2_not_found_result(404, body, headers)
+
+    assert result["status"] == 404
+
+
+def test_build_planning_depth_request_produces_distinct_canonical_payloads():
+    req_a = stage_suite._build_planning_depth_request(
+        week_date="2026-07-27",
+        client_submission_id="csid-a",
+        active_submission_id=None,
+        depth_offset="0.100",
+    )
+    req_b = stage_suite._build_planning_depth_request(
+        week_date="2026-07-27",
+        client_submission_id="csid-b",
+        active_submission_id=None,
+        depth_offset="0.200",
+    )
+
+    assert req_a["project_key"] == "mun-bon"
+    assert req_a["week_date"] == "2026-07-27"
+    assert len(req_a["levels"]) == 6
+    assert req_a["levels"] != req_b["levels"]
+
+
+def test_validate_w2_write_disabled_result_rejects_wrong_status():
+    body = {"detail": "planning_depth_writes_disabled"}
+    headers = {"cache-control": "no-store"}
+
+    with pytest.raises(stage_suite.StageGateError, match="w2_write_disabled"):
+        stage_suite.validate_w2_write_disabled_result(200, body, headers)
+
+
+def test_validate_w2_submission_result_rejects_wrong_status():
+    body = {
+        "submission_id": "sid-1",
+        "client_submission_id": "csid-1",
+        "request_sha256": "a" * 64,
+        "replayed": False,
+        "week_key": "2026-W31",
+        "project_key": "mun-bon",
+        "submitted_at": "2026-07-28T12:00:00+07:00",
+        "submitted_by": "op1",
+    }
+    headers = {"cache-control": "no-store"}
+
+    with pytest.raises(stage_suite.StageGateError, match="w2_submission"):
+        stage_suite.validate_w2_submission_result(
+            500, body, headers, expected_status=201
+        )
+
+
+def test_validate_w2_active_result_rejects_wrong_count():
+    body = {
+        "submission_id": "sid-1",
+        "levels": [{"section_id": "s0"}],
+    }
+    headers = {"cache-control": "no-store"}
+
+    with pytest.raises(stage_suite.StageGateError, match="w2_active"):
+        stage_suite.validate_w2_active_result(
+            200, body, headers, submission_id="sid-1", expected_count=41
+        )
+
+
+def test_validate_w2_conflict_result_rejects_wrong_status():
+    body = {"detail": "stale_active_submission"}
+    headers = {"cache-control": "no-store"}
+
+    with pytest.raises(stage_suite.StageGateError, match="w2_conflict"):
+        stage_suite.validate_w2_conflict_result(200, body, headers)
+
+
+def test_validate_w2_not_found_result_rejects_wrong_status():
+    body = {"detail": "planning_depth_submission_not_found"}
+    headers = {"cache-control": "no-store"}
+
+    with pytest.raises(stage_suite.StageGateError, match="w2_not_found"):
+        stage_suite.validate_w2_not_found_result(200, body, headers)

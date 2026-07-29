@@ -48,6 +48,7 @@ STAGE_ORDER = (
     "LOCAL-READ-ACT-1",
     "LOCAL-EVIDENCE-1",
     "LOCAL-GO-READ-1",
+    "LOCAL-WRITE-FOUNDATION-1",
 )
 READINESS_URLS = {
     "flow-monitoring": "http://127.0.0.1:3011/ready",
@@ -3816,8 +3817,342 @@ def run_local_go_read(context: StageContext) -> dict:
     clear_failure_manifest(context.evidence_root, "LOCAL-GO-READ-1")
     write_stage_manifest(target, manifest)
     _checksum_manifest(target)
-    _save_state(context, list(STAGE_ORDER))
+    _save_state(context, list(STAGE_ORDER[:6]))
     print("PASS LOCAL-GO-READ-1")
+    return manifest
+
+
+# --- LOCAL-WRITE-FOUNDATION-1 helpers ---
+
+
+def validate_w1_principal_result(
+    status: int, body: Any, headers: dict[str, str]
+) -> dict:
+    try:
+        no_store = "no-store" in headers.get("cache-control", "").lower()
+        subject = str(body["subject"])
+        roles = body["effective_roles"]
+        if (
+            status != 200
+            or not no_store
+            or not isinstance(roles, list)
+            or "operator" not in roles
+            or sorted(roles) != roles
+        ):
+            raise ValueError
+        return {"subject": subject, "effective_roles": roles}
+    except (KeyError, TypeError, ValueError) as exc:
+        raise StageGateError("w1_principal_result_not_accepted") from exc
+
+
+def validate_w2_write_disabled_result(
+    status: int, body: Any, headers: dict[str, str]
+) -> dict:
+    try:
+        no_store = "no-store" in headers.get("cache-control", "").lower()
+        detail = str(body["detail"])
+        if (
+            status != 503
+            or not no_store
+            or detail != "planning_depth_writes_disabled"
+        ):
+            raise ValueError
+        return {"status": 503, "detail": detail}
+    except (KeyError, TypeError, ValueError) as exc:
+        raise StageGateError("w2_write_disabled_result_not_accepted") from exc
+
+
+def validate_w2_submission_result(
+    status: int,
+    body: Any,
+    headers: dict[str, str],
+    *,
+    expected_status: int,
+) -> dict:
+    try:
+        no_store = "no-store" in headers.get("cache-control", "").lower()
+        submission_id = str(body["submission_id"])
+        client_submission_id = str(body["client_submission_id"])
+        request_sha256 = str(body["request_sha256"])
+        replayed = body["replayed"]
+        week_key = str(body["week_key"])
+        if (
+            status != expected_status
+            or not no_store
+            or not isinstance(replayed, bool)
+            or len(request_sha256) != 64
+        ):
+            raise ValueError
+        return {
+            "submission_id": submission_id,
+            "client_submission_id": client_submission_id,
+            "request_sha256": request_sha256,
+            "replayed": replayed,
+            "week_key": week_key,
+            "project_key": str(body["project_key"]),
+            "submitted_at": str(body["submitted_at"]),
+            "submitted_by": str(body["submitted_by"]),
+        }
+    except (KeyError, TypeError, ValueError) as exc:
+        raise StageGateError("w2_submission_result_not_accepted") from exc
+
+
+def validate_w2_active_result(
+    status: int,
+    body: Any,
+    headers: dict[str, str],
+    *,
+    submission_id: str,
+    expected_count: int,
+) -> dict:
+    try:
+        no_store = "no-store" in headers.get("cache-control", "").lower()
+        levels = body["levels"]
+        if (
+            status != 200
+            or not no_store
+            or str(body["submission_id"]) != submission_id
+            or not isinstance(levels, list)
+            or len(levels) != expected_count
+        ):
+            raise ValueError
+        return {
+            "submission_id": str(body["submission_id"]),
+            "levels_count": len(levels),
+        }
+    except (KeyError, TypeError, ValueError) as exc:
+        raise StageGateError("w2_active_result_not_accepted") from exc
+
+
+def validate_w2_conflict_result(
+    status: int, body: Any, headers: dict[str, str]
+) -> dict:
+    try:
+        no_store = "no-store" in headers.get("cache-control", "").lower()
+        if status != 409 or not no_store:
+            raise ValueError
+        return {"status": 409, "detail": str(body.get("detail", ""))}
+    except (KeyError, TypeError, ValueError) as exc:
+        raise StageGateError("w2_conflict_result_not_accepted") from exc
+
+
+def validate_w2_not_found_result(
+    status: int, body: Any, headers: dict[str, str]
+) -> dict:
+    try:
+        no_store = "no-store" in headers.get("cache-control", "").lower()
+        if status != 404 or not no_store:
+            raise ValueError
+        return {"status": 404}
+    except (KeyError, TypeError, ValueError) as exc:
+        raise StageGateError("w2_not_found_result_not_accepted") from exc
+
+
+def _build_planning_depth_request(
+    *,
+    week_date: str,
+    client_submission_id: str,
+    active_submission_id: str | None,
+    depth_offset: str,
+) -> dict:
+    offset = float(depth_offset)
+    zone_ids = [
+        "zone-upper-1",
+        "zone-upper-2",
+        "zone-mid-1",
+        "zone-mid-2",
+        "zone-lower-1",
+        "zone-lower-2",
+    ]
+    levels = []
+    for i, zone_id in enumerate(zone_ids):
+        depth_mm = round(150.0 + (i * 10.0) + (offset * 1000), 1)
+        levels.append({
+            "area_type": "zone",
+            "area_id": zone_id,
+            "planning_depth_mm": depth_mm,
+        })
+    parsed = date.fromisoformat(week_date)
+    iso_year, iso_week, _ = parsed.isocalendar()
+    request: dict[str, Any] = {
+        "schema_version": 1,
+        "project_key": "mun-bon",
+        "week_date": week_date,
+        "week_key": f"{iso_year:04d}-W{iso_week:02d}",
+        "client_submission_id": client_submission_id,
+        "levels": levels,
+    }
+    request["expected_active_submission_id"] = active_submission_id
+    return request
+
+
+def _restart_bff_with_flag(context: StageContext, *, enabled: bool) -> None:
+    bff_env_path = context.runtime_env_dir / "bff.env"
+    current = _load_env_file(bff_env_path)
+    current["PLANNING_DEPTH_WRITES_ENABLED"] = "true" if enabled else "false"
+    lines = [f"{key}={value}" for key, value in current.items()]
+    temporary = bff_env_path.with_suffix(".tmp")
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+        stream.write("\n".join(lines) + "\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.replace(temporary, bff_env_path)
+    _run_checked(
+        "bff_restart",
+        ["pm2", "restart", "bff-water-planning", "--update-env"],
+        timeout=30,
+    )
+    client = LocalHttpClient()
+    _wait_json(client, READINESS_URLS["bff-water-planning"])
+
+
+def run_local_write_foundation(context: StageContext) -> dict:
+    state = _load_state(context)
+    validate_stage_transition(tuple(state["completed"]), "LOCAL-WRITE-FOUNDATION-1")
+
+    verifier = _load_harness_module(
+        context,
+        "verify_bearer.py",
+        "local_write_foundation_bearer_verifier",
+    )
+    client = LocalHttpClient()
+    token, refresh_cookie, login_evidence = _login_operator(
+        context,
+        client,
+        verifier,
+    )
+
+    steps: dict[str, Any] = {"login": login_evidence}
+
+    try:
+        w1 = client.request(
+            "GET",
+            "http://127.0.0.1:3021/api/v1/auth/principal",
+            bearer=token,
+        )
+        steps["w1_principal"] = validate_w1_principal_result(
+            w1.status, w1.body, w1.headers
+        )
+
+        w2_base = "http://127.0.0.1:3022/api/v1/water-planning/planning-depth-submissions"
+        w2_disabled = client.request(
+            "POST",
+            w2_base,
+            payload=_build_planning_depth_request(
+                week_date="2026-07-27",
+                client_submission_id="00000000-0000-4000-a000-000000000001",
+                active_submission_id=None,
+                depth_offset="0.100",
+            ),
+            bearer=token,
+        )
+        steps["w2_dark_flag_gate"] = validate_w2_write_disabled_result(
+            w2_disabled.status, w2_disabled.body, w2_disabled.headers
+        )
+
+        migration_env = _load_env_file(context.runtime_env_dir / "bff.env")
+        steps["migration_010"] = {
+            "planning_depth_writes_enabled": migration_env.get(
+                "PLANNING_DEPTH_WRITES_ENABLED", ""
+            ),
+        }
+
+        try:
+            _restart_bff_with_flag(context, enabled=True)
+            create_req = _build_planning_depth_request(
+                week_date="2026-07-27",
+                client_submission_id="00000000-0000-4000-a000-000000000002",
+                active_submission_id=None,
+                depth_offset="0.100",
+            )
+            create = client.request("POST", w2_base, payload=create_req, bearer=token)
+            steps["w2_create"] = validate_w2_submission_result(
+                create.status, create.body, create.headers, expected_status=201
+            )
+
+            replay = client.request("POST", w2_base, payload=create_req, bearer=token)
+            steps["w2_replay"] = validate_w2_submission_result(
+                replay.status, replay.body, replay.headers, expected_status=200
+            )
+            if replay.body["submission_id"] != create.body["submission_id"]:
+                raise StageGateError("w2_replay_submission_id_mismatch")
+
+            conflict_req = _build_planning_depth_request(
+                week_date="2026-07-27",
+                client_submission_id="00000000-0000-4000-a000-000000000003",
+                active_submission_id="00000000-0000-4000-a000-fffffffffff0",
+                depth_offset="0.200",
+            )
+            conflict = client.request(
+                "POST", w2_base, payload=conflict_req, bearer=token
+            )
+            steps["w2_conflict"] = validate_w2_conflict_result(
+                conflict.status, conflict.body, conflict.headers
+            )
+
+            active_week_key = create.body["week_key"]
+            active_url = (
+                f"{w2_base}/active"
+                f"?project_key=mun-bon&week_key={active_week_key}"
+            )
+            active = client.request("GET", active_url, bearer=token)
+            steps["w2_active"] = validate_w2_active_result(
+                active.status,
+                active.body,
+                active.headers,
+                submission_id=create.body["submission_id"],
+                expected_count=41,
+            )
+
+            not_found_url = f"{w2_base}/active?project_key=mun-bon&week_key=2099-W01"
+            not_found = client.request("GET", not_found_url, bearer=token)
+            steps["w2_not_found"] = validate_w2_not_found_result(
+                not_found.status, not_found.body, not_found.headers
+            )
+        finally:
+            _restart_bff_with_flag(context, enabled=False)
+
+        w2_restored = client.request(
+            "POST",
+            w2_base,
+            payload=_build_planning_depth_request(
+                week_date="2026-07-27",
+                client_submission_id="00000000-0000-4000-a000-000000000004",
+                active_submission_id=None,
+                depth_offset="0.300",
+            ),
+            bearer=token,
+        )
+        steps["w2_restored_gate"] = validate_w2_write_disabled_result(
+            w2_restored.status, w2_restored.body, w2_restored.headers
+        )
+    finally:
+        logout = client.request(
+            "POST",
+            "http://127.0.0.1:3005/api/v1/auth/logout",
+            payload={"refreshToken": refresh_cookie},
+        )
+        if logout.status not in {200, 204}:
+            raise StageGateError("write_foundation_operator_logout_failed")
+
+    steps["aws_actions"] = False
+
+    manifest = {
+        "stage": "LOCAL-WRITE-FOUNDATION-1",
+        "verdict": "PASS",
+        "release_sha": context.release_sha,
+        "frontend_sha": context.frontend_sha,
+        "completed_at": _utc_timestamp(),
+        "steps": steps,
+    }
+    validate_evidence_payload(manifest)
+    target = context.evidence_root / "LOCAL-WRITE-FOUNDATION-1.json"
+    clear_failure_manifest(context.evidence_root, "LOCAL-WRITE-FOUNDATION-1")
+    write_stage_manifest(target, manifest)
+    _checksum_manifest(target)
+    _save_state(context, list(STAGE_ORDER[:7]))
+    print("PASS LOCAL-WRITE-FOUNDATION-1")
     return manifest
 
 
@@ -3872,8 +4207,10 @@ def main(argv: list[str] | None = None) -> int:
             run_local_read_activation(context)
         elif args.stage == "LOCAL-EVIDENCE-1":
             run_local_evidence_activation(context)
-        else:
+        elif args.stage == "LOCAL-GO-READ-1":
             run_local_go_read(context)
+        else:
+            run_local_write_foundation(context)
     except Exception as exc:
         safe_error = (
             exc

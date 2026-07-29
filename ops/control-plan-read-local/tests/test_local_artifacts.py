@@ -77,10 +77,12 @@ def test_orchestrator_provisions_every_local_ac_harness_artifact():
 def test_every_completed_stage_is_added_to_the_checksum_index():
     body = (LOCAL_DIR / "run-stage-suite.py").read_text(encoding="utf-8")
 
-    assert body.count("_checksum_manifest(target)") == 6
+    assert body.count("_checksum_manifest(target)") == 7
     assert "_checksum_manifest(path)" in body
     assert "_verify_checksum_entry" in body
     assert "_save_state(context, list(STAGE_ORDER[:5]))" in body
+    assert "_save_state(context, list(STAGE_ORDER[:6]))" in body
+    assert "_save_state(context, list(STAGE_ORDER[:7]))" in body
 
 
 def test_stage_suite_uses_the_v5_hydraulic_release():
