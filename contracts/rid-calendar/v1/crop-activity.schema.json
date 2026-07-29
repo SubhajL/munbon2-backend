@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://munbon.rid.go.th/contracts/rid-calendar/v1/crop-activity.schema.json",
+  "title": "Source-driven crop activity vectors",
+  "description": "Golden vectors mapping source-provided planting and expected-harvest dates plus an observation date to crop activity. No rainy or dry season is inferred from the month.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract_family", "contract_version", "vector_kind", "vectors"],
+  "properties": {
+    "contract_family": { "const": "rid-calendar" },
+    "contract_version": { "const": 1 },
+    "vector_kind": { "const": "crop-activity" },
+    "vectors": {
+      "type": "array",
+      "minItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "planting_date",
+          "expected_harvest_date",
+          "on",
+          "state",
+          "crop_week",
+          "note"
+        ],
+        "properties": {
+          "planting_date": { "type": "string", "format": "date" },
+          "expected_harvest_date": { "type": "string", "format": "date" },
+          "on": { "type": "string", "format": "date" },
+          "state": {
+            "type": "string",
+            "enum": ["not_planted", "active", "harvested"]
+          },
+          "crop_week": {
+            "type": ["integer", "null"],
+            "minimum": 1,
+            "description": "Present only while state is active. Planting and expected harvest dates are inclusive."
+          },
+          "note": { "type": "string", "minLength": 1 }
+        },
+        "oneOf": [
+          {
+            "properties": {
+              "state": { "const": "active" },
+              "crop_week": { "type": "integer", "minimum": 1 }
+            }
+          },
+          {
+            "properties": {
+              "state": { "enum": ["not_planted", "harvested"] },
+              "crop_week": { "type": "null" }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

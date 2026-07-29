@@ -318,6 +318,21 @@ services/flow-monitoring/docs/*
 !services/ros-gis-integration/tests/
 !services/ros-gis-integration/tests/**
 
+# Track the ros test suite (rid-calendar conformance). Without this the blanket
+# tests/ rule above silently drops the JS half of the cross-language contract,
+# leaving the drift oracle absent for everyone but its author.
+!services/ros/tests/
+!services/ros/tests/**
+# Re-assert the credential guards INSIDE the re-included tests tree
+# (last-match-wins: the negation above would otherwise make secret-shaped
+# files trackable — this repo has committed-credential history).
+services/ros/tests/**/.env*
+services/ros/tests/**/*.pem
+services/ros/tests/**/*.key
+services/ros/tests/**/*.sql
+services/ros/tests/**/credentials*
+services/ros/tests/**/*.local.js
+
 # Track ros-gis-integration schema migrations (Wave 2.5 dataset-version parent).
 # Exact allowlist exception to the blanket *.sql credential guard above.
 !services/ros-gis-integration/migrations/

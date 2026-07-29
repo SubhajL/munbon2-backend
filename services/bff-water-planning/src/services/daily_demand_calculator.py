@@ -9,7 +9,7 @@ from enum import Enum
 import asyncio
 from collections import defaultdict
 
-from core import get_logger
+from core import CropActivityState, crop_activity, get_logger
 from config import settings
 from db import DatabaseManager
 from services.cache_manager import get_cache_manager
@@ -83,9 +83,30 @@ class DailyDemandCalculator:
         for plot in plots:
             plot_id = plot['plot_id']
             section_id = plot['section_id']
+
+            try:
+                activity = crop_activity(
+                    plot['planting_date'],
+                    plot['expected_harvest_date'],
+                    date
+                )
+            except (KeyError, TypeError, ValueError) as e:
+                self.logger.warning(
+                    "Skipping plot with invalid crop window",
+                    plot_id=plot_id,
+                    error=str(e)
+                )
+                continue
+
+            if activity.state is not CropActivityState.ACTIVE:
+                continue
+
+            crop_week = activity.crop_week
+            if crop_week is None:
+                raise RuntimeError("active crop activity lost its crop week")
             
             # Calculate ROS demand
-            ros_demand = await self._calculate_ros_demand(plot, date)
+            ros_demand = await self._calculate_ros_demand(plot, date, crop_week)
             
             # Get AquaCrop demand from latest geopackage processing
             aquacrop_demand = await self._get_aquacrop_demand(plot_id, date)
@@ -139,32 +160,19 @@ class DailyDemandCalculator:
                 "awd_savings_percent": awd_demand.get('savings_percent', 0)
             }
         
-        # Store daily demands
-        await self._store_daily_demands(daily_demands)
+        if daily_demands:
+            await self._store_daily_demands(daily_demands)
         
         return daily_demands
     
     async def _calculate_ros_demand(
         self,
         plot: Dict,
-        date: date
+        date: date,
+        crop_week: int
     ) -> Dict:
         """Calculate water demand using ROS service"""
         try:
-            # Get crop calendar
-            crop_info = await self.ros_client.get_crop_calendar(
-                plot['plot_id'],
-                plot['crop_type']
-            )
-            
-            if not crop_info:
-                return {"net_demand_m3": 0, "source": "ros"}
-            
-            # Calculate crop week
-            planting_date = datetime.fromisoformat(crop_info['plantingDate']).date()
-            days_since_planting = (date - planting_date).days
-            crop_week = max(1, (days_since_planting // 7) + 1)
-            
             # Get weekly water level if available
             weekly_water_level = None
             if self.water_level_client and plot.get('section_id'):
