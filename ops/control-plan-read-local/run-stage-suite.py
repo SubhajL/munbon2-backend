@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from http.cookiejar import CookieJar
 import hashlib
 from hmac import compare_digest
@@ -28,7 +28,7 @@ from urllib.request import (
     build_opener,
     urlopen,
 )
-from uuid import UUID
+from uuid import NAMESPACE_DNS, UUID, uuid5
 
 
 class StageGateError(RuntimeError):
@@ -56,6 +56,9 @@ READINESS_URLS = {
     "ros-gis-integration": "http://127.0.0.1:3047/ready",
     "bff-water-planning": "http://127.0.0.1:3022/ready",
 }
+WRITE_FOUNDATION_NAMESPACE = uuid5(
+    NAMESPACE_DNS, "local-write-foundation.munbon.invalid"
+)
 EXPECTED_FRONTEND_SHA = "fbd4ce4df0bb0476b7cd402ac1a4e180a91a7792"
 NODE_ROOT = Path("/opt/node-v22.23.1-linux-arm64")
 BROWSER_ROOT = Path("/opt/munbon/browser")
@@ -3904,7 +3907,14 @@ def validate_w2_active_result(
     *,
     submission_id: str,
     expected_count: int,
+    expected_zone_depths: dict[str, float],
 ) -> dict:
+    """Validate the active read, including the zone -> section expansion.
+
+    Counting levels is not enough: a fan-out that served every section one
+    zone's default still returns exactly 41 rows. Each level is therefore
+    checked against the depth its own zone was submitted with.
+    """
     try:
         no_store = "no-store" in headers.get("cache-control", "").lower()
         levels = body["levels"]
@@ -3916,9 +3926,28 @@ def validate_w2_active_result(
             or len(levels) != expected_count
         ):
             raise ValueError
+        for level in levels:
+            zone_id = str(level["zone_id"])
+            section_id = str(level["section_id"])
+            if (
+                zone_id not in expected_zone_depths
+                or float(level["planning_depth_mm"]) != expected_zone_depths[zone_id]
+                or level["source_kind"] != "zone_default"
+                or str(level["source_area_id"]) != zone_id
+                # section_id encodes its own zone, so a row relabelled into
+                # another zone is caught even though the row is self-consistent.
+                or not section_id.startswith(f"{zone_id}-")
+            ):
+                raise ValueError
+        zones_covered = sorted({str(level["zone_id"]) for level in levels})
+        # Per-row checks alone would accept 41 rows all relabelled into one
+        # zone; require the whole expected zone set to appear.
+        if zones_covered != sorted(expected_zone_depths):
+            raise ValueError
         return {
             "submission_id": str(body["submission_id"]),
             "levels_count": len(levels),
+            "zones_covered": zones_covered,
         }
     except (KeyError, TypeError, ValueError) as exc:
         raise StageGateError("w2_active_result_not_accepted") from exc
@@ -3927,63 +3956,154 @@ def validate_w2_active_result(
 def validate_w2_conflict_result(
     status: int, body: Any, headers: dict[str, str]
 ) -> dict:
+    """Require the optimistic-concurrency 409, not merely any 409.
+
+    The service emits three distinct 409s. Accepting a
+    client_submission_id_conflict here would make this drill pass for the very
+    id-collision the derived submission ids exist to prevent.
+    """
     try:
         no_store = "no-store" in headers.get("cache-control", "").lower()
-        if status != 409 or not no_store:
+        detail = str(body["detail"])
+        if status != 409 or not no_store or detail != "stale_active_submission":
             raise ValueError
-        return {"status": 409, "detail": str(body.get("detail", ""))}
+        return {"status": 409, "detail": detail}
     except (KeyError, TypeError, ValueError) as exc:
         raise StageGateError("w2_conflict_result_not_accepted") from exc
+
+
+def _require_absent_active_submission(
+    status: int, body: Any, headers: dict[str, str], *, code: str
+) -> None:
+    no_store = "no-store" in headers.get("cache-control", "").lower()
+    detail = body.get("detail") if isinstance(body, dict) else None
+    if (
+        status != 404
+        or not no_store
+        or detail != "planning_depth_submission_not_found"
+    ):
+        raise StageGateError(code)
+
+
+def validate_write_flag_is_dark(flag_value: str) -> dict:
+    """Refuse to probe the dark gate while planning-depth writes are armed.
+
+    The dark-gate drill POSTs a well-formed submission and expects a 503. If the
+    flag is still armed -- e.g. a previous run was killed between arming and
+    restoring -- that POST instead inserts a real submission into an append-only
+    table, poisoning the target week permanently.
+    """
+    if flag_value.strip().lower() == "true":
+        raise StageGateError("write_foundation_flag_not_dark")
+    return {"planning_depth_writes_enabled": flag_value}
+
+
+def validate_w2_week_is_clean(
+    status: int, body: Any, headers: dict[str, str]
+) -> dict:
+    """Require the target week to hold no active submission before writing.
+
+    The stage can only prove a first create (201) against a week with no active
+    submission, and migration 010 makes submissions immutable, so a written week
+    can never be cleaned. Remedy on failure: re-run with --as-of-date pointing at
+    a different ISO week.
+    """
+    if status == 200:
+        raise StageGateError("write_foundation_week_not_clean")
+    # Anything else (401/403/503/...) is a broken precheck, not a dirty week.
+    _require_absent_active_submission(
+        status, body, headers, code="write_foundation_week_precheck_failed"
+    )
+    return {"status": 404, "clean": True}
+
+
+def _write_foundation_week(as_of_date: date) -> tuple[str, str]:
+    """Return (week_date, week_key) for the RID Monday of the as-of week.
+
+    week_key uses the ISO year, which diverges from the calendar year around
+    New Year (2027-01-01 belongs to 2026-W53).
+    """
+    monday = as_of_date - timedelta(days=as_of_date.weekday())
+    iso_year, iso_week, _ = monday.isocalendar()
+    return monday.isoformat(), f"{iso_year:04d}-W{iso_week:02d}"
+
+
+def _write_foundation_client_submission_id(
+    release_sha: str, week_key: str, drill: str
+) -> str:
+    """Derive a stable client submission id for one drill of one run.
+
+    The BFF looks up client_submission_id globally, and week_key is part of the
+    canonicalised request, so the id must co-vary with the week: reusing an id
+    across weeks is a client_submission_id_conflict, not a replay.
+    """
+    return str(uuid5(WRITE_FOUNDATION_NAMESPACE, f"{release_sha}:{week_key}:{drill}"))
 
 
 def validate_w2_not_found_result(
     status: int, body: Any, headers: dict[str, str]
 ) -> dict:
-    try:
-        no_store = "no-store" in headers.get("cache-control", "").lower()
-        if status != 404 or not no_store:
-            raise ValueError
-        return {"status": 404}
-    except (KeyError, TypeError, ValueError) as exc:
-        raise StageGateError("w2_not_found_result_not_accepted") from exc
+    _require_absent_active_submission(
+        status, body, headers, code="w2_not_found_result_not_accepted"
+    )
+    return {"status": 404}
 
 
 def _build_planning_depth_request(
     *,
     week_date: str,
+    week_key: str,
     client_submission_id: str,
     active_submission_id: str | None,
     depth_offset: str,
 ) -> dict:
     offset = float(depth_offset)
-    zone_ids = [
-        "zone-upper-1",
-        "zone-upper-2",
-        "zone-mid-1",
-        "zone-mid-2",
-        "zone-lower-1",
-        "zone-lower-2",
-    ]
     levels = []
-    for i, zone_id in enumerate(zone_ids):
-        depth_mm = round(150.0 + (i * 10.0) + (offset * 1000), 1)
-        levels.append({
-            "area_type": "zone",
-            "area_id": zone_id,
-            "planning_depth_mm": depth_mm,
-        })
-    parsed = date.fromisoformat(week_date)
-    iso_year, iso_week, _ = parsed.isocalendar()
-    request: dict[str, Any] = {
+    for index, zone in enumerate(range(1, 7)):
+        levels.append(
+            {
+                "area_type": "zone",
+                "area_id": f"01-{zone:02d}",
+                "planning_depth_mm": round(150.0 + (index * 10.0) + (offset * 1000), 1),
+            }
+        )
+    return {
         "schema_version": 1,
         "project_key": "mun-bon",
         "week_date": week_date,
-        "week_key": f"{iso_year:04d}-W{iso_week:02d}",
+        "week_key": week_key,
         "client_submission_id": client_submission_id,
+        "expected_active_submission_id": active_submission_id,
         "levels": levels,
     }
-    request["expected_active_submission_id"] = active_submission_id
-    return request
+
+
+def _build_dark_probe_request(
+    *, week_date: str, week_key: str, client_submission_id: str
+) -> dict:
+    """Build a submission that the runtime can never persist.
+
+    The write-flag gate runs before roster validation, so a schema-valid but
+    roster-invalid body returns 503 while writes are dark and 422 unknown_area
+    -- before the rate limiter and before any INSERT -- if the runtime turns out
+    to be armed. Probing the dark gate with a fully valid body instead inserts a
+    real submission, and migration 010 makes that permanent.
+    """
+    return {
+        "schema_version": 1,
+        "project_key": "mun-bon",
+        "week_date": week_date,
+        "week_key": week_key,
+        "client_submission_id": client_submission_id,
+        "expected_active_submission_id": None,
+        "levels": [
+            {
+                "area_type": "zone",
+                "area_id": "01-99",
+                "planning_depth_mm": 250.0,
+            }
+        ],
+    }
 
 
 def _restart_bff_with_flag(context: StageContext, *, enabled: bool) -> None:
@@ -4007,6 +4127,138 @@ def _restart_bff_with_flag(context: StageContext, *, enabled: bool) -> None:
     _wait_json(client, READINESS_URLS["bff-water-planning"])
 
 
+def run_write_foundation_drills(
+    client,
+    *,
+    token: str,
+    week_date: str,
+    week_key: str,
+    drill_submission_id,
+    arm_writes,
+    read_write_flag,
+) -> dict:
+    """Drive the W1/W2 drills, arming planning-depth writes only in the middle.
+
+    Collaborators are injected so the arming window -- the one part of this stage
+    that can leave the runtime in a non-dark state -- is exercisable without a
+    live runtime. `arm_writes(False)` MUST run on every path out of the armed
+    section.
+    """
+    steps: dict[str, Any] = {}
+    w1 = client.request(
+        "GET",
+        "http://127.0.0.1:3021/api/v1/auth/principal",
+        bearer=token,
+    )
+    steps["w1_principal"] = validate_w1_principal_result(w1.status, w1.body, w1.headers)
+
+    w2_base = "http://127.0.0.1:3022/api/v1/water-planning/planning-depth-submissions"
+    active_url = f"{w2_base}/active?project_key=mun-bon&week_key={week_key}"
+
+    def build(drill: str, *, depth_offset: str, active: str | None = None) -> dict:
+        return _build_planning_depth_request(
+            week_date=week_date,
+            week_key=week_key,
+            client_submission_id=drill_submission_id(drill),
+            active_submission_id=active,
+            depth_offset=depth_offset,
+        )
+
+    # Prove the week is writable before touching the flag, so a re-run fails here
+    # with a remedy rather than as a 200 replay mid-drill.
+    precheck = client.request("GET", active_url, bearer=token)
+    steps["w2_week_clean"] = validate_w2_week_is_clean(
+        precheck.status, precheck.body, precheck.headers
+    )
+
+    # bff.env is only the intended state -- a failed disarm restart leaves the
+    # file dark while the process stays armed -- so this is a fast early signal,
+    # not the safety mechanism. Safety comes from the probe body below, which
+    # cannot be persisted even against an armed runtime.
+    steps["migration_010"] = validate_write_flag_is_dark(read_write_flag())
+
+    w2_disabled = client.request(
+        "POST",
+        w2_base,
+        payload=_build_dark_probe_request(
+            week_date=week_date,
+            week_key=week_key,
+            client_submission_id=drill_submission_id("dark-gate"),
+        ),
+        bearer=token,
+    )
+    steps["w2_dark_flag_gate"] = validate_w2_write_disabled_result(
+        w2_disabled.status, w2_disabled.body, w2_disabled.headers
+    )
+
+    create_req = build("create", depth_offset="0.100")
+    expected_zone_depths = {
+        level["area_id"]: level["planning_depth_mm"] for level in create_req["levels"]
+    }
+    try:
+        arm_writes(True)
+        create = client.request("POST", w2_base, payload=create_req, bearer=token)
+        steps["w2_create"] = validate_w2_submission_result(
+            create.status, create.body, create.headers, expected_status=201
+        )
+
+        replay = client.request("POST", w2_base, payload=create_req, bearer=token)
+        steps["w2_replay"] = validate_w2_submission_result(
+            replay.status, replay.body, replay.headers, expected_status=200
+        )
+        if replay.body["submission_id"] != create.body["submission_id"]:
+            raise StageGateError("w2_replay_submission_id_mismatch")
+
+        conflict = client.request(
+            "POST",
+            w2_base,
+            payload=build(
+                "conflict",
+                depth_offset="0.200",
+                active=drill_submission_id("absent-active"),
+            ),
+            bearer=token,
+        )
+        steps["w2_conflict"] = validate_w2_conflict_result(
+            conflict.status, conflict.body, conflict.headers
+        )
+
+        if create.body["week_key"] != week_key:
+            raise StageGateError("w2_create_week_key_mismatch")
+        active = client.request("GET", active_url, bearer=token)
+        steps["w2_active"] = validate_w2_active_result(
+            active.status,
+            active.body,
+            active.headers,
+            submission_id=create.body["submission_id"],
+            expected_count=41,
+            expected_zone_depths=expected_zone_depths,
+        )
+
+        not_found_url = f"{w2_base}/active?project_key=mun-bon&week_key=2099-W01"
+        not_found = client.request("GET", not_found_url, bearer=token)
+        steps["w2_not_found"] = validate_w2_not_found_result(
+            not_found.status, not_found.body, not_found.headers
+        )
+    finally:
+        arm_writes(False)
+
+    w2_restored = client.request(
+        "POST",
+        w2_base,
+        payload=_build_dark_probe_request(
+            week_date=week_date,
+            week_key=week_key,
+            client_submission_id=drill_submission_id("restored-gate"),
+        ),
+        bearer=token,
+    )
+    steps["w2_restored_gate"] = validate_w2_write_disabled_result(
+        w2_restored.status, w2_restored.body, w2_restored.headers
+    )
+    return steps
+
+
 def run_local_write_foundation(context: StageContext) -> dict:
     state = _load_state(context)
     validate_stage_transition(tuple(state["completed"]), "LOCAL-WRITE-FOUNDATION-1")
@@ -4023,109 +4275,31 @@ def run_local_write_foundation(context: StageContext) -> dict:
         verifier,
     )
 
-    steps: dict[str, Any] = {"login": login_evidence}
+    week_date, week_key = _write_foundation_week(context.as_of_date)
+    steps: dict[str, Any] = {
+        "login": login_evidence,
+        "target_week": {"week_date": week_date, "week_key": week_key},
+    }
 
     try:
-        w1 = client.request(
-            "GET",
-            "http://127.0.0.1:3021/api/v1/auth/principal",
-            bearer=token,
-        )
-        steps["w1_principal"] = validate_w1_principal_result(
-            w1.status, w1.body, w1.headers
-        )
-
-        w2_base = "http://127.0.0.1:3022/api/v1/water-planning/planning-depth-submissions"
-        w2_disabled = client.request(
-            "POST",
-            w2_base,
-            payload=_build_planning_depth_request(
-                week_date="2026-07-27",
-                client_submission_id="00000000-0000-4000-a000-000000000001",
-                active_submission_id=None,
-                depth_offset="0.100",
-            ),
-            bearer=token,
-        )
-        steps["w2_dark_flag_gate"] = validate_w2_write_disabled_result(
-            w2_disabled.status, w2_disabled.body, w2_disabled.headers
-        )
-
-        migration_env = _load_env_file(context.runtime_env_dir / "bff.env")
-        steps["migration_010"] = {
-            "planning_depth_writes_enabled": migration_env.get(
-                "PLANNING_DEPTH_WRITES_ENABLED", ""
-            ),
-        }
-
-        try:
-            _restart_bff_with_flag(context, enabled=True)
-            create_req = _build_planning_depth_request(
-                week_date="2026-07-27",
-                client_submission_id="00000000-0000-4000-a000-000000000002",
-                active_submission_id=None,
-                depth_offset="0.100",
+        steps.update(
+            run_write_foundation_drills(
+                client,
+                token=token,
+                week_date=week_date,
+                week_key=week_key,
+                drill_submission_id=lambda drill: (
+                    _write_foundation_client_submission_id(
+                        context.release_sha, week_key, drill
+                    )
+                ),
+                arm_writes=lambda enabled: _restart_bff_with_flag(
+                    context, enabled=enabled
+                ),
+                read_write_flag=lambda: _load_env_file(
+                    context.runtime_env_dir / "bff.env"
+                ).get("PLANNING_DEPTH_WRITES_ENABLED", ""),
             )
-            create = client.request("POST", w2_base, payload=create_req, bearer=token)
-            steps["w2_create"] = validate_w2_submission_result(
-                create.status, create.body, create.headers, expected_status=201
-            )
-
-            replay = client.request("POST", w2_base, payload=create_req, bearer=token)
-            steps["w2_replay"] = validate_w2_submission_result(
-                replay.status, replay.body, replay.headers, expected_status=200
-            )
-            if replay.body["submission_id"] != create.body["submission_id"]:
-                raise StageGateError("w2_replay_submission_id_mismatch")
-
-            conflict_req = _build_planning_depth_request(
-                week_date="2026-07-27",
-                client_submission_id="00000000-0000-4000-a000-000000000003",
-                active_submission_id="00000000-0000-4000-a000-fffffffffff0",
-                depth_offset="0.200",
-            )
-            conflict = client.request(
-                "POST", w2_base, payload=conflict_req, bearer=token
-            )
-            steps["w2_conflict"] = validate_w2_conflict_result(
-                conflict.status, conflict.body, conflict.headers
-            )
-
-            active_week_key = create.body["week_key"]
-            active_url = (
-                f"{w2_base}/active"
-                f"?project_key=mun-bon&week_key={active_week_key}"
-            )
-            active = client.request("GET", active_url, bearer=token)
-            steps["w2_active"] = validate_w2_active_result(
-                active.status,
-                active.body,
-                active.headers,
-                submission_id=create.body["submission_id"],
-                expected_count=41,
-            )
-
-            not_found_url = f"{w2_base}/active?project_key=mun-bon&week_key=2099-W01"
-            not_found = client.request("GET", not_found_url, bearer=token)
-            steps["w2_not_found"] = validate_w2_not_found_result(
-                not_found.status, not_found.body, not_found.headers
-            )
-        finally:
-            _restart_bff_with_flag(context, enabled=False)
-
-        w2_restored = client.request(
-            "POST",
-            w2_base,
-            payload=_build_planning_depth_request(
-                week_date="2026-07-27",
-                client_submission_id="00000000-0000-4000-a000-000000000004",
-                active_submission_id=None,
-                depth_offset="0.300",
-            ),
-            bearer=token,
-        )
-        steps["w2_restored_gate"] = validate_w2_write_disabled_result(
-            w2_restored.status, w2_restored.body, w2_restored.headers
         )
     finally:
         logout = client.request(

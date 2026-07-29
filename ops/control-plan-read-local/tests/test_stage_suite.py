@@ -1,3 +1,6 @@
+import ast
+import dataclasses
+from datetime import date, timedelta
 import importlib.util
 import hashlib
 import inspect
@@ -5,7 +8,7 @@ import json
 import os
 from pathlib import Path
 import sys
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -17,6 +20,21 @@ assert SPEC is not None and SPEC.loader is not None
 stage_suite = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = stage_suite
 SPEC.loader.exec_module(stage_suite)
+
+SEED_MODULE_PATH = Path(__file__).resolve().parents[1] / "seed-approved-sources.py"
+SEED_SPEC = importlib.util.spec_from_file_location(
+    "local_approved_sources_for_stage_suite", SEED_MODULE_PATH
+)
+assert SEED_SPEC is not None and SEED_SPEC.loader is not None
+approved_sources = importlib.util.module_from_spec(SEED_SPEC)
+SEED_SPEC.loader.exec_module(approved_sources)
+
+# Sections 3..43 is the roster size the BFF hard-requires
+# (planning_depth_submission.validate_canonical_roster). The section range and
+# the 01-NN area-id format are restated here -- the seed module does not export
+# either -- so this pins the section->zone MAPPING only. A change to the roster
+# size or to the area-id format is NOT caught here.
+SEEDED_SECTION_NUMBERS = range(3, 44)
 
 
 def test_validate_runtime_urls_accepts_only_exact_loopback_http_endpoints():
@@ -1752,27 +1770,166 @@ def test_validate_w2_submission_result_accepts_201_create():
     assert result["replayed"] is False
 
 
-def test_validate_w2_active_result_accepts_200_with_41_values():
+def _expanded_levels(depths: dict[str, float]) -> list[dict]:
+    levels = []
+    for zone in range(1, 7):
+        zone_id = f"01-{zone:02d}"
+        for section in range(zone, 43, 6):
+            levels.append(
+                {
+                    "section_id": f"01-{zone:02d}-01-{section + 2:02d}",
+                    "zone_id": zone_id,
+                    "planning_depth_mm": depths[zone_id],
+                    "source_kind": "zone_default",
+                    "source_area_id": zone_id,
+                }
+            )
+    return levels[:41]
+
+
+ZONE_DEPTHS = {f"01-{zone:02d}": 240.0 + 10.0 * zone for zone in range(1, 7)}
+
+
+def test_validate_w2_active_result_accepts_200_with_41_expanded_values():
     body = {
         "submission_id": "sid-1",
-        "levels": [{"section_id": f"s{i}"} for i in range(41)],
+        "levels": _expanded_levels(ZONE_DEPTHS),
     }
     headers = {"cache-control": "no-store"}
 
     result = stage_suite.validate_w2_active_result(
-        200, body, headers, submission_id="sid-1", expected_count=41
+        200,
+        body,
+        headers,
+        submission_id="sid-1",
+        expected_count=41,
+        expected_zone_depths=ZONE_DEPTHS,
     )
 
     assert result["levels_count"] == 41
 
 
-def test_validate_w2_conflict_result_accepts_409():
-    body = {"detail": "stale_active_submission"}
+def test_validate_w2_active_result_rejects_collapsed_zone_expansion():
+    # Every section served one zone's default: the count is still 41, so only a
+    # per-zone depth check can catch a broken zone->section fan-out.
+    collapsed = _expanded_levels({zone: 250.0 for zone in ZONE_DEPTHS})
     headers = {"cache-control": "no-store"}
 
-    result = stage_suite.validate_w2_conflict_result(409, body, headers)
+    with pytest.raises(stage_suite.StageGateError, match="w2_active"):
+        stage_suite.validate_w2_active_result(
+            200,
+            {"submission_id": "sid-1", "levels": collapsed},
+            headers,
+            submission_id="sid-1",
+            expected_count=41,
+            expected_zone_depths=ZONE_DEPTHS,
+        )
 
-    assert result["status"] == 409
+
+def test_validate_w2_active_result_rejects_a_relabelled_collapsed_expansion():
+    # 41 self-consistent rows all claiming one zone: every row passes a per-row
+    # check, so only a whole-set coverage check catches this.
+    collapsed = [
+        {
+            "section_id": f"01-01-01-{index + 3:02d}",
+            "zone_id": "01-01",
+            "planning_depth_mm": ZONE_DEPTHS["01-01"],
+            "source_kind": "zone_default",
+            "source_area_id": "01-01",
+        }
+        for index in range(41)
+    ]
+
+    with pytest.raises(stage_suite.StageGateError, match="w2_active"):
+        stage_suite.validate_w2_active_result(
+            200,
+            {"submission_id": "sid-1", "levels": collapsed},
+            {"cache-control": "no-store"},
+            submission_id="sid-1",
+            expected_count=41,
+            expected_zone_depths=ZONE_DEPTHS,
+        )
+
+
+def test_validate_w2_active_result_rejects_a_section_id_from_another_zone():
+    levels = _expanded_levels(ZONE_DEPTHS)
+    # section_id encodes its own zone; a row whose section belongs elsewhere is
+    # a broken mapping even though the row is internally consistent.
+    levels[0] = {**levels[0], "section_id": "01-04-01-09"}
+
+    with pytest.raises(stage_suite.StageGateError, match="w2_active"):
+        stage_suite.validate_w2_active_result(
+            200,
+            {"submission_id": "sid-1", "levels": levels},
+            {"cache-control": "no-store"},
+            submission_id="sid-1",
+            expected_count=41,
+            expected_zone_depths=ZONE_DEPTHS,
+        )
+
+
+def test_validate_w2_week_is_clean_rejects_a_404_with_an_unexpected_detail():
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_foundation_week_precheck_failed",
+    ):
+        stage_suite.validate_w2_week_is_clean(
+            404, {"detail": "something_else"}, {"cache-control": "no-store"}
+        )
+
+
+def test_dark_probe_request_can_never_be_persisted():
+    # The write-flag gate precedes roster validation, so a roster-invalid body
+    # yields 503 when dark and 422 (no write) if the runtime is unexpectedly
+    # armed. A fully valid body would be inserted instead.
+    probe = stage_suite._build_dark_probe_request(
+        week_date="2026-07-27",
+        week_key="2026-W31",
+        client_submission_id="id-dark-gate",
+    )
+    canonical_zones = {f"01-{zone:02d}" for zone in range(1, 7)}
+
+    assert probe["levels"]
+    assert not {level["area_id"] for level in probe["levels"]} <= canonical_zones
+    assert probe["schema_version"] == 1
+    assert probe["week_key"] == "2026-W31"
+
+
+def test_validate_w2_active_result_rejects_section_override_source_kind():
+    levels = _expanded_levels(ZONE_DEPTHS)
+    levels[0] = {**levels[0], "source_kind": "section_override"}
+    headers = {"cache-control": "no-store"}
+
+    with pytest.raises(stage_suite.StageGateError, match="w2_active"):
+        stage_suite.validate_w2_active_result(
+            200,
+            {"submission_id": "sid-1", "levels": levels},
+            headers,
+            submission_id="sid-1",
+            expected_count=41,
+            expected_zone_depths=ZONE_DEPTHS,
+        )
+
+
+def test_validate_w2_conflict_result_accepts_only_the_stale_active_conflict():
+    headers = {"cache-control": "no-store"}
+
+    result = stage_suite.validate_w2_conflict_result(
+        409, {"detail": "stale_active_submission"}, headers
+    )
+
+    assert result["detail"] == "stale_active_submission"
+
+
+def test_validate_w2_conflict_result_rejects_a_client_id_collision_409():
+    # The uuid5 derivation exists to prevent this 409; accepting it here would
+    # make the drill green for the very failure it is meant to detect.
+    headers = {"cache-control": "no-store"}
+
+    with pytest.raises(stage_suite.StageGateError, match="w2_conflict"):
+        stage_suite.validate_w2_conflict_result(
+            409, {"detail": "client_submission_id_conflict"}, headers
+        )
 
 
 def test_validate_w2_not_found_result_accepts_404():
@@ -1787,12 +1944,14 @@ def test_validate_w2_not_found_result_accepts_404():
 def test_build_planning_depth_request_produces_distinct_canonical_payloads():
     req_a = stage_suite._build_planning_depth_request(
         week_date="2026-07-27",
+        week_key="2026-W31",
         client_submission_id="csid-a",
         active_submission_id=None,
         depth_offset="0.100",
     )
     req_b = stage_suite._build_planning_depth_request(
         week_date="2026-07-27",
+        week_key="2026-W31",
         client_submission_id="csid-b",
         active_submission_id=None,
         depth_offset="0.200",
@@ -1802,6 +1961,103 @@ def test_build_planning_depth_request_produces_distinct_canonical_payloads():
     assert req_a["week_date"] == "2026-07-27"
     assert len(req_a["levels"]) == 6
     assert req_a["levels"] != req_b["levels"]
+
+
+def test_build_planning_depth_request_uses_the_supplied_week_key():
+    # The week key must come from the single derivation in
+    # _write_foundation_week, not a second formula inside the builder.
+    request = stage_suite._build_planning_depth_request(
+        week_date="2026-07-27",
+        week_key="2026-W99",
+        client_submission_id="csid-a",
+        active_submission_id=None,
+        depth_offset="0.100",
+    )
+
+    assert request["week_key"] == "2026-W99"
+
+
+def test_build_planning_depth_request_zone_depths_match_the_active_oracle():
+    request = stage_suite._build_planning_depth_request(
+        week_date="2026-07-27",
+        week_key="2026-W31",
+        client_submission_id="csid-a",
+        active_submission_id=None,
+        depth_offset="0.100",
+    )
+
+    assert {
+        level["area_id"]: level["planning_depth_mm"] for level in request["levels"]
+    } == ZONE_DEPTHS
+
+
+def test_validate_write_flag_is_dark_accepts_a_disabled_flag():
+    assert stage_suite.validate_write_flag_is_dark("false") == {
+        "planning_depth_writes_enabled": "false"
+    }
+
+
+def test_validate_write_flag_is_dark_refuses_to_probe_an_armed_runtime():
+    # Probing the dark gate while writes are armed inserts a real submission
+    # into an append-only table, poisoning that week permanently.
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_foundation_flag_not_dark",
+    ):
+        stage_suite.validate_write_flag_is_dark("true")
+
+
+def test_validate_w2_week_is_clean_distinguishes_an_unavailable_precheck():
+    body = {"detail": "planning_depth_database_unavailable"}
+    headers = {"cache-control": "no-store"}
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_foundation_week_precheck_failed",
+    ):
+        stage_suite.validate_w2_week_is_clean(503, body, headers)
+
+
+def test_validate_w2_week_is_clean_rejects_a_404_without_no_store():
+    body = {"detail": "planning_depth_submission_not_found"}
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_foundation_week_precheck_failed",
+    ):
+        stage_suite.validate_w2_week_is_clean(404, body, {"cache-control": "max-age=60"})
+
+
+def test_validate_w2_not_found_result_rejects_a_404_without_no_store():
+    body = {"detail": "planning_depth_submission_not_found"}
+
+    with pytest.raises(stage_suite.StageGateError, match="w2_not_found"):
+        stage_suite.validate_w2_not_found_result(
+            404, body, {"cache-control": "max-age=60"}
+        )
+
+
+def test_validate_w2_active_result_rejects_a_200_without_no_store():
+    body = {"submission_id": "sid-1", "levels": _expanded_levels(ZONE_DEPTHS)}
+
+    with pytest.raises(stage_suite.StageGateError, match="w2_active"):
+        stage_suite.validate_w2_active_result(
+            200,
+            body,
+            {"cache-control": "max-age=60"},
+            submission_id="sid-1",
+            expected_count=41,
+            expected_zone_depths=ZONE_DEPTHS,
+        )
+
+
+def test_validate_w2_conflict_result_rejects_a_409_without_no_store():
+    body = {"detail": "stale_active_submission"}
+
+    with pytest.raises(stage_suite.StageGateError, match="w2_conflict"):
+        stage_suite.validate_w2_conflict_result(
+            409, body, {"cache-control": "max-age=60"}
+        )
 
 
 def test_validate_w2_write_disabled_result_rejects_wrong_status():
@@ -1834,13 +2090,18 @@ def test_validate_w2_submission_result_rejects_wrong_status():
 def test_validate_w2_active_result_rejects_wrong_count():
     body = {
         "submission_id": "sid-1",
-        "levels": [{"section_id": "s0"}],
+        "levels": _expanded_levels(ZONE_DEPTHS)[:1],
     }
     headers = {"cache-control": "no-store"}
 
     with pytest.raises(stage_suite.StageGateError, match="w2_active"):
         stage_suite.validate_w2_active_result(
-            200, body, headers, submission_id="sid-1", expected_count=41
+            200,
+            body,
+            headers,
+            submission_id="sid-1",
+            expected_count=41,
+            expected_zone_depths=ZONE_DEPTHS,
         )
 
 
@@ -1858,3 +2119,371 @@ def test_validate_w2_not_found_result_rejects_wrong_status():
 
     with pytest.raises(stage_suite.StageGateError, match="w2_not_found"):
         stage_suite.validate_w2_not_found_result(200, body, headers)
+
+
+# --- runtime correctness + re-runnability ---
+
+
+def test_planning_depth_request_zone_ids_match_the_seeded_canonical_roster():
+    seeded_zones = {
+        approved_sources._zone_for_section(number)
+        for number in SEEDED_SECTION_NUMBERS
+    }
+    expected_area_ids = {f"01-{zone:02d}" for zone in seeded_zones}
+
+    request = stage_suite._build_planning_depth_request(
+        week_date="2026-07-27",
+        week_key="2026-W31",
+        client_submission_id="00000000-0000-4000-a000-000000000002",
+        active_submission_id=None,
+        depth_offset="0.100",
+    )
+
+    assert {level["area_id"] for level in request["levels"]} == expected_area_ids
+    assert {level["area_type"] for level in request["levels"]} == {"zone"}
+    assert not any("zone_id" in level for level in request["levels"])
+
+
+def test_write_foundation_week_is_the_monday_of_the_as_of_week():
+    assert stage_suite._write_foundation_week(date(2026, 7, 29)) == (
+        "2026-07-27",
+        "2026-W31",
+    )
+
+
+def test_write_foundation_week_is_stable_for_every_day_of_that_week():
+    monday = date(2026, 7, 27)
+    resolved = {
+        stage_suite._write_foundation_week(monday + timedelta(days=offset))
+        for offset in range(7)
+    }
+
+    assert resolved == {("2026-07-27", "2026-W31")}
+
+
+def test_write_foundation_week_snaps_back_across_a_calendar_year_boundary():
+    # 2027-01-01 is a Friday whose Monday falls in the previous calendar year.
+    # NOTE: this does NOT pin ISO-vs-calendar year -- that Monday's calendar and
+    # ISO years both read 2026. The ISO property is pinned by the test below.
+    assert stage_suite._write_foundation_week(date(2027, 1, 1)) == (
+        "2026-12-28",
+        "2026-W53",
+    )
+
+
+def test_write_foundation_week_handles_iso_year_ahead_of_calendar_year():
+    # 2025-12-29 is a Monday that already belongs to ISO week 2026-W01 — the
+    # mirror of the 2026-W53 case, and the direction a calendar-year
+    # implementation gets wrong in the opposite way.
+    assert stage_suite._write_foundation_week(date(2025, 12, 29)) == (
+        "2025-12-29",
+        "2026-W01",
+    )
+    assert stage_suite._write_foundation_week(date(2026, 1, 1)) == (
+        "2025-12-29",
+        "2026-W01",
+    )
+
+
+def test_client_submission_id_is_deterministic_for_the_same_run():
+    first = stage_suite._write_foundation_client_submission_id(
+        "7f8b8a84", "2026-W31", "create"
+    )
+    second = stage_suite._write_foundation_client_submission_id(
+        "7f8b8a84", "2026-W31", "create"
+    )
+
+    assert first == second
+    assert UUID(first).version == 5
+
+
+def test_client_submission_id_covaries_with_the_week_key():
+    week_31 = stage_suite._write_foundation_client_submission_id(
+        "7f8b8a84", "2026-W31", "create"
+    )
+    week_32 = stage_suite._write_foundation_client_submission_id(
+        "7f8b8a84", "2026-W32", "create"
+    )
+
+    assert week_31 != week_32
+
+
+def test_client_submission_id_differs_per_drill_and_per_release():
+    create = stage_suite._write_foundation_client_submission_id(
+        "7f8b8a84", "2026-W31", "create"
+    )
+    conflict = stage_suite._write_foundation_client_submission_id(
+        "7f8b8a84", "2026-W31", "conflict"
+    )
+    other_release = stage_suite._write_foundation_client_submission_id(
+        "469553cc", "2026-W31", "create"
+    )
+
+    assert len({create, conflict, other_release}) == 3
+
+
+def test_validate_w2_week_is_clean_accepts_absent_active_submission():
+    body = {"detail": "planning_depth_submission_not_found"}
+    headers = {"cache-control": "no-store"}
+
+    assert stage_suite.validate_w2_week_is_clean(404, body, headers) == {
+        "status": 404,
+        "clean": True,
+    }
+
+
+def test_write_foundation_stage_derives_week_and_ids_instead_of_hardcoding():
+    tree = ast.parse(inspect.getsource(stage_suite.run_local_write_foundation))
+    called = [
+        node.func.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    ]
+
+    assert called.count("_write_foundation_week") == 1
+    assert called.count("_write_foundation_client_submission_id") == 1
+    assert "2026-07-27" not in inspect.getsource(stage_suite.run_local_write_foundation)
+
+
+class _FakeResponse:
+    def __init__(self, status, body=None, headers=None):
+        self.status = status
+        self.body = {} if body is None else body
+        self.headers = {"cache-control": "no-store"} if headers is None else headers
+
+
+class _ScriptedClient:
+    """Replays queued responses and records the calls it received."""
+
+    def __init__(self, responses):
+        self._responses = list(responses)
+        self.calls = []
+
+    def request(self, method, url, *, payload=None, bearer=None, **kwargs):
+        self.calls.append((method, url, payload))
+        if not self._responses:
+            raise AssertionError(f"unscripted request: {method} {url}")
+        return self._responses.pop(0)
+
+
+def test_scripted_client_pins_the_real_http_client_signature():
+    # A fake encoding a wrong interface assumption makes every test above it
+    # false assurance, so pin it against the client the stage actually uses.
+    real = inspect.signature(stage_suite.LocalHttpClient.request)
+    fake = inspect.signature(_ScriptedClient.request)
+    accepts_kwargs = any(
+        parameter.kind is inspect.Parameter.VAR_KEYWORD
+        for parameter in fake.parameters.values()
+    )
+
+    assert accepts_kwargs
+    for name, parameter in real.parameters.items():
+        if parameter.kind is inspect.Parameter.KEYWORD_ONLY:
+            continue
+        assert name in fake.parameters, f"fake is missing {name}"
+    assert [f.name for f in dataclasses.fields(stage_suite.HttpResult)] == [
+        "status",
+        "body",
+        "headers",
+    ]
+
+
+def _drill_kwargs(*, flag="false", arming=None):
+    return dict(
+        token="t",
+        week_date="2026-07-27",
+        week_key="2026-W31",
+        drill_submission_id=lambda drill: f"id-{drill}",
+        arm_writes=(arming if arming is not None else []).append,
+        read_write_flag=lambda: flag,
+    )
+
+
+def _receipt(submission_id, *, replayed):
+    return {
+        "submission_id": submission_id,
+        "client_submission_id": "id-create",
+        "request_sha256": "a" * 64,
+        "replayed": replayed,
+        "week_key": "2026-W31",
+        "project_key": "mun-bon",
+        "submitted_at": "2026-07-27T12:00:00+07:00",
+        "submitted_by": "op1",
+    }
+
+
+def _happy_path_responses():
+    return [
+        _FakeResponse(200, {"subject": "op1", "effective_roles": ["operator"]}),
+        _FakeResponse(404, {"detail": "planning_depth_submission_not_found"}),
+        _FakeResponse(503, {"detail": "planning_depth_writes_disabled"}),
+        _FakeResponse(201, _receipt("sid-1", replayed=False)),
+        _FakeResponse(200, _receipt("sid-1", replayed=True)),
+        _FakeResponse(409, {"detail": "stale_active_submission"}),
+        _FakeResponse(
+            200, {"submission_id": "sid-1", "levels": _expanded_levels(ZONE_DEPTHS)}
+        ),
+        _FakeResponse(404, {"detail": "planning_depth_submission_not_found"}),
+        _FakeResponse(503, {"detail": "planning_depth_writes_disabled"}),
+    ]
+
+
+def test_write_foundation_drills_complete_every_drill_on_the_happy_path():
+    arming = []
+    client = _ScriptedClient(_happy_path_responses())
+
+    steps = stage_suite.run_write_foundation_drills(
+        client, **_drill_kwargs(arming=arming)
+    )
+
+    assert set(steps) == {
+        "w1_principal",
+        "w2_week_clean",
+        "migration_010",
+        "w2_dark_flag_gate",
+        "w2_create",
+        "w2_replay",
+        "w2_conflict",
+        "w2_active",
+        "w2_not_found",
+        "w2_restored_gate",
+    }
+    assert arming == [True, False]
+    assert steps["w2_create"]["replayed"] is False
+    assert steps["w2_replay"]["replayed"] is True
+    assert steps["w2_active"]["levels_count"] == 41
+
+
+def test_write_foundation_drills_prove_the_gate_is_dark_again_after_disarming():
+    arming = []
+    client = _ScriptedClient(_happy_path_responses())
+
+    stage_suite.run_write_foundation_drills(client, **_drill_kwargs(arming=arming))
+
+    # the restored-gate POST must be the last request, i.e. after arm_writes(False)
+    assert client.calls[-1][0] == "POST"
+    assert not client._responses, "every scripted response must be consumed"
+
+
+def test_write_foundation_drills_reject_a_replay_where_a_fresh_create_is_required():
+    # The whole point of the derived week/ids: the create drill must see 201.
+    responses = _happy_path_responses()
+    responses[3] = _FakeResponse(200, _receipt("sid-1", replayed=True))
+    client = _ScriptedClient(responses)
+
+    with pytest.raises(stage_suite.StageGateError, match="w2_submission"):
+        stage_suite.run_write_foundation_drills(client, **_drill_kwargs(arming=[]))
+
+
+def test_write_foundation_drills_reject_a_replay_of_a_different_submission():
+    responses = _happy_path_responses()
+    responses[4] = _FakeResponse(200, _receipt("sid-other", replayed=True))
+    client = _ScriptedClient(responses)
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="w2_replay_submission_id_mismatch",
+    ):
+        stage_suite.run_write_foundation_drills(client, **_drill_kwargs(arming=[]))
+
+
+def test_write_foundation_drills_restore_the_dark_flag_when_a_drill_fails():
+    arming = []
+    # clean precheck -> dark gate 503 -> create returns an unexpected 500
+    client = _ScriptedClient(
+        [
+            _FakeResponse(200, {"subject": "op1", "effective_roles": ["operator"]}),
+            _FakeResponse(404, {"detail": "planning_depth_submission_not_found"}),
+            _FakeResponse(503, {"detail": "planning_depth_writes_disabled"}),
+            _FakeResponse(500, {"detail": "boom"}),
+        ]
+    )
+
+    with pytest.raises(stage_suite.StageGateError):
+        stage_suite.run_write_foundation_drills(
+            client, **_drill_kwargs(arming=arming)
+        )
+
+    assert arming == [True, False], "writes must be disarmed on the failure path"
+
+
+def test_write_foundation_drills_never_arm_writes_when_the_week_is_dirty():
+    arming = []
+    client = _ScriptedClient(
+        [
+            _FakeResponse(200, {"subject": "op1", "effective_roles": ["operator"]}),
+            _FakeResponse(200, {"submission_id": "existing", "levels": []}),
+        ]
+    )
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_foundation_week_not_clean",
+    ):
+        stage_suite.run_write_foundation_drills(
+            client, **_drill_kwargs(arming=arming)
+        )
+
+    assert arming == [], "a dirty week must never arm the write flag"
+
+
+def test_write_foundation_drills_refuse_to_probe_an_already_armed_runtime():
+    arming = []
+    client = _ScriptedClient(
+        [
+            _FakeResponse(200, {"subject": "op1", "effective_roles": ["operator"]}),
+            _FakeResponse(404, {"detail": "planning_depth_submission_not_found"}),
+        ]
+    )
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_foundation_flag_not_dark",
+    ):
+        stage_suite.run_write_foundation_drills(
+            client, **_drill_kwargs(arming=arming, flag="true")
+        )
+
+    # The dark-gate POST would have been persisted against an armed runtime.
+    assert arming == []
+    assert [method for method, _, _ in client.calls] == ["GET", "GET"]
+
+
+def test_write_foundation_drills_check_the_week_before_arming_writes():
+    arming = []
+    client = _ScriptedClient(
+        [
+            _FakeResponse(200, {"subject": "op1", "effective_roles": ["operator"]}),
+            _FakeResponse(404, {"detail": "planning_depth_submission_not_found"}),
+            _FakeResponse(503, {"detail": "planning_depth_writes_disabled"}),
+            _FakeResponse(500, {"detail": "stop here"}),
+        ]
+    )
+
+    recorded = []
+
+    def arm(enabled):
+        recorded.append(("arm", enabled, len(client.calls)))
+        arming.append(enabled)
+
+    kwargs = _drill_kwargs(arming=arming)
+    kwargs["arm_writes"] = arm
+    with pytest.raises(stage_suite.StageGateError):
+        stage_suite.run_write_foundation_drills(client, **kwargs)
+
+    # the clean-week GET and the dark-gate POST both complete before writes arm
+    methods = [method for method, _, _ in client.calls]
+    assert methods[:3] == ["GET", "GET", "POST"]
+    first_arm = next(entry for entry in recorded if entry[1] is True)
+    assert first_arm[2] == 3, "writes armed before the dark-gate drill finished"
+
+
+def test_validate_w2_week_is_clean_rejects_an_existing_active_submission():
+    body = {"submission_id": "sid-1", "levels": []}
+    headers = {"cache-control": "no-store"}
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_foundation_week_not_clean",
+    ):
+        stage_suite.validate_w2_week_is_clean(200, body, headers)
