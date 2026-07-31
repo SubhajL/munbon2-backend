@@ -48,6 +48,19 @@ uploads/
 # Test files
 *.test.js
 *.spec.js
+# ...except the committed suite under tests/. This blanket rule is why this
+# service shipped with no runnable tests: every *.test.js written for it was
+# silently untracked.
+!tests/**/*.test.js
+!tests/**/*.spec.js
+# ...but a secret-shaped basename must never ride in on a .test.js suffix.
+# This deeper .gitignore wins over the root guards, so re-assert them here.
+tests/**/.env*
+tests/**/*.pem*
+tests/**/*.key*
+tests/**/credentials*
+tests/**/*secret*
+tests/**/*.local.*
 
 # Reports
 reports/

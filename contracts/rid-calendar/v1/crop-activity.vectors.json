@@ -1,0 +1,79 @@
+{
+  "contract_family": "rid-calendar",
+  "contract_version": 1,
+  "vector_kind": "crop-activity",
+  "vectors": [
+    {
+      "planting_date": "2026-07-15",
+      "expected_harvest_date": "2026-12-15",
+      "on": "2025-06-10",
+      "state": "not_planted",
+      "crop_week": null,
+      "note": "long before planting"
+    },
+    {
+      "planting_date": "2026-07-15",
+      "expected_harvest_date": "2026-12-15",
+      "on": "2026-07-14",
+      "state": "not_planted",
+      "crop_week": null,
+      "note": "day before planting"
+    },
+    {
+      "planting_date": "2026-07-15",
+      "expected_harvest_date": "2026-12-15",
+      "on": "2026-07-15",
+      "state": "active",
+      "crop_week": 1,
+      "note": "planting day"
+    },
+    {
+      "planting_date": "2026-07-15",
+      "expected_harvest_date": "2026-12-15",
+      "on": "2026-07-21",
+      "state": "active",
+      "crop_week": 1,
+      "note": "final day of crop week 1"
+    },
+    {
+      "planting_date": "2026-07-15",
+      "expected_harvest_date": "2026-12-15",
+      "on": "2026-07-22",
+      "state": "active",
+      "crop_week": 2,
+      "note": "first day of crop week 2"
+    },
+    {
+      "planting_date": "2026-02-15",
+      "expected_harvest_date": "2026-06-14",
+      "on": "2026-04-01",
+      "state": "active",
+      "crop_week": 7,
+      "note": "zone-configured February planting"
+    },
+    {
+      "planting_date": "2026-07-15",
+      "expected_harvest_date": "2026-12-15",
+      "on": "2026-12-15",
+      "state": "active",
+      "crop_week": 22,
+      "note": "expected harvest day"
+    },
+    {
+      "planting_date": "2026-07-15",
+      "expected_harvest_date": "2026-12-15",
+      "on": "2026-12-16",
+      "state": "harvested",
+      "crop_week": null,
+      "note": "day after expected harvest"
+    },
+    {
+      "planting_date": "2026-07-15",
+      "expected_harvest_date": "2026-12-15",
+      "on": "2027-12-15",
+      "state": "harvested",
+      "crop_week": null,
+      "note": "long after expected harvest"
+    }
+  ]
+}

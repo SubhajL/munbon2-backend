@@ -1,0 +1,37 @@
+{
+  "manifest_version": 1,
+  "contract_family": "rid-calendar",
+  "contract_version": 1,
+  "json_schema_dialect": "https://json-schema.org/draft/2020-12/schema",
+  "contract_set_sha256": "987006c64402e79b9cb7af29358283f4cb368203cbd46935490a7ff453115539",
+  "schemas": [
+    {
+      "relative_path": "irrigation-week.schema.json",
+      "sha256": "c537bccab655cb06322f1800574b6499f0c438fd759af396c5afe31da3dd7f66"
+    },
+    {
+      "relative_path": "crop-activity.schema.json",
+      "sha256": "a80354b53305453276beb4eaa11a77b139cf0911bf3f981af0dd4351eb19b69d"
+    }
+  ],
+  "fixtures": [
+    {
+      "relative_path": "irrigation-week.vectors.json",
+      "schema": "irrigation-week.schema.json",
+      "expected_schema_valid": true,
+      "sha256": "2218f788f1f32a55157f135a29bb3cfa8a8dee5ddf9e747ce792499b8d7cf39b"
+    },
+    {
+      "relative_path": "crop-activity.vectors.json",
+      "schema": "crop-activity.schema.json",
+      "expected_schema_valid": true,
+      "sha256": "8bfdf27ec6e527bc36fbaf181b8d108d556cb2568cdd40eec91c4b5b7449252e"
+    }
+  ],
+  "documents": [
+    {
+      "relative_path": "README.md",
+      "sha256": "e98c5e3efde1fcc8f02fc1db190cd906fead003ec86f8ac6e0362b15b258dc0d"
+    }
+  ]
+}
