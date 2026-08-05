@@ -272,6 +272,19 @@ def test_orchestrator_stage_order_matches_suite_stage_order():
     assert orchestrate.STAGE_ORDER == suite_stages
 
 
+def test_parser_accepts_persist_only_stage():
+    args = orchestrate._parse_args(
+        [
+            "run-stage",
+            "--stage",
+            "LOCAL-PERSIST-ONLY-1",
+            "--release-sha",
+            orchestrate.ACCEPTED_BASE_SHA,
+        ]
+    )
+    assert args.stage == "LOCAL-PERSIST-ONLY-1"
+
+
 def test_parser_accepts_write_ui_stage():
     args = orchestrate._parse_args(
         [
