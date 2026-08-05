@@ -1,0 +1,10 @@
+{
+  "schema_version": 2,
+  "client_submission_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  "project_key": "mun-bon",
+  "calendar_system": "rid-irrigation-v1",
+  "week_key": "2026-R54",
+  "week_date": "2026-10-31",
+  "expected_active_submission_id": null,
+  "levels": [{ "area_type": "zone", "area_id": "01-01", "planning_depth_mm": 1 }]
+}

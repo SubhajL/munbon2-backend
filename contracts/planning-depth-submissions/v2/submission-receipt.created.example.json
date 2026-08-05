@@ -1,0 +1,14 @@
+{
+  "schema_version": 2,
+  "submission_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+  "client_submission_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  "project_key": "mun-bon",
+  "calendar_system": "rid-irrigation-v1",
+  "week_key": "2026-R01",
+  "week_date": "2025-11-01",
+  "submitted_at": "2025-11-01T01:02:03Z",
+  "submitted_by": "operator-1",
+  "supersedes_submission_id": null,
+  "request_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "replayed": false
+}

@@ -19,7 +19,9 @@ from db.planning_depth_repository import (
     PlanningDepthConflictError,
     PlanningDepthRosterUnavailableError,
     create_planning_depth_submission,
+    create_planning_depth_submission_v2,
     get_active_planning_depth_submission,
+    get_active_planning_depth_submission_v2,
     load_authoritative_planning_depth_roster,
     load_planning_depth_roster,
 )
@@ -27,6 +29,7 @@ from schemas.planning_depth import (
     EffectivePrincipalProjection,
     PlanningDepthSubmissionRequest,
 )
+from schemas.planning_depth_v2 import PlanningDepthSubmissionRequestV2
 
 TEST_URL = os.getenv("BFF_TEST_POSTGRES_URL")
 MIGRATIONS = Path(__file__).resolve().parents[2] / "migrations"
@@ -157,10 +160,78 @@ def _request(
     )
 
 
+def _request_v2(
+    *,
+    client_submission_id=None,
+    expected_active_submission_id=None,
+    first_zone_depth=1.5,
+):
+    return PlanningDepthSubmissionRequestV2.model_validate(
+        {
+            "schema_version": 2,
+            "client_submission_id": str(client_submission_id or uuid4()),
+            "project_key": "mun-bon",
+            "calendar_system": "rid-irrigation-v1",
+            "week_key": "2026-R01",
+            "week_date": "2025-11-01",
+            "expected_active_submission_id": (
+                None
+                if expected_active_submission_id is None
+                else str(expected_active_submission_id)
+            ),
+            "levels": [
+                {
+                    "area_type": "zone",
+                    "area_id": f"01-{zone_number:02d}",
+                    "planning_depth_mm": (
+                        first_zone_depth if zone_number == 1 else zone_number + 0.5
+                    ),
+                }
+                for zone_number in range(1, 7)
+            ],
+        }
+    )
+
+
 PRINCIPAL = EffectivePrincipalProjection(
     subject="operator-1",
     effective_roles=["field_team", "operator"],
 )
+
+
+async def _insert_submission(
+    connection,
+    *,
+    schema_version,
+    calendar_system,
+    week_key,
+    week_date,
+    submission_id=None,
+    client_submission_id=None,
+    supersedes_submission_id=None,
+):
+    submission_id = submission_id or uuid4()
+    await connection.execute(
+        """
+        INSERT INTO water_planning.planning_depth_submissions (
+            submission_id, schema_version, client_submission_id, project_key,
+            calendar_system, week_key, week_date, submitted_by,
+            supersedes_submission_id, request_document_text, request_sha256,
+            expanded_sha256
+        )
+        VALUES ($1, $2, $3, 'mun-bon', $4, $5, $6, 'operator-1', $7,
+                '{}', $8, $8)
+        """,
+        submission_id,
+        schema_version,
+        client_submission_id or uuid4(),
+        calendar_system,
+        week_key,
+        week_date,
+        supersedes_submission_id,
+        "a" * 64,
+    )
+    return submission_id
 
 
 @pytest.mark.asyncio
@@ -179,6 +250,11 @@ async def test_apply_reapply_and_checksum_drift_refusal(connection):
             "sha256": "c904510204c97269a73ee4592c06c1a35c1fd8f13b53b47885a21b4c5a5c62f6",
             "applied": True,
         },
+        {
+            "migration_id": "011_planning_depth_rid_calendar_v2",
+            "sha256": "3b9244902872aa7ce9d0e5d24add43e132cbc8f8a159cc486a360c78f816098e",
+            "applied": True,
+        },
     ]
     assert reapplied == []
 
@@ -189,6 +265,146 @@ async def test_apply_reapply_and_checksum_drift_refusal(connection):
     )
     with pytest.raises(MigrationChecksumError):
         await apply_migrations(connection, MIGRATIONS)
+
+
+@pytest.mark.asyncio
+async def test_migration_011_preserves_seeded_v1_row_and_legacy_default(connection):
+    await connection.execute("DROP SCHEMA IF EXISTS water_planning CASCADE")
+    migration_010 = MIGRATIONS / "010_planning_depth_submissions.sql"
+    migration_011 = MIGRATIONS / "011_planning_depth_rid_calendar_v2.sql"
+    await connection.execute(migration_010.read_text(encoding="utf-8"))
+    submission_id = uuid4()
+    await connection.execute(
+        """
+        INSERT INTO water_planning.planning_depth_submissions (
+            submission_id, schema_version, client_submission_id, project_key,
+            week_key, week_date, submitted_by, supersedes_submission_id,
+            request_document_text, request_sha256, expanded_sha256
+        )
+        VALUES ($1, 1, $2, 'mun-bon', '2026-W30', $3, 'operator-1', NULL,
+                '{}', $4, $4)
+        """,
+        submission_id,
+        uuid4(),
+        date(2026, 7, 20),
+        "a" * 64,
+    )
+    before = dict(
+        await connection.fetchrow(
+            "SELECT * FROM water_planning.planning_depth_submissions "
+            "WHERE submission_id = $1",
+            submission_id,
+        )
+    )
+
+    await connection.execute(migration_011.read_text(encoding="utf-8"))
+    after = dict(
+        await connection.fetchrow(
+            "SELECT * FROM water_planning.planning_depth_submissions "
+            "WHERE submission_id = $1",
+            submission_id,
+        )
+    )
+
+    assert after == {**before, "calendar_system": "legacy-calendar-v1"}
+
+
+@pytest.mark.asyncio
+async def test_v1_and_v2_roots_replay_and_active_reads_are_calendar_scoped(connection):
+    roster = await load_planning_depth_roster(connection)
+    shared_client_id = UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+
+    legacy = await create_planning_depth_submission(
+        connection,
+        _request(client_submission_id=shared_client_id),
+        PRINCIPAL,
+        roster,
+    )
+    rid = await create_planning_depth_submission_v2(
+        connection,
+        _request_v2(client_submission_id=shared_client_id),
+        PRINCIPAL,
+        roster,
+    )
+    legacy_active = await get_active_planning_depth_submission(
+        connection,
+        "mun-bon",
+        "2026-W30",
+    )
+    rid_active = await get_active_planning_depth_submission_v2(
+        connection,
+        "mun-bon",
+        "rid-irrigation-v1",
+        "2026-R01",
+    )
+
+    assert (
+        legacy.schema_version,
+        rid.schema_version,
+        rid.calendar_system,
+        legacy_active.submission_id,
+        rid_active.submission_id,
+    ) == (
+        1,
+        2,
+        "rid-irrigation-v1",
+        legacy.submission_id,
+        rid.submission_id,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    (
+        "schema_version",
+        "calendar_system",
+        "week_key",
+        "week_date",
+    ),
+    [
+        (1, "rid-irrigation-v1", "2026-R01", date(2025, 11, 1)),
+        (2, "legacy-calendar-v1", "2026-W30", date(2026, 7, 20)),
+        (2, "rid-irrigation-v1", "2026-R54", date(2026, 10, 31)),
+        (2, "rid-irrigation-v1", "2026-R01", date(2025, 11, 2)),
+        (2, "rid-irrigation-v1", "1900-R01", date(1899, 11, 1)),
+    ],
+)
+async def test_database_rejects_invalid_schema_calendar_key_date_combinations(
+    connection,
+    schema_version,
+    calendar_system,
+    week_key,
+    week_date,
+):
+    with pytest.raises(asyncpg.CheckViolationError):
+        await _insert_submission(
+            connection,
+            schema_version=schema_version,
+            calendar_system=calendar_system,
+            week_key=week_key,
+            week_date=week_date,
+        )
+
+
+@pytest.mark.asyncio
+async def test_database_rejects_cross_calendar_successor(connection):
+    legacy_id = await _insert_submission(
+        connection,
+        schema_version=1,
+        calendar_system="legacy-calendar-v1",
+        week_key="2026-W30",
+        week_date=date(2026, 7, 20),
+    )
+
+    with pytest.raises(asyncpg.CheckViolationError):
+        await _insert_submission(
+            connection,
+            schema_version=2,
+            calendar_system="rid-irrigation-v1",
+            week_key="2026-R01",
+            week_date=date(2025, 11, 1),
+            supersedes_submission_id=legacy_id,
+        )
 
 
 @pytest.mark.asyncio
@@ -361,6 +577,44 @@ async def test_concurrent_successors_serialize_to_one_commit(connection):
 
 
 @pytest.mark.asyncio
+async def test_concurrent_v2_successors_serialize_to_one_commit(connection):
+    roster = await load_planning_depth_roster(connection)
+    initial = await create_planning_depth_submission_v2(
+        connection,
+        _request_v2(),
+        PRINCIPAL,
+        roster,
+    )
+
+    async def submit(depth):
+        candidate_connection = await asyncpg.connect(TEST_URL)
+        try:
+            candidate_roster = await load_planning_depth_roster(candidate_connection)
+            return await create_planning_depth_submission_v2(
+                candidate_connection,
+                _request_v2(
+                    expected_active_submission_id=initial.submission_id,
+                    first_zone_depth=depth,
+                ),
+                PRINCIPAL,
+                candidate_roster,
+            )
+        finally:
+            await candidate_connection.close()
+
+    results = await asyncio.gather(
+        submit(2.5),
+        submit(3.5),
+        return_exceptions=True,
+    )
+
+    assert sum(not isinstance(item, Exception) for item in results) == 1
+    assert [
+        str(item) for item in results if isinstance(item, PlanningDepthConflictError)
+    ] == ["stale_active_submission"]
+
+
+@pytest.mark.asyncio
 async def test_transaction_failure_leaves_no_submission_or_values(connection):
     await connection.execute(
         """
@@ -397,6 +651,41 @@ async def test_transaction_failure_leaves_no_submission_or_values(connection):
         )
         == 0
     )
+
+
+@pytest.mark.asyncio
+async def test_v2_transaction_failure_leaves_no_submission_or_values(connection):
+    await connection.execute(
+        """
+        CREATE FUNCTION water_planning.reject_test_v2_value()
+        RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+            RAISE EXCEPTION 'injected v2 value failure';
+        END;
+        $$;
+        CREATE TRIGGER reject_test_v2_value
+        BEFORE INSERT ON water_planning.planning_depth_values
+        FOR EACH ROW EXECUTE FUNCTION water_planning.reject_test_v2_value();
+        """
+    )
+    roster = await load_planning_depth_roster(connection)
+
+    with pytest.raises(asyncpg.RaiseError):
+        await create_planning_depth_submission_v2(
+            connection,
+            _request_v2(),
+            PRINCIPAL,
+            roster,
+        )
+
+    assert (
+        await connection.fetchval(
+            "SELECT count(*) FROM water_planning.planning_depth_submissions"
+        ),
+        await connection.fetchval(
+            "SELECT count(*) FROM water_planning.planning_depth_values"
+        ),
+    ) == (0, 0)
 
 
 @pytest.mark.asyncio
