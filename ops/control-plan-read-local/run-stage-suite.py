@@ -49,6 +49,7 @@ STAGE_ORDER = (
     "LOCAL-EVIDENCE-1",
     "LOCAL-GO-READ-1",
     "LOCAL-WRITE-FOUNDATION-1",
+    "LOCAL-WRITE-UI-1",
 )
 READINESS_URLS = {
     "flow-monitoring": "http://127.0.0.1:3011/ready",
@@ -58,6 +59,9 @@ READINESS_URLS = {
 }
 WRITE_FOUNDATION_NAMESPACE = uuid5(
     NAMESPACE_DNS, "local-write-foundation.munbon.invalid"
+)
+WRITE_UI_NAMESPACE = uuid5(
+    NAMESPACE_DNS, "local-write-ui.munbon.invalid"
 )
 EXPECTED_FRONTEND_SHA = "fbd4ce4df0bb0476b7cd402ac1a4e180a91a7792"
 NODE_ROOT = Path("/opt/node-v22.23.1-linux-arm64")
@@ -70,6 +74,7 @@ HARNESS_ARTIFACTS = (
     "run-read-browser.js",
     "run-ros-manual-producer.sh",
     "run-stage-suite.py",
+    "run-write-browser.js",
     "seed-approved-sources.py",
     "seed-local-operators.js",
     "verify_bearer.py",
@@ -1320,6 +1325,8 @@ def frontend_process_environment(
     control_plan_reads: bool,
     control_plan_evidence_reads: bool = False,
     gate_operations_base_url: str | None = None,
+    water_planning_v2: bool = False,
+    water_planning_submit: bool = False,
 ) -> dict[str, str]:
     auth = _load_env_file(runtime_env_dir / "auth.env")
     try:
@@ -1336,6 +1343,8 @@ def frontend_process_environment(
             "bff": "http://127.0.0.1:3022",
         }
     )
+    if water_planning_submit and not water_planning_v2:
+        raise StageGateError("frontend_activation_gates_invalid")
     if control_plan_evidence_reads:
         try:
             gate_url = urlsplit(gate_operations_base_url or "")
@@ -1362,8 +1371,10 @@ def frontend_process_environment(
         "NEXT_PUBLIC_CONTROL_PLAN_EVIDENCE_READS": (
             "true" if control_plan_evidence_reads else "false"
         ),
-        "NEXT_PUBLIC_WATER_PLANNING_V2": "false",
-        "NEXT_PUBLIC_WATER_PLANNING_SUBMIT_ENABLED": "false",
+        "NEXT_PUBLIC_WATER_PLANNING_V2": ("true" if water_planning_v2 else "false"),
+        "NEXT_PUBLIC_WATER_PLANNING_SUBMIT_ENABLED": (
+            "true" if water_planning_submit else "false"
+        ),
         "CENTRAL_AUTH_URL": "http://127.0.0.1:3005",
         "WATER_PLANNING_BFF_URL": "http://127.0.0.1:3022",
     }
@@ -2553,6 +2564,8 @@ def _build_frontend(
     run_tests: bool,
     control_plan_evidence_reads: bool = False,
     gate_operations_base_url: str | None = None,
+    water_planning_v2: bool = False,
+    water_planning_submit: bool = False,
     build_label: str | None = None,
 ) -> dict:
     mode = build_label or ("visible" if control_plan_reads else "dark")
@@ -2561,13 +2574,15 @@ def _build_frontend(
         control_plan_reads=control_plan_reads,
         control_plan_evidence_reads=control_plan_evidence_reads,
         gate_operations_base_url=gate_operations_base_url,
+        water_planning_v2=water_planning_v2,
+        water_planning_submit=water_planning_submit,
     )
     activation_gates = project_frontend_activation_gates(environment)
     if activation_gates != {
         "control_plan_reads": control_plan_reads,
         "control_plan_evidence_reads": control_plan_evidence_reads,
-        "water_planning_v2": False,
-        "water_planning_submit": False,
+        "water_planning_v2": water_planning_v2,
+        "water_planning_submit": water_planning_submit,
     }:
         raise StageGateError("frontend_activation_gates_not_accepted")
     npm = str(NODE_ROOT / "bin/npm")
@@ -2626,6 +2641,8 @@ def _frontend_server(
     control_plan_reads: bool,
     control_plan_evidence_reads: bool = False,
     gate_operations_base_url: str | None = None,
+    water_planning_v2: bool = False,
+    water_planning_submit: bool = False,
     server_label: str | None = None,
 ):
     mode = server_label or ("visible" if control_plan_reads else "dark")
@@ -2634,6 +2651,8 @@ def _frontend_server(
         control_plan_reads=control_plan_reads,
         control_plan_evidence_reads=control_plan_evidence_reads,
         gate_operations_base_url=gate_operations_base_url,
+        water_planning_v2=water_planning_v2,
+        water_planning_submit=water_planning_submit,
     )
     log_path = context.evidence_root / f".frontend-{mode}.log"
     descriptor = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -4331,6 +4350,360 @@ def run_local_write_foundation(context: StageContext) -> dict:
     return manifest
 
 
+# --- LOCAL-WRITE-UI-1 helpers ---
+
+
+W2_V2_BASE = "http://127.0.0.1:3022/api/v2/water-planning/planning-depth-submissions"
+
+
+def _write_ui_rid_week(as_of_date: date) -> tuple[str, str]:
+    ending_year = (
+        as_of_date.year + 1
+        if (as_of_date.month, as_of_date.day) >= (11, 1)
+        else as_of_date.year
+    )
+    year_start = date(ending_year - 1, 11, 1)
+    offset = (as_of_date - year_start).days
+    week_number = offset // 7 + 1
+    week_start = year_start + timedelta(days=7 * (week_number - 1))
+    return week_start.isoformat(), f"{ending_year:04d}-R{week_number:02d}"
+
+
+def _write_ui_client_submission_id(
+    release_sha: str, week_key: str, drill: str
+) -> str:
+    return str(uuid5(WRITE_UI_NAMESPACE, f"{release_sha}:{week_key}:{drill}"))
+
+
+def _build_planning_depth_request_v2(
+    *,
+    week_date: str,
+    week_key: str,
+    client_submission_id: str,
+    active_submission_id: str | None,
+    depth_offset: str,
+) -> dict:
+    offset = float(depth_offset)
+    levels = []
+    for index, zone in enumerate(range(1, 7)):
+        levels.append(
+            {
+                "area_type": "zone",
+                "area_id": f"01-{zone:02d}",
+                "planning_depth_mm": round(150.0 + (index * 10.0) + (offset * 1000), 1),
+            }
+        )
+    return {
+        "schema_version": 2,
+        "project_key": "mun-bon",
+        "calendar_system": "rid-irrigation-v1",
+        "week_date": week_date,
+        "week_key": week_key,
+        "client_submission_id": client_submission_id,
+        "expected_active_submission_id": active_submission_id,
+        "levels": levels,
+    }
+
+
+def _build_dark_probe_request_v2(
+    *,
+    week_date: str,
+    week_key: str,
+    client_submission_id: str,
+) -> dict:
+    return _build_planning_depth_request_v2(
+        week_date=week_date,
+        week_key=week_key,
+        client_submission_id=client_submission_id,
+        active_submission_id=None,
+        depth_offset="0.000",
+    )
+
+
+def validate_write_browser_result(body: Any) -> dict:
+    required_keys = (
+        "create_result",
+        "active_readback",
+        "correct_result",
+        "conflict_result",
+        "conflict_reconciliation",
+        "retry_result",
+        "logout_result",
+        "reload_result",
+        "outage_result",
+        "request_inventory",
+    )
+    try:
+        if not isinstance(body, dict) or any(key not in body for key in required_keys):
+            raise ValueError
+        create = body["create_result"]
+        UUID(str(create["submission_id"]))
+        UUID(str(create["client_submission_id"]))
+        if create["status"] != 201:
+            raise ValueError
+
+        active = body["active_readback"]
+        if active["status"] != 200 or active["levels_count"] != 41:
+            raise ValueError
+
+        correct = body["correct_result"]
+        UUID(str(correct["submission_id"]))
+        if correct["status"] != 201:
+            raise ValueError
+
+        conflict = body["conflict_result"]
+        if conflict["status"] != 409 or conflict["detail"] != "stale_active_submission":
+            raise ValueError
+
+        reconciliation = body["conflict_reconciliation"]
+        UUID(str(reconciliation["submission_id"]))
+        if reconciliation["status"] != 200:
+            raise ValueError
+
+        retry = body["retry_result"]
+        UUID(str(retry["submission_id"]))
+        retry_client_id = str(retry["client_submission_id"])
+        create_client_id = str(create["client_submission_id"])
+        if retry_client_id != create_client_id:
+            raise ValueError
+
+        logout = body["logout_result"]
+        if not isinstance(logout.get("redirect_url"), str):
+            raise ValueError
+
+        reload_res = body["reload_result"]
+        if not isinstance(reload_res.get("redirect_url"), str):
+            raise ValueError
+
+        outage = body["outage_result"]
+        if outage.get("submit_visible") is not False:
+            raise ValueError
+        if outage.get("reads_preserved") is not True:
+            raise ValueError
+
+        inventory = body["request_inventory"]
+        if not isinstance(inventory.get("forbidden_mutation_count"), int):
+            raise ValueError
+        if inventory["forbidden_mutation_count"] != 0:
+            raise ValueError
+
+        return {
+            "create_result": {
+                "status": create["status"],
+                "submission_id": str(create["submission_id"]),
+                "week_key": str(create.get("week_key", "")),
+            },
+            "active_readback": {
+                "status": active["status"],
+                "levels_count": active["levels_count"],
+            },
+            "correct_result": {
+                "status": correct["status"],
+                "submission_id": str(correct["submission_id"]),
+            },
+            "conflict_result": {
+                "status": conflict["status"],
+                "detail": conflict["detail"],
+            },
+            "conflict_reconciliation": {
+                "status": reconciliation["status"],
+                "submission_id": str(reconciliation["submission_id"]),
+            },
+            "retry_result": {
+                "status": retry["status"],
+                "client_submission_id_reused": True,
+            },
+            "logout_result": {"safe_redirect": True},
+            "reload_result": {"safe_redirect": True},
+            "outage_result": {
+                "submit_visible": False,
+                "reads_preserved": True,
+            },
+            "request_inventory": {
+                "forbidden_mutation_count": 0,
+                "total_mutations": inventory.get("total_mutations", 0),
+            },
+        }
+    except (KeyError, TypeError, ValueError) as exc:
+        raise StageGateError("write_browser_result_not_accepted") from exc
+
+
+def _run_write_browser(
+    context: StageContext,
+    *,
+    week_key: str,
+    week_date: str,
+) -> dict:
+    operator = _load_env_file(context.runtime_env_dir / "operator.env")
+    output = _run_checked(
+        "write_browser",
+        [
+            str(NODE_ROOT / "bin/node"),
+            str(context.harness_root / "run-write-browser.js"),
+        ],
+        env={
+            **os.environ,
+            **operator,
+            "PATH": f"{NODE_ROOT / 'bin'}:/usr/bin:/bin",
+            "NODE_PATH": str(BROWSER_ROOT / "node_modules"),
+            "PLAYWRIGHT_BROWSERS_PATH": str(PLAYWRIGHT_BROWSERS_ROOT),
+            "LOCAL_FRONTEND_URL": "http://127.0.0.1:9999",
+            "LOCAL_WEEK_KEY": week_key,
+            "LOCAL_WEEK_DATE": week_date,
+        },
+        timeout=600,
+    )
+    try:
+        body = json.loads(output)
+    except json.JSONDecodeError as exc:
+        raise StageGateError("write_browser_output_invalid") from exc
+    return validate_write_browser_result(body)
+
+
+def run_local_write_ui(context: StageContext) -> dict:
+    state = _load_state(context)
+    validate_stage_transition(tuple(state["completed"]), "LOCAL-WRITE-UI-1")
+
+    _verify_frontend_source(context)
+
+    verifier = _load_harness_module(
+        context,
+        "verify_bearer.py",
+        "local_write_ui_bearer_verifier",
+    )
+    client = LocalHttpClient()
+    token, refresh_cookie, login_evidence = _login_operator(
+        context,
+        client,
+        verifier,
+    )
+
+    week_date, week_key = _write_ui_rid_week(context.as_of_date)
+    steps: dict[str, Any] = {
+        "login": login_evidence,
+        "target_week": {"week_date": week_date, "week_key": week_key},
+    }
+
+    steps["write_flag_dark"] = validate_write_flag_is_dark(
+        _load_env_file(context.runtime_env_dir / "bff.env").get(
+            "PLANNING_DEPTH_WRITES_ENABLED", ""
+        )
+    )
+
+    dark_probe = client.request(
+        "POST",
+        W2_V2_BASE,
+        payload=_build_dark_probe_request_v2(
+            week_date=week_date,
+            week_key=week_key,
+            client_submission_id=_write_ui_client_submission_id(
+                context.release_sha, week_key, "dark-gate"
+            ),
+        ),
+        bearer=token,
+    )
+    steps["w2_v2_dark_gate"] = validate_w2_write_disabled_result(
+        dark_probe.status, dark_probe.body, dark_probe.headers
+    )
+
+    frontend_restored = False
+    bff_restored = False
+    try:
+        _restart_bff_with_flag(context, enabled=True)
+
+        _build_frontend(
+            context,
+            control_plan_reads=False,
+            water_planning_v2=True,
+            water_planning_submit=True,
+            run_tests=False,
+            build_label="write-ui-armed",
+        )
+
+        with _frontend_server(
+            context,
+            control_plan_reads=False,
+            water_planning_v2=True,
+            water_planning_submit=True,
+            server_label="write-ui-armed",
+        ):
+            steps["write_browser"] = _run_write_browser(
+                context,
+                week_key=week_key,
+                week_date=week_date,
+            )
+    finally:
+        try:
+            _build_frontend(
+                context,
+                control_plan_reads=False,
+                run_tests=False,
+                build_label="write-ui-restored",
+            )
+            frontend_restored = True
+        except Exception:
+            pass
+        try:
+            _restart_bff_with_flag(context, enabled=False)
+            bff_restored = True
+        except Exception:
+            pass
+
+    if not frontend_restored or not bff_restored:
+        raise StageGateError("write_ui_restoration_failed")
+
+    steps["restored_write_flag"] = validate_write_flag_is_dark(
+        _load_env_file(context.runtime_env_dir / "bff.env").get(
+            "PLANNING_DEPTH_WRITES_ENABLED", ""
+        )
+    )
+
+    restored_dark_probe = client.request(
+        "POST",
+        W2_V2_BASE,
+        payload=_build_dark_probe_request_v2(
+            week_date=week_date,
+            week_key=week_key,
+            client_submission_id=_write_ui_client_submission_id(
+                context.release_sha, week_key, "restored-gate"
+            ),
+        ),
+        bearer=token,
+    )
+    steps["w2_v2_restored_gate"] = validate_w2_write_disabled_result(
+        restored_dark_probe.status,
+        restored_dark_probe.body,
+        restored_dark_probe.headers,
+    )
+
+    logout = client.request(
+        "POST",
+        "http://127.0.0.1:3005/api/v1/auth/logout",
+        payload={"refreshToken": refresh_cookie},
+    )
+    if logout.status not in {200, 204}:
+        raise StageGateError("write_ui_operator_logout_failed")
+
+    steps["aws_actions"] = False
+
+    manifest = {
+        "stage": "LOCAL-WRITE-UI-1",
+        "verdict": "PASS",
+        "release_sha": context.release_sha,
+        "frontend_sha": context.frontend_sha,
+        "completed_at": _utc_timestamp(),
+        "steps": steps,
+    }
+    validate_evidence_payload(manifest)
+    target = context.evidence_root / "LOCAL-WRITE-UI-1.json"
+    clear_failure_manifest(context.evidence_root, "LOCAL-WRITE-UI-1")
+    write_stage_manifest(target, manifest)
+    _checksum_manifest(target)
+    _save_state(context, list(STAGE_ORDER[:8]))
+    print("PASS LOCAL-WRITE-UI-1")
+    return manifest
+
+
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("stage", choices=STAGE_ORDER)
@@ -4384,8 +4757,10 @@ def main(argv: list[str] | None = None) -> int:
             run_local_evidence_activation(context)
         elif args.stage == "LOCAL-GO-READ-1":
             run_local_go_read(context)
-        else:
+        elif args.stage == "LOCAL-WRITE-FOUNDATION-1":
             run_local_write_foundation(context)
+        else:
+            run_local_write_ui(context)
     except Exception as exc:
         safe_error = (
             exc

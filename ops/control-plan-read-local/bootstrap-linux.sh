@@ -122,6 +122,7 @@ for artifact in \
   run-read-browser.js \
   run-evidence-browser.js \
   run-go-read-browser.js \
+  run-write-browser.js \
   seed-local-operators.js \
   verify_bearer.py; do
   install -o munbon -g munbon -m 0750 "${INPUT_DIR}/${artifact}" "${HARNESS_ROOT}/${artifact}"

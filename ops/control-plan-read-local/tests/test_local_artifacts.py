@@ -69,6 +69,7 @@ def test_orchestrator_provisions_every_local_ac_harness_artifact():
         "run-read-browser.js",
         "run-evidence-browser.js",
         "run-go-read-browser.js",
+        "run-write-browser.js",
         "--frontend-repo",
     ):
         assert required in body
@@ -77,12 +78,13 @@ def test_orchestrator_provisions_every_local_ac_harness_artifact():
 def test_every_completed_stage_is_added_to_the_checksum_index():
     body = (LOCAL_DIR / "run-stage-suite.py").read_text(encoding="utf-8")
 
-    assert body.count("_checksum_manifest(target)") == 7
+    assert body.count("_checksum_manifest(target)") == 8
     assert "_checksum_manifest(path)" in body
     assert "_verify_checksum_entry" in body
     assert "_save_state(context, list(STAGE_ORDER[:5]))" in body
     assert "_save_state(context, list(STAGE_ORDER[:6]))" in body
     assert "_save_state(context, list(STAGE_ORDER[:7]))" in body
+    assert "_save_state(context, list(STAGE_ORDER[:8]))" in body
 
 
 def test_stage_suite_uses_the_v5_hydraulic_release():
@@ -219,11 +221,36 @@ def test_manual_ros_wrapper_enables_only_manual_production_on_loopback():
     )
 
 
+def test_write_browser_runner_covers_create_conflict_retry_and_outage():
+    path = LOCAL_DIR / "run-write-browser.js"
+    body = path.read_text(encoding="utf-8")
+
+    subprocess.run(["node", "--check", str(path)], check=True)
+    for required in (
+        "create_result",
+        "active_readback",
+        "correct_result",
+        "conflict_result",
+        "retry_result",
+        "logout_result",
+        "outage_result",
+        "request_inventory",
+        "forbiddenMutations.push",
+        "writePhaseActive",
+        "FAIL write_browser:",
+        "client_submission_id",
+        "conflict_reconciliation",
+        "reload_result",
+        "classifyProductRequest",
+    ):
+        assert required in body
+
+
 def test_all_stages_runbook_locks_local_before_aws_and_documents_current_commands():
     body = (
         REPO_ROOT / "docs/operations/CONTROL_PLAN_ALL_STAGES_LOCAL_ACCEPTANCE.md"
     ).read_text(encoding="utf-8")
-    documented_candidate_commands = 8
+    documented_candidate_commands = 10
 
     for required in (
         "LOCAL-BASE-0",
@@ -238,10 +265,13 @@ def test_all_stages_runbook_locks_local_before_aws_and_documents_current_command
         "orchestrate.py run-stage --stage LOCAL-READ-ACT-1",
         "orchestrate.py run-stage --stage LOCAL-EVIDENCE-1",
         "orchestrate.py run-stage --stage LOCAL-GO-READ-1",
+        "orchestrate.py run-stage --stage LOCAL-WRITE-FOUNDATION-1",
+        "orchestrate.py run-stage --stage LOCAL-WRITE-UI-1",
         "orchestrate.py collect",
         "false → true → false",
         "bearer verification before `pm2 save`",
         "evidence-with-wildcard",
+        "run-write-browser.js",
     ):
         assert required in body
     assert (

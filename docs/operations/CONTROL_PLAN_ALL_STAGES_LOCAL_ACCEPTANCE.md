@@ -31,7 +31,7 @@ bundle; the runtime checkout must remain at the accepted 40-character SHA.
 | ME-1 / FE-8        | `LOCAL-EVIDENCE-1`         | Implemented and passed       |
 | GO-READ-1          | `LOCAL-GO-READ-1`          | Implemented and passed       |
 | W1 / W2            | `LOCAL-WRITE-FOUNDATION-1` | Implemented; prior SHA passed |
-| FE-5 / FE-6        | `LOCAL-WRITE-UI-1`         | Planned; not yet implemented |
+| FE-5 / FE-6        | `LOCAL-WRITE-UI-1`         | Implemented                  |
 | DEC-W4             | `LOCAL-PERSIST-ONLY-1`     | Planned; persist-only        |
 | WRITE-ACT-1        | `LOCAL-WRITE-ACT-1`        | Planned; not yet implemented |
 | Combined clean run | `LOCAL-RC-1`               | Required before AWS          |
@@ -68,7 +68,7 @@ requirement publication, plan, session, or cache entry.
 The Prometheus Debian package is used only for `promtool`; its Prometheus and
 node-exporter services are disabled to prevent wildcard listeners.
 
-## Run the seven implemented stages
+## Run the eight implemented stages
 
 ```bash
 python3 ops/control-plan-read-local/orchestrate.py run-stage --stage LOCAL-BASE-0 \
@@ -102,6 +102,11 @@ python3 ops/control-plan-read-local/orchestrate.py run-stage --stage LOCAL-GO-RE
   --accept-later-origin-main
 
 python3 ops/control-plan-read-local/orchestrate.py run-stage --stage LOCAL-WRITE-FOUNDATION-1 \
+  --release-sha "$accepted_backend_sha" \
+  --frontend-sha "$accepted_frontend_sha" \
+  --accept-later-origin-main
+
+python3 ops/control-plan-read-local/orchestrate.py run-stage --stage LOCAL-WRITE-UI-1 \
   --release-sha "$accepted_backend_sha" \
   --frontend-sha "$accepted_frontend_sha" \
   --accept-later-origin-main
@@ -196,7 +201,8 @@ python3 ops/control-plan-read-local/orchestrate.py collect \
 ```
 
 The evidence bundle contains stage JSON, two GO-READ screenshots, state, and
-`SHA256SUMS`. Each
+`SHA256SUMS`. The write UI stage uses `run-write-browser.js` to drive the
+Playwright workflow across two browser contexts. Each
 transition verifies the state and every preceding stage checksum, rechecks clean
 backend and frontend SHAs, and binds the state to hashes of the installed
 harness files. It rejects secret-shaped keys, bearer values, credential-bearing
@@ -244,7 +250,7 @@ The result above predates the later source-delivered write-foundation stage.
 `LOCAL-WRITE-FOUNDATION-1` subsequently passed at its own exact SHA; that
 evidence is not reused for a new candidate.
 
-Every new candidate must be provisioned cleanly and rerun through all seven
+Every new candidate must be provisioned cleanly and rerun through all eight
 implemented stages at its exact SHA. Evidence from a predecessor or a
 tree-equivalent squash commit is not reused because the evidence index is
 SHA-bound. These readings are local evidence and do not describe AWS capacity

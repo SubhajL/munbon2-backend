@@ -7,6 +7,7 @@ import inspect
 import json
 import os
 from pathlib import Path
+import re
 import sys
 from uuid import UUID, uuid4
 
@@ -1698,8 +1699,8 @@ def test_validate_migration_parity_fails_closed_on_any_missing_tail(
 
 
 def test_stage_order_includes_local_write_foundation_after_go_read():
-    assert stage_suite.STAGE_ORDER[-1] == "LOCAL-WRITE-FOUNDATION-1"
-    assert stage_suite.STAGE_ORDER[-2] == "LOCAL-GO-READ-1"
+    idx = stage_suite.STAGE_ORDER.index("LOCAL-WRITE-FOUNDATION-1")
+    assert stage_suite.STAGE_ORDER[idx - 1] == "LOCAL-GO-READ-1"
 
 
 def test_stage_transition_accepts_write_foundation_after_all_six_prior_stages():
@@ -2496,3 +2497,259 @@ def test_validate_w2_week_is_clean_rejects_an_existing_active_submission():
         match="write_foundation_week_not_clean",
     ):
         stage_suite.validate_w2_week_is_clean(200, body, headers)
+
+
+# --- LOCAL-WRITE-UI-1 ---
+
+
+def test_stage_order_includes_local_write_ui_after_write_foundation():
+    assert stage_suite.STAGE_ORDER[-1] == "LOCAL-WRITE-UI-1"
+    assert stage_suite.STAGE_ORDER[-2] == "LOCAL-WRITE-FOUNDATION-1"
+
+
+def test_stage_transition_accepts_write_ui_after_all_seven_prior_stages():
+    stage_suite.validate_stage_transition(
+        (
+            "LOCAL-BASE-0",
+            "LOCAL-RTA-1",
+            "LOCAL-AC-1",
+            "LOCAL-READ-ACT-1",
+            "LOCAL-EVIDENCE-1",
+            "LOCAL-GO-READ-1",
+            "LOCAL-WRITE-FOUNDATION-1",
+        ),
+        "LOCAL-WRITE-UI-1",
+    )
+
+
+def test_frontend_process_environment_accepts_water_planning_submit_enabled(tmp_path):
+    auth = tmp_path / "auth.env"
+    auth.write_text("JWT_SECRET=s\nJWT_ISSUER=i\nJWT_AUDIENCE=a\n")
+
+    result = stage_suite.frontend_process_environment(
+        tmp_path,
+        control_plan_reads=False,
+        water_planning_v2=True,
+        water_planning_submit=True,
+    )
+
+    assert result["NEXT_PUBLIC_WATER_PLANNING_V2"] == "true"
+    assert result["NEXT_PUBLIC_WATER_PLANNING_SUBMIT_ENABLED"] == "true"
+
+
+def test_frontend_process_environment_rejects_submit_without_v2(tmp_path):
+    auth = tmp_path / "auth.env"
+    auth.write_text("JWT_SECRET=s\nJWT_ISSUER=i\nJWT_AUDIENCE=a\n")
+
+    with pytest.raises(stage_suite.StageGateError):
+        stage_suite.frontend_process_environment(
+            tmp_path,
+            control_plan_reads=False,
+            water_planning_submit=True,
+            water_planning_v2=False,
+        )
+
+
+def test_frontend_process_environment_defaults_preserve_existing_dark_behavior(
+    tmp_path,
+):
+    auth = tmp_path / "auth.env"
+    auth.write_text("JWT_SECRET=s\nJWT_ISSUER=i\nJWT_AUDIENCE=a\n")
+
+    result = stage_suite.frontend_process_environment(
+        tmp_path, control_plan_reads=False
+    )
+
+    assert result["NEXT_PUBLIC_WATER_PLANNING_V2"] == "false"
+    assert result["NEXT_PUBLIC_WATER_PLANNING_SUBMIT_ENABLED"] == "false"
+
+
+def test_stage_transition_rejects_write_ui_without_write_foundation():
+    with pytest.raises(stage_suite.StageGateError, match="stage_transition_invalid"):
+        stage_suite.validate_stage_transition(
+            (
+                "LOCAL-BASE-0",
+                "LOCAL-RTA-1",
+                "LOCAL-AC-1",
+                "LOCAL-READ-ACT-1",
+                "LOCAL-EVIDENCE-1",
+                "LOCAL-GO-READ-1",
+            ),
+            "LOCAL-WRITE-UI-1",
+        )
+
+
+def _write_browser_evidence():
+    return {
+        "create_result": {
+            "status": 201,
+            "submission_id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+            "client_submission_id": "11111111-2222-4333-a444-555566667777",
+            "week_key": "2027-R01",
+        },
+        "active_readback": {
+            "status": 200,
+            "submission_id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+            "levels_count": 41,
+        },
+        "correct_result": {
+            "status": 201,
+            "submission_id": "d4c3b2a1-f6e5-4b7a-9d8c-1e0f2a3b4c5d",
+            "client_submission_id": "22222222-3333-4444-a555-666677778888",
+            "supersedes_submission_id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+        },
+        "conflict_result": {
+            "status": 409,
+            "detail": "stale_active_submission",
+        },
+        "conflict_reconciliation": {
+            "status": 200,
+            "submission_id": "d4c3b2a1-f6e5-4b7a-9d8c-1e0f2a3b4c5d",
+        },
+        "retry_result": {
+            "status": 201,
+            "submission_id": "e5d4c3b2-a1f6-4e5b-7a9d-8c1e0f2a3b4c",
+            "client_submission_id": "11111111-2222-4333-a444-555566667777",
+        },
+        "logout_result": {
+            "redirect_url": "/login",
+        },
+        "reload_result": {
+            "redirect_url": "/login",
+        },
+        "outage_result": {
+            "submit_visible": False,
+            "reads_preserved": True,
+        },
+        "request_inventory": {
+            "forbidden_mutation_count": 0,
+            "total_mutations": 4,
+        },
+    }
+
+
+def test_validate_write_browser_result_accepts_complete_write_evidence():
+    result = stage_suite.validate_write_browser_result(_write_browser_evidence())
+
+    assert result["create_result"]["submission_id"] is not None
+    assert result["active_readback"]["levels_count"] == 41
+    assert result["conflict_result"]["status"] == 409
+    assert result["request_inventory"]["forbidden_mutation_count"] == 0
+
+
+def test_validate_write_browser_result_rejects_missing_create_proof():
+    evidence = _write_browser_evidence()
+    del evidence["create_result"]
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_browser_result_not_accepted",
+    ):
+        stage_suite.validate_write_browser_result(evidence)
+
+
+def test_validate_write_browser_result_rejects_forbidden_mutations():
+    evidence = _write_browser_evidence()
+    evidence["request_inventory"]["forbidden_mutation_count"] = 1
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_browser_result_not_accepted",
+    ):
+        stage_suite.validate_write_browser_result(evidence)
+
+
+def test_validate_write_browser_result_rejects_nonuuid_submission_id():
+    evidence = _write_browser_evidence()
+    evidence["create_result"]["submission_id"] = "not-a-uuid"
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_browser_result_not_accepted",
+    ):
+        stage_suite.validate_write_browser_result(evidence)
+
+
+def test_validate_write_browser_result_rejects_retry_with_different_client_id():
+    evidence = _write_browser_evidence()
+    evidence["retry_result"]["client_submission_id"] = "99999999-0000-4000-a000-000000000000"
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_browser_result_not_accepted",
+    ):
+        stage_suite.validate_write_browser_result(evidence)
+
+
+def test_validate_write_browser_result_rejects_missing_outage_proof():
+    evidence = _write_browser_evidence()
+    del evidence["outage_result"]
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_browser_result_not_accepted",
+    ):
+        stage_suite.validate_write_browser_result(evidence)
+
+
+def test_validate_write_browser_result_rejects_outage_with_visible_submit():
+    evidence = _write_browser_evidence()
+    evidence["outage_result"]["submit_visible"] = True
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_browser_result_not_accepted",
+    ):
+        stage_suite.validate_write_browser_result(evidence)
+
+
+def test_build_planning_depth_request_v2_uses_rid_calendar():
+    request = stage_suite._build_planning_depth_request_v2(
+        week_date="2026-11-02",
+        week_key="2027-R01",
+        client_submission_id="00000000-0000-4000-a000-000000000001",
+        active_submission_id=None,
+        depth_offset="0.100",
+    )
+
+    assert request["schema_version"] == 2
+    assert request["calendar_system"] == "rid-irrigation-v1"
+    assert request["week_key"] == "2027-R01"
+    assert request["project_key"] == "mun-bon"
+    assert len(request["levels"]) == 6
+    assert all(level["area_type"] == "zone" for level in request["levels"])
+
+
+def test_write_ui_rid_week_matches_canonical_rid_calendar():
+    assert stage_suite._write_ui_rid_week(date(2026, 11, 1)) == (
+        "2026-11-01",
+        "2027-R01",
+    )
+    assert stage_suite._write_ui_rid_week(date(2026, 11, 2)) == (
+        "2026-11-01",
+        "2027-R01",
+    )
+    assert stage_suite._write_ui_rid_week(date(2026, 11, 7)) == (
+        "2026-11-01",
+        "2027-R01",
+    )
+    assert stage_suite._write_ui_rid_week(date(2026, 11, 8)) == (
+        "2026-11-08",
+        "2027-R02",
+    )
+    assert stage_suite._write_ui_rid_week(date(2026, 10, 31)) == (
+        "2026-10-31",
+        "2026-R53",
+    )
+    assert stage_suite._write_ui_rid_week(date(2026, 8, 6)) == (
+        "2026-08-01",
+        "2026-R40",
+    )
+    assert stage_suite._write_ui_rid_week(date(2025, 11, 1)) == (
+        "2025-11-01",
+        "2026-R01",
+    )
+
+
+def test_write_ui_namespace_differs_from_write_foundation():
+    assert stage_suite.WRITE_UI_NAMESPACE != stage_suite.WRITE_FOUNDATION_NAMESPACE
