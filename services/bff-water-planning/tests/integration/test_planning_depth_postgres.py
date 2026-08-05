@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 from datetime import date
 from decimal import Decimal
@@ -19,6 +20,7 @@ from db.planning_depth_repository import (
     PlanningDepthRosterUnavailableError,
     create_planning_depth_submission,
     get_active_planning_depth_submission,
+    load_authoritative_planning_depth_roster,
     load_planning_depth_roster,
 )
 from schemas.planning_depth import (
@@ -32,6 +34,11 @@ ROS_SECTION_MIGRATION = (
     Path(__file__).resolve().parents[3]
     / "ros-gis-integration/migrations/0001_dataset_version_parent.up.sql"
 )
+ROSTER_FIXTURE = (
+    Path(__file__).resolve().parents[4]
+    / "contracts/planning-depth-roster/v1/roster.active-v5.example.json"
+)
+ROSTER_DOCUMENT = json.loads(ROSTER_FIXTURE.read_text(encoding="utf-8"))
 
 pytestmark = pytest.mark.skipif(
     not TEST_URL,
@@ -78,13 +85,14 @@ async def _reset_database(connection) -> None:
         RETURNING dataset_version_id
         """
     )
-    rows = []
-    for index, section_number in enumerate(range(3, 44)):
-        zone_number = min(index // 7 + 1, 6)
-        area_rai = "5204" if section_number == 43 else "1000"
-        rows.append(
-            (f"01-{zone_number:02d}-01-{section_number:02d}", zone_number, area_rai)
+    rows = [
+        (
+            row["section_id"],
+            int(row["zone_id"].rsplit("-", 1)[1]),
+            str(row["area_rai"]),
         )
+        for row in ROSTER_DOCUMENT["sections"]
+    ]
     await connection.executemany(
         """
         INSERT INTO ros_gis.section_master_history (
@@ -193,12 +201,23 @@ async def test_roster_projects_only_the_active_v5_hybrid_dataset(connection):
         sum((item.area_rai for item in roster), Decimal("0")),
     ) == (
         41,
-        {
-            f"01-{min(index // 7 + 1, 6):02d}-01-{section_number:02d}"
-            for index, section_number in enumerate(range(3, 44))
-        },
+        {row["section_id"] for row in ROSTER_DOCUMENT["sections"]},
         Decimal("45204"),
     )
+
+
+@pytest.mark.asyncio
+async def test_authoritative_roster_projects_active_version_and_source_hash(connection):
+    projection = await load_authoritative_planning_depth_roster(connection)
+    active_dataset_id = await connection.fetchval(
+        "SELECT dataset_version_id FROM ros_gis.dataset_versions "
+        "WHERE dataset_kind = 'section_master' AND status = 'active'"
+    )
+
+    assert projection.model_dump(mode="json") == {
+        **ROSTER_DOCUMENT,
+        "dataset_version_id": active_dataset_id,
+    }
 
 
 @pytest.mark.asyncio

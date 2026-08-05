@@ -4,12 +4,17 @@ from decimal import Decimal, InvalidOperation
 from uuid import uuid4
 
 import asyncpg
+from pydantic import ValidationError
 from schemas.planning_depth import (
     EffectivePrincipalProjection,
     PlanningDepthActiveSubmission,
     PlanningDepthExpandedValue,
     PlanningDepthSubmissionReceipt,
     PlanningDepthSubmissionRequest,
+)
+from schemas.planning_depth_roster import (
+    PlanningDepthRosterProjection,
+    PlanningDepthRosterSection,
 )
 from services.planning_depth_submission import (
     PlanningDepthValidationError,
@@ -48,15 +53,31 @@ def _zone_id(value) -> str:
     return f"01-{zone_number:02d}"
 
 
-async def load_planning_depth_roster(connection) -> list[RosterSection]:
+async def load_authoritative_planning_depth_roster(
+    connection,
+) -> PlanningDepthRosterProjection:
     try:
         rows = await connection.fetch(
             """
-            SELECT section_id, zone, area_rai
-            FROM ros_gis.sections_current
-            ORDER BY section_id
+            SELECT sections.dataset_version_id,
+                   versions.source_hash,
+                   sections.section_id,
+                   sections.zone,
+                   sections.area_rai
+            FROM ros_gis.sections_current AS sections
+            JOIN ros_gis.dataset_versions AS versions
+              ON versions.dataset_version_id = sections.dataset_version_id
+             AND versions.dataset_kind = 'section_master'
+             AND versions.status = 'active'
+            ORDER BY sections.section_id
             """
         )
+        identities = {(row["dataset_version_id"], row["source_hash"]) for row in rows}
+        if len(identities) != 1:
+            raise PlanningDepthRosterUnavailableError(
+                "canonical roster provenance is invalid"
+            )
+        dataset_version_id, source_hash = identities.pop()
         roster = [
             RosterSection(
                 section_id=str(row["section_id"]),
@@ -66,17 +87,50 @@ async def load_planning_depth_roster(connection) -> list[RosterSection]:
             for row in rows
         ]
         validate_canonical_roster(roster)
-        return roster
+        sections = [
+            PlanningDepthRosterSection(
+                section_id=row.section_id,
+                zone_id=row.zone_id,
+                area_rai=row.area_rai,
+            )
+            for row in roster
+        ]
+        return PlanningDepthRosterProjection(
+            schema_version=1,
+            project_key="mun-bon",
+            dataset_version_id=dataset_version_id,
+            source_hash=source_hash,
+            total_area_rai=sum(
+                (row.area_rai for row in roster),
+                Decimal("0"),
+            ),
+            sections=sections,
+        )
     except (
         asyncpg.PostgresError,
         InvalidOperation,
         PlanningDepthValidationError,
+        PlanningDepthRosterUnavailableError,
+        ValidationError,
+        KeyError,
         TypeError,
         ValueError,
     ) as exc:
         raise PlanningDepthRosterUnavailableError(
             "canonical roster is unavailable"
         ) from exc
+
+
+async def load_planning_depth_roster(connection) -> list[RosterSection]:
+    projection = await load_authoritative_planning_depth_roster(connection)
+    return [
+        RosterSection(
+            section_id=row.section_id,
+            zone_id=row.zone_id,
+            area_rai=row.area_rai,
+        )
+        for row in projection.sections
+    ]
 
 
 def _receipt(row, *, replayed: bool) -> PlanningDepthSubmissionReceipt:

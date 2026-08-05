@@ -94,7 +94,7 @@ def get_bearer_token(
     return credentials.credentials
 
 
-async def _load_operator_principal(
+async def load_operator_principal(
     bearer_token: str,
     client: SchedulerPrincipalClient,
 ) -> EffectivePrincipalProjection:
@@ -137,7 +137,7 @@ async def submit_planning_depth(
     ),
     database_manager=Depends(get_database_manager),
 ):
-    principal = await _load_operator_principal(bearer_token, principal_client)
+    principal = await load_operator_principal(bearer_token, principal_client)
     if settings.planning_depth_writes_enabled != "true":
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -209,7 +209,7 @@ async def get_active_planning_depth(
     ),
     database_manager=Depends(get_database_manager),
 ) -> PlanningDepthActiveSubmission:
-    await _load_operator_principal(bearer_token, principal_client)
+    await load_operator_principal(bearer_token, principal_client)
     try:
         async with database_manager.get_connection() as connection:
             active = await get_active_planning_depth_submission(

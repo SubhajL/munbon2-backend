@@ -124,6 +124,7 @@ app.include_router(admin.router, prefix="/api/v1")
 from api.routes import (
     control_plans,
     crop_season,
+    planning_depth_roster,
     planning_depths,
     water_demand,
     water_demand_v2,
@@ -132,6 +133,7 @@ app.include_router(crop_season.router)
 app.include_router(water_demand.router)
 app.include_router(water_demand_v2.router)
 app.include_router(control_plans.router)
+app.include_router(planning_depth_roster.router)
 app.include_router(planning_depths.router)
 
 # Add Prometheus metrics endpoint

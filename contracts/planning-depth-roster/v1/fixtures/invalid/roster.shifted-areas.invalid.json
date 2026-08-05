@@ -1,0 +1,214 @@
+{
+  "schema_version": 1,
+  "project_key": "mun-bon",
+  "dataset_version_id": 42,
+  "source_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+  "total_area_rai": 45204,
+  "sections": [
+    {
+      "section_id": "01-01-01-03",
+      "zone_id": "01-01",
+      "area_rai": 972
+    },
+    {
+      "section_id": "01-01-01-04",
+      "zone_id": "01-01",
+      "area_rai": 689
+    },
+    {
+      "section_id": "01-01-01-05",
+      "zone_id": "01-01",
+      "area_rai": 1778
+    },
+    {
+      "section_id": "01-01-01-06",
+      "zone_id": "01-01",
+      "area_rai": 2357
+    },
+    {
+      "section_id": "01-01-01-07",
+      "zone_id": "01-01",
+      "area_rai": 1726
+    },
+    {
+      "section_id": "01-02-01-08",
+      "zone_id": "01-02",
+      "area_rai": 693
+    },
+    {
+      "section_id": "01-02-01-09",
+      "zone_id": "01-02",
+      "area_rai": 1434
+    },
+    {
+      "section_id": "01-02-01-10",
+      "zone_id": "01-02",
+      "area_rai": 1527
+    },
+    {
+      "section_id": "01-02-01-11",
+      "zone_id": "01-02",
+      "area_rai": 2611
+    },
+    {
+      "section_id": "01-02-01-12",
+      "zone_id": "01-02",
+      "area_rai": 449
+    },
+    {
+      "section_id": "01-02-01-13",
+      "zone_id": "01-02",
+      "area_rai": 65
+    },
+    {
+      "section_id": "01-02-01-14",
+      "zone_id": "01-02",
+      "area_rai": 104
+    },
+    {
+      "section_id": "01-03-01-15",
+      "zone_id": "01-03",
+      "area_rai": 2620
+    },
+    {
+      "section_id": "01-03-01-16",
+      "zone_id": "01-03",
+      "area_rai": 1348
+    },
+    {
+      "section_id": "01-03-01-17",
+      "zone_id": "01-03",
+      "area_rai": 5266
+    },
+    {
+      "section_id": "01-03-01-18",
+      "zone_id": "01-03",
+      "area_rai": 860
+    },
+    {
+      "section_id": "01-03-01-19",
+      "zone_id": "01-03",
+      "area_rai": 1133
+    },
+    {
+      "section_id": "01-04-01-20",
+      "zone_id": "01-04",
+      "area_rai": 654
+    },
+    {
+      "section_id": "01-04-01-21",
+      "zone_id": "01-04",
+      "area_rai": 503
+    },
+    {
+      "section_id": "01-04-01-22",
+      "zone_id": "01-04",
+      "area_rai": 1907
+    },
+    {
+      "section_id": "01-04-01-23",
+      "zone_id": "01-04",
+      "area_rai": 73
+    },
+    {
+      "section_id": "01-04-01-24",
+      "zone_id": "01-04",
+      "area_rai": 2124
+    },
+    {
+      "section_id": "01-04-01-25",
+      "zone_id": "01-04",
+      "area_rai": 1121
+    },
+    {
+      "section_id": "01-04-01-26",
+      "zone_id": "01-04",
+      "area_rai": 1555
+    },
+    {
+      "section_id": "01-05-01-27",
+      "zone_id": "01-05",
+      "area_rai": 139
+    },
+    {
+      "section_id": "01-05-01-28",
+      "zone_id": "01-05",
+      "area_rai": 694
+    },
+    {
+      "section_id": "01-05-01-29",
+      "zone_id": "01-05",
+      "area_rai": 813
+    },
+    {
+      "section_id": "01-05-01-30",
+      "zone_id": "01-05",
+      "area_rai": 1009
+    },
+    {
+      "section_id": "01-05-01-31",
+      "zone_id": "01-05",
+      "area_rai": 591
+    },
+    {
+      "section_id": "01-05-01-32",
+      "zone_id": "01-05",
+      "area_rai": 686
+    },
+    {
+      "section_id": "01-05-01-33",
+      "zone_id": "01-05",
+      "area_rai": 1185
+    },
+    {
+      "section_id": "01-05-01-34",
+      "zone_id": "01-05",
+      "area_rai": 1434
+    },
+    {
+      "section_id": "01-06-01-35",
+      "zone_id": "01-06",
+      "area_rai": 358
+    },
+    {
+      "section_id": "01-06-01-36",
+      "zone_id": "01-06",
+      "area_rai": 995
+    },
+    {
+      "section_id": "01-06-01-37",
+      "zone_id": "01-06",
+      "area_rai": 743
+    },
+    {
+      "section_id": "01-06-01-38",
+      "zone_id": "01-06",
+      "area_rai": 1206
+    },
+    {
+      "section_id": "01-06-01-39",
+      "zone_id": "01-06",
+      "area_rai": 229
+    },
+    {
+      "section_id": "01-06-01-40",
+      "zone_id": "01-06",
+      "area_rai": 277
+    },
+    {
+      "section_id": "01-06-01-41",
+      "zone_id": "01-06",
+      "area_rai": 193
+    },
+    {
+      "section_id": "01-06-01-42",
+      "zone_id": "01-06",
+      "area_rai": 465
+    },
+    {
+      "section_id": "01-06-01-43",
+      "zone_id": "01-06",
+      "area_rai": 618
+    }
+  ]
+}

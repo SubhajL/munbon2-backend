@@ -203,7 +203,7 @@ def test_approved_manifest_pins_d1_d3_d4_and_explicit_tail_crosswalk():
     assert {
         key: value
         for key, value in manifest["section_master"].items()
-        if key not in {"excel_overrides", "gis_expected_areas"}
+        if key not in {"excel_overrides", "gis_expected_areas", "section_memberships"}
     } == {
         "identity_source": "postgres.gis.zone",
         "geometry_source": "postgres.gis.zone.geom",
@@ -232,6 +232,10 @@ def test_approved_manifest_pins_d1_d3_d4_and_explicit_tail_crosswalk():
     assert {
         row["section_number"]: Decimal(row["area_rai"]) for row in gis_expected_areas
     } == {number: Decimal(area) for number, area in GIS_TAIL_AREAS.items()}
+    assert {
+        row["section_number"]: row["zone_number"]
+        for row in manifest["section_master"]["section_memberships"]
+    } == {number: _zone(number) for number in range(3, 44)}
     assert manifest["annual_plan"]["sheet"] == "แผนการส่งน้ำ 1-6"
     assert manifest["annual_plan"]["rate_unit"] == "m3/s"
     assert manifest["scada"] == {
@@ -508,6 +512,49 @@ def test_effective_section_master_rejects_shifted_gis_tail_areas():
         _effective_section_master(shifted, load_requirement_source_manifest())
 
 
+def test_effective_section_master_rejects_section_moved_to_another_zone():
+    rows = _gis_sections()
+    rows[0] = {
+        **rows[0],
+        "code": "01-02-01-03",
+        "zone": "Zone2",
+    }
+
+    with pytest.raises(RequirementSourceError, match="section zone membership"):
+        _effective_section_master(rows, load_requirement_source_manifest())
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda rows: rows[:-1],
+        lambda rows: [*rows, {**rows[0]}],
+        lambda rows: [
+            {**row, "zone_number": 7} if row["section_number"] == 3 else row
+            for row in rows
+        ],
+        lambda rows: [
+            {**row, "section_number": "3"} if row["section_number"] == 3 else row
+            for row in rows
+        ],
+        lambda rows: [
+            {**row, "zone_number": True} if row["section_number"] == 3 else row
+            for row in rows
+        ],
+    ],
+)
+def test_effective_section_master_rejects_invalid_section_membership_authority(
+    mutate,
+):
+    manifest = load_requirement_source_manifest()
+    manifest["section_master"]["section_memberships"] = mutate(
+        manifest["section_master"]["section_memberships"]
+    )
+
+    with pytest.raises(RequirementSourceError, match="section zone membership"):
+        _effective_section_master(_gis_sections(), manifest)
+
+
 def test_section_dataset_hash_binds_raw_gis_effective_rows_and_excel_authority():
     manifest = load_requirement_source_manifest()
     raw = _gis_sections()
@@ -518,9 +565,25 @@ def test_section_dataset_hash_binds_raw_gis_effective_rows_and_excel_authority()
         **manifest,
         "scada": {**manifest["scada"], "sha256": "0" * 64},
     }
+    changed_membership = {
+        **manifest,
+        "section_master": {
+            **manifest["section_master"],
+            "section_memberships": [
+                {
+                    **row,
+                    "zone_number": 2,
+                }
+                if row["section_number"] == 3
+                else row
+                for row in manifest["section_master"]["section_memberships"]
+            ],
+        },
+    }
 
     assert _section_dataset_hash(raw_change, effective, manifest) != expected
     assert _section_dataset_hash(raw, effective, changed_authority) != expected
+    assert _section_dataset_hash(raw, effective, changed_membership) != expected
 
 
 class _Transaction:

@@ -76,9 +76,13 @@ async def test_section_activation_preserves_real_postgis_geometry_and_hybrid_are
             int(row["section_number"]): row["area_rai"]
             for row in manifest["section_master"]["gis_expected_areas"]
         }
+        expected_membership = {
+            int(row["section_number"]): int(row["zone_number"])
+            for row in manifest["section_master"]["section_memberships"]
+        }
         source_rows = []
-        for index, section_number in enumerate(range(3, 44)):
-            zone = min(index // 7 + 1, 6)
+        for section_number in range(3, 44):
+            zone = expected_membership[section_number]
             source_rows.append(
                 (
                     f"01-{zone:02d}-01-{section_number:02d}",

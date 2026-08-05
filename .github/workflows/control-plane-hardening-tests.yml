@@ -5,11 +5,15 @@
 # real gate today. It is written to be CORRECT so that restoring Actions billing
 # (and making this a required check) needs no rework.
 #
-# Seven jobs:
+# Nine jobs:
 #   - scheduler-tests: the scheduler bare-pytest gate (integration suites skip
 #     without SCHEDULER_TEST_POSTGRES_URL). Also covers the PR 6.0 Python half of
 #     the machine-boundary v1 contract (jsonschema + pydantic).
 #   - bff-tests: the bff-water-planning bare-pytest gate.
+#   - ros-roster-tests: the ROS authoritative roster source-loader and shared
+#     planning-depth-roster contract gate.
+#   - ros-postgis-integration: the authoritative source-loader activation and
+#     immutable requirement publication gate against disposable PostGIS.
 #   - bff-postgres-integration: the planning-depth migration, immutable
 #     submission ledger, replay/conflict, concurrency, and rollback gate against
 #     an ephemeral loopback Postgres.
@@ -33,11 +37,14 @@ on:
     paths:
       - "services/scheduler/**"
       - "services/bff-water-planning/**"
+      - "services/ros-gis-integration/**"
       - "services/scada-gate-control/**"
       - "services/scada-gate-control-web/**"
       - "contracts/control-plans/**"
       - "contracts/control-plan-evidence/**"
       - "contracts/planning-depth-submissions/**"
+      - "contracts/planning-depth-roster/**"
+      - "contracts/rid-calendar/**"
       - "contracts/machine-boundary/**"
       - "contracts/control-commissioning/**"
       - "infra/pm2/**"
@@ -49,11 +56,14 @@ on:
     paths:
       - "services/scheduler/**"
       - "services/bff-water-planning/**"
+      - "services/ros-gis-integration/**"
       - "services/scada-gate-control/**"
       - "services/scada-gate-control-web/**"
       - "contracts/control-plans/**"
       - "contracts/control-plan-evidence/**"
       - "contracts/planning-depth-submissions/**"
+      - "contracts/planning-depth-roster/**"
+      - "contracts/rid-calendar/**"
       - "contracts/machine-boundary/**"
       - "contracts/control-commissioning/**"
       - "infra/pm2/**"
@@ -125,6 +135,68 @@ jobs:
           CORS_ORIGINS: http://localhost:3000
         run: python -m pytest -q
 
+  ros-roster-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/ros-gis-integration
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: services/ros-gis-integration/requirements.txt
+      - name: Install pinned dependencies
+        run: pip install -r requirements.txt
+      - name: Authoritative roster source-loader and contract suites
+        run: >-
+          python -m pytest -q
+          tests/unit/test_requirement_source_loader.py
+          tests/unit/test_planning_depth_roster_contract.py
+
+  ros-postgis-integration:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/ros-gis-integration
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ros_gis_roster_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: services/ros-gis-integration/requirements.txt
+      - name: Install pinned dependencies
+        run: pip install -r requirements.txt
+      - name: Apply ROS-GIS migrations
+        env:
+          POSTGRES_URL: postgresql://postgres:postgres@127.0.0.1:5432/ros_gis_roster_test
+        run: |
+          python migrations/migrate.py apply 0001_dataset_version_parent
+          python migrations/migrate.py apply 0002_water_requirement_publication
+          python migrations/migrate.py apply 0003_daily_requirement_producer
+      - name: Authoritative roster activation and publication suites (real PostGIS)
+        env:
+          WATER_REQUIREMENT_TEST_POSTGRES_URL: postgresql://postgres:postgres@127.0.0.1:5432/ros_gis_roster_test
+        run: >-
+          python -m pytest -q
+          tests/integration/test_water_requirement_repository_postgres.py
+
   bff-postgres-integration:
     runs-on: ubuntu-latest
     defaults:
@@ -132,7 +204,7 @@ jobs:
         working-directory: services/bff-water-planning
     services:
       postgres:
-        image: postgres:16
+        image: postgis/postgis:16-3.4
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres

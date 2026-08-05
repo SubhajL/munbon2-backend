@@ -30,7 +30,7 @@ bundle; the runtime checkout must remain at the accepted 40-character SHA.
 | READ-ACT-1         | `LOCAL-READ-ACT-1`         | Implemented and passed       |
 | ME-1 / FE-8        | `LOCAL-EVIDENCE-1`         | Implemented and passed       |
 | GO-READ-1          | `LOCAL-GO-READ-1`          | Implemented and passed       |
-| W1 / W2            | `LOCAL-WRITE-FOUNDATION-1` | Planned; not yet implemented |
+| W1 / W2            | `LOCAL-WRITE-FOUNDATION-1` | Implemented; prior SHA passed |
 | FE-5 / FE-6        | `LOCAL-WRITE-UI-1`         | Planned; not yet implemented |
 | DEC-W4             | `LOCAL-PERSIST-ONLY-1`     | Planned; persist-only        |
 | WRITE-ACT-1        | `LOCAL-WRITE-ACT-1`        | Planned; not yet implemented |
@@ -68,7 +68,7 @@ requirement publication, plan, session, or cache entry.
 The Prometheus Debian package is used only for `promtool`; its Prometheus and
 node-exporter services are disabled to prevent wildcard listeners.
 
-## Run the six implemented stages
+## Run the seven implemented stages
 
 ```bash
 python3 ops/control-plan-read-local/orchestrate.py run-stage --stage LOCAL-BASE-0 \
@@ -97,6 +97,11 @@ python3 ops/control-plan-read-local/orchestrate.py run-stage --stage LOCAL-EVIDE
   --accept-later-origin-main
 
 python3 ops/control-plan-read-local/orchestrate.py run-stage --stage LOCAL-GO-READ-1 \
+  --release-sha "$accepted_backend_sha" \
+  --frontend-sha "$accepted_frontend_sha" \
+  --accept-later-origin-main
+
+python3 ops/control-plan-read-local/orchestrate.py run-stage --stage LOCAL-WRITE-FOUNDATION-1 \
   --release-sha "$accepted_backend_sha" \
   --frontend-sha "$accepted_frontend_sha" \
   --accept-later-origin-main
@@ -235,7 +240,11 @@ gate was strengthened, and Stage 0/1 were rerun from a new evidence directory.
 - Sanitized archive:
   `coding-logs/evidence/2026-07-26-go-read-main-d47db8e3/`
 
-Every new candidate must be provisioned cleanly and rerun through all six
+The result above predates the later source-delivered write-foundation stage.
+`LOCAL-WRITE-FOUNDATION-1` subsequently passed at its own exact SHA; that
+evidence is not reused for a new candidate.
+
+Every new candidate must be provisioned cleanly and rerun through all seven
 implemented stages at its exact SHA. Evidence from a predecessor or a
 tree-equivalent squash commit is not reused because the evidence index is
 SHA-bound. These readings are local evidence and do not describe AWS capacity
@@ -243,7 +252,8 @@ or runtime state.
 
 ## Next local work
 
-Continue through the historical write-foundation roadmap with all write and
+Complete the authoritative roster, RID-calendar identity, and frontend retry
+prerequisites before implementing `LOCAL-WRITE-UI-1`. Keep all write and
 authority gates dark by default. Rebuild disposable state and pass `LOCAL-RC-1`
 after every named local gate. Only that final pass allows a separately
 authorized AWS promotion turn to begin.
