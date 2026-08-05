@@ -1634,7 +1634,7 @@ def test_unexpected_non_loopback_listeners_rejects_wildcard_services():
     assert stage_suite.unexpected_non_loopback_listeners(listeners) == [9090, 9100]
 
 
-def test_validate_migration_parity_requires_scheduler_0013_ros_0003_and_bff_010():
+def test_validate_migration_parity_requires_scheduler_0013_ros_0003_and_bff_011():
     scheduler = [f"{index:04d}_migration" for index in range(1, 13)] + [
         "0013_operator_approved_execution"
     ]
@@ -1646,6 +1646,7 @@ def test_validate_migration_parity_requires_scheduler_0013_ros_0003_and_bff_010(
     bff = [
         "009_crop_registry",
         "010_planning_depth_submissions",
+        "011_planning_depth_rid_calendar_v2",
     ]
 
     assert stage_suite.validate_migration_parity(scheduler, ros, bff) == {
@@ -1653,8 +1654,8 @@ def test_validate_migration_parity_requires_scheduler_0013_ros_0003_and_bff_010(
         "scheduler_count": 13,
         "ros_latest": "0003_daily_requirement_producer",
         "ros_count": 3,
-        "bff_latest": "010_planning_depth_submissions",
-        "bff_count": 2,
+        "bff_latest": "011_planning_depth_rid_calendar_v2",
+        "bff_count": 3,
     }
 
 
@@ -1664,17 +1665,25 @@ def test_validate_migration_parity_requires_scheduler_0013_ros_0003_and_bff_010(
         (
             ["0012_authority_grants"],
             ["0003_daily_requirement_producer"],
-            ["009_crop_registry", "010_planning_depth_submissions"],
+            [
+                "009_crop_registry",
+                "010_planning_depth_submissions",
+                "011_planning_depth_rid_calendar_v2",
+            ],
         ),
         (
             ["0013_operator_approved_execution"],
             ["0002_water_requirement_publication"],
-            ["009_crop_registry", "010_planning_depth_submissions"],
+            [
+                "009_crop_registry",
+                "010_planning_depth_submissions",
+                "011_planning_depth_rid_calendar_v2",
+            ],
         ),
         (
             ["0013_operator_approved_execution"],
             ["0003_daily_requirement_producer"],
-            ["009_crop_registry"],
+            ["009_crop_registry", "010_planning_depth_submissions"],
         ),
     ],
 )
@@ -2339,7 +2348,7 @@ def test_write_foundation_drills_complete_every_drill_on_the_happy_path():
     assert set(steps) == {
         "w1_principal",
         "w2_week_clean",
-        "migration_010",
+        "migration_011",
         "w2_dark_flag_gate",
         "w2_create",
         "w2_replay",

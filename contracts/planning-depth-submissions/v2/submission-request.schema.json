@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://munbon.example/contracts/planning-depth-submissions/v2/submission-request.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "client_submission_id",
+    "project_key",
+    "calendar_system",
+    "week_key",
+    "week_date",
+    "expected_active_submission_id",
+    "levels"
+  ],
+  "properties": {
+    "schema_version": { "const": 2 },
+    "client_submission_id": { "type": "string", "format": "uuid" },
+    "project_key": { "const": "mun-bon" },
+    "calendar_system": { "const": "rid-irrigation-v1" },
+    "week_key": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-R(?:0[1-9]|[1-4][0-9]|5[0-3])$"
+    },
+    "week_date": { "type": "string", "format": "date" },
+    "expected_active_submission_id": {
+      "oneOf": [
+        { "type": "string", "format": "uuid" },
+        { "type": "null" }
+      ]
+    },
+    "levels": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 47,
+      "items": { "$ref": "#/$defs/level" }
+    }
+  },
+  "$defs": {
+    "level": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["area_type", "area_id", "planning_depth_mm"],
+      "properties": {
+        "area_type": { "type": "string", "enum": ["zone", "section"] },
+        "area_id": { "type": "string", "minLength": 1 },
+        "zone_id": { "type": "string", "minLength": 1 },
+        "planning_depth_mm": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 999999999.999,
+          "multipleOf": 0.001
+        }
+      },
+      "oneOf": [
+        {
+          "properties": { "area_type": { "const": "zone" } },
+          "not": { "required": ["zone_id"] }
+        },
+        {
+          "properties": { "area_type": { "const": "section" } },
+          "required": ["zone_id"]
+        }
+      ]
+    }
+  }
+}

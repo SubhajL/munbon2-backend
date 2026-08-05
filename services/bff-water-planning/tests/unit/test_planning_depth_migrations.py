@@ -56,7 +56,14 @@ def test_manifest_pins_every_owned_sql_file_and_git_tracks_them():
     assert [item["migration_id"] for item in manifest["migrations"]] == [
         "009_crop_registry",
         "010_planning_depth_submissions",
+        "011_planning_depth_rid_calendar_v2",
     ]
+    assert (
+        hashlib.sha256(
+            (MIGRATIONS / "010_planning_depth_submissions.sql").read_bytes()
+        ).hexdigest()
+        == "c904510204c97269a73ee4592c06c1a35c1fd8f13b53b47885a21b4c5a5c62f6"
+    )
     owned_migration_number_min = manifest["owned_migration_number_min"]
     assert {item["filename"] for item in manifest["migrations"]} == {
         path.name
@@ -86,9 +93,10 @@ def test_manifest_ignores_legacy_sql_but_rejects_new_unlisted_migrations(
     assert [item.migration_id for item in load_migration_manifest(migrations)] == [
         "009_crop_registry",
         "010_planning_depth_submissions",
+        "011_planning_depth_rid_calendar_v2",
     ]
 
-    (migrations / "011_unlisted.sql").write_text("SELECT 1;\n", encoding="utf-8")
+    (migrations / "012_unlisted.sql").write_text("SELECT 1;\n", encoding="utf-8")
     with pytest.raises(MigrationManifestError, match="incomplete or unordered"):
         load_migration_manifest(migrations)
 
@@ -101,9 +109,13 @@ async def test_apply_is_ordered_idempotent_and_reports_checksums():
     second = await apply_migrations(connection, MIGRATIONS)
     status = await migration_status(connection, MIGRATIONS)
 
-    assert first == ["009_crop_registry", "010_planning_depth_submissions"]
+    assert first == [
+        "009_crop_registry",
+        "010_planning_depth_submissions",
+        "011_planning_depth_rid_calendar_v2",
+    ]
     assert second == []
-    assert len(connection.executed_migrations) == 2
+    assert len(connection.executed_migrations) == 3
     assert status == [
         {
             "migration_id": migration.migration_id,

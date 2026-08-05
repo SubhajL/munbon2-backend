@@ -38,6 +38,11 @@ for any future Strawberry pin or GraphQL annotation change.
   same database as ros-gis-integration's local `POSTGRES_URL`. Use
   `docs/operations/V5_HYBRID_SECTION_MASTER_ACTIVATION.md` before enabling the
   write route; absence of an active exact roster fails closed.
+- Planning-depth v2 uses explicit `calendar_system=rid-irrigation-v1`, ending-year
+  `YYYY-Rnn`, and the exact RID week start on separate `/api/v2` POST/active GET
+  routes. Migration 011 preserves v1 rows as `legacy-calendar-v1` and scopes
+  replay, roots, active reads, and successor lineage by calendar; migration 010
+  and the `/api/v1` ISO contract remain immutable.
 
 ## Integration
 Reads/writes `ros_gis.weekly_water_demands`, queries `gis.crop_registry`; talks to ROS/GIS/AWD/Flow/Scheduler/Weather/Sensor via `src/clients/`; publishes Redis demand events.

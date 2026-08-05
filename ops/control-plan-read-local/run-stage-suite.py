@@ -1231,6 +1231,7 @@ def validate_migration_parity(
     expected_bff = [
         "009_crop_registry",
         "010_planning_depth_submissions",
+        "011_planning_depth_rid_calendar_v2",
     ]
     if (
         len(scheduler_ids) != 13
@@ -4175,7 +4176,7 @@ def run_write_foundation_drills(
     # file dark while the process stays armed -- so this is a fast early signal,
     # not the safety mechanism. Safety comes from the probe body below, which
     # cannot be persisted even against an armed runtime.
-    steps["migration_010"] = validate_write_flag_is_dark(read_write_flag())
+    steps["migration_011"] = validate_write_flag_is_dark(read_write_flag())
 
     w2_disabled = client.request(
         "POST",

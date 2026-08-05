@@ -34,8 +34,9 @@ Activation fails before PM2 changes when `MemAvailable` is below 512 MiB or used
 Exact bindings are Flow `127.0.0.1:3011`, Scheduler `127.0.0.1:3021`, ROS-GIS `127.0.0.1:3047`, and BFF `127.0.0.1:3022`. Scheduler remains `CONTROL_EXECUTION_MODE=disabled`, readback remains `off`, SCADA/service-token/capability settings are removed, and ROS daily requirement production remains disabled.
 
 The BFF migration runner verifies and applies the ordered tracked manifest,
-requiring both `009_crop_registry` and `010_planning_depth_submissions` in
-`water_planning.schema_migrations`. Planning-depth writes remain unavailable
+requiring `009_crop_registry`, `010_planning_depth_submissions`, and
+`011_planning_depth_rid_calendar_v2` in `water_planning.schema_migrations`.
+Planning-depth writes remain unavailable
 unless the backend flag is the exact string `true`; this runtime keeps it
 `false`.
 

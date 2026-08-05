@@ -1,0 +1,107 @@
+{
+  "manifest_version": 1,
+  "contract_family": "planning-depth-submissions",
+  "contract_version": 2,
+  "json_schema_dialect": "https://json-schema.org/draft/2020-12/schema",
+  "contract_set_sha256": "2fee7da3c68566e50dc866445e706739d1c1798a40e2016bd70b9312351f04d8",
+  "schemas": [
+    {
+      "relative_path": "submission-request.schema.json",
+      "sha256": "900098f34c2056b3f6f80b941c7bbb694d7d86bf74b6d1b848f2b146899e8805"
+    },
+    {
+      "relative_path": "submission-receipt.schema.json",
+      "sha256": "bc6b2505924288c03a0133dab68ee9545a59bb979cda5723fc9ed6216bef535a"
+    },
+    {
+      "relative_path": "active-submission.schema.json",
+      "sha256": "d02875cab5e7b4e5ac40775368c8e1be62c14f1fdd794d6c96910b4a0cb0b257"
+    }
+  ],
+  "fixtures": [
+    {
+      "relative_path": "submission-request.rid-year-start.example.json",
+      "schema": "submission-request.schema.json",
+      "expected_schema_valid": true,
+      "expected_model_valid": true,
+      "sha256": "660cea257fbc254a9136601e14c5551c48bb887e4dd628c677a490ff58b0a94e"
+    },
+    {
+      "relative_path": "submission-request.rid-week-53.example.json",
+      "schema": "submission-request.schema.json",
+      "expected_schema_valid": true,
+      "expected_model_valid": true,
+      "sha256": "231fa08433235468f09e4a3ddb8b74ac5de7271a8464cbf1295f1274a17630e5"
+    },
+    {
+      "relative_path": "fixtures/invalid/submission-request.legacy-calendar.invalid.json",
+      "schema": "submission-request.schema.json",
+      "expected_schema_valid": false,
+      "expected_model_valid": false,
+      "sha256": "3fd71cd6c7e49de2da568a196cf3a0a9fd6873b06047e33b0f3c2e34a76ae27a"
+    },
+    {
+      "relative_path": "fixtures/invalid/submission-request.iso-key.invalid.json",
+      "schema": "submission-request.schema.json",
+      "expected_schema_valid": false,
+      "expected_model_valid": false,
+      "sha256": "00cc68cd04b57bd5c07b4bfa59ecc60f564a43bdd12aab7696001f501349f965"
+    },
+    {
+      "relative_path": "fixtures/invalid/submission-request.week-54.invalid.json",
+      "schema": "submission-request.schema.json",
+      "expected_schema_valid": false,
+      "expected_model_valid": false,
+      "sha256": "1ca75f5c7d0f366eb20be1d19a923d575b6fb981bd482e3a10f3b0cf52745d4a"
+    },
+    {
+      "relative_path": "fixtures/invalid/submission-request.week-date-mismatch.invalid.json",
+      "schema": "submission-request.schema.json",
+      "expected_schema_valid": true,
+      "expected_model_valid": false,
+      "sha256": "ca577e089b2e2b0ee27a25dae725f1edb47b93e3c1982d48f5f28aaa312a2b7f"
+    },
+    {
+      "relative_path": "fixtures/invalid/submission-request.year-out-of-range.invalid.json",
+      "schema": "submission-request.schema.json",
+      "expected_schema_valid": true,
+      "expected_model_valid": false,
+      "sha256": "736e95e0925d11cbd699709b0ab9a8ca920fc69de1159a9aab86bd98c538e8cb"
+    },
+    {
+      "relative_path": "fixtures/invalid/submission-request.datetime-date.invalid.json",
+      "schema": "submission-request.schema.json",
+      "expected_schema_valid": false,
+      "expected_model_valid": false,
+      "sha256": "13b0f9837ef7f8d0d322a026fe927de812106a7ebc780d008b5545f9fed0cef5"
+    },
+    {
+      "relative_path": "submission-receipt.created.example.json",
+      "schema": "submission-receipt.schema.json",
+      "expected_schema_valid": true,
+      "expected_model_valid": true,
+      "sha256": "9713089f19c74c0cc7362ea69280d2b38da1fe1c58f6f08de9ac47a579595c0b"
+    },
+    {
+      "relative_path": "fixtures/invalid/submission-receipt.naive-datetime.invalid.json",
+      "schema": "submission-receipt.schema.json",
+      "expected_schema_valid": false,
+      "expected_model_valid": false,
+      "sha256": "e35b8524a901844285db759d40b5479f8afe9ad5091e079a573f0dd4071c1152"
+    },
+    {
+      "relative_path": "active-submission.41.example.json",
+      "schema": "active-submission.schema.json",
+      "expected_schema_valid": true,
+      "expected_model_valid": true,
+      "sha256": "21ca22fe94bd232ae5d0608bde6743e23c41ef9b758700f15c26e48aa0ba41c1"
+    },
+    {
+      "relative_path": "fixtures/invalid/active-submission.extra-field.invalid.json",
+      "schema": "active-submission.schema.json",
+      "expected_schema_valid": false,
+      "expected_model_valid": false,
+      "sha256": "8a423aa44a8d8ddbc8847ee357dd3306cce13bf90c3254c02a04547bca047cfd"
+    }
+  ]
+}

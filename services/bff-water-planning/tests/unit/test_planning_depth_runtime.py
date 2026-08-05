@@ -55,8 +55,8 @@ def test_runtime_migration_parity_requires_the_exact_bff_manifest():
         "scheduler_count": 13,
         "ros_latest": "0003_daily_requirement_producer",
         "ros_count": 3,
-        "bff_latest": "010_planning_depth_submissions",
-        "bff_count": 2,
+        "bff_latest": "011_planning_depth_rid_calendar_v2",
+        "bff_count": 3,
     }
     with pytest.raises(stage_suite.StageGateError, match="migration_parity_failed"):
         stage_suite.validate_migration_parity(

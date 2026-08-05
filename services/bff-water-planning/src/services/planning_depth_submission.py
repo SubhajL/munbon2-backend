@@ -4,13 +4,16 @@ import hashlib
 import json
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Sequence
+from typing import TYPE_CHECKING, Sequence
 
 from schemas.planning_depth import (
     PlanningDepthExpandedValue,
     PlanningDepthLevelInput,
     PlanningDepthSubmissionRequest,
 )
+
+if TYPE_CHECKING:
+    from schemas.planning_depth_v2 import PlanningDepthSubmissionRequestV2
 
 
 class PlanningDepthValidationError(ValueError):
@@ -67,6 +70,34 @@ def canonicalize_planning_depth_request(
         levels.append(item)
     return _canonical_document(
         {
+            "levels": levels,
+            "project_key": request.project_key,
+            "schema_version": request.schema_version,
+            "week_date": request.week_date.isoformat(),
+            "week_key": request.week_key,
+        }
+    )
+
+
+def canonicalize_planning_depth_request_v2(
+    request: PlanningDepthSubmissionRequestV2,
+) -> CanonicalDocument:
+    levels = []
+    for level in sorted(
+        request.levels,
+        key=lambda item: (item.area_type, item.area_id),
+    ):
+        item = {
+            "area_id": level.area_id,
+            "area_type": level.area_type,
+            "planning_depth_mm": _three_places(level.planning_depth_mm),
+        }
+        if level.zone_id is not None:
+            item["zone_id"] = level.zone_id
+        levels.append(item)
+    return _canonical_document(
+        {
+            "calendar_system": request.calendar_system,
             "levels": levels,
             "project_key": request.project_key,
             "schema_version": request.schema_version,
