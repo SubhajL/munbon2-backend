@@ -1,6 +1,7 @@
 import importlib.util
 import json
 from pathlib import Path
+import re
 import sys
 
 import pytest
@@ -251,6 +252,37 @@ def test_run_all_executes_every_progressive_stage(monkeypatch):
     orchestrate.run_all_stages("a" * 40, "b" * 40)
 
     assert calls == [(stage, "a" * 40, "b" * 40) for stage in orchestrate.STAGE_ORDER]
+
+
+def test_orchestrator_stage_order_matches_suite_stage_order():
+    suite_path = Path(__file__).resolve().parents[1] / "run-stage-suite.py"
+    suite_source = suite_path.read_text(encoding="utf-8")
+    match = re.search(
+        r'^STAGE_ORDER\s*=\s*\((.*?)\)',
+        suite_source,
+        re.MULTILINE | re.DOTALL,
+    )
+    assert match is not None
+    suite_stages = tuple(
+        line.strip().strip(",").strip().strip('"').strip("'")
+        for line in match.group(1).splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    )
+
+    assert orchestrate.STAGE_ORDER == suite_stages
+
+
+def test_parser_accepts_write_ui_stage():
+    args = orchestrate._parse_args(
+        [
+            "run-stage",
+            "--stage",
+            "LOCAL-WRITE-UI-1",
+            "--release-sha",
+            orchestrate.ACCEPTED_BASE_SHA,
+        ]
+    )
+    assert args.stage == "LOCAL-WRITE-UI-1"
 
 
 def test_documented_candidate_commands_validate_the_same_exact_shas(
