@@ -261,6 +261,42 @@ def _chainage_metres(value, field: str) -> int:
     return int(match.group(1)) * 1000 + int(match.group(2))
 
 
+def _section_zone_membership(
+    section_master: Mapping,
+    expected_numbers: set[int],
+) -> dict[int, int]:
+    membership: dict[int, int] = {}
+    try:
+        for row in section_master["section_memberships"]:
+            if set(row) != {"section_number", "zone_number"}:
+                raise RequirementSourceError(
+                    "approved section zone membership has invalid fields"
+                )
+            if (
+                type(row["section_number"]) is not int
+                or type(row["zone_number"]) is not int
+            ):
+                raise RequirementSourceError(
+                    "approved section zone membership is invalid"
+                )
+            section_number = row["section_number"]
+            zone_number = row["zone_number"]
+            if section_number in membership or not 1 <= zone_number <= 6:
+                raise RequirementSourceError(
+                    "approved section zone membership is invalid"
+                )
+            membership[section_number] = zone_number
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RequirementSourceError(
+            "approved section zone membership is invalid"
+        ) from exc
+    if set(membership) != expected_numbers or set(membership.values()) != set(
+        range(1, 7)
+    ):
+        raise RequirementSourceError("approved section zone membership is invalid")
+    return membership
+
+
 def _raw_sections_by_number(
     gis_sections: Sequence[Mapping],
     expected_count: int,
@@ -398,12 +434,17 @@ def _effective_section_master(
         int(section_master["section_count"]),
         expected_numbers,
     )
+    membership = _section_zone_membership(section_master, expected_numbers)
     override_rows = _excel_section_overrides(section_master, excel_numbers)
     expected_gis_areas = _expected_gis_section_areas(section_master, gis_numbers)
 
     effective: list[dict] = []
     for section_number in sorted(expected_numbers):
         row = raw_rows[section_number]
+        if _zone(row["zone"]) != membership[section_number]:
+            raise RequirementSourceError(
+                "approved section zone membership does not match GIS identity"
+            )
         if section_number in excel_numbers:
             override = override_rows[section_number]
             row.update(
@@ -493,7 +534,10 @@ def _validated_section_sources(
     expected_area = Decimal(manifest["section_master"]["total_area_rai"])
     expected_numbers = {int(item["section_number"]) for item in manifest["crosswalk"]}
     section_codes = [str(item["code"]) for item in gis_sections]
-    section_numbers = {_section_number(item) for item in gis_sections}
+    section_zones = {
+        _section_number(item): _zone(item["zone"]) for item in gis_sections
+    }
+    membership = _section_zone_membership(manifest["section_master"], expected_numbers)
     source_area = sum(
         (
             _decimal(item["area_rai"], f"section {item['code']} area")
@@ -504,7 +548,8 @@ def _validated_section_sources(
     if (
         len(gis_sections) != expected_count
         or len(set(section_codes)) != expected_count
-        or section_numbers != expected_numbers
+        or set(section_zones) != expected_numbers
+        or section_zones != membership
         or source_area != expected_area
     ):
         raise RequirementSourceError(

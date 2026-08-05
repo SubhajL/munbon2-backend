@@ -1,0 +1,862 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://munbon.dev/contracts/planning-depth-roster/v1/roster.schema.json",
+  "title": "Planning depth roster v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "project_key",
+    "dataset_version_id",
+    "source_hash",
+    "total_area_rai",
+    "sections"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "project_key": {
+      "const": "mun-bon"
+    },
+    "dataset_version_id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "source_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "total_area_rai": {
+      "const": 45204
+    },
+    "sections": {
+      "type": "array",
+      "minItems": 41,
+      "maxItems": 41,
+      "prefixItems": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-01-01-03"
+            },
+            "zone_id": {
+              "const": "01-01"
+            },
+            "area_rai": {
+              "const": 972
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-01-01-04"
+            },
+            "zone_id": {
+              "const": "01-01"
+            },
+            "area_rai": {
+              "const": 689
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-01-01-05"
+            },
+            "zone_id": {
+              "const": "01-01"
+            },
+            "area_rai": {
+              "const": 1778
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-01-01-06"
+            },
+            "zone_id": {
+              "const": "01-01"
+            },
+            "area_rai": {
+              "const": 2357
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-01-01-07"
+            },
+            "zone_id": {
+              "const": "01-01"
+            },
+            "area_rai": {
+              "const": 1726
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-02-01-08"
+            },
+            "zone_id": {
+              "const": "01-02"
+            },
+            "area_rai": {
+              "const": 693
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-02-01-09"
+            },
+            "zone_id": {
+              "const": "01-02"
+            },
+            "area_rai": {
+              "const": 1434
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-02-01-10"
+            },
+            "zone_id": {
+              "const": "01-02"
+            },
+            "area_rai": {
+              "const": 1527
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-02-01-11"
+            },
+            "zone_id": {
+              "const": "01-02"
+            },
+            "area_rai": {
+              "const": 2611
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-02-01-12"
+            },
+            "zone_id": {
+              "const": "01-02"
+            },
+            "area_rai": {
+              "const": 449
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-02-01-13"
+            },
+            "zone_id": {
+              "const": "01-02"
+            },
+            "area_rai": {
+              "const": 65
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-02-01-14"
+            },
+            "zone_id": {
+              "const": "01-02"
+            },
+            "area_rai": {
+              "const": 104
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-03-01-15"
+            },
+            "zone_id": {
+              "const": "01-03"
+            },
+            "area_rai": {
+              "const": 2620
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-03-01-16"
+            },
+            "zone_id": {
+              "const": "01-03"
+            },
+            "area_rai": {
+              "const": 1348
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-03-01-17"
+            },
+            "zone_id": {
+              "const": "01-03"
+            },
+            "area_rai": {
+              "const": 5366
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-03-01-18"
+            },
+            "zone_id": {
+              "const": "01-03"
+            },
+            "area_rai": {
+              "const": 760
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-03-01-19"
+            },
+            "zone_id": {
+              "const": "01-03"
+            },
+            "area_rai": {
+              "const": 1133
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-04-01-20"
+            },
+            "zone_id": {
+              "const": "01-04"
+            },
+            "area_rai": {
+              "const": 654
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-04-01-21"
+            },
+            "zone_id": {
+              "const": "01-04"
+            },
+            "area_rai": {
+              "const": 503
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-04-01-22"
+            },
+            "zone_id": {
+              "const": "01-04"
+            },
+            "area_rai": {
+              "const": 1907
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-04-01-23"
+            },
+            "zone_id": {
+              "const": "01-04"
+            },
+            "area_rai": {
+              "const": 73
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-04-01-24"
+            },
+            "zone_id": {
+              "const": "01-04"
+            },
+            "area_rai": {
+              "const": 2124
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-04-01-25"
+            },
+            "zone_id": {
+              "const": "01-04"
+            },
+            "area_rai": {
+              "const": 1121
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-04-01-26"
+            },
+            "zone_id": {
+              "const": "01-04"
+            },
+            "area_rai": {
+              "const": 1555
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-05-01-27"
+            },
+            "zone_id": {
+              "const": "01-05"
+            },
+            "area_rai": {
+              "const": 139
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-05-01-28"
+            },
+            "zone_id": {
+              "const": "01-05"
+            },
+            "area_rai": {
+              "const": 694
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-05-01-29"
+            },
+            "zone_id": {
+              "const": "01-05"
+            },
+            "area_rai": {
+              "const": 813
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-05-01-30"
+            },
+            "zone_id": {
+              "const": "01-05"
+            },
+            "area_rai": {
+              "const": 1009
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-05-01-31"
+            },
+            "zone_id": {
+              "const": "01-05"
+            },
+            "area_rai": {
+              "const": 591
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-05-01-32"
+            },
+            "zone_id": {
+              "const": "01-05"
+            },
+            "area_rai": {
+              "const": 686
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-05-01-33"
+            },
+            "zone_id": {
+              "const": "01-05"
+            },
+            "area_rai": {
+              "const": 1185
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-05-01-34"
+            },
+            "zone_id": {
+              "const": "01-05"
+            },
+            "area_rai": {
+              "const": 1434
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-06-01-35"
+            },
+            "zone_id": {
+              "const": "01-06"
+            },
+            "area_rai": {
+              "const": 358
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-06-01-36"
+            },
+            "zone_id": {
+              "const": "01-06"
+            },
+            "area_rai": {
+              "const": 995
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-06-01-37"
+            },
+            "zone_id": {
+              "const": "01-06"
+            },
+            "area_rai": {
+              "const": 743
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-06-01-38"
+            },
+            "zone_id": {
+              "const": "01-06"
+            },
+            "area_rai": {
+              "const": 1206
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-06-01-39"
+            },
+            "zone_id": {
+              "const": "01-06"
+            },
+            "area_rai": {
+              "const": 229
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-06-01-40"
+            },
+            "zone_id": {
+              "const": "01-06"
+            },
+            "area_rai": {
+              "const": 277
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-06-01-41"
+            },
+            "zone_id": {
+              "const": "01-06"
+            },
+            "area_rai": {
+              "const": 193
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-06-01-42"
+            },
+            "zone_id": {
+              "const": "01-06"
+            },
+            "area_rai": {
+              "const": 465
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section_id",
+            "zone_id",
+            "area_rai"
+          ],
+          "properties": {
+            "section_id": {
+              "const": "01-06-01-43"
+            },
+            "zone_id": {
+              "const": "01-06"
+            },
+            "area_rai": {
+              "const": 618
+            }
+          }
+        }
+      ],
+      "items": false
+    }
+  }
+}

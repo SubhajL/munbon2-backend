@@ -75,6 +75,7 @@ def test_live_route_surface_survives_boot():
         "/health",
         "/api/v1/status",
         "/graphql",
+        "/api/v1/water-planning/planning-depth-roster/v1",
         "/api/v1/water-planning/planning-depth-submissions",
     ):
         assert any(

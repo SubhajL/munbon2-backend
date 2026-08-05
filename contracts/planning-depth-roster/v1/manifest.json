@@ -1,0 +1,64 @@
+{
+  "manifest_version": 1,
+  "contract_family": "planning-depth-roster",
+  "contract_version": 1,
+  "json_schema_dialect": "https://json-schema.org/draft/2020-12/schema",
+  "contract_set_sha256": "684d7a97f76341f72a65734cc6d7ac21dc07ca60cae9a7d7bcb08945942bb882",
+  "schemas": [
+    {
+      "relative_path": "roster.schema.json",
+      "sha256": "61d203d2021069e9117fdcd638c84f3261c18a17c8dd63d39e71197d8697806a"
+    }
+  ],
+  "fixtures": [
+    {
+      "relative_path": "roster.active-v5.example.json",
+      "schema": "roster.schema.json",
+      "expected_schema_valid": true,
+      "expected_model_valid": true,
+      "sha256": "117c52f0c4f9b6f2902a0e31695a308779efe4d3867dd7c352ce6a522517b3ed"
+    },
+    {
+      "relative_path": "fixtures/invalid/roster.invalid-hash.invalid.json",
+      "schema": "roster.schema.json",
+      "expected_schema_valid": false,
+      "expected_model_valid": false,
+      "sha256": "3b09e07114467ecbef1245c4322f9f7e648a4586b48bdf638641b39f2c71b133"
+    },
+    {
+      "relative_path": "fixtures/invalid/roster.missing-sections.invalid.json",
+      "schema": "roster.schema.json",
+      "expected_schema_valid": false,
+      "expected_model_valid": false,
+      "sha256": "dd138a22e4586e68eaf1ba4ebcef4e1481b629d02fc3f6045795ee94c8a7548c"
+    },
+    {
+      "relative_path": "fixtures/invalid/roster.duplicate-section.invalid.json",
+      "schema": "roster.schema.json",
+      "expected_schema_valid": false,
+      "expected_model_valid": false,
+      "sha256": "5822490aedd577e44170131be89e86e8e652301dc0f6ec9602496521a02dd099"
+    },
+    {
+      "relative_path": "fixtures/invalid/roster.mismatched-zone.invalid.json",
+      "schema": "roster.schema.json",
+      "expected_schema_valid": false,
+      "expected_model_valid": false,
+      "sha256": "23080bfac565947c899548690ae20fc596f0014086509382d6cedb629e76ddad"
+    },
+    {
+      "relative_path": "fixtures/invalid/roster.shifted-areas.invalid.json",
+      "schema": "roster.schema.json",
+      "expected_schema_valid": false,
+      "expected_model_valid": false,
+      "sha256": "1c1e08659d6a098e2e4366b5a883f73d9f1c2a82b1c0e79d7d887d6b6dd5b8d5"
+    },
+    {
+      "relative_path": "fixtures/invalid/roster.swapped-order.invalid.json",
+      "schema": "roster.schema.json",
+      "expected_schema_valid": false,
+      "expected_model_valid": false,
+      "sha256": "70fea0b7d48e131379f4e2bec794db24e6b4e2969da49670d8e58c7259d12929"
+    }
+  ]
+}
