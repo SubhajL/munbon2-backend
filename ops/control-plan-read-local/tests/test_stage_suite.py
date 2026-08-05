@@ -2503,8 +2503,8 @@ def test_validate_w2_week_is_clean_rejects_an_existing_active_submission():
 
 
 def test_stage_order_includes_local_write_ui_after_write_foundation():
-    assert stage_suite.STAGE_ORDER[-1] == "LOCAL-WRITE-UI-1"
-    assert stage_suite.STAGE_ORDER[-2] == "LOCAL-WRITE-FOUNDATION-1"
+    idx = stage_suite.STAGE_ORDER.index("LOCAL-WRITE-UI-1")
+    assert stage_suite.STAGE_ORDER[idx - 1] == "LOCAL-WRITE-FOUNDATION-1"
 
 
 def test_stage_transition_accepts_write_ui_after_all_seven_prior_stages():
@@ -2753,3 +2753,125 @@ def test_write_ui_rid_week_matches_canonical_rid_calendar():
 
 def test_write_ui_namespace_differs_from_write_foundation():
     assert stage_suite.WRITE_UI_NAMESPACE != stage_suite.WRITE_FOUNDATION_NAMESPACE
+
+
+# --- LOCAL-PERSIST-ONLY-1 ---
+
+
+def test_stage_order_includes_persist_only_after_write_ui():
+    assert stage_suite.STAGE_ORDER[-1] == "LOCAL-PERSIST-ONLY-1"
+    assert stage_suite.STAGE_ORDER[-2] == "LOCAL-WRITE-UI-1"
+
+
+def test_stage_transition_accepts_persist_only_after_all_eight_prior_stages():
+    stage_suite.validate_stage_transition(
+        (
+            "LOCAL-BASE-0",
+            "LOCAL-RTA-1",
+            "LOCAL-AC-1",
+            "LOCAL-READ-ACT-1",
+            "LOCAL-EVIDENCE-1",
+            "LOCAL-GO-READ-1",
+            "LOCAL-WRITE-FOUNDATION-1",
+            "LOCAL-WRITE-UI-1",
+        ),
+        "LOCAL-PERSIST-ONLY-1",
+    )
+
+
+def test_stage_transition_rejects_persist_only_without_write_ui():
+    with pytest.raises(stage_suite.StageGateError, match="stage_transition_invalid"):
+        stage_suite.validate_stage_transition(
+            (
+                "LOCAL-BASE-0",
+                "LOCAL-RTA-1",
+                "LOCAL-AC-1",
+                "LOCAL-READ-ACT-1",
+                "LOCAL-EVIDENCE-1",
+                "LOCAL-GO-READ-1",
+                "LOCAL-WRITE-FOUNDATION-1",
+            ),
+            "LOCAL-PERSIST-ONLY-1",
+        )
+
+
+def _persist_only_snapshot():
+    return {
+        "w2_submissions": [
+            {
+                "submission_id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+                "week_key": "2027-R01",
+                "row_count": 1,
+            }
+        ],
+        "w2_values": [
+            {
+                "submission_id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+                "value_count": 41,
+            }
+        ],
+        "ros_requirement_runs": [],
+        "ros_demands": [],
+        "scheduler_drafts": [],
+        "control_plan_hashes": [],
+    }
+
+
+def test_validate_persist_only_diff_accepts_w2_only_changes():
+    before = _persist_only_snapshot()
+    after = _persist_only_snapshot()
+    after["w2_submissions"].append(
+        {
+            "submission_id": "new-sub-id",
+            "week_key": "2027-R01",
+            "row_count": 1,
+        }
+    )
+    after["w2_values"].append(
+        {
+            "submission_id": "new-sub-id",
+            "value_count": 41,
+        }
+    )
+
+    result = stage_suite.validate_persist_only_diff(before, after)
+
+    assert result["w2_submissions_added"] == 1
+    assert result["w2_values_added"] == 1
+    assert result["side_effects"] == []
+
+
+def test_validate_persist_only_diff_rejects_ros_changes():
+    before = _persist_only_snapshot()
+    after = _persist_only_snapshot()
+    after["ros_requirement_runs"].append({"run_id": "unexpected"})
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="persist_only_side_effect_detected",
+    ):
+        stage_suite.validate_persist_only_diff(before, after)
+
+
+def test_validate_persist_only_diff_rejects_scheduler_changes():
+    before = _persist_only_snapshot()
+    after = _persist_only_snapshot()
+    after["scheduler_drafts"].append({"draft_id": "unexpected"})
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="persist_only_side_effect_detected",
+    ):
+        stage_suite.validate_persist_only_diff(before, after)
+
+
+def test_validate_persist_only_diff_rejects_control_plan_changes():
+    before = _persist_only_snapshot()
+    after = _persist_only_snapshot()
+    after["control_plan_hashes"].append({"hash": "changed"})
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="persist_only_side_effect_detected",
+    ):
+        stage_suite.validate_persist_only_diff(before, after)

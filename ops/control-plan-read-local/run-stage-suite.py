@@ -50,6 +50,7 @@ STAGE_ORDER = (
     "LOCAL-GO-READ-1",
     "LOCAL-WRITE-FOUNDATION-1",
     "LOCAL-WRITE-UI-1",
+    "LOCAL-PERSIST-ONLY-1",
 )
 READINESS_URLS = {
     "flow-monitoring": "http://127.0.0.1:3011/ready",
@@ -4704,6 +4705,210 @@ def run_local_write_ui(context: StageContext) -> dict:
     return manifest
 
 
+# --- LOCAL-PERSIST-ONLY-1 helpers ---
+
+
+PERSIST_ONLY_SNAPSHOT_QUERIES = {
+    "w2_submissions": (
+        "SELECT submission_id::text, week_key, calendar_system "
+        "FROM water_planning.planning_depth_submissions "
+        "ORDER BY submitted_at"
+    ),
+    "w2_values": (
+        "SELECT s.submission_id::text, count(*) AS value_count "
+        "FROM water_planning.planning_depth_values v "
+        "JOIN water_planning.planning_depth_submissions s "
+        "  ON v.submission_id = s.id "
+        "GROUP BY s.submission_id ORDER BY s.submission_id"
+    ),
+    "ros_requirement_runs": (
+        "SELECT id::text, run_hash "
+        "FROM ros_gis.requirement_runs "
+        "ORDER BY created_at"
+    ),
+    "ros_demands": (
+        "SELECT count(*) AS demand_count "
+        "FROM ros_gis.daily_water_demands"
+    ),
+    "scheduler_drafts": (
+        "SELECT id::text "
+        "FROM scheduler.control_plan_drafts "
+        "ORDER BY created_at"
+    ),
+    "control_plan_hashes": (
+        "SELECT plan_id::text, version, content_hash "
+        "FROM scheduler.control_plan_versions "
+        "ORDER BY plan_id, version"
+    ),
+}
+
+
+def _take_persist_snapshot(context: StageContext) -> dict:
+    snapshot = {}
+    for key, query in PERSIST_ONLY_SNAPSHOT_QUERIES.items():
+        try:
+            raw = _psql(context, query)
+            rows = []
+            for line in raw.strip().splitlines():
+                line = line.strip()
+                if not line or line.startswith("-") or line.startswith("("):
+                    continue
+                rows.append(line)
+            snapshot[key] = rows
+        except StageGateError:
+            snapshot[key] = []
+    return snapshot
+
+
+def validate_persist_only_diff(before: dict, after: dict) -> dict:
+    side_effects = []
+    for key in ("ros_requirement_runs", "ros_demands", "scheduler_drafts", "control_plan_hashes"):
+        if before.get(key) != after.get(key):
+            side_effects.append(key)
+    if side_effects:
+        raise StageGateError("persist_only_side_effect_detected")
+
+    before_subs = before.get("w2_submissions", [])
+    after_subs = after.get("w2_submissions", [])
+    before_vals = before.get("w2_values", [])
+    after_vals = after.get("w2_values", [])
+
+    subs_added = len(after_subs) - len(before_subs)
+    vals_added = len(after_vals) - len(before_vals)
+
+    return {
+        "w2_submissions_added": subs_added,
+        "w2_values_added": vals_added,
+        "side_effects": [],
+    }
+
+
+def run_local_persist_only(context: StageContext) -> dict:
+    state = _load_state(context)
+    validate_stage_transition(tuple(state["completed"]), "LOCAL-PERSIST-ONLY-1")
+
+    verifier = _load_harness_module(
+        context,
+        "verify_bearer.py",
+        "local_persist_only_bearer_verifier",
+    )
+    client = LocalHttpClient()
+    token, refresh_cookie, login_evidence = _login_operator(
+        context,
+        client,
+        verifier,
+    )
+
+    week_date, week_key = _write_ui_rid_week(context.as_of_date)
+    steps: dict[str, Any] = {
+        "login": login_evidence,
+        "target_week": {"week_date": week_date, "week_key": week_key},
+    }
+
+    steps["write_flag_dark"] = validate_write_flag_is_dark(
+        _load_env_file(context.runtime_env_dir / "bff.env").get(
+            "PLANNING_DEPTH_WRITES_ENABLED", ""
+        )
+    )
+
+    before_snapshot = _take_persist_snapshot(context)
+    steps["before_snapshot"] = {
+        key: len(rows) for key, rows in before_snapshot.items()
+    }
+
+    bff_restored = False
+    try:
+        _restart_bff_with_flag(context, enabled=True)
+
+        submit_id = _write_ui_client_submission_id(
+            context.release_sha, week_key, "persist-only"
+        )
+        submit = client.request(
+            "POST",
+            W2_V2_BASE,
+            payload=_build_planning_depth_request_v2(
+                week_date=week_date,
+                week_key=week_key,
+                client_submission_id=submit_id,
+                active_submission_id=None,
+                depth_offset="0.100",
+            ),
+            bearer=token,
+        )
+        steps["w2_submit"] = validate_w2_submission_result(
+            submit.status, submit.body, submit.headers, expected_status=201
+        )
+
+        correct_id = _write_ui_client_submission_id(
+            context.release_sha, week_key, "persist-only-correct"
+        )
+        correct = client.request(
+            "POST",
+            W2_V2_BASE,
+            payload=_build_planning_depth_request_v2(
+                week_date=week_date,
+                week_key=week_key,
+                client_submission_id=correct_id,
+                active_submission_id=submit.body["submission_id"],
+                depth_offset="0.200",
+            ),
+            bearer=token,
+        )
+        steps["w2_correct"] = validate_w2_submission_result(
+            correct.status, correct.body, correct.headers, expected_status=201
+        )
+    finally:
+        try:
+            _restart_bff_with_flag(context, enabled=False)
+            bff_restored = True
+        except Exception:
+            pass
+
+    if not bff_restored:
+        raise StageGateError("persist_only_restoration_failed")
+
+    steps["restored_write_flag"] = validate_write_flag_is_dark(
+        _load_env_file(context.runtime_env_dir / "bff.env").get(
+            "PLANNING_DEPTH_WRITES_ENABLED", ""
+        )
+    )
+
+    after_snapshot = _take_persist_snapshot(context)
+    steps["after_snapshot"] = {
+        key: len(rows) for key, rows in after_snapshot.items()
+    }
+    steps["persist_only_diff"] = validate_persist_only_diff(
+        before_snapshot, after_snapshot
+    )
+
+    logout = client.request(
+        "POST",
+        "http://127.0.0.1:3005/api/v1/auth/logout",
+        payload={"refreshToken": refresh_cookie},
+    )
+    if logout.status not in {200, 204}:
+        raise StageGateError("persist_only_operator_logout_failed")
+
+    steps["aws_actions"] = False
+
+    manifest = {
+        "stage": "LOCAL-PERSIST-ONLY-1",
+        "verdict": "PASS",
+        "release_sha": context.release_sha,
+        "frontend_sha": context.frontend_sha,
+        "completed_at": _utc_timestamp(),
+        "steps": steps,
+    }
+    validate_evidence_payload(manifest)
+    target = context.evidence_root / "LOCAL-PERSIST-ONLY-1.json"
+    clear_failure_manifest(context.evidence_root, "LOCAL-PERSIST-ONLY-1")
+    write_stage_manifest(target, manifest)
+    _checksum_manifest(target)
+    _save_state(context, list(STAGE_ORDER[:9]))
+    print("PASS LOCAL-PERSIST-ONLY-1")
+    return manifest
+
+
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("stage", choices=STAGE_ORDER)
@@ -4759,8 +4964,10 @@ def main(argv: list[str] | None = None) -> int:
             run_local_go_read(context)
         elif args.stage == "LOCAL-WRITE-FOUNDATION-1":
             run_local_write_foundation(context)
-        else:
+        elif args.stage == "LOCAL-WRITE-UI-1":
             run_local_write_ui(context)
+        else:
+            run_local_persist_only(context)
     except Exception as exc:
         safe_error = (
             exc

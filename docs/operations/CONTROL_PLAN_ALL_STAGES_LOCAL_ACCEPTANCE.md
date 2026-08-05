@@ -32,7 +32,7 @@ bundle; the runtime checkout must remain at the accepted 40-character SHA.
 | GO-READ-1          | `LOCAL-GO-READ-1`          | Implemented and passed       |
 | W1 / W2            | `LOCAL-WRITE-FOUNDATION-1` | Implemented; prior SHA passed |
 | FE-5 / FE-6        | `LOCAL-WRITE-UI-1`         | Implemented                  |
-| DEC-W4             | `LOCAL-PERSIST-ONLY-1`     | Planned; persist-only        |
+| DEC-W4             | `LOCAL-PERSIST-ONLY-1`     | Implemented                  |
 | WRITE-ACT-1        | `LOCAL-WRITE-ACT-1`        | Planned; not yet implemented |
 | Combined clean run | `LOCAL-RC-1`               | Required before AWS          |
 
@@ -68,7 +68,7 @@ requirement publication, plan, session, or cache entry.
 The Prometheus Debian package is used only for `promtool`; its Prometheus and
 node-exporter services are disabled to prevent wildcard listeners.
 
-## Run the eight implemented stages
+## Run the nine implemented stages
 
 ```bash
 python3 ops/control-plan-read-local/orchestrate.py run-stage --stage LOCAL-BASE-0 \
@@ -107,6 +107,11 @@ python3 ops/control-plan-read-local/orchestrate.py run-stage --stage LOCAL-WRITE
   --accept-later-origin-main
 
 python3 ops/control-plan-read-local/orchestrate.py run-stage --stage LOCAL-WRITE-UI-1 \
+  --release-sha "$accepted_backend_sha" \
+  --frontend-sha "$accepted_frontend_sha" \
+  --accept-later-origin-main
+
+python3 ops/control-plan-read-local/orchestrate.py run-stage --stage LOCAL-PERSIST-ONLY-1 \
   --release-sha "$accepted_backend_sha" \
   --frontend-sha "$accepted_frontend_sha" \
   --accept-later-origin-main
@@ -250,7 +255,7 @@ The result above predates the later source-delivered write-foundation stage.
 `LOCAL-WRITE-FOUNDATION-1` subsequently passed at its own exact SHA; that
 evidence is not reused for a new candidate.
 
-Every new candidate must be provisioned cleanly and rerun through all eight
+Every new candidate must be provisioned cleanly and rerun through all nine
 implemented stages at its exact SHA. Evidence from a predecessor or a
 tree-equivalent squash commit is not reused because the evidence index is
 SHA-bound. These readings are local evidence and do not describe AWS capacity
