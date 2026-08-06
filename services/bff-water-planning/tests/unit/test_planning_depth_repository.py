@@ -4,7 +4,7 @@ import pytest
 from db.planning_depth_repository import (
     PlanningDepthRosterUnavailableError,
     load_authoritative_planning_depth_roster,
-    load_planning_depth_roster,
+    load_planning_depth_roster_snapshot,
 )
 from schemas.planning_depth_roster import CANONICAL_SECTION_AREAS_RAI
 
@@ -50,13 +50,16 @@ class _Connection:
 async def test_load_planning_depth_roster_reads_active_versioned_section_master():
     connection = _Connection()
 
-    roster = await load_planning_depth_roster(connection)
+    roster = await load_planning_depth_roster_snapshot(connection)
 
     assert "FROM ros_gis.sections_current" in connection.query
     assert "gis.zone" not in connection.query
-    assert sum(item.area_rai for item in roster) == Decimal("45204")
-    assert roster[0].section_id == "01-01-01-03"
-    assert roster[-1].section_id == "01-06-01-43"
+    assert sum(item.area_rai for item in roster.sections) == Decimal("45204")
+    assert roster.sections[0].section_id == "01-01-01-03"
+    assert roster.sections[-1].section_id == "01-06-01-43"
+    # provenance travels with the sections (same projection, one query)
+    assert roster.dataset_version_id > 0
+    assert len(roster.source_hash) == 64
 
 
 @pytest.mark.asyncio

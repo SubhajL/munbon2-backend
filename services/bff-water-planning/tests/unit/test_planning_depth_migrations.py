@@ -57,12 +57,27 @@ def test_manifest_pins_every_owned_sql_file_and_git_tracks_them():
         "009_crop_registry",
         "010_planning_depth_submissions",
         "011_planning_depth_rid_calendar_v2",
+        "012_planning_depth_roster_provenance",
     ]
+    # 010 and 011 are immutable — pin their bytes as literal constants so an edit
+    # to a shipped migration is caught, not silently re-hashed into the manifest.
     assert (
         hashlib.sha256(
             (MIGRATIONS / "010_planning_depth_submissions.sql").read_bytes()
         ).hexdigest()
         == "c904510204c97269a73ee4592c06c1a35c1fd8f13b53b47885a21b4c5a5c62f6"
+    )
+    assert (
+        hashlib.sha256(
+            (MIGRATIONS / "011_planning_depth_rid_calendar_v2.sql").read_bytes()
+        ).hexdigest()
+        == "3b9244902872aa7ce9d0e5d24add43e132cbc8f8a159cc486a360c78f816098e"
+    )
+    assert (
+        hashlib.sha256(
+            (MIGRATIONS / "012_planning_depth_roster_provenance.sql").read_bytes()
+        ).hexdigest()
+        == "a557b99068afcaedc12578cc4b45cbad3f2585bbb845bebc995ac0a44b0a165b"
     )
     owned_migration_number_min = manifest["owned_migration_number_min"]
     assert {item["filename"] for item in manifest["migrations"]} == {
@@ -94,9 +109,10 @@ def test_manifest_ignores_legacy_sql_but_rejects_new_unlisted_migrations(
         "009_crop_registry",
         "010_planning_depth_submissions",
         "011_planning_depth_rid_calendar_v2",
+        "012_planning_depth_roster_provenance",
     ]
 
-    (migrations / "012_unlisted.sql").write_text("SELECT 1;\n", encoding="utf-8")
+    (migrations / "013_unlisted.sql").write_text("SELECT 1;\n", encoding="utf-8")
     with pytest.raises(MigrationManifestError, match="incomplete or unordered"):
         load_migration_manifest(migrations)
 
@@ -113,9 +129,10 @@ async def test_apply_is_ordered_idempotent_and_reports_checksums():
         "009_crop_registry",
         "010_planning_depth_submissions",
         "011_planning_depth_rid_calendar_v2",
+        "012_planning_depth_roster_provenance",
     ]
     assert second == []
-    assert len(connection.executed_migrations) == 3
+    assert len(connection.executed_migrations) == 4
     assert status == [
         {
             "migration_id": migration.migration_id,

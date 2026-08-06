@@ -1238,6 +1238,7 @@ def validate_migration_parity(
         "009_crop_registry",
         "010_planning_depth_submissions",
         "011_planning_depth_rid_calendar_v2",
+        "012_planning_depth_roster_provenance",
     ]
     if (
         len(scheduler_ids) != 13

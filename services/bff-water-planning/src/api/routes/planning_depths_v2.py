@@ -13,7 +13,7 @@ from db.planning_depth_repository import (
     PlanningDepthConflictError,
     create_planning_depth_submission_v2,
     get_active_planning_depth_submission_v2,
-    load_planning_depth_roster,
+    load_planning_depth_roster_snapshot,
 )
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from schemas.planning_depth_v2 import (
@@ -72,8 +72,8 @@ async def submit_planning_depth_v2(
         )
     try:
         async with database_manager.get_connection() as connection:
-            roster = await load_planning_depth_roster(connection)
-        expand_planning_depth_values(request.levels, roster)
+            roster = await load_planning_depth_roster_snapshot(connection)
+        expand_planning_depth_values(request.levels, roster.sections)
     except PlanningDepthValidationError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

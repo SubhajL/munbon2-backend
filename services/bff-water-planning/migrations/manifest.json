@@ -16,6 +16,11 @@
       "migration_id": "011_planning_depth_rid_calendar_v2",
       "filename": "011_planning_depth_rid_calendar_v2.sql",
       "sha256": "3b9244902872aa7ce9d0e5d24add43e132cbc8f8a159cc486a360c78f816098e"
+    },
+    {
+      "migration_id": "012_planning_depth_roster_provenance",
+      "filename": "012_planning_depth_roster_provenance.sql",
+      "sha256": "a557b99068afcaedc12578cc4b45cbad3f2585bbb845bebc995ac0a44b0a165b"
     }
   ]
 }
