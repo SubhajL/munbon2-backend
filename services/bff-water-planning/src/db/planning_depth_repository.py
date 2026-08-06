@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from uuid import uuid4
 
@@ -130,16 +131,37 @@ async def load_authoritative_planning_depth_roster(
         ) from exc
 
 
-async def load_planning_depth_roster(connection) -> list[RosterSection]:
+@dataclass(frozen=True)
+class RosterSnapshot:
+    """The authoritative roster used to expand one submission, with its provenance.
+
+    ``sections`` is a tuple (deeply immutable) and ``dataset_version_id`` /
+    ``source_hash`` are the identity of the SAME projection those sections came
+    from -- both are read from one ``load_authoritative_planning_depth_roster``
+    result, so the stored provenance can never describe a different roster than
+    the one that produced the values.
+    """
+
+    sections: tuple[RosterSection, ...]
+    dataset_version_id: int
+    source_hash: str
+
+
+async def load_planning_depth_roster_snapshot(connection) -> RosterSnapshot:
     projection = await load_authoritative_planning_depth_roster(connection)
-    return [
+    sections = tuple(
         RosterSection(
             section_id=row.section_id,
             zone_id=row.zone_id,
             area_rai=row.area_rai,
         )
         for row in projection.sections
-    ]
+    )
+    return RosterSnapshot(
+        sections=sections,
+        dataset_version_id=projection.dataset_version_id,
+        source_hash=projection.source_hash,
+    )
 
 
 def _receipt(row, *, replayed: bool) -> PlanningDepthSubmissionReceipt:
@@ -209,13 +231,13 @@ async def _create_planning_depth_submission(
     connection,
     request: PlanningDepthSubmissionRequest | PlanningDepthSubmissionRequestV2,
     principal: EffectivePrincipalProjection,
-    roster: list[RosterSection],
+    roster: RosterSnapshot,
     *,
     calendar_system: str,
     canonicalize_request,
 ):
     request_document = canonicalize_request(request)
-    expanded = expand_planning_depth_values(request.levels, roster)
+    expanded = expand_planning_depth_values(request.levels, roster.sections)
     expanded_document = canonicalize_expanded_planning_depth_values(expanded)
     try:
         async with connection.transaction():
@@ -275,9 +297,13 @@ async def _create_planning_depth_submission(
                     supersedes_submission_id,
                     request_document_text,
                     request_sha256,
-                    expanded_sha256
+                    expanded_sha256,
+                    roster_dataset_version_id,
+                    roster_source_hash
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                VALUES (
+                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+                )
                 RETURNING *
                 """,
                 submission_id,
@@ -292,6 +318,8 @@ async def _create_planning_depth_submission(
                 request_document.text,
                 request_document.sha256,
                 expanded_document.sha256,
+                roster.dataset_version_id,
+                roster.source_hash,
             )
             await connection.executemany(
                 """
@@ -326,7 +354,7 @@ async def create_planning_depth_submission(
     connection,
     request: PlanningDepthSubmissionRequest,
     principal: EffectivePrincipalProjection,
-    roster: list[RosterSection],
+    roster: RosterSnapshot,
 ) -> PlanningDepthSubmissionReceipt:
     row, replayed = await _create_planning_depth_submission(
         connection,
@@ -343,7 +371,7 @@ async def create_planning_depth_submission_v2(
     connection,
     request: PlanningDepthSubmissionRequestV2,
     principal: EffectivePrincipalProjection,
-    roster: list[RosterSection],
+    roster: RosterSnapshot,
 ) -> PlanningDepthSubmissionReceiptV2:
     row, replayed = await _create_planning_depth_submission(
         connection,

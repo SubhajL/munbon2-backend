@@ -1635,7 +1635,7 @@ def test_unexpected_non_loopback_listeners_rejects_wildcard_services():
     assert stage_suite.unexpected_non_loopback_listeners(listeners) == [9090, 9100]
 
 
-def test_validate_migration_parity_requires_scheduler_0013_ros_0003_and_bff_011():
+def test_validate_migration_parity_requires_scheduler_0013_ros_0003_and_bff_012():
     scheduler = [f"{index:04d}_migration" for index in range(1, 13)] + [
         "0013_operator_approved_execution"
     ]
@@ -1648,6 +1648,7 @@ def test_validate_migration_parity_requires_scheduler_0013_ros_0003_and_bff_011(
         "009_crop_registry",
         "010_planning_depth_submissions",
         "011_planning_depth_rid_calendar_v2",
+        "012_planning_depth_roster_provenance",
     ]
 
     assert stage_suite.validate_migration_parity(scheduler, ros, bff) == {
@@ -1655,8 +1656,8 @@ def test_validate_migration_parity_requires_scheduler_0013_ros_0003_and_bff_011(
         "scheduler_count": 13,
         "ros_latest": "0003_daily_requirement_producer",
         "ros_count": 3,
-        "bff_latest": "011_planning_depth_rid_calendar_v2",
-        "bff_count": 3,
+        "bff_latest": "012_planning_depth_roster_provenance",
+        "bff_count": 4,
     }
 
 
@@ -1670,6 +1671,7 @@ def test_validate_migration_parity_requires_scheduler_0013_ros_0003_and_bff_011(
                 "009_crop_registry",
                 "010_planning_depth_submissions",
                 "011_planning_depth_rid_calendar_v2",
+                "012_planning_depth_roster_provenance",
             ],
         ),
         (
@@ -1679,12 +1681,17 @@ def test_validate_migration_parity_requires_scheduler_0013_ros_0003_and_bff_011(
                 "009_crop_registry",
                 "010_planning_depth_submissions",
                 "011_planning_depth_rid_calendar_v2",
+                "012_planning_depth_roster_provenance",
             ],
         ),
         (
             ["0013_operator_approved_execution"],
             ["0003_daily_requirement_producer"],
-            ["009_crop_registry", "010_planning_depth_submissions"],
+            [
+                "009_crop_registry",
+                "010_planning_depth_submissions",
+                "011_planning_depth_rid_calendar_v2",
+            ],
         ),
     ],
 )

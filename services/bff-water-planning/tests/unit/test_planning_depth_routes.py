@@ -12,7 +12,7 @@ from clients.scheduler_principal_client import (
     SchedulerPrincipalContractError,
     SchedulerPrincipalUnavailableError,
 )
-from db.planning_depth_repository import PlanningDepthConflictError
+from db.planning_depth_repository import PlanningDepthConflictError, RosterSnapshot
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from schemas.planning_depth import (
@@ -165,7 +165,11 @@ def _build_client(
     )
 
     async def load_roster(connection):
-        return _roster()
+        return RosterSnapshot(
+            sections=tuple(_roster()),
+            dataset_version_id=7,
+            source_hash="1" * 64,
+        )
 
     async def create_submission(connection, request, principal, roster):
         if isinstance(create_result, Exception):
@@ -179,7 +183,9 @@ def _build_client(
             return _active()
         return active_result
 
-    monkeypatch.setattr(planning_depths, "load_planning_depth_roster", load_roster)
+    monkeypatch.setattr(
+        planning_depths, "load_planning_depth_roster_snapshot", load_roster
+    )
     monkeypatch.setattr(
         planning_depths,
         "create_planning_depth_submission",
@@ -199,6 +205,54 @@ def _post(client, token="opaque-bearer"):
         headers={"Authorization": f"Bearer {token}"},
         json=_payload(),
     )
+
+
+def test_v1_route_passes_the_loaded_snapshot_object_into_create(monkeypatch):
+    # Same-object guarantee for the v1 write path (mirror of the v2 test): a
+    # v1-only reload/reconstruction regression would otherwise go uncaught.
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    sentinel = RosterSnapshot(
+        sections=tuple(_roster()), dataset_version_id=7, source_hash="1" * 64
+    )
+    captured = {}
+    app = FastAPI()
+    app.include_router(planning_depths.router)
+    app.dependency_overrides[
+        planning_depths.get_scheduler_principal_client
+    ] = lambda: _FakePrincipalClient()
+    app.dependency_overrides[
+        planning_depths.get_database_manager
+    ] = lambda: _FakeDatabaseManager()
+    monkeypatch.setattr(
+        planning_depths.settings, "planning_depth_writes_enabled", "true"
+    )
+
+    async def load_roster(connection):
+        return sentinel
+
+    async def create_submission(connection, request, principal, roster):
+        captured["roster"] = roster
+        return _receipt()
+
+    async def get_active(connection, project_key, week_key):
+        return _active()
+
+    monkeypatch.setattr(
+        planning_depths, "load_planning_depth_roster_snapshot", load_roster
+    )
+    monkeypatch.setattr(
+        planning_depths, "create_planning_depth_submission", create_submission
+    )
+    monkeypatch.setattr(
+        planning_depths, "get_active_planning_depth_submission", get_active
+    )
+
+    response = _post(TestClient(app))
+
+    assert response.status_code in (200, 201)
+    assert captured["roster"] is sentinel
 
 
 class TestSchedulerPrincipalClient:

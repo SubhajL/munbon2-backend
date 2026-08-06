@@ -128,7 +128,7 @@ The gate requires:
 - no application-port conflict or non-loopback TCP listener;
 - Scheduler migration parity through `0013_operator_approved_execution`;
 - ROS parity through `0003_daily_requirement_producer`;
-- BFF migration parity through `011_planning_depth_rid_calendar_v2`;
+- BFF migration parity through `012_planning_depth_roster_provenance`;
 - promtool and repository preflight success;
 - four ready loopback services for 300 continuous seconds;
 - unchanged PM2 restart counts;
