@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+from datetime import date
 import json
 from pathlib import Path
 import re
@@ -317,32 +318,39 @@ def provision(
     )
 
 
-def run_stage(stage: str, release_sha: str, frontend_sha: str) -> None:
+def run_stage(
+    stage: str,
+    release_sha: str,
+    frontend_sha: str,
+    as_of_date: str | None = None,
+) -> None:
     if stage not in STAGE_ORDER:
         raise OrchestrationError("stage_not_supported")
     if _machine_state() != "ready":
         raise OrchestrationError("machine_not_ready")
+    stage_argv = [
+        "python3",
+        "/opt/munbon/harness/run-stage-suite.py",
+        stage,
+        "--release-sha",
+        release_sha,
+        "--frontend-sha",
+        frontend_sha,
+    ]
+    if as_of_date is not None:
+        stage_argv.extend(["--as-of-date", as_of_date])
     _run_checked(
         stage.lower().replace("-", "_"),
-        build_guest_command(
-            [
-                "python3",
-                "/opt/munbon/harness/run-stage-suite.py",
-                stage,
-                "--release-sha",
-                release_sha,
-                "--frontend-sha",
-                frontend_sha,
-            ],
-            workdir="/opt/munbon/repo",
-        ),
+        build_guest_command(stage_argv, workdir="/opt/munbon/repo"),
         timeout=2400,
     )
 
 
-def run_all_stages(release_sha: str, frontend_sha: str) -> None:
+def run_all_stages(
+    release_sha: str, frontend_sha: str, as_of_date: str | None = None
+) -> None:
     for stage in STAGE_ORDER:
-        run_stage(stage, release_sha, frontend_sha)
+        run_stage(stage, release_sha, frontend_sha, as_of_date=as_of_date)
 
 
 def collect_evidence(destination: Path) -> None:
@@ -399,6 +407,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--stage", choices=STAGE_ORDER)
     parser.add_argument("--accept-later-origin-main", action="store_true")
     parser.add_argument("--evidence-dir", type=Path)
+    parser.add_argument("--as-of-date", default=None)
     return parser.parse_args(argv)
 
 
@@ -417,6 +426,11 @@ def main(argv: list[str] | None = None) -> int:
             or args.frontend_sha != frontend_origin_main
         ):
             raise OrchestrationError("frontend_sha_not_accepted")
+        if args.as_of_date is not None:
+            try:
+                date.fromisoformat(args.as_of_date)
+            except ValueError as exc:
+                raise OrchestrationError("as_of_date_not_accepted") from exc
         if args.action == "plan":
             print(
                 json.dumps(
@@ -442,9 +456,11 @@ def main(argv: list[str] | None = None) -> int:
         elif args.action == "run-stage":
             if args.stage is None:
                 raise OrchestrationError("stage_required")
-            run_stage(args.stage, release_sha, args.frontend_sha)
+            run_stage(
+                args.stage, release_sha, args.frontend_sha, as_of_date=args.as_of_date
+            )
         elif args.action == "run-all":
-            run_all_stages(release_sha, args.frontend_sha)
+            run_all_stages(release_sha, args.frontend_sha, as_of_date=args.as_of_date)
         else:
             if args.evidence_dir is None:
                 raise OrchestrationError("evidence_dir_required")

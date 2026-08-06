@@ -1772,10 +1772,13 @@ def test_validate_w2_submission_result_accepts_201_create():
         "client_submission_id": "csid-1",
         "request_sha256": "a" * 64,
         "replayed": False,
-        "week_key": "2026-W31",
+        "week_key": "2026-R31",
         "project_key": "mun-bon",
+        "calendar_system": "rid-irrigation-v1",
+        "week_date": "2026-05-30",
         "submitted_at": "2026-07-28T12:00:00+07:00",
         "submitted_by": "op1",
+        "supersedes_submission_id": None,
     }
     headers = {"cache-control": "no-store"}
 
@@ -1785,6 +1788,9 @@ def test_validate_w2_submission_result_accepts_201_create():
 
     assert result["submission_id"] == "sid-1"
     assert result["replayed"] is False
+    assert result["calendar_system"] == "rid-irrigation-v1"
+    assert result["week_date"] == "2026-05-30"
+    assert result["supersedes_submission_id"] is None
 
 
 def _expanded_levels(depths: dict[str, float]) -> list[dict]:
@@ -2571,6 +2577,68 @@ def test_frontend_process_environment_defaults_preserve_existing_dark_behavior(
     assert result["NEXT_PUBLIC_WATER_PLANNING_SUBMIT_ENABLED"] == "false"
 
 
+def test_frontend_env_sets_v2_write_paths_when_armed_and_removes_when_dark(
+    tmp_path, monkeypatch
+):
+    # Real consumer: the frontend's Next.js proxy routes read API_SERVER +
+    # PLANNING_DEPTH_{SUBMIT,ACTIVE,ROSTER}_PATH (smart-cms-app
+    # app/api/smart-water-backend/water-planning/*/route.ts). An armed frontend
+    # must get the exact real BFF paths; a dark frontend must NOT inherit them
+    # from a polluted parent env (defence-in-depth beyond the SUBMIT flag).
+    auth = tmp_path / "auth.env"
+    auth.write_text("JWT_SECRET=s\nJWT_ISSUER=i\nJWT_AUDIENCE=a\n")
+    write_path_vars = (
+        "API_SERVER",
+        "PLANNING_DEPTH_SUBMIT_PATH",
+        "PLANNING_DEPTH_ACTIVE_PATH",
+        "PLANNING_DEPTH_ROSTER_PATH",
+    )
+    for name in write_path_vars:
+        monkeypatch.setenv(name, "polluted")
+
+    armed = stage_suite.frontend_process_environment(
+        tmp_path,
+        control_plan_reads=False,
+        water_planning_v2=True,
+        water_planning_submit=True,
+    )
+    assert armed["API_SERVER"] == "http://127.0.0.1:3022"
+    assert armed["PLANNING_DEPTH_SUBMIT_PATH"] == (
+        "/api/v2/water-planning/planning-depth-submissions"
+    )
+    assert armed["PLANNING_DEPTH_ACTIVE_PATH"] == (
+        "/api/v2/water-planning/planning-depth-submissions/active"
+    )
+    assert armed["PLANNING_DEPTH_ROSTER_PATH"] == (
+        "/api/v1/water-planning/planning-depth-roster/v1"
+    )
+
+    dark = stage_suite.frontend_process_environment(
+        tmp_path, control_plan_reads=False
+    )
+    for name in write_path_vars:
+        assert name not in dark, name
+
+
+def test_accepted_frontend_sha_accepts_any_validated_40_hex():
+    # No pin to one historical SHA: the identity binding is orchestrate
+    # (== frontend origin/main) and _verify_frontend_source (== guest checkout
+    # HEAD), so LOCAL-BASE-0 needs only a format gate. Two DISTINCT valid SHAs
+    # are accepted, which a hard pin to one constant could not do.
+    assert stage_suite._accepted_frontend_sha("a" * 40) == "a" * 40
+    other = "0123456789abcdef" * 2 + "0" * 8
+    assert len(other) == 40
+    assert stage_suite._accepted_frontend_sha(other) == other
+
+
+def test_accepted_frontend_sha_rejects_malformed():
+    for bad in ("", "a" * 39, "a" * 41, "A" * 40, "g" * 40, " " + "a" * 39):
+        with pytest.raises(
+            stage_suite.StageGateError, match="frontend_sha_not_accepted"
+        ):
+            stage_suite._accepted_frontend_sha(bad)
+
+
 def test_stage_transition_rejects_write_ui_without_write_foundation():
     with pytest.raises(stage_suite.StageGateError, match="stage_transition_invalid"):
         stage_suite.validate_stage_transition(
@@ -2802,83 +2870,766 @@ def test_stage_transition_rejects_persist_only_without_write_ui():
         )
 
 
-def _persist_only_snapshot():
+# --- R1: receipt-bound persist-only diff ---
+
+PERSIST_TARGET_WEEK_KEY = "2027-R02"
+PERSIST_TARGET_WEEK_DATE = "2026-11-08"  # canonical span start of 2027-R02
+PERSIST_CREATE_ID = "11111111-1111-4111-8111-111111111111"
+PERSIST_CORRECT_ID = "22222222-2222-4222-8222-222222222222"
+PERSIST_CREATE_DEPTHS = {f"01-{z:02d}": 250.0 + 10.0 * (z - 1) for z in range(1, 7)}
+PERSIST_CORRECT_DEPTHS = {f"01-{z:02d}": 350.0 + 10.0 * (z - 1) for z in range(1, 7)}
+PERSIST_NON_W2_DIGESTS = {
+    "ros_gis.water_requirement_runs": "d" * 32,
+    "ros_gis.dataset_versions": "e" * 32,
+    "scheduler.control_plan_runs": "f" * 32,
+    "scheduler.control_command_outbox": "0" * 32,
+}
+
+
+def _persist_submission_row(
+    submission_id, *, csid, request_sha256, supersedes, expanded
+):
     return {
-        "w2_submissions": [
-            {
-                "submission_id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
-                "week_key": "2027-R01",
-                "row_count": 1,
-            }
-        ],
-        "w2_values": [
-            {
-                "submission_id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
-                "value_count": 41,
-            }
-        ],
-        "ros_requirement_runs": [],
-        "ros_demands": [],
-        "scheduler_drafts": [],
-        "control_plan_hashes": [],
+        "submission_id": submission_id,
+        "schema_version": 2,
+        "client_submission_id": csid,
+        "project_key": "mun-bon",
+        "week_key": PERSIST_TARGET_WEEK_KEY,
+        "week_date": PERSIST_TARGET_WEEK_DATE,
+        "submitted_at": "2026-07-28T00:00:00+00:00",
+        "submitted_by": "operator-1",
+        "supersedes_submission_id": supersedes,
+        "request_document_text": "{}",
+        "request_sha256": request_sha256,
+        "expanded_sha256": expanded,
+        "calendar_system": "rid-irrigation-v1",
+        "roster_dataset_version_id": 7,
+        "roster_source_hash": "a" * 64,
     }
 
 
-def test_validate_persist_only_diff_accepts_w2_only_changes():
-    before = _persist_only_snapshot()
-    after = _persist_only_snapshot()
+def _persist_receipt(submission_id, *, csid, request_sha256, supersedes):
+    return {
+        "submission_id": submission_id,
+        "client_submission_id": csid,
+        "request_sha256": request_sha256,
+        "replayed": False,
+        "week_key": PERSIST_TARGET_WEEK_KEY,
+        "project_key": "mun-bon",
+        "submitted_at": "2026-07-28T00:00:00+00:00",
+        "submitted_by": "operator-1",
+        "calendar_system": "rid-irrigation-v1",
+        "week_date": PERSIST_TARGET_WEEK_DATE,
+        "supersedes_submission_id": supersedes,
+    }
+
+
+def _persist_value_rows(submission_id, depths):
+    return [
+        {"submission_id": submission_id, **level}
+        for level in _expanded_levels(depths)
+    ]
+
+
+def _persist_only_valid_case():
+    create_row = _persist_submission_row(
+        PERSIST_CREATE_ID,
+        csid="c1",
+        request_sha256="a" * 64,
+        supersedes=None,
+        expanded="1" * 64,
+    )
+    correct_row = _persist_submission_row(
+        PERSIST_CORRECT_ID,
+        csid="c2",
+        request_sha256="b" * 64,
+        supersedes=PERSIST_CREATE_ID,
+        expanded="2" * 64,
+    )
+    before = {
+        "non_w2_digests": dict(PERSIST_NON_W2_DIGESTS),
+        "w2_submissions": [],
+        "w2_values": [],
+    }
+    after = {
+        "non_w2_digests": dict(PERSIST_NON_W2_DIGESTS),
+        "w2_submissions": [create_row, correct_row],
+        "w2_values": (
+            _persist_value_rows(PERSIST_CREATE_ID, PERSIST_CREATE_DEPTHS)
+            + _persist_value_rows(PERSIST_CORRECT_ID, PERSIST_CORRECT_DEPTHS)
+        ),
+    }
+    kwargs = {
+        "create_receipt": _persist_receipt(
+            PERSIST_CREATE_ID, csid="c1", request_sha256="a" * 64, supersedes=None
+        ),
+        "correct_receipt": _persist_receipt(
+            PERSIST_CORRECT_ID,
+            csid="c2",
+            request_sha256="b" * 64,
+            supersedes=PERSIST_CREATE_ID,
+        ),
+        "target_week_key": PERSIST_TARGET_WEEK_KEY,
+        "target_week_date": PERSIST_TARGET_WEEK_DATE,
+        "create_zone_depths": PERSIST_CREATE_DEPTHS,
+        "correct_zone_depths": PERSIST_CORRECT_DEPTHS,
+    }
+    return before, after, kwargs
+
+
+def test_validate_persist_only_diff_accepts_exact_two_receipt_bound_submissions():
+    before, after, kwargs = _persist_only_valid_case()
+
+    result = stage_suite.validate_persist_only_diff(before, after, **kwargs)
+
+    assert result["w2_submissions_added"] == [PERSIST_CREATE_ID, PERSIST_CORRECT_ID]
+    assert result["w2_values_added"] == 82
+    assert result["supersedes_chain"] == {
+        PERSIST_CREATE_ID: None,
+        PERSIST_CORRECT_ID: PERSIST_CREATE_ID,
+    }
+    assert result["non_w2_tables_unchanged"] == len(PERSIST_NON_W2_DIGESTS)
+
+
+def test_validate_persist_only_diff_rejects_ros_digest_change():
+    before, after, kwargs = _persist_only_valid_case()
+    after["non_w2_digests"]["ros_gis.water_requirement_runs"] = "9" * 32
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="persist_only_side_effect_detected"
+    ):
+        stage_suite.validate_persist_only_diff(before, after, **kwargs)
+
+
+def test_validate_persist_only_diff_rejects_scheduler_digest_change():
+    before, after, kwargs = _persist_only_valid_case()
+    after["non_w2_digests"]["scheduler.control_command_outbox"] = "9" * 32
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="persist_only_side_effect_detected"
+    ):
+        stage_suite.validate_persist_only_diff(before, after, **kwargs)
+
+
+def test_validate_persist_only_diff_rejects_new_non_w2_table():
+    before, after, kwargs = _persist_only_valid_case()
+    after["non_w2_digests"]["scheduler.control_plan_requirements"] = "7" * 32
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="persist_only_side_effect_detected"
+    ):
+        stage_suite.validate_persist_only_diff(before, after, **kwargs)
+
+
+def test_validate_persist_only_diff_rejects_extra_new_submission():
+    before, after, kwargs = _persist_only_valid_case()
     after["w2_submissions"].append(
-        {
-            "submission_id": "new-sub-id",
-            "week_key": "2027-R01",
-            "row_count": 1,
-        }
-    )
-    after["w2_values"].append(
-        {
-            "submission_id": "new-sub-id",
-            "value_count": 41,
-        }
+        _persist_submission_row(
+            "33333333-3333-4333-8333-333333333333",
+            csid="c3",
+            request_sha256="c" * 64,
+            supersedes=None,
+            expanded="3" * 64,
+        )
     )
 
-    result = stage_suite.validate_persist_only_diff(before, after)
+    with pytest.raises(
+        stage_suite.StageGateError, match="persist_only_w2_shape_unexpected"
+    ):
+        stage_suite.validate_persist_only_diff(before, after, **kwargs)
 
-    assert result["w2_submissions_added"] == 1
-    assert result["w2_values_added"] == 1
-    assert result["side_effects"] == []
 
-
-def test_validate_persist_only_diff_rejects_ros_changes():
-    before = _persist_only_snapshot()
-    after = _persist_only_snapshot()
-    after["ros_requirement_runs"].append({"run_id": "unexpected"})
+def test_validate_persist_only_diff_rejects_broken_supersede_chain():
+    before, after, kwargs = _persist_only_valid_case()
+    # correct row no longer supersedes the create row
+    after["w2_submissions"][1]["supersedes_submission_id"] = None
 
     with pytest.raises(
-        stage_suite.StageGateError,
-        match="persist_only_side_effect_detected",
+        stage_suite.StageGateError, match="persist_only_w2_shape_unexpected"
     ):
-        stage_suite.validate_persist_only_diff(before, after)
+        stage_suite.validate_persist_only_diff(before, after, **kwargs)
 
 
-def test_validate_persist_only_diff_rejects_scheduler_changes():
-    before = _persist_only_snapshot()
-    after = _persist_only_snapshot()
-    after["scheduler_drafts"].append({"draft_id": "unexpected"})
+def test_validate_persist_only_diff_rejects_request_sha_not_matching_receipt():
+    before, after, kwargs = _persist_only_valid_case()
+    after["w2_submissions"][0]["request_sha256"] = "9" * 64
 
     with pytest.raises(
-        stage_suite.StageGateError,
-        match="persist_only_side_effect_detected",
+        stage_suite.StageGateError, match="persist_only_w2_shape_unexpected"
     ):
-        stage_suite.validate_persist_only_diff(before, after)
+        stage_suite.validate_persist_only_diff(before, after, **kwargs)
 
 
-def test_validate_persist_only_diff_rejects_control_plan_changes():
-    before = _persist_only_snapshot()
-    after = _persist_only_snapshot()
-    after["control_plan_hashes"].append({"hash": "changed"})
+def test_validate_persist_only_diff_rejects_missing_roster_provenance():
+    before, after, kwargs = _persist_only_valid_case()
+    after["w2_submissions"][0]["roster_source_hash"] = None
 
     with pytest.raises(
-        stage_suite.StageGateError,
-        match="persist_only_side_effect_detected",
+        stage_suite.StageGateError, match="persist_only_w2_shape_unexpected"
     ):
-        stage_suite.validate_persist_only_diff(before, after)
+        stage_suite.validate_persist_only_diff(before, after, **kwargs)
+
+
+def test_validate_persist_only_diff_rejects_wrong_week_scope():
+    before, after, kwargs = _persist_only_valid_case()
+    after["w2_submissions"][0]["week_key"] = "2027-R05"
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="persist_only_w2_shape_unexpected"
+    ):
+        stage_suite.validate_persist_only_diff(before, after, **kwargs)
+
+
+def test_validate_persist_only_diff_rejects_identical_expanded_digest():
+    before, after, kwargs = _persist_only_valid_case()
+    after["w2_submissions"][1]["expanded_sha256"] = after["w2_submissions"][0][
+        "expanded_sha256"
+    ]
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="persist_only_w2_shape_unexpected"
+    ):
+        stage_suite.validate_persist_only_diff(before, after, **kwargs)
+
+
+def test_validate_persist_only_diff_rejects_wrong_value_count():
+    before, after, kwargs = _persist_only_valid_case()
+    after["w2_values"].pop()  # 81 instead of 82
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="persist_only_w2_shape_unexpected"
+    ):
+        stage_suite.validate_persist_only_diff(before, after, **kwargs)
+
+
+def test_validate_persist_only_diff_rejects_corrupted_value_content():
+    # The Codex "41 wrong values under the correct receipt id" attack: exactly 82
+    # rows, correct ids, but one section carries a depth its zone never asked for.
+    before, after, kwargs = _persist_only_valid_case()
+    after["w2_values"][0]["planning_depth_mm"] = 999.0
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="persist_only_w2_shape_unexpected"
+    ):
+        stage_suite.validate_persist_only_diff(before, after, **kwargs)
+
+
+def test_validate_persist_only_diff_rejects_value_for_unrelated_submission():
+    before, after, kwargs = _persist_only_valid_case()
+    # swap one create-row value onto an id that is not one of the two new subs
+    after["w2_values"][0] = {
+        **after["w2_values"][0],
+        "submission_id": "99999999-9999-4999-8999-999999999999",
+    }
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="persist_only_w2_shape_unexpected"
+    ):
+        stage_suite.validate_persist_only_diff(before, after, **kwargs)
+
+
+def test_validate_persist_only_diff_rejects_mutation_of_existing_submission():
+    before, after, kwargs = _persist_only_valid_case()
+    existing = _persist_submission_row(
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        csid="c0",
+        request_sha256="e" * 64,
+        supersedes=None,
+        expanded="0" * 64,
+    )
+    before["w2_submissions"].append(dict(existing))
+    mutated = dict(existing)
+    mutated["expanded_sha256"] = "f" * 64  # immutable row changed under our feet
+    after["w2_submissions"].append(mutated)
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="persist_only_w2_existing_mutated"
+    ):
+        stage_suite.validate_persist_only_diff(before, after, **kwargs)
+
+
+def test_validate_persist_only_diff_rejects_mutation_of_existing_value():
+    before, after, kwargs = _persist_only_valid_case()
+    existing_value = {
+        "submission_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "section_id": "01-01-01-03",
+        "zone_id": "01-01",
+        "planning_depth_mm": 111.0,
+        "source_kind": "zone_default",
+        "source_area_id": "01-01",
+    }
+    before["w2_values"].append(dict(existing_value))
+    mutated_value = dict(existing_value)
+    mutated_value["planning_depth_mm"] = 222.0
+    after["w2_values"].append(mutated_value)
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="persist_only_w2_existing_mutated"
+    ):
+        stage_suite.validate_persist_only_diff(before, after, **kwargs)
+
+
+# --- R1: snapshot SQL builder + fail-closed reads ---
+
+FICTIONAL_PR7_TABLES = (
+    "ros_gis.requirement_runs",
+    "ros_gis.daily_water_demands",
+    "scheduler.control_plan_drafts",
+    "scheduler.control_plan_versions",
+)
+
+
+def test_build_persist_snapshot_sql_covers_real_tables_and_is_deterministic():
+    tables = sorted(stage_suite.PERSIST_ONLY_EXPECTED_NON_W2_TABLES)
+    sql = stage_suite._build_persist_snapshot_sql(tables)
+
+    for table in tables:
+        assert table in sql
+    # deterministic full-row digest of every column
+    assert "to_jsonb(t)" in sql
+    assert "ORDER BY to_jsonb(t)::text" in sql
+    # the two W2 tables are captured as full ordered rows, not counts
+    assert "planning_depth_submissions s" in sql
+    assert "planning_depth_values v" in sql
+    assert "ORDER BY s.submission_id" in sql
+    # the PR-7 fictional names and the invalid s.id join are gone
+    for fictional in FICTIONAL_PR7_TABLES:
+        assert fictional not in sql
+    assert "v.submission_id = s.id" not in sql
+
+
+def test_persist_snapshot_table_digest_sql_rejects_injection():
+    with pytest.raises(
+        stage_suite.StageGateError, match="persist_only_table_name_invalid"
+    ):
+        stage_suite._persist_snapshot_table_digest_sql("ros_gis.x; DROP TABLE y")
+
+
+def test_enumerate_tables_fails_closed_on_missing_table(monkeypatch):
+    monkeypatch.setattr(
+        stage_suite, "_psql", lambda ctx, q: "ros_gis.dataset_versions\n"
+    )
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="persist_only_table_missing"
+    ):
+        stage_suite._persist_only_enumerate_tables(object())
+
+
+def test_enumerate_tables_fails_closed_on_query_error(monkeypatch):
+    def boom(ctx, q):
+        raise stage_suite.StageGateError("postgres_probe_failed")
+
+    monkeypatch.setattr(stage_suite, "_psql", boom)
+
+    with pytest.raises(stage_suite.StageGateError, match="postgres_probe_failed"):
+        stage_suite._persist_only_enumerate_tables(object())
+
+
+def test_take_persist_snapshot_does_not_swallow_enumerate_failure(monkeypatch):
+    def boom(ctx):
+        raise stage_suite.StageGateError("persist_only_table_missing")
+
+    monkeypatch.setattr(stage_suite, "_persist_only_enumerate_tables", boom)
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="persist_only_table_missing"
+    ):
+        stage_suite._take_persist_snapshot(object())
+
+
+def test_take_persist_snapshot_rejects_malformed_document(monkeypatch):
+    monkeypatch.setattr(
+        stage_suite,
+        "_persist_only_enumerate_tables",
+        lambda ctx: ["ros_gis.dataset_versions"],
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_persist_snapshot_psql",
+        lambda ctx, sql: {
+            "non_w2_digests": {},
+            "w2_submissions": "not-a-list",
+            "w2_values": [],
+        },
+    )
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="persist_only_snapshot_malformed"
+    ):
+        stage_suite._take_persist_snapshot(object())
+
+
+def test_persist_snapshot_psql_fails_closed_on_unparseable(monkeypatch, tmp_path):
+    (tmp_path / "bff.env").write_text(
+        "POSTGRES_URL=postgresql://u:p@127.0.0.1:5432/munbon_local\n"
+    )
+    context = stage_suite.StageContext(
+        release_sha="8" * 40,
+        frontend_sha="9" * 40,
+        repo_root=tmp_path / "repo",
+        harness_root=tmp_path / "harness",
+        evidence_root=tmp_path / "evidence",
+        runtime_env_dir=tmp_path,
+    )
+    monkeypatch.setattr(stage_suite, "_run_checked", lambda *a, **k: "not json")
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="persist_only_snapshot_unparseable"
+    ):
+        stage_suite._persist_snapshot_psql(context, "SELECT 1")
+
+
+# --- R1: Redis rate-limit side-effect accounting ---
+
+
+def test_parse_rate_key_snapshot_parses_value_and_ttl_triples():
+    raw = (
+        "bff-water-planning:rate:planning_depth.submit:"
+        + "a" * 64
+        + "\t3\t60000\n"
+        + "bff-water-planning:rate:planning_depth.submit:"
+        + "b" * 64
+        + "\t1\t-1"
+    )
+
+    parsed = stage_suite._parse_rate_key_snapshot(raw)
+
+    op_a = "bff-water-planning:rate:planning_depth.submit:" + "a" * 64
+    assert parsed[op_a] == {"value": 3, "ttl_ms": 60000}
+
+
+def test_parse_rate_key_snapshot_fails_closed_on_non_integer():
+    raw = "bff-water-planning:rate:planning_depth.submit:" + "a" * 64 + "\tNaN\t5"
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="persist_only_rate_snapshot_unparseable"
+    ):
+        stage_suite._parse_rate_key_snapshot(raw)
+
+
+_OP_KEY = "bff-water-planning:rate:planning_depth.submit:" + "a" * 64
+_OTHER_OP_KEY = "bff-water-planning:rate:planning_depth.submit:" + "b" * 64
+
+
+def test_rate_accounting_accepts_operator_increment_by_two():
+    before = {_OP_KEY: {"value": 5, "ttl_ms": 60000}}
+    after = {_OP_KEY: {"value": 7, "ttl_ms": 55000}}
+
+    result = stage_suite.validate_persist_only_rate_accounting(before, after)
+
+    assert result == {"operator_rate_key": _OP_KEY, "increment": 2}
+
+
+def test_rate_accounting_accepts_fresh_operator_key():
+    result = stage_suite.validate_persist_only_rate_accounting(
+        {}, {_OP_KEY: {"value": 2, "ttl_ms": 60000}}
+    )
+    assert result["operator_rate_key"] == _OP_KEY
+
+
+def test_rate_accounting_accepts_expired_then_reset_window():
+    before = {_OP_KEY: {"value": 9, "ttl_ms": 50}}
+    after = {_OP_KEY: {"value": 2, "ttl_ms": 60000}}
+
+    result = stage_suite.validate_persist_only_rate_accounting(before, after)
+
+    assert result["operator_rate_key"] == _OP_KEY
+
+
+def test_rate_accounting_rejects_two_changed_keys():
+    before = {_OP_KEY: {"value": 5, "ttl_ms": 60000}}
+    after = {
+        _OP_KEY: {"value": 7, "ttl_ms": 60000},
+        _OTHER_OP_KEY: {"value": 2, "ttl_ms": 60000},
+    }
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="persist_only_rate_side_effect_detected"
+    ):
+        stage_suite.validate_persist_only_rate_accounting(before, after)
+
+
+def test_rate_accounting_rejects_wrong_increment():
+    before = {_OP_KEY: {"value": 5, "ttl_ms": 60000}}
+    after = {_OP_KEY: {"value": 8, "ttl_ms": 60000}}
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="persist_only_rate_side_effect_detected"
+    ):
+        stage_suite.validate_persist_only_rate_accounting(before, after)
+
+
+def test_rate_accounting_rejects_malformed_namespace_key():
+    after = {"bff-water-planning:rate:planning_depth.submit:notahex": {
+        "value": 2,
+        "ttl_ms": 60000,
+    }}
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="persist_only_rate_side_effect_detected"
+    ):
+        stage_suite.validate_persist_only_rate_accounting({}, after)
+
+
+def test_rate_accounting_rejects_persistent_key_that_vanished():
+    before = {
+        _OP_KEY: {"value": 5, "ttl_ms": 60000},
+        _OTHER_OP_KEY: {"value": 3, "ttl_ms": -1},  # persistent, no expiry
+    }
+    after = {_OP_KEY: {"value": 7, "ttl_ms": 60000}}
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="persist_only_rate_side_effect_detected"
+    ):
+        stage_suite.validate_persist_only_rate_accounting(before, after)
+
+
+def test_snapshot_rate_keys_rejects_non_loopback_redis(monkeypatch, tmp_path):
+    (tmp_path / "bff.env").write_text("REDIS_URL=redis://10.0.0.5:6379/2\n")
+    context = stage_suite.StageContext(
+        release_sha="8" * 40,
+        frontend_sha="9" * 40,
+        repo_root=tmp_path / "repo",
+        harness_root=tmp_path / "harness",
+        evidence_root=tmp_path / "evidence",
+        runtime_env_dir=tmp_path,
+    )
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="persist_only_rate_url_invalid"
+    ):
+        stage_suite._snapshot_planning_depth_rate_keys(context)
+
+
+def test_snapshot_rate_keys_selects_db_and_hides_password(monkeypatch, tmp_path):
+    (tmp_path / "bff.env").write_text(
+        "REDIS_URL=redis://:s3cret@127.0.0.1:6379/2\n"
+    )
+    context = stage_suite.StageContext(
+        release_sha="8" * 40,
+        frontend_sha="9" * 40,
+        repo_root=tmp_path / "repo",
+        harness_root=tmp_path / "harness",
+        evidence_root=tmp_path / "evidence",
+        runtime_env_dir=tmp_path,
+    )
+    captured = {}
+
+    def fake_run_checked(code, argv, *, env=None, timeout=None, **kwargs):
+        captured["argv"] = argv
+        captured["env"] = env
+        return ""
+
+    monkeypatch.setattr(stage_suite, "_run_checked", fake_run_checked)
+
+    result = stage_suite._snapshot_planning_depth_rate_keys(context)
+
+    assert result == {}
+    argv = captured["argv"]
+    # db 2 selected explicitly; the password never appears on the argv
+    assert argv[argv.index("-n") + 1] == "2"
+    assert "s3cret" not in " ".join(argv)
+    assert captured["env"]["REDISCLI_AUTH"] == "s3cret"
+
+
+# --- R1: clean-target-week precheck (re-runnability, no opaque replay failure) ---
+
+
+def test_assert_persist_target_week_clean_passes_when_scope_empty():
+    before = {
+        "w2_submissions": [
+            _persist_submission_row(
+                PERSIST_CREATE_ID,
+                csid="c1",
+                request_sha256="a" * 64,
+                supersedes=None,
+                expanded="1" * 64,
+            )
+        ]
+    }
+    # the existing row is 2027-R02; a DIFFERENT target week is clean
+    result = stage_suite.assert_persist_target_week_clean(before, "2027-R09")
+    assert result["clean"] is True
+
+
+def test_assert_persist_target_week_clean_rejects_existing_root_in_scope():
+    before = {
+        "w2_submissions": [
+            _persist_submission_row(
+                PERSIST_CREATE_ID,
+                csid="c1",
+                request_sha256="a" * 64,
+                supersedes=None,
+                expanded="1" * 64,
+            )
+        ]
+    }
+    with pytest.raises(
+        stage_suite.StageGateError, match="persist_only_target_week_not_clean"
+    ):
+        stage_suite.assert_persist_target_week_clean(
+            before, PERSIST_TARGET_WEEK_KEY
+        )
+
+
+# --- R1: logout runs in the outer boundary on every post-login path ---
+
+
+class _StubResponse:
+    def __init__(self, status):
+        self.status = status
+        self.body = {}
+        self.headers = {}
+
+
+class _RecordingLogoutClient:
+    def __init__(self, *, status=200, raises=False):
+        self._status = status
+        self._raises = raises
+        self.logout_calls = []
+
+    def request(self, method, url, *, payload=None, bearer=None):
+        if url.endswith("/auth/logout"):
+            self.logout_calls.append(payload)
+            if self._raises:
+                raise RuntimeError("network down")
+            return _StubResponse(self._status)
+        raise AssertionError(f"unexpected request to {url}")
+
+
+def test_persist_only_logout_best_effort_swallows_errors():
+    client = _RecordingLogoutClient(raises=True)
+    # must NOT raise on the failure path, so a primary error is never masked
+    stage_suite._persist_only_logout(client, "rc", strict=False)
+    assert client.logout_calls == [{"refreshToken": "rc"}]
+
+
+def test_persist_only_logout_strict_raises_on_bad_status():
+    client = _RecordingLogoutClient(status=500)
+    with pytest.raises(
+        stage_suite.StageGateError, match="persist_only_operator_logout_failed"
+    ):
+        stage_suite._persist_only_logout(client, "rc", strict=True)
+
+
+def test_persist_only_logout_strict_raises_on_exception():
+    client = _RecordingLogoutClient(raises=True)
+    with pytest.raises(
+        stage_suite.StageGateError, match="persist_only_operator_logout_failed"
+    ):
+        stage_suite._persist_only_logout(client, "rc", strict=True)
+
+
+def _patch_persist_only_scaffold(monkeypatch, client):
+    monkeypatch.setattr(
+        stage_suite,
+        "_load_state",
+        lambda ctx: {"completed": list(stage_suite.STAGE_ORDER[:8])},
+    )
+    monkeypatch.setattr(stage_suite, "validate_stage_transition", lambda *a, **k: None)
+    monkeypatch.setattr(
+        stage_suite, "_load_harness_module", lambda *a, **k: object()
+    )
+    monkeypatch.setattr(stage_suite, "LocalHttpClient", lambda: client)
+    monkeypatch.setattr(
+        stage_suite,
+        "_login_operator",
+        lambda ctx, c, v: ("tok", "refresh-cookie", {"login": "ok"}),
+    )
+
+
+def _persist_only_context(tmp_path):
+    return stage_suite.StageContext(
+        release_sha="8" * 40,
+        frontend_sha="9" * 40,
+        repo_root=tmp_path / "repo",
+        harness_root=tmp_path / "harness",
+        evidence_root=tmp_path / "evidence",
+        runtime_env_dir=tmp_path,
+    )
+
+
+def test_run_persist_only_logs_out_when_body_fails(monkeypatch, tmp_path):
+    client = _RecordingLogoutClient(status=200)
+    _patch_persist_only_scaffold(monkeypatch, client)
+
+    def failing_body(ctx, c, token, evidence):
+        raise stage_suite.StageGateError("injected_body_failure")
+
+    monkeypatch.setattr(stage_suite, "_persist_only_body", failing_body)
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="injected_body_failure"
+    ):
+        stage_suite.run_local_persist_only(_persist_only_context(tmp_path))
+
+    # the primary error propagated AND the session was still torn down once
+    assert client.logout_calls == [{"refreshToken": "refresh-cookie"}]
+
+
+def test_run_persist_only_fails_when_success_logout_rejected(monkeypatch, tmp_path):
+    client = _RecordingLogoutClient(status=500)
+    _patch_persist_only_scaffold(monkeypatch, client)
+    monkeypatch.setattr(
+        stage_suite,
+        "_persist_only_body",
+        lambda ctx, c, token, evidence: {"stage": "LOCAL-PERSIST-ONLY-1"},
+    )
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="persist_only_operator_logout_failed"
+    ):
+        stage_suite.run_local_persist_only(_persist_only_context(tmp_path))
+
+
+# --- R1: distinct RID week for persist-only ---
+
+
+def test_persist_only_rid_week_is_the_write_ui_successor_week():
+    # persist-only must target a DIFFERENT RID week than write-ui so its
+    # active=None create is a fresh root (root-per-scope is per project+calendar+week).
+    as_of = date(2026, 11, 2)  # write-ui: 2027-R01
+    assert stage_suite._write_ui_rid_week(as_of)[1] == "2027-R01"
+    persist_date, persist_key = stage_suite._persist_only_rid_week(as_of)
+    assert persist_key == "2027-R02"
+    # week_date is the canonical span start of the persist week
+    year_start = date(2026, 11, 1)
+    assert persist_date == (year_start + timedelta(days=7)).isoformat()
+
+
+def test_persist_only_rid_week_differs_from_write_ui_for_every_supported_day():
+    # Property: across a wide date range, persist week != write-ui week, is 1..53,
+    # keeps the same ending-year, and week_date is the canonical span start.
+    day = date(1902, 1, 1)
+    end = date(2400, 12, 31)
+    step = timedelta(days=17)
+    while day <= end:
+        w_date, w_key = stage_suite._write_ui_rid_week(day)
+        p_date, p_key = stage_suite._persist_only_rid_week(day)
+        assert p_key != w_key, day
+        assert p_key[:4] == w_key[:4], day  # same ending-year
+        p_n = int(p_key[6:])
+        assert 1 <= p_n <= 53, (day, p_key)
+        # canonical span-start check
+        ending_year = int(p_key[:4])
+        year_start = date(ending_year - 1, 11, 1)
+        assert p_date == (year_start + timedelta(days=7 * (p_n - 1))).isoformat()
+        day += step
+
+
+def test_persist_only_rid_week_r53_maps_to_r52():
+    # For a write-ui week 53, the successor would overflow the year -> use R52.
+    as_of = date(2026, 10, 31)  # write-ui final week of RID year 2026
+    _, w_key = stage_suite._write_ui_rid_week(as_of)
+    assert w_key == "2026-R53"
+    _, p_key = stage_suite._persist_only_rid_week(as_of)
+    assert p_key == "2026-R52"
+
+
+def test_persist_only_rid_week_rejects_out_of_supported_range():
+    # ending-year outside 1901..2401 must be rejected, not silently produced.
+    with pytest.raises(stage_suite.StageGateError, match="persist_only_week_out_of_supported_range"):
+        stage_suite._persist_only_rid_week(date(1900, 10, 31))  # ending_year 1900
+    with pytest.raises(stage_suite.StageGateError, match="persist_only_week_out_of_supported_range"):
+        stage_suite._persist_only_rid_week(date(2401, 11, 1))  # ending_year 2402
