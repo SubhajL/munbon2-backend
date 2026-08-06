@@ -64,7 +64,18 @@ WRITE_FOUNDATION_NAMESPACE = uuid5(
 WRITE_UI_NAMESPACE = uuid5(
     NAMESPACE_DNS, "local-write-ui.munbon.invalid"
 )
-EXPECTED_FRONTEND_SHA = "fbd4ce4df0bb0476b7cd402ac1a4e180a91a7792"
+# The frontend's Next.js planning-depth proxy routes fetch `${API_SERVER}${PATH}`
+# for the three write-path env vars below. Values are the exact real BFF routes:
+# v2 submit/active (planning_depths_v2.py prefix + POST ""/GET "/active") and the
+# v1 roster (planning_depth_roster.py prefix + GET "/v1").
+FRONTEND_WRITE_PATH_ENVIRONMENT = {
+    "API_SERVER": "http://127.0.0.1:3022",
+    "PLANNING_DEPTH_SUBMIT_PATH": "/api/v2/water-planning/planning-depth-submissions",
+    "PLANNING_DEPTH_ACTIVE_PATH": (
+        "/api/v2/water-planning/planning-depth-submissions/active"
+    ),
+    "PLANNING_DEPTH_ROSTER_PATH": "/api/v1/water-planning/planning-depth-roster/v1",
+}
 NODE_ROOT = Path("/opt/node-v22.23.1-linux-arm64")
 BROWSER_ROOT = Path("/opt/munbon/browser")
 PLAYWRIGHT_BROWSERS_ROOT = Path("/opt/munbon/playwright-browsers")
@@ -1382,6 +1393,17 @@ def frontend_process_environment(
     }
     if gate_operations_base_url is not None:
         environment["NEXT_PUBLIC_GATE_OPERATIONS_URL"] = gate_operations_base_url
+    # The frontend's planning-depth proxy routes read API_SERVER +
+    # PLANNING_DEPTH_{SUBMIT,ACTIVE,ROSTER}_PATH (smart-cms-app
+    # app/api/smart-water-backend/water-planning/*/route.ts) and fetch
+    # `${API_SERVER}${PATH}`. Provide the exact real BFF v2/v1 paths when armed;
+    # when dark, strip any inherited value so a polluted parent env can never
+    # pre-configure the write path behind the SUBMIT flag.
+    if water_planning_submit:
+        environment.update(FRONTEND_WRITE_PATH_ENVIRONMENT)
+    else:
+        for name in FRONTEND_WRITE_PATH_ENVIRONMENT:
+            environment.pop(name, None)
     return environment
 
 
@@ -1596,11 +1618,23 @@ def _save_state(context: StageContext, completed: list[str]) -> None:
     _checksum_manifest(path)
 
 
+def _accepted_frontend_sha(frontend_sha: str) -> str:
+    """Accept any validated 40-hex frontend SHA (no pin to one historical value).
+
+    The frontend identity is bound elsewhere: orchestrate validates it equals
+    frontend origin/main, and `_verify_frontend_source` rejects any guest checkout
+    whose HEAD differs. LOCAL-BASE-0 therefore needs only a format gate, not a
+    brittle constant that forces a code change on every frontend commit.
+    """
+    if not re.fullmatch(r"[0-9a-f]{40}", frontend_sha):
+        raise StageGateError("frontend_sha_not_accepted")
+    return frontend_sha
+
+
 def run_local_base(context: StageContext) -> dict:
     state = _load_state(context)
     validate_stage_transition(tuple(state["completed"]), "LOCAL-BASE-0")
-    if context.frontend_sha != EXPECTED_FRONTEND_SHA:
-        raise StageGateError("frontend_sha_not_accepted")
+    _accepted_frontend_sha(context.frontend_sha)
     actual_sha = _run_checked(
         "backend_sha", ["git", "rev-parse", "HEAD"], cwd=context.repo_root
     ).strip()
@@ -3917,6 +3951,24 @@ def validate_w2_submission_result(
             "project_key": str(body["project_key"]),
             "submitted_at": str(body["submitted_at"]),
             "submitted_by": str(body["submitted_by"]),
+            # Persist-only binds the stored row to the receipt's scope and
+            # supersede chain, so these v2 fields are projected too (they were
+            # previously discarded). Optional so the shared v1/ISO receipt path
+            # -- which has no calendar_system -- is unaffected; the persist-only
+            # diff independently asserts each is present and correct for v2.
+            "calendar_system": (
+                None
+                if body.get("calendar_system") is None
+                else str(body["calendar_system"])
+            ),
+            "week_date": (
+                None if body.get("week_date") is None else str(body["week_date"])
+            ),
+            "supersedes_submission_id": (
+                None
+                if body.get("supersedes_submission_id") is None
+                else str(body["supersedes_submission_id"])
+            ),
         }
     except (KeyError, TypeError, ValueError) as exc:
         raise StageGateError("w2_submission_result_not_accepted") from exc
@@ -4371,6 +4423,31 @@ def _write_ui_rid_week(as_of_date: date) -> tuple[str, str]:
     return week_start.isoformat(), f"{ending_year:04d}-R{week_number:02d}"
 
 
+PERSIST_ONLY_MIN_ENDING_YEAR = 1901
+PERSIST_ONLY_MAX_ENDING_YEAR = 2401
+
+
+def _persist_only_rid_week(as_of_date: date) -> tuple[str, str]:
+    """Return (week_date, week_key) for a RID week DISTINCT from write-ui's.
+
+    Persist-only is API-driven and must create a fresh root, so it cannot share
+    write-ui's (project, calendar, week) scope. Use the successor week within the
+    same irrigation year: R(n+1) for write-ui weeks R01..R52, and R52 for R53
+    (whose successor would overflow the year). week_date is the canonical span
+    start. Reject an as-of whose irrigation ending-year is outside the supported
+    1901..2401 range rather than silently produce an unusable key.
+    """
+    _, write_key = _write_ui_rid_week(as_of_date)
+    ending_year = int(write_key[:4])
+    if not (PERSIST_ONLY_MIN_ENDING_YEAR <= ending_year <= PERSIST_ONLY_MAX_ENDING_YEAR):
+        raise StageGateError("persist_only_week_out_of_supported_range")
+    write_week = int(write_key[6:])
+    persist_week = write_week + 1 if write_week <= 52 else 52
+    year_start = date(ending_year - 1, 11, 1)
+    week_start = year_start + timedelta(days=7 * (persist_week - 1))
+    return week_start.isoformat(), f"{ending_year:04d}-R{persist_week:02d}"
+
+
 def _write_ui_client_submission_id(
     release_sha: str, week_key: str, drill: str
 ) -> str:
@@ -4709,103 +4786,436 @@ def run_local_write_ui(context: StageContext) -> dict:
 # --- LOCAL-PERSIST-ONLY-1 helpers ---
 
 
-PERSIST_ONLY_SNAPSHOT_QUERIES = {
-    "w2_submissions": (
-        "SELECT submission_id::text, week_key, calendar_system "
-        "FROM water_planning.planning_depth_submissions "
-        "ORDER BY submitted_at"
-    ),
-    "w2_values": (
-        "SELECT s.submission_id::text, count(*) AS value_count "
-        "FROM water_planning.planning_depth_values v "
-        "JOIN water_planning.planning_depth_submissions s "
-        "  ON v.submission_id = s.id "
-        "GROUP BY s.submission_id ORDER BY s.submission_id"
-    ),
-    "ros_requirement_runs": (
-        "SELECT id::text, run_hash "
-        "FROM ros_gis.requirement_runs "
-        "ORDER BY created_at"
-    ),
-    "ros_demands": (
-        "SELECT count(*) AS demand_count "
-        "FROM ros_gis.daily_water_demands"
-    ),
-    "scheduler_drafts": (
-        "SELECT id::text "
-        "FROM scheduler.control_plan_drafts "
-        "ORDER BY created_at"
-    ),
-    "control_plan_hashes": (
-        "SELECT plan_id::text, version, content_hash "
-        "FROM scheduler.control_plan_versions "
-        "ORDER BY plan_id, version"
-    ),
-}
+# The submit path writes ONLY water_planning.planning_depth_{submissions,values}
+# (the only two tables in that schema). Persist-only therefore proves EVERY base
+# table in ros_gis + scheduler is byte-identical before and after -- dynamically
+# enumerated so a newly-migrated table cannot slip past a hand-picked list.
+PERSIST_ONLY_EXPECTED_NON_W2_TABLES = frozenset(
+    {
+        "ros_gis.daily_water_requirements",
+        "ros_gis.dataset_versions",
+        "ros_gis.gate_mapping_history",
+        "ros_gis.section_crop_settings",
+        "ros_gis.section_master_history",
+        "ros_gis.water_requirement_contributions",
+        "ros_gis.water_requirement_runs",
+        "scheduler.control_active_gate_authority",
+        "scheduler.control_authority_grant_events",
+        "scheduler.control_authority_grants",
+        "scheduler.control_command_execution_events",
+        "scheduler.control_command_execution_receipts",
+        "scheduler.control_command_outbox",
+        "scheduler.control_command_validation_receipts",
+        "scheduler.control_gate_readback_observations",
+        "scheduler.control_plan_campaign_versions",
+        "scheduler.control_plan_requirements",
+        "scheduler.control_plan_runs",
+        "scheduler.control_state_transitions",
+        "scheduler.gate_plan_events",
+        "scheduler.section_delivery_ledger",
+    }
+)
+
+_QUALIFIED_TABLE_RE = re.compile(r"[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*")
+
+PERSIST_ONLY_EXPECTED_VALUE_COUNT = 41
+
+RATE_KEY_PATTERN = "bff-water-planning:rate:planning_depth.submit:*"
+_RATE_KEY_RE = re.compile(
+    r"bff-water-planning:rate:planning_depth\.submit:[0-9a-f]{64}"
+)
+# One EVAL == one atomic Redis read. Each triple is emitted as key<TAB>value<TAB>
+# pttl on its own line so an integer counter can never be confused for a blank
+# line, and a missing/nil value is impossible for these keys.
+_RATE_SNAPSHOT_LUA = (
+    "local out = {} "
+    "local keys = redis.call('KEYS', ARGV[1]) "
+    "for i, k in ipairs(keys) do "
+    "local v = redis.call('GET', k) "
+    "local t = redis.call('PTTL', k) "
+    "out[#out+1] = k .. '\\t' .. tostring(v) .. '\\t' .. tostring(t) "
+    "end "
+    "return table.concat(out, '\\n')"
+)
+
+
+def _sql_string_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _persist_snapshot_table_digest_sql(table: str) -> str:
+    if not _QUALIFIED_TABLE_RE.fullmatch(table):
+        raise StageGateError("persist_only_table_name_invalid")
+    # Deterministic full-row digest: md5 over the per-row md5 of the row's
+    # canonical jsonb text, ordered by that same text. to_jsonb captures EVERY
+    # column (incl. mutable status/hash fields), jsonb text is normalized, and
+    # ordering by the row text is a total order needing no per-table primary key.
+    # An empty table collapses to md5('').
+    return (
+        "(SELECT md5(coalesce(string_agg(md5(to_jsonb(t)::text), '' "
+        f"ORDER BY to_jsonb(t)::text), '')) FROM {table} t)"
+    )
+
+
+def _build_persist_snapshot_sql(tables: list[str]) -> str:
+    digest_pairs = ", ".join(
+        f"{_sql_string_literal(table)}, {_persist_snapshot_table_digest_sql(table)}"
+        for table in tables
+    )
+    # One statement == one MVCC snapshot: the non-W2 digests and the full W2 rows
+    # are all read from a single consistent view of the database.
+    return (
+        "SELECT json_build_object("
+        f"'non_w2_digests', json_build_object({digest_pairs}), "
+        "'w2_submissions', (SELECT coalesce("
+        "json_agg(to_jsonb(s) ORDER BY s.submission_id), '[]'::json) "
+        "FROM water_planning.planning_depth_submissions s), "
+        "'w2_values', (SELECT coalesce("
+        "json_agg(to_jsonb(v) ORDER BY v.submission_id, v.section_id), '[]'::json) "
+        "FROM water_planning.planning_depth_values v))::text"
+    )
+
+
+def _persist_only_enumerate_tables(context: StageContext) -> list[str]:
+    raw = _psql(
+        context,
+        "SELECT table_schema || '.' || table_name "
+        "FROM information_schema.tables "
+        "WHERE table_schema IN ('ros_gis', 'scheduler') "
+        "AND table_type = 'BASE TABLE' "
+        "ORDER BY 1",
+    )
+    tables = [line.strip() for line in raw.splitlines() if line.strip()]
+    if not PERSIST_ONLY_EXPECTED_NON_W2_TABLES.issubset(tables):
+        raise StageGateError("persist_only_table_missing")
+    for table in tables:
+        if not _QUALIFIED_TABLE_RE.fullmatch(table):
+            raise StageGateError("persist_only_table_name_invalid")
+    return tables
+
+
+def _persist_snapshot_psql(context: StageContext, sql: str) -> Any:
+    postgres_url = _load_env_file(context.runtime_env_dir / "bff.env")["POSTGRES_URL"]
+    env = _postgres_process_env(postgres_url)
+    # Pin timezone so any timestamptz column serializes identically across reads.
+    env["PGOPTIONS"] = env["PGOPTIONS"] + " -c timezone=UTC -c extra_float_digits=3"
+    raw = _run_checked(
+        "persist_only_snapshot",
+        ["psql", "--no-psqlrc", "-X", "-At", "-c", sql],
+        env=env,
+        timeout=30,
+    )
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise StageGateError("persist_only_snapshot_unparseable") from exc
 
 
 def _take_persist_snapshot(context: StageContext) -> dict:
-    snapshot = {}
-    for key, query in PERSIST_ONLY_SNAPSHOT_QUERIES.items():
-        try:
-            raw = _psql(context, query)
-            rows = []
-            for line in raw.strip().splitlines():
-                line = line.strip()
-                if not line or line.startswith("-") or line.startswith("("):
-                    continue
-                rows.append(line)
-            snapshot[key] = rows
-        except StageGateError:
-            snapshot[key] = []
-    return snapshot
+    tables = _persist_only_enumerate_tables(context)
+    document = _persist_snapshot_psql(context, _build_persist_snapshot_sql(tables))
+    if (
+        not isinstance(document, dict)
+        or not isinstance(document.get("non_w2_digests"), dict)
+        or not isinstance(document.get("w2_submissions"), list)
+        or not isinstance(document.get("w2_values"), list)
+    ):
+        raise StageGateError("persist_only_snapshot_malformed")
+    return document
 
 
-def validate_persist_only_diff(before: dict, after: dict) -> dict:
-    side_effects = []
-    for key in ("ros_requirement_runs", "ros_demands", "scheduler_drafts", "control_plan_hashes"):
-        if before.get(key) != after.get(key):
-            side_effects.append(key)
-    if side_effects:
-        raise StageGateError("persist_only_side_effect_detected")
-
-    before_subs = before.get("w2_submissions", [])
-    after_subs = after.get("w2_submissions", [])
-    before_vals = before.get("w2_values", [])
-    after_vals = after.get("w2_values", [])
-
-    subs_added = len(after_subs) - len(before_subs)
-    vals_added = len(after_vals) - len(before_vals)
-
+def _zone_depths_from_request(request: dict) -> dict[str, float]:
     return {
-        "w2_submissions_added": subs_added,
-        "w2_values_added": vals_added,
-        "side_effects": [],
+        str(level["area_id"]): float(level["planning_depth_mm"])
+        for level in request["levels"]
     }
 
 
-def run_local_persist_only(context: StageContext) -> dict:
-    state = _load_state(context)
-    validate_stage_transition(tuple(state["completed"]), "LOCAL-PERSIST-ONLY-1")
-
-    verifier = _load_harness_module(
-        context,
-        "verify_bearer.py",
-        "local_persist_only_bearer_verifier",
+def _assert_receipt_bound_submission(
+    row: dict,
+    receipt: dict,
+    *,
+    week_key: str,
+    week_date: str,
+    expected_supersedes: str | None,
+) -> None:
+    roster_id = row.get("roster_dataset_version_id")
+    roster_hash = row.get("roster_source_hash")
+    expanded = row.get("expanded_sha256")
+    ok = (
+        row.get("submission_id") == receipt["submission_id"]
+        and row.get("client_submission_id") == receipt["client_submission_id"]
+        and row.get("request_sha256") == receipt["request_sha256"]
+        and row.get("submitted_by") == receipt["submitted_by"]
+        and row.get("project_key") == "mun-bon"
+        and row.get("calendar_system") == "rid-irrigation-v1"
+        and row.get("week_key") == week_key
+        and row.get("week_date") == week_date
+        and row.get("schema_version") == 2
+        and row.get("supersedes_submission_id") == expected_supersedes
+        and isinstance(roster_id, int)
+        and roster_id > 0
+        and isinstance(roster_hash, str)
+        and bool(re.fullmatch(r"[0-9a-f]{64}", roster_hash))
+        and isinstance(expanded, str)
+        and bool(re.fullmatch(r"[0-9a-f]{64}", expanded))
+        # the receipt itself must agree with the same target + supersede chain
+        and receipt.get("week_key") == week_key
+        and receipt.get("week_date") == week_date
+        and receipt.get("calendar_system") == "rid-irrigation-v1"
+        and receipt.get("supersedes_submission_id") == expected_supersedes
     )
-    client = LocalHttpClient()
-    token, refresh_cookie, login_evidence = _login_operator(
-        context,
-        client,
-        verifier,
-    )
+    if not ok:
+        raise StageGateError("persist_only_w2_shape_unexpected")
 
-    week_date, week_key = _write_ui_rid_week(context.as_of_date)
+
+def _assert_expanded_values(rows: list[dict], zone_depths: dict[str, float]) -> None:
+    zones_seen = set()
+    for row in rows:
+        zone_id = row.get("zone_id")
+        section_id = row.get("section_id")
+        depth = row.get("planning_depth_mm")
+        if (
+            zone_id not in zone_depths
+            or not isinstance(section_id, str)
+            or not section_id.startswith(f"{zone_id}-")
+            or row.get("source_kind") != "zone_default"
+            or row.get("source_area_id") != zone_id
+            or depth is None
+            or abs(float(depth) - zone_depths[zone_id]) > 1e-6
+        ):
+            raise StageGateError("persist_only_w2_shape_unexpected")
+        zones_seen.add(zone_id)
+    if zones_seen != set(zone_depths):
+        raise StageGateError("persist_only_w2_shape_unexpected")
+
+
+def validate_persist_only_diff(
+    before: dict,
+    after: dict,
+    *,
+    create_receipt: dict,
+    correct_receipt: dict,
+    target_week_key: str,
+    target_week_date: str,
+    create_zone_depths: dict[str, float],
+    correct_zone_depths: dict[str, float],
+) -> dict:
+    # 1. NON-W2: every enumerated table digest must be identical. In the isolated
+    #    guest ANY add/remove/mutation is a real side effect, not tolerated.
+    before_digests = before["non_w2_digests"]
+    after_digests = after["non_w2_digests"]
+    if set(before_digests) != set(after_digests):
+        raise StageGateError("persist_only_side_effect_detected")
+    for table in sorted(before_digests):
+        if before_digests[table] != after_digests[table]:
+            raise StageGateError("persist_only_side_effect_detected")
+
+    # 2. W2 SUBMISSIONS: pre-existing rows byte-identical; the new set is exactly
+    #    the two receipts; each new row is bound to its receipt + scope + chain.
+    before_subs = {row["submission_id"]: row for row in before["w2_submissions"]}
+    after_subs = {row["submission_id"]: row for row in after["w2_submissions"]}
+    if set(before_subs) - set(after_subs):
+        raise StageGateError("persist_only_w2_existing_mutated")
+    for sid, row in before_subs.items():
+        if after_subs[sid] != row:
+            raise StageGateError("persist_only_w2_existing_mutated")
+    create_id = create_receipt["submission_id"]
+    correct_id = correct_receipt["submission_id"]
+    new_sub_ids = set(after_subs) - set(before_subs)
+    if new_sub_ids != {create_id, correct_id} or create_id == correct_id:
+        raise StageGateError("persist_only_w2_shape_unexpected")
+    _assert_receipt_bound_submission(
+        after_subs[create_id],
+        create_receipt,
+        week_key=target_week_key,
+        week_date=target_week_date,
+        expected_supersedes=None,
+    )
+    _assert_receipt_bound_submission(
+        after_subs[correct_id],
+        correct_receipt,
+        week_key=target_week_key,
+        week_date=target_week_date,
+        expected_supersedes=create_id,
+    )
+    if (
+        after_subs[create_id]["expanded_sha256"]
+        == after_subs[correct_id]["expanded_sha256"]
+    ):
+        raise StageGateError("persist_only_w2_shape_unexpected")
+
+    # 3. W2 VALUES: pre-existing rows byte-identical; exactly 41 new rows per new
+    #    submission (82 total), each expanded value bound to its zone's depth.
+    def value_key(row: dict) -> tuple:
+        return (row["submission_id"], row["section_id"])
+
+    before_vals = {value_key(row): row for row in before["w2_values"]}
+    after_vals = {value_key(row): row for row in after["w2_values"]}
+    if set(before_vals) - set(after_vals):
+        raise StageGateError("persist_only_w2_existing_mutated")
+    for key, row in before_vals.items():
+        if after_vals[key] != row:
+            raise StageGateError("persist_only_w2_existing_mutated")
+    new_value_keys = set(after_vals) - set(before_vals)
+    grouped: dict[str, list[dict]] = {create_id: [], correct_id: []}
+    for key in new_value_keys:
+        submission_id = key[0]
+        if submission_id not in grouped:
+            raise StageGateError("persist_only_w2_shape_unexpected")
+        grouped[submission_id].append(after_vals[key])
+    if (
+        len(new_value_keys) != 2 * PERSIST_ONLY_EXPECTED_VALUE_COUNT
+        or len(grouped[create_id]) != PERSIST_ONLY_EXPECTED_VALUE_COUNT
+        or len(grouped[correct_id]) != PERSIST_ONLY_EXPECTED_VALUE_COUNT
+    ):
+        raise StageGateError("persist_only_w2_shape_unexpected")
+    _assert_expanded_values(grouped[create_id], create_zone_depths)
+    _assert_expanded_values(grouped[correct_id], correct_zone_depths)
+
+    return {
+        "non_w2_tables_unchanged": len(after_digests),
+        "w2_submissions_added": sorted(new_sub_ids),
+        "w2_values_added": len(new_value_keys),
+        "supersedes_chain": {create_id: None, correct_id: create_id},
+    }
+
+
+def _parse_rate_key_snapshot(raw: str) -> dict:
+    snapshot: dict[str, dict[str, int]] = {}
+    for line in raw.split("\n"):
+        line = line.strip("\r")
+        if not line:
+            continue
+        parts = line.split("\t")
+        if len(parts) != 3:
+            raise StageGateError("persist_only_rate_snapshot_unparseable")
+        key, value, pttl = parts
+        try:
+            snapshot[key] = {"value": int(value), "ttl_ms": int(pttl)}
+        except ValueError as exc:
+            raise StageGateError("persist_only_rate_snapshot_unparseable") from exc
+    return snapshot
+
+
+def _snapshot_planning_depth_rate_keys(context: StageContext) -> dict:
+    redis_url = _load_env_file(context.runtime_env_dir / "bff.env")["REDIS_URL"]
+    parsed = urlsplit(redis_url)
+    database = parsed.path.lstrip("/") or "0"
+    if (
+        parsed.scheme not in {"redis", "rediss"}
+        or parsed.hostname != "127.0.0.1"
+        or not database.isdigit()
+    ):
+        raise StageGateError("persist_only_rate_url_invalid")
+    # Select the db explicitly and pass the password via REDISCLI_AUTH -- never on
+    # the argv (process listing) -- mirroring how _psql keeps PGPASSWORD in env.
+    from urllib.parse import unquote
+
+    env = {**os.environ}
+    if parsed.password:
+        env["REDISCLI_AUTH"] = unquote(parsed.password)
+    raw = _run_checked(
+        "persist_only_rate_snapshot",
+        [
+            "redis-cli",
+            "-h",
+            parsed.hostname,
+            "-p",
+            str(parsed.port or 6379),
+            "-n",
+            database,
+            "--raw",
+            "EVAL",
+            _RATE_SNAPSHOT_LUA,
+            "0",
+            RATE_KEY_PATTERN,
+        ],
+        env=env,
+        timeout=30,
+    )
+    return _parse_rate_key_snapshot(raw)
+
+
+def assert_persist_target_week_clean(before_snapshot: dict, week_key: str) -> dict:
+    """Require the persist-only target week to hold no existing submission.
+
+    persist-only creates a fresh root (active=None), which the BFF REPLAYS to 200
+    -- not 201 -- if a prior (possibly failed) run already wrote this week; the
+    stage would otherwise fail with an opaque submission-rejected code. Migration
+    010 makes submissions immutable, so a used week can never be cleaned: fail
+    early and clearly. Remedy: re-run with --as-of-date on a different week.
+    """
+    for row in before_snapshot.get("w2_submissions", []):
+        if (
+            row.get("project_key") == "mun-bon"
+            and row.get("calendar_system") == "rid-irrigation-v1"
+            and row.get("week_key") == week_key
+        ):
+            raise StageGateError("persist_only_target_week_not_clean")
+    return {"clean": True, "week_key": week_key}
+
+
+def validate_persist_only_rate_accounting(
+    before: dict, after: dict, *, expected_increment: int = 2
+) -> dict:
+    operator_keys = []
+    for key in set(before) | set(after):
+        prior = before.get(key)
+        current = after.get(key)
+        if current is None:
+            # A key present only before must have expired (finite TTL); a
+            # persistent key that vanished is an unexplained side effect.
+            if prior is not None and prior["ttl_ms"] >= 0:
+                continue
+            raise StageGateError("persist_only_rate_side_effect_detected")
+        if prior is None:
+            is_operator = current["value"] == expected_increment
+        elif current["value"] == prior["value"]:
+            continue
+        else:
+            # Either the counter incremented by the write count, or the prior
+            # window expired and a fresh one recorded exactly the write count.
+            is_operator = current["value"] == prior["value"] + expected_increment or (
+                current["value"] == expected_increment and prior["ttl_ms"] >= 0
+            )
+        if not (is_operator and _RATE_KEY_RE.fullmatch(key)):
+            raise StageGateError("persist_only_rate_side_effect_detected")
+        operator_keys.append(key)
+    if len(operator_keys) != 1:
+        raise StageGateError("persist_only_rate_side_effect_detected")
+    return {"operator_rate_key": operator_keys[0], "increment": expected_increment}
+
+
+def _persist_only_logout(client, refresh_cookie: str, *, strict: bool) -> None:
+    """Log the operator out.
+
+    On the failure path (strict=False) every error is swallowed so the primary
+    failure is never masked; on the success path (strict=True) a failed logout
+    fails the stage -- a PASS must never leave a live operator session behind.
+    """
+    try:
+        logout = client.request(
+            "POST",
+            "http://127.0.0.1:3005/api/v1/auth/logout",
+            payload={"refreshToken": refresh_cookie},
+        )
+    except Exception:
+        if strict:
+            raise StageGateError("persist_only_operator_logout_failed")
+        return
+    if strict and logout.status not in {200, 204}:
+        raise StageGateError("persist_only_operator_logout_failed")
+
+
+def _persist_only_body(
+    context: StageContext, client, token: str, login_evidence: dict
+) -> dict:
+    week_date, week_key = _persist_only_rid_week(context.as_of_date)
     steps: dict[str, Any] = {
         "login": login_evidence,
         "target_week": {"week_date": week_date, "week_key": week_key},
     }
-
     steps["write_flag_dark"] = validate_write_flag_is_dark(
         _load_env_file(context.runtime_env_dir / "bff.env").get(
             "PLANNING_DEPTH_WRITES_ENABLED", ""
@@ -4813,51 +5223,47 @@ def run_local_persist_only(context: StageContext) -> dict:
     )
 
     before_snapshot = _take_persist_snapshot(context)
-    steps["before_snapshot"] = {
-        key: len(rows) for key, rows in before_snapshot.items()
-    }
+    steps["target_week_clean"] = assert_persist_target_week_clean(
+        before_snapshot, week_key
+    )
+    before_rate = _snapshot_planning_depth_rate_keys(context)
 
     bff_restored = False
     try:
         _restart_bff_with_flag(context, enabled=True)
-
-        submit_id = _write_ui_client_submission_id(
-            context.release_sha, week_key, "persist-only"
-        )
-        submit = client.request(
-            "POST",
-            W2_V2_BASE,
-            payload=_build_planning_depth_request_v2(
-                week_date=week_date,
-                week_key=week_key,
-                client_submission_id=submit_id,
-                active_submission_id=None,
-                depth_offset="0.100",
+        create_request = _build_planning_depth_request_v2(
+            week_date=week_date,
+            week_key=week_key,
+            client_submission_id=_write_ui_client_submission_id(
+                context.release_sha, week_key, "persist-only"
             ),
-            bearer=token,
+            active_submission_id=None,
+            depth_offset="0.100",
         )
-        steps["w2_submit"] = validate_w2_submission_result(
-            submit.status, submit.body, submit.headers, expected_status=201
+        create = client.request(
+            "POST", W2_V2_BASE, payload=create_request, bearer=token
         )
+        create_receipt = validate_w2_submission_result(
+            create.status, create.body, create.headers, expected_status=201
+        )
+        steps["w2_submit"] = create_receipt
 
-        correct_id = _write_ui_client_submission_id(
-            context.release_sha, week_key, "persist-only-correct"
+        correct_request = _build_planning_depth_request_v2(
+            week_date=week_date,
+            week_key=week_key,
+            client_submission_id=_write_ui_client_submission_id(
+                context.release_sha, week_key, "persist-only-correct"
+            ),
+            active_submission_id=create.body["submission_id"],
+            depth_offset="0.200",
         )
         correct = client.request(
-            "POST",
-            W2_V2_BASE,
-            payload=_build_planning_depth_request_v2(
-                week_date=week_date,
-                week_key=week_key,
-                client_submission_id=correct_id,
-                active_submission_id=submit.body["submission_id"],
-                depth_offset="0.200",
-            ),
-            bearer=token,
+            "POST", W2_V2_BASE, payload=correct_request, bearer=token
         )
-        steps["w2_correct"] = validate_w2_submission_result(
+        correct_receipt = validate_w2_submission_result(
             correct.status, correct.body, correct.headers, expected_status=201
         )
+        steps["w2_correct"] = correct_receipt
     finally:
         try:
             _restart_bff_with_flag(context, enabled=False)
@@ -4875,24 +5281,24 @@ def run_local_persist_only(context: StageContext) -> dict:
     )
 
     after_snapshot = _take_persist_snapshot(context)
-    steps["after_snapshot"] = {
-        key: len(rows) for key, rows in after_snapshot.items()
-    }
+    after_rate = _snapshot_planning_depth_rate_keys(context)
+
     steps["persist_only_diff"] = validate_persist_only_diff(
-        before_snapshot, after_snapshot
+        before_snapshot,
+        after_snapshot,
+        create_receipt=create_receipt,
+        correct_receipt=correct_receipt,
+        target_week_key=week_key,
+        target_week_date=week_date,
+        create_zone_depths=_zone_depths_from_request(create_request),
+        correct_zone_depths=_zone_depths_from_request(correct_request),
     )
-
-    logout = client.request(
-        "POST",
-        "http://127.0.0.1:3005/api/v1/auth/logout",
-        payload={"refreshToken": refresh_cookie},
+    steps["rate_accounting"] = validate_persist_only_rate_accounting(
+        before_rate, after_rate
     )
-    if logout.status not in {200, 204}:
-        raise StageGateError("persist_only_operator_logout_failed")
-
     steps["aws_actions"] = False
 
-    manifest = {
+    return {
         "stage": "LOCAL-PERSIST-ONLY-1",
         "verdict": "PASS",
         "release_sha": context.release_sha,
@@ -4900,6 +5306,28 @@ def run_local_persist_only(context: StageContext) -> dict:
         "completed_at": _utc_timestamp(),
         "steps": steps,
     }
+
+
+def run_local_persist_only(context: StageContext) -> dict:
+    state = _load_state(context)
+    validate_stage_transition(tuple(state["completed"]), "LOCAL-PERSIST-ONLY-1")
+
+    verifier = _load_harness_module(
+        context,
+        "verify_bearer.py",
+        "local_persist_only_bearer_verifier",
+    )
+    client = LocalHttpClient()
+    token, refresh_cookie, login_evidence = _login_operator(context, client, verifier)
+    # Outer boundary starting right after login: any failure downstream still
+    # logs out (best-effort, no masking); a clean run logs out strictly.
+    try:
+        manifest = _persist_only_body(context, client, token, login_evidence)
+    except BaseException:
+        _persist_only_logout(client, refresh_cookie, strict=False)
+        raise
+    _persist_only_logout(client, refresh_cookie, strict=True)
+
     validate_evidence_payload(manifest)
     target = context.evidence_root / "LOCAL-PERSIST-ONLY-1.json"
     clear_failure_manifest(context.evidence_root, "LOCAL-PERSIST-ONLY-1")
@@ -4914,7 +5342,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("stage", choices=STAGE_ORDER)
     parser.add_argument("--release-sha", required=True)
-    parser.add_argument("--frontend-sha", default=EXPECTED_FRONTEND_SHA)
+    parser.add_argument("--frontend-sha", required=True)
     parser.add_argument("--repo-root", type=Path, default=Path("/opt/munbon/repo"))
     parser.add_argument(
         "--frontend-root",

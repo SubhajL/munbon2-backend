@@ -307,11 +307,13 @@ No CRITICAL. **1 HIGH + 4 MED/LOW, all ACCEPTED and remediated:**
   integration migration-status.
 
 Post-fix: BFF full suite **366 passed / 1 skipped**; ops harness **189 passed**; R0 provenance
-subset (13 tests) green **3× consecutive**. QCHECK round 2 (loop-until-dry) in flight.
+subset (13 tests) green **3× consecutive**. QCHECK round 2 (second independent round) in flight.
 
-### QCHECK round 2 (independent Codex, loop-until-dry) — findings, fixes, and residual scope
+### QCHECK round 2 (independent Codex, second round) — findings, fixes, and residual scope
 
-Round 2 was NOT dry (loop working). 2 HIGH + 1 LOW. Split by shape:
+R0 was reviewed in **two independent rounds, ending with two explicitly accepted residual HIGH
+findings** — NOT a clean loop-until-dry pass. Round 2 returned 2 HIGH + 1 LOW; round 3 was not
+run (see below). Split by shape:
 
 **Fixed now (proportionate, in-scope):**
 - HIGH-1 (partial): a real but DRAFT section_master pair was accepted (ROS permits `draft`; my
@@ -341,6 +343,77 @@ land now with residuals filed; round-2 fixes are contained and the HIGH existenc
 mutation-verified.
 
 Post round-2: BFF full **367 passed / 1 skipped**; ops harness **189 passed**.
+
+### R0 LANDED (PR #149, squash → c99e06b5); evidence-wording + post-land corrections
+
+- **R0 merged**: PR #149 squash-merged as `c99e06b5`; primary HEAD == main == origin/main ==
+  c99e06b5; landed non-destructively (the primary checkout's unrelated dirty state preserved).
+- **Review wording (correction):** R0 had **two independent Codex Tier-2 rounds ending with two
+  explicitly accepted residual HIGH findings** — NOT a clean loop-until-dry pass; round 3 not run.
+- **Evidence wording (correction):** "BFF 367 / ops 189" are **LOCAL green evidence** only. Every
+  hosted PR check failed **before execution**: "The job was not started because your account is
+  locked due to a billing issue." No hosted CI evidence exists for R0.
+- **Branch hygiene:** the squash left the pre-squash R0 commit (2af6e7d) on
+  `feat/planning-depth-roster-provenance` (a sibling of c99e06b5). That branch was deleted
+  locally and on origin. R1 continues on a fresh branch `fix/local-persist-only-harness-remediation`
+  created from origin/main (c99e06b5).
+- **Residuals now TRACKED as GitHub issues (not merely documented):**
+  - #150 — ROS `dataset_versions.source_hash` immutability. Owner @SubhajL. Exit gate: ROS
+    migration/FK making identity immutable + real-PG orphan-prevention test, OR formal acceptance.
+    **Sequenced BEFORE the real nine-stage run** and before any external gate flip.
+  - #151 — controlled-insert (role-separated) sole write path for planning_depth_submissions.
+    Owner @SubhajL. Exit gate: SECURITY-DEFINER procedure + raw-INSERT-denied test, OR formal
+    acceptance. May remain outside R1/R2; MUST be resolved/accepted **before any external gate
+    flip** (a temporary local false→true→false during acceptance is allowed without it).
+
+## R1 (persist-only / shared-harness) — DREP + Codex round 1 synthesis
+
+R1 DREP written; independent Codex (gpt-5.6-sol xhigh) returned **NO-GO, 5 HIGH** + MEDIUMs.
+All dispositioned (accepted); it also corrected one of my errors. Key design change: the
+no-side-effect proof now **dynamically digests EVERY base table in ros_gis + scheduler** (21
+tables — verified list below), not a hand-picked 4, so no table can be missed.
+
+Full control-plane surface (must be unchanged): ros_gis.{daily_water_requirements, dataset_versions,
+gate_mapping_history, section_crop_settings, section_master_history, water_requirement_contributions,
+water_requirement_runs}; scheduler.{control_active_gate_authority, control_authority_grant_events,
+control_authority_grants, control_command_execution_events, control_command_execution_receipts,
+control_command_outbox, control_command_validation_receipts, control_gate_readback_observations,
+control_plan_campaign_versions, control_plan_requirements, control_plan_runs,
+control_state_transitions, gate_plan_events, section_delivery_ledger}.
+
+Dispositions (ACCEPTED):
+- **HIGH-1 inventory incomplete** → digest ALL ros_gis+scheduler base tables (dynamic
+  information_schema enumeration; exclude views like sections_current); catches any child/command
+  write.
+- **HIGH-2 receipt-bound diff not real** → snapshot EVERY W2 row (full projection incl R0
+  provenance) and EVERY value tuple (not counts). Assert: entire before-set unchanged;
+  after-minus-before == exactly the 2 receipts (submission_ids match; target project/calendar/week;
+  S2.supersedes==S1; S1 root) + exactly 82 value rows (41 per submission, canonical section set,
+  source_kind, depths from the submitted requests). Bind stored request_sha256 to the receipts;
+  the v2 receipt has **no expanded_sha256** (confirmed) so assert the value ROWS directly (stronger
+  than a digest).
+- **HIGH-3 non-atomic snapshot** → take the whole snapshot in ONE read-only REPEATABLE READ
+  transaction (single _psql invocation; SET LOCAL timezone/datestyle for deterministic to_jsonb;
+  md5 over to_jsonb(t) ordered).
+- **HIGH-4 no RID algorithm** → concrete: persist week = R(n+1) for write-ui R01..R52; R53→R52;
+  same ending-year; week_date = canonical span start; reject ending-year outside 1901..2401;
+  property-test all supported weeks + endpoints (1900-11-01→persist 1901-R02; 2401-10-31→2401-R52;
+  reject 1900-10-31 & 2401-11-01). Plus a **clean-target precondition** (active read 404 before
+  arming) so a prior failed attempt is detected.
+- **HIGH-5 credential (R1.11)** → NOT closable in R1 (it's run-write-browser.js LOCAL_OPERATOR_*);
+  **deferred to R2**. Dropped from R1.
+- **MED Redis** → account via redis-cli `--raw -n 2` scan of
+  `bff-water-planning:rate:planning_depth.submit:*` with counts+TTL; assert ONLY the operator key
+  (+2) changed, no new keys; fail-closed on subprocess/parse error; TTL-aware (don't false-fail on
+  an unrelated key expiring). Confirmed: db2, exactly 2 in-window POSTs, redis-cli present.
+- **MED auth** → CORRECTION: table IS `refresh_tokens` (refresh-token.entity.js) — my
+  "can't-determine-offline" was wrong; but auth is still OUTSIDE the before→after window
+  (login precedes before, logout follows after), so no auth snapshot. logout in an OUTER finally
+  starting immediately after successful login; test with an INJECTED failure (not AST).
+- **MED --as-of-date** → thread through BOTH run_stage AND run_all_stages in orchestrate.
+- **SQL executability** → offline unit tests pin logic + query strings; the digest/snapshot SQL is
+  validated against a disposable Postgres with ALL (bff+ros+scheduler) migrations during
+  implementation, and re-proven in the guest run. Stale CLI frontend-SHA defaults left (fail-closed).
 
 ## SESSION PAUSE HANDOFF (2026-08-06) — R0 IMPLEMENTED BUT NOT ACCEPTED; NO PR
 
@@ -438,3 +511,132 @@ Reverify frontend 067b3e2 == smart-cms-app origin/main immediately before the re
 must bind the explicit SHA, not a pin. Distinctions to maintain: source-landed → independently
 reviewed → runtime-accepted → gate-activated (a temporary local false→true→false flip is part of
 acceptance; a deployed/persistent gate flip needs separate authorization).
+
+---
+
+## R1 IMPLEMENTATION (2026-08-06) — persist-only + shared-harness remediation
+
+Branch `fix/local-persist-only-harness-remediation` off `c99e06b5` (has R0). Files changed:
+`ops/control-plan-read-local/{run-stage-suite.py, orchestrate.py, tests/test_stage_suite.py,
+tests/test_orchestrate.py}`. Stop line: **N/A — Q0 fired** (fail-closed acceptance gate +
+security-adjacent). Claude implemented the whole slice solo, **test-first** per behaviour
+(test → RED for the right reason → implement → GREEN), with mutation to establish non-vacuity
+where a fresh validator had no independent RED.
+
+### Disposition of the 5 Codex plan-review HIGHs — how each is CLOSED in the code
+1. **Incomplete inventory → CLOSED.** `_take_persist_snapshot` now dynamically enumerates EVERY
+   base table in `ros_gis` + `scheduler` from `information_schema` (`_persist_only_enumerate_tables`)
+   and digests all 21 (7 ros_gis + 14 scheduler, incl. command outbox/events/receipts and
+   water_requirement_contributions). `PERSIST_ONLY_EXPECTED_NON_W2_TABLES` (frozenset of 21) is a
+   fail-closed floor: enumeration must be a superset or → `persist_only_table_missing`. A newly
+   migrated table is auto-included. `water_planning` holds ONLY the 2 planning_depth tables
+   (verified across all bff migrations), so "everything else unchanged" is the whole non-W2 set.
+2. **Receipt-bound full-row diff → CLOSED.** `validate_persist_only_diff` (keyword-only:
+   create_receipt, correct_receipt, target_week_key/date, create/correct_zone_depths) now:
+   before-set byte-identical (submissions + values, full `to_jsonb` rows) or
+   `persist_only_w2_existing_mutated`; new submission set == exactly the 2 receipt ids; each new
+   row bound to its receipt (submission_id, client_submission_id, request_sha256, submitted_by,
+   scope, schema_version=2, supersede chain, R0 provenance present+format-valid, expanded_sha256
+   format-valid); the two expanded_sha256 must differ; exactly 41 new value rows per new
+   submission (82 total), each value bound to its zone's requested depth (defeats the "41 wrong
+   values" attack), no value under an unrelated submission_id. v2 receipt has NO expanded_sha256,
+   so request_sha256 is bound to the receipt and expanded_sha256 is checked for format + distinctness
+   (not reproduced — that would duplicate BFF internals). Mutation-verified: disabling the depth
+   bind / the digest compare / the request_sha bind each kills its named test.
+3. **Atomic snapshot → CLOSED.** `_build_persist_snapshot_sql` emits ONE statement — a single
+   `SELECT json_build_object(...)` over all 21 per-table digests + the two full-row W2 projections —
+   so it is one MVCC snapshot. Per-table digest = `md5(coalesce(string_agg(md5(to_jsonb(t)::text),''
+   ORDER BY to_jsonb(t)::text),''))`: every column (jsonb-normalized), total order without needing a
+   per-table PK, empty table → md5(''). `_persist_snapshot_psql` pins `timezone=UTC` for
+   timestamptz determinism. Fail-closed: enumerate/read/parse errors raise; a malformed document
+   raises `persist_only_snapshot_malformed` (the old `except: snapshot[key]=[]` fail-open is gone).
+4. **Distinct RID week → CLOSED (already, R1 slice 1).** `_persist_only_rid_week` = the write-ui
+   successor week (R(n+1); R53→R52), canonical span-start `week_date`, ending-year clamped to
+   1901..2401 (else `persist_only_week_out_of_supported_range`). Property test sweeps ~500 years.
+5. **Redis accounting + logout → CLOSED.** `_snapshot_planning_depth_rate_keys` reads db2 via one
+   atomic `redis-cli --raw EVAL` (key<TAB>value<TAB>pttl triples; loopback-only URL or
+   `persist_only_rate_url_invalid`; fail-closed). `validate_persist_only_rate_accounting`: exactly
+   ONE namespace key changed, by +2 OR expired-then-reset-to-2 (TTL-aware, no false-fail), matching
+   `bff-water-planning:rate:planning_depth.submit:<64hex>`; a vanished persistent key or any other
+   change → `persist_only_rate_side_effect_detected`. It identifies the operator key by the +2 delta
+   + regex (does NOT reproduce sha256(subject)). Logout: `run_local_persist_only` wraps everything
+   after login in try/except → best-effort logout on failure (never masks the primary error), strict
+   logout on success (a failed logout fails the stage). Tested with an INJECTED body failure asserting
+   logout still ran once + the primary error propagated (behavioural, not AST).
+
+### Shared-harness fixes
+- **F6/R1.9 (SHA hard-pin):** removed the `EXPECTED_FRONTEND_SHA` constant ENTIRELY (was a stale
+  historical pin). `run_local_base` now calls `_accepted_frontend_sha` = 40-hex format gate only;
+  identity is bound by orchestrate (== frontend origin/main) + `_verify_frontend_source` (==guest
+  checkout HEAD, run-stage-suite.py L2519-2535). Guest `--frontend-sha` made `required` (killed the
+  stale default trap — Codex MEDIUM).
+- **F7/R1.10 (frontend v2 env):** `frontend_process_environment` sets `API_SERVER=http://127.0.0.1:3022`
+  + `PLANNING_DEPTH_{SUBMIT,ACTIVE,ROSTER}_PATH` when armed, and STRIPS all four when dark (polluted
+  parent env cannot pre-arm behind the SUBMIT flag). Values VERIFIED against the real consumer
+  (smart-cms-app `app/api/smart-water-backend/water-planning/*/route.ts` — they read exactly these
+  vars and fetch `${API_SERVER}${PATH}`) and the real BFF routes (`planning_depths_v2.py` prefix +
+  POST/`/active`; `planning_depth_roster.py` prefix + `/v1`). getApiServer() is fail-closed (no
+  prod-IP default, unlike the sensor routes).
+- **F8/R1.12 (--as-of-date):** threaded through orchestrate `run_stage` AND `run_all_stages` +
+  `_parse_args` (ISO-validated in `main`, `as_of_date_not_accepted` on malformed).
+- **R1.11 (credential alias):** the persist-only + all API stages already use the canonical
+  `operator.env` via `_login_operator` (no `LOCAL_OPERATOR_*`). The only `LOCAL_OPERATOR_*` names are
+  in `run-write-browser.js` = the R2 write-UI browser → **DEFERRED to R2** (owns the browser); nothing
+  to change in R1. Matches Codex's plan finding.
+
+### Verification
+- Ops-harness unit suite: **234 passed, 3× deterministic** (baseline this session 193 → +41 R1 tests).
+- Non-vacuity: 3 source mutations (depth-bind / digest-compare / request_sha-bind) each killed only
+  the matching test; restored green.
+- **Integration proof (real DB, 12/12):** disposable Postgres (postgis:16-3.4, all real bff+ros+
+  scheduler migrations → 21 base tables) run through the REAL `_take_persist_snapshot` path:
+  enumeration finds ⊇21; single-statement SQL executes; 21 digests; deterministic (two reads
+  identical); empty table == md5(''); a non-W2 insert flips exactly that digest; **a real W2
+  submit+values leaves ALL 21 non-W2 digests byte-identical** (the core persist-only property PR-7
+  never proved); full 15-column W2 projection incl. R0 provenance; values ordered by section_id.
+  Probe: scratchpad `persist_r1_integration_probe.py` (not committed). Full guest 9-stage run remains
+  DEFERRED (gated on #150) — this is the offline logic + real-schema SQL proof, not the runtime run.
+- Lint: my additions ruff-clean; the one ruff finding (`re` unused in test_stage_suite.py) is
+  PRE-EXISTING at HEAD (left untouched to keep the PR atomic). Repo is NOT black-managed (HEAD not
+  black-clean) → matched surrounding hand-formatting, did not run black.
+- Codex Tier-2: **genuinely quota-blocked** (re-tested per standing note; usage limit resets Aug 8).
+  Per g2-qcheck fallback, substituted an independent adversarial review agent (uncorrelated Claude
+  context). Verdict recorded below.
+
+## Review (2026-08-06) — R1 working tree (independent Tier-2, Codex substitute)
+
+Independent adversarial review (uncorrelated Claude context; Codex quota-blocked). It traced the
+implementation, both test files, the RID calendar, the BFF v2 routes/schemas, and migrations
+010/011/012. **Verdict: GO** to merge as a test/ops-harness PR (write flags stay disabled, no
+runtime run). All five plan-review HIGHs independently confirmed CLOSED in the CODE — it attempted
+to construct passing inputs for each receipt-bound attack (41 wrong values, unrelated submission_id,
+mutated immutable row, broken supersede chain) and could not; confirmed the v2 receipt actually
+returns supersedes/calendar_system/week_date/request_sha256 (so the bind won't false-fail); confirmed
+the real limiter always sets a finite TTL (so the vanish branch can't false-fail); confirmed no
+fail-open path remains and `main()` converts any unexpected exception to a FAIL manifest.
+
+Findings + disposition:
+- **MEDIUM (re-runnability) → FIXED in this PR.** persist-only had no clean-week precheck, so a
+  re-run against an already-written week replayed the create POST to 200 and failed with the opaque
+  `w2_submission_result_not_accepted` (fail-closed, but misleading; the sibling WRITE-FOUNDATION has
+  `validate_w2_week_is_clean`). Added `assert_persist_target_week_clean(before_snapshot, week_key)` —
+  raises `persist_only_target_week_not_clean` when a submission already exists in the (mun-bon,
+  rid-irrigation-v1, week_key) scope — wired right after the before-snapshot (reuses data already
+  captured; no extra query). 2 tests.
+- **LOW (redis password on argv) → FIXED in this PR.** `_snapshot_planning_depth_rate_keys` now
+  passes `-h/-p/-n` + the password via `REDISCLI_AUTH` env (never argv), mirroring `_psql`'s
+  PGPASSWORD; db is selected explicitly and validated numeric. 1 test asserts db-flag + password
+  absent from argv + auth in env.
+- **LOW (inter-stage rate coupling) → ACCEPTED residual.** The rate key is per operator subject,
+  shared across WRITE-FOUNDATION→WRITE-UI→PERSIST-ONLY in one suite run; a very tight limit/window
+  could 429 persist-only's 2 submits → false FAIL. Fails closed, runtime-config dependent, not a
+  code defect. Recorded, not changed.
+- **LOW (rate snapshot namespace-scoped) → ACCEPTED residual.** Only `planning_depth.submit:*` keys
+  are enumerated; a submit-path write in another Redis namespace would be invisible. The v2 submit
+  path writes no other key today (verified), so this is completeness/defense-in-depth, not a live gap.
+- **NIT (client_submission_id reuses WRITE_UI_NAMESPACE; per-zone row-count not asserted) →
+  ACCEPTED.** Uniqueness holds via the distinct week_key + drill; `_assert_expanded_values` checks
+  total-41 + all-6-zones + per-row depth (roster fan-out is fixed).
+
+Post-fix: **237 unit tests pass, 3× deterministic**; the 3 non-vacuity mutations still hold; the
+real-DB integration proof (12/12) is unaffected (snapshot path untouched).

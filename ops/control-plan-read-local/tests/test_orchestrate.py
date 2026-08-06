@@ -244,7 +244,7 @@ def test_run_all_executes_every_progressive_stage(monkeypatch):
     monkeypatch.setattr(
         orchestrate,
         "run_stage",
-        lambda stage, release_sha, frontend_sha: calls.append(
+        lambda stage, release_sha, frontend_sha, as_of_date=None: calls.append(
             (stage, release_sha, frontend_sha)
         ),
     )
@@ -252,6 +252,89 @@ def test_run_all_executes_every_progressive_stage(monkeypatch):
     orchestrate.run_all_stages("a" * 40, "b" * 40)
 
     assert calls == [(stage, "a" * 40, "b" * 40) for stage in orchestrate.STAGE_ORDER]
+
+
+def test_run_stage_forwards_as_of_date_to_the_guest_cli(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(orchestrate, "_machine_state", lambda: "ready")
+    monkeypatch.setattr(
+        orchestrate,
+        "_run_checked",
+        lambda code, argv, **kwargs: captured.setdefault("argv", argv) or "",
+    )
+
+    orchestrate.run_stage(
+        "LOCAL-PERSIST-ONLY-1", "a" * 40, "b" * 40, as_of_date="2026-11-02"
+    )
+
+    argv = captured["argv"]
+    assert "--as-of-date" in argv
+    assert argv[argv.index("--as-of-date") + 1] == "2026-11-02"
+
+
+def test_run_stage_omits_as_of_date_when_not_pinned(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(orchestrate, "_machine_state", lambda: "ready")
+    monkeypatch.setattr(
+        orchestrate,
+        "_run_checked",
+        lambda code, argv, **kwargs: captured.setdefault("argv", argv) or "",
+    )
+
+    orchestrate.run_stage("LOCAL-PERSIST-ONLY-1", "a" * 40, "b" * 40)
+
+    assert "--as-of-date" not in captured["argv"]
+
+
+def test_run_all_forwards_as_of_date_to_every_stage(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        orchestrate,
+        "run_stage",
+        lambda stage, release_sha, frontend_sha, as_of_date=None: calls.append(
+            (stage, as_of_date)
+        ),
+    )
+
+    orchestrate.run_all_stages("a" * 40, "b" * 40, as_of_date="2026-11-02")
+
+    assert calls == [(stage, "2026-11-02") for stage in orchestrate.STAGE_ORDER]
+
+
+def test_parse_args_accepts_as_of_date():
+    args = orchestrate._parse_args(
+        [
+            "run-all",
+            "--release-sha",
+            orchestrate.ACCEPTED_BASE_SHA,
+            "--as-of-date",
+            "2026-11-02",
+        ]
+    )
+    assert args.as_of_date == "2026-11-02"
+
+
+def test_main_rejects_malformed_as_of_date(monkeypatch, capsys):
+    monkeypatch.setattr(orchestrate, "_origin_main_sha", lambda path: "a" * 40)
+    monkeypatch.setattr(
+        orchestrate, "run_all_stages", lambda *a, **k: pytest.fail("must not run")
+    )
+
+    exit_code = orchestrate.main(
+        [
+            "run-all",
+            "--release-sha",
+            "a" * 40,
+            "--frontend-sha",
+            "a" * 40,
+            "--accept-later-origin-main",
+            "--as-of-date",
+            "2026-13-99",
+        ]
+    )
+
+    assert exit_code == 1
+    assert "as_of_date_not_accepted" in capsys.readouterr().out
 
 
 def test_orchestrator_stage_order_matches_suite_stage_order():
@@ -322,7 +405,7 @@ def test_documented_candidate_commands_validate_the_same_exact_shas(
     monkeypatch.setattr(
         orchestrate,
         "run_stage",
-        lambda stage, release_sha, accepted_frontend_sha: calls.append(
+        lambda stage, release_sha, accepted_frontend_sha, as_of_date=None: calls.append(
             (stage, release_sha, accepted_frontend_sha)
         ),
     )
