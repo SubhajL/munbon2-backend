@@ -186,6 +186,7 @@ if [[ ! -f "${SECRETS_FILE}" ]]; then
   SESSION_SECRET="$(openssl rand -hex 32)"
   INFLUX_TOKEN="$(openssl rand -hex 48)"
   OPERATOR_PASSWORD="L1!$(openssl rand -hex 20)aA"
+  FIELD_TEAM_PASSWORD="L1!$(openssl rand -hex 20)aA"
   DAILY_REQUIREMENT_MANUAL_TOKEN="$(openssl rand -hex 48)"
   {
     echo "DB_PASSWORD=${DB_PASSWORD}"
@@ -193,6 +194,7 @@ if [[ ! -f "${SECRETS_FILE}" ]]; then
     echo "SESSION_SECRET=${SESSION_SECRET}"
     echo "INFLUX_TOKEN=${INFLUX_TOKEN}"
     echo "OPERATOR_PASSWORD=${OPERATOR_PASSWORD}"
+    echo "FIELD_TEAM_PASSWORD=${FIELD_TEAM_PASSWORD}"
     echo "DAILY_REQUIREMENT_MANUAL_TOKEN=${DAILY_REQUIREMENT_MANUAL_TOKEN}"
   } > "${SECRETS_FILE}"
 fi
@@ -200,6 +202,11 @@ if ! grep -q '^DAILY_REQUIREMENT_MANUAL_TOKEN=' "${SECRETS_FILE}"; then
   DAILY_REQUIREMENT_MANUAL_TOKEN="$(openssl rand -hex 48)"
   echo "DAILY_REQUIREMENT_MANUAL_TOKEN=${DAILY_REQUIREMENT_MANUAL_TOKEN}" \
     >> "${SECRETS_FILE}"
+fi
+# Backfill for guests provisioned before the field-team drill existed.
+if ! grep -q '^FIELD_TEAM_PASSWORD=' "${SECRETS_FILE}"; then
+  FIELD_TEAM_PASSWORD="L1!$(openssl rand -hex 20)aA"
+  echo "FIELD_TEAM_PASSWORD=${FIELD_TEAM_PASSWORD}" >> "${SECRETS_FILE}"
 fi
 chown munbon:munbon "${SECRETS_FILE}"
 chmod 600 "${SECRETS_FILE}"
@@ -331,6 +338,13 @@ MUNBON_EXPECTED_JWT_AUDIENCE=munbon-services
 MUNBON_EXPECTED_JWT_ISSUER=munbon-auth
 MUNBON_EXPECTED_ROLE=operator
 EOF
+# A separate, disposable non-operator principal. LOCAL-WRITE-UI-1 uses it to
+# prove planning-depth is DENIED (roster/active 403, Submit not rendered), so it
+# must never be granted operator rights.
+cat > "${RUNTIME_ENV_DIR}/field-team.env" <<EOF
+MUNBON_FIELD_TEAM_EMAIL=field-team@example.com
+MUNBON_FIELD_TEAM_PASSWORD=${FIELD_TEAM_PASSWORD}
+EOF
 chown munbon:munbon "${RUNTIME_ENV_DIR}"/*.env
 chmod 600 "${RUNTIME_ENV_DIR}"/*.env
 
@@ -381,7 +395,7 @@ chown -R munbon:munbon "${BROWSER_ROOT}" "${PLAYWRIGHT_BROWSERS_PATH}"
 
 phase auth
 runuser -u munbon -- bash -c \
-  'set -a; source /etc/munbon/control-plan-read-runtime/auth.env; source /etc/munbon/control-plan-read-runtime/operator.env; set +a; export MUNBON_REPO_ROOT=/opt/munbon/repo; node /opt/munbon/harness/seed-local-operators.js'
+  'set -a; source /etc/munbon/control-plan-read-runtime/auth.env; source /etc/munbon/control-plan-read-runtime/operator.env; source /etc/munbon/control-plan-read-runtime/field-team.env; set +a; export MUNBON_REPO_ROOT=/opt/munbon/repo; node /opt/munbon/harness/seed-local-operators.js'
 install -o root -g root -m 0644 "${INPUT_DIR}/munbon-local-auth.service" \
   /etc/systemd/system/munbon-local-auth.service
 systemctl daemon-reload

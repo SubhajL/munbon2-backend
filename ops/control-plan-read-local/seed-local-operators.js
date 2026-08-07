@@ -13,16 +13,33 @@ function loadEntities() {
   };
 }
 
-async function seedLocalOperator(dataSource, input, entities = loadEntities()) {
+const ROLE_PROFILES = {
+  operator: {
+    displayName: "Control Plan Operator",
+    description: "Disposable local control-plan acceptance operator",
+  },
+  // Deliberately carries NO planning-depth rights: the write-UI stage proves
+  // this principal is DENIED (roster/active 403, Submit not rendered). Granting
+  // it anything more would make that drill prove nothing.
+  field_team: {
+    displayName: "Field Team",
+    description: "Disposable local field-team acceptance user (no operator rights)",
+  },
+};
+
+async function seedLocalUser(dataSource, input, entities = loadEntities()) {
+  const roleName = input.roleName || "operator";
+  const profile = ROLE_PROFILES[roleName];
+  if (!profile) throw new Error("unknown_role_profile");
   const roleRepository = dataSource.getRepository(entities.Role);
   const userRepository = dataSource.getRepository(entities.User);
-  let role = await roleRepository.findOne({ where: { name: "operator" } });
+  let role = await roleRepository.findOne({ where: { name: roleName } });
   const roleCreated = role === null;
   if (roleCreated) {
     role = roleRepository.create({
-      name: "operator",
-      displayName: "Control Plan Operator",
-      description: "Disposable local control-plan acceptance operator",
+      name: roleName,
+      displayName: profile.displayName,
+      description: profile.description,
       isActive: true,
       isSystem: true,
       permissions: [],
@@ -60,10 +77,19 @@ async function seedLocalOperator(dataSource, input, entities = loadEntities()) {
   return { created, roleCreated };
 }
 
+async function seedLocalOperator(dataSource, input, entities = loadEntities()) {
+  return seedLocalUser(dataSource, { ...input, roleName: "operator" }, entities);
+}
+
 async function main() {
   const email = process.env.MUNBON_OPERATOR_EMAIL;
   const password = process.env.MUNBON_OPERATOR_PASSWORD;
   if (!email || !password) throw new Error("operator_credentials_missing");
+  const fieldTeamEmail = process.env.MUNBON_FIELD_TEAM_EMAIL;
+  const fieldTeamPassword = process.env.MUNBON_FIELD_TEAM_PASSWORD;
+  if (!fieldTeamEmail || !fieldTeamPassword) {
+    throw new Error("field_team_credentials_missing");
+  }
   const repoRoot =
     process.env.MUNBON_REPO_ROOT || path.resolve(__dirname, "../..");
   const { AppDataSource } = require(
@@ -78,8 +104,18 @@ async function main() {
       lastName: "Operator",
       previousEmails: ["operator@example.invalid"],
     });
+    const fieldTeam = await seedLocalUser(AppDataSource, {
+      email: fieldTeamEmail,
+      password: fieldTeamPassword,
+      firstName: "Local",
+      lastName: "FieldTeam",
+      roleName: "field_team",
+    });
     process.stdout.write(
       `PASS local_operator_seed created=${result.created} role_created=${result.roleCreated}\n`,
+    );
+    process.stdout.write(
+      `PASS local_field_team_seed created=${fieldTeam.created} role_created=${fieldTeam.roleCreated}\n`,
     );
   } finally {
     await AppDataSource.destroy();
@@ -93,4 +129,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { seedLocalOperator };
+module.exports = { seedLocalOperator, seedLocalUser };
