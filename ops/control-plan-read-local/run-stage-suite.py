@@ -17,6 +17,7 @@ from pathlib import Path
 import signal
 import re
 import subprocess
+import tempfile
 import sys
 import time
 from typing import Any
@@ -4499,17 +4500,66 @@ def _build_dark_probe_request_v2(
     )
 
 
+# The six zone depths the write-UI browser submits (250.0 + 10 per zone). The
+# roster fan-out must preserve them across all 41 expanded sections.
+WRITE_UI_ZONE_DEPTHS = [250.0, 260.0, 270.0, 280.0, 290.0, 300.0]
+# create + correct + stale-conflict + field-team probe + outage probe.
+WRITE_UI_EXPECTED_MUTATIONS = 5
+WATER_PLANNING_PATH = "/smart-water/dashboard"
+
+
+def _reject_passive_contradiction(drill: dict) -> None:
+    """The app's OWN reads must have settled, and must agree with the probe.
+
+    `panel_roster_status`/`panel_active_status` are the statuses the application
+    itself received before its policy banner rendered. Pinning them is what stops
+    a banner that rendered from the `not-requested` PLACEHOLDER -- which the
+    product maps to `unavailable`, i.e. the outage banner -- from being read as
+    proof of an outage the drill never actually observed.
+
+    The passive boundary observation is a weaker cross-check: absent is not
+    allowed (a browser regression that stopped emitting it must not degrade
+    silently), but a null VALUE is, since the app may legitimately not have
+    issued that particular GET.
+    """
+    expected = drill["roster_status"]
+    if drill["panel_roster_status"] != expected:
+        raise ValueError
+    if drill["panel_active_status"] != drill["active_status"]:
+        raise ValueError
+    # Subscript, not .get(): an ABSENT key must reject (KeyError -> rejection)
+    # rather than be indistinguishable from an observed None.
+    observed = drill["observed_roster_status"]
+    if observed is not None and observed != expected:
+        raise ValueError
+
+
+def _reject_unless(condition: object) -> None:
+    if condition is not True:
+        raise ValueError
+
+
 def validate_write_browser_result(body: Any) -> dict:
+    """Accept ONLY evidence that proves what it claims.
+
+    Three claims the merged stage emitted were fabricated or vacuous and are
+    deleted rather than weakened: `reads_preserved` (asserted True while no
+    outage was ever induced), `safe_redirect` (emitted True unconditionally for
+    any string), and the retry/client-id reuse claim (compared two fields the
+    reduced proxy receipt does not return, so both were None and always equal).
+    An absent key cannot be misread as a proven property, so a residual
+    `reads_preserved` is rejected outright.
+    """
     required_keys = (
         "create_result",
         "active_readback",
         "correct_result",
         "conflict_result",
         "conflict_reconciliation",
-        "retry_result",
+        "field_team_result",
+        "outage_result",
         "logout_result",
         "reload_result",
-        "outage_result",
         "request_inventory",
     )
     try:
@@ -4517,12 +4567,17 @@ def validate_write_browser_result(body: Any) -> dict:
             raise ValueError
         create = body["create_result"]
         UUID(str(create["submission_id"]))
-        UUID(str(create["client_submission_id"]))
         if create["status"] != 201:
             raise ValueError
 
         active = body["active_readback"]
+        UUID(str(active["submission_id"]))
         if active["status"] != 200 or active["levels_count"] != 41:
+            raise ValueError
+        # Counting rows is not enough -- an expansion regression that served every
+        # section one zone's depth still returns exactly 41. The six submitted zone
+        # depths must survive the round trip through the proxy.
+        if [float(depth) for depth in active["distinct_depths"]] != WRITE_UI_ZONE_DEPTHS:
             raise ValueError
 
         correct = body["correct_result"]
@@ -4530,8 +4585,10 @@ def validate_write_browser_result(body: Any) -> dict:
         if correct["status"] != 201:
             raise ValueError
 
+        # The 409 proxy body is {success, error} -- it carries no `detail`, so no
+        # detail claim can be made from it (submissions/route.ts:118-121).
         conflict = body["conflict_result"]
-        if conflict["status"] != 409 or conflict["detail"] != "stale_active_submission":
+        if conflict["status"] != 409:
             raise ValueError
 
         reconciliation = body["conflict_reconciliation"]
@@ -4539,72 +4596,283 @@ def validate_write_browser_result(body: Any) -> dict:
         if reconciliation["status"] != 200:
             raise ValueError
 
-        retry = body["retry_result"]
-        UUID(str(retry["submission_id"]))
-        retry_client_id = str(retry["client_submission_id"])
-        create_client_id = str(create["client_submission_id"])
-        if retry_client_id != create_client_id:
+        # Field team: DENIED. Both planning-depth reads are operator-only, so the
+        # proxy passes the BFF's 403 straight through; the Submit control is not
+        # rendered at all and the product shows its denial banner.
+        field_team = body["field_team_result"]
+        if field_team["roster_status"] != 403 or field_team["active_status"] != 403:
+            raise ValueError
+        _reject_unless(field_team["submit_absent"])
+        _reject_unless(field_team["denied_banner"])
+        # Two-sided: the product collapses not-requested/loading/unauthenticated/
+        # unavailable into ONE `unavailable` state, so an expired session renders
+        # the outage banner. Asserting only the expected banner's presence would
+        # leave the runbook's "the two banners differ" claim unenforced.
+        _reject_unless(field_team["unavailable_banner"] is False)
+        _reject_passive_contradiction(field_team)
+        # EXACTLY 403 -- not merely "not 2xx". A 409 would mean the principal got
+        # PAST authorization to the concurrency check (i.e. was wrongly
+        # authorized), a 401 would mean the bearer was never attached, and a
+        # transport failure reports None. Each of those would otherwise be
+        # accepted as proof of denial, hiding the very regression this proves.
+        if field_team["submit_status"] != 403:
+            raise ValueError
+        if field_team["logout_status"] not in {200, 204}:
             raise ValueError
 
+        # Outage: reads are UNAVAILABLE, never "preserved". Every upstream failure
+        # collapses to 502 (upstream-guard.ts:48-58), so 503 never reaches here.
+        # The unavailable banner is what keeps an outage distinguishable from a
+        # permission denial.
+        outage = body["outage_result"]
+        if "reads_preserved" in outage:
+            raise ValueError
+        if outage["roster_status"] != 502 or outage["active_status"] != 502:
+            raise ValueError
+        _reject_unless(outage["submit_absent"])
+        _reject_unless(outage["unavailable_banner"])
+        _reject_unless(outage["denied_banner"] is False)
+        _reject_passive_contradiction(outage)
+        # EXACTLY 502: the write must have REACHED the proxy and been refused by
+        # an unavailable upstream. A transport failure (None) proves nothing.
+        if outage["submit_status"] != 502:
+            raise ValueError
+
+        # Logout: the real response status, and a redirect that actually lands on
+        # /login -- for every context, not just the first.
         logout = body["logout_result"]
-        if not isinstance(logout.get("redirect_url"), str):
+        if logout["status"] not in {200, 204}:
+            raise ValueError
+        if logout["second_context_status"] not in {200, 204}:
+            raise ValueError
+        if logout["redirect_url"] != "/login":
             raise ValueError
 
         reload_res = body["reload_result"]
-        if not isinstance(reload_res.get("redirect_url"), str):
+        if reload_res["redirect_url"] != "/login":
             raise ValueError
-
-        outage = body["outage_result"]
-        if outage.get("submit_visible") is not False:
-            raise ValueError
-        if outage.get("reads_preserved") is not True:
+        # If hydration beat the `commit` navigation the reload re-requested
+        # /login, which proves nothing. Capturing that and not reading it is the
+        # "capture then discard" pattern these checks exist to prevent.
+        if reload_res["reloaded_from"] != WATER_PLANNING_PATH:
             raise ValueError
 
         inventory = body["request_inventory"]
-        if not isinstance(inventory.get("forbidden_mutation_count"), int):
+        forbidden_writes = inventory["forbidden_writes"]
+        if not isinstance(forbidden_writes, list) or forbidden_writes:
             raise ValueError
-        if inventory["forbidden_mutation_count"] != 0:
+        if not isinstance(inventory.get("forbidden_write_count"), int):
+            raise ValueError
+        if inventory["forbidden_write_count"] != 0:
+            raise ValueError
+        # An empty forbidden list is ALSO what an inventory that observed nothing
+        # produces -- the merged stage's defect in a new costume. The drills issue
+        # exactly five W2 POSTs, so a live boundary must have seen at least that.
+        if inventory["total_mutations"] < WRITE_UI_EXPECTED_MUTATIONS:
             raise ValueError
 
         return {
             "create_result": {
                 "status": create["status"],
                 "submission_id": str(create["submission_id"]),
-                "week_key": str(create.get("week_key", "")),
             },
             "active_readback": {
                 "status": active["status"],
                 "levels_count": active["levels_count"],
+                "distinct_depths": list(active["distinct_depths"]),
             },
             "correct_result": {
                 "status": correct["status"],
                 "submission_id": str(correct["submission_id"]),
             },
-            "conflict_result": {
-                "status": conflict["status"],
-                "detail": conflict["detail"],
-            },
+            "conflict_result": {"status": conflict["status"]},
             "conflict_reconciliation": {
                 "status": reconciliation["status"],
                 "submission_id": str(reconciliation["submission_id"]),
             },
-            "retry_result": {
-                "status": retry["status"],
-                "client_submission_id_reused": True,
+            # Every field below echoes an OBSERVED value. Emitting a literal
+            # `True` that a preceding check happens to guarantee is structurally
+            # the same shape as the fabrications this stage deletes, and survives
+            # a reordering that drops the check.
+            "field_team_result": {
+                "roster_status": field_team["roster_status"],
+                "active_status": field_team["active_status"],
+                "observed_roster_status": field_team["observed_roster_status"],
+                "panel_roster_status": field_team["panel_roster_status"],
+                "submit_absent": field_team["submit_absent"],
+                "denied_banner": field_team["denied_banner"],
+                "unavailable_banner": field_team["unavailable_banner"],
+                "submit_status": field_team["submit_status"],
+                "logout_status": field_team["logout_status"],
             },
-            "logout_result": {"safe_redirect": True},
-            "reload_result": {"safe_redirect": True},
             "outage_result": {
-                "submit_visible": False,
-                "reads_preserved": True,
+                "roster_status": outage["roster_status"],
+                "active_status": outage["active_status"],
+                "observed_roster_status": outage["observed_roster_status"],
+                "panel_roster_status": outage["panel_roster_status"],
+                "submit_absent": outage["submit_absent"],
+                "unavailable_banner": outage["unavailable_banner"],
+                "denied_banner": outage["denied_banner"],
+                "submit_status": outage["submit_status"],
+            },
+            "logout_result": {
+                "status": logout["status"],
+                "second_context_status": logout["second_context_status"],
+                "redirect_to_login": logout["redirect_url"] == "/login",
+            },
+            "reload_result": {
+                "redirect_to_login": reload_res["redirect_url"] == "/login",
+                "reloaded_from": reload_res["reloaded_from"],
             },
             "request_inventory": {
-                "forbidden_mutation_count": 0,
-                "total_mutations": inventory.get("total_mutations", 0),
+                "forbidden_write_count": len(forbidden_writes),
+                "total_mutations": inventory["total_mutations"],
             },
         }
     except (KeyError, TypeError, ValueError) as exc:
         raise StageGateError("write_browser_result_not_accepted") from exc
+
+
+WRITE_BROWSER_CREDENTIAL_FILES = (
+    ("operator.env", ("MUNBON_OPERATOR_EMAIL", "MUNBON_OPERATOR_PASSWORD")),
+    ("field-team.env", ("MUNBON_FIELD_TEAM_EMAIL", "MUNBON_FIELD_TEAM_PASSWORD")),
+)
+
+
+def _write_browser_environment(
+    context: StageContext,
+    *,
+    week_key: str,
+    week_date: str,
+    ready_path: Path,
+    release_path: Path,
+) -> dict[str, str]:
+    """Build the browser launcher env, failing closed on any missing credential.
+
+    The names are the bootstrap's canonical MUNBON_* ones. The merged stage's
+    browser required LOCAL_OPERATOR_*, which bootstrap never writes, so it
+    aborted before login -- a defect no source test could see because nothing
+    compared the two name sets.
+    """
+    credentials: dict[str, str] = {}
+    missing: list[str] = []
+    for filename, names in WRITE_BROWSER_CREDENTIAL_FILES:
+        loaded = _load_env_file(context.runtime_env_dir / filename)
+        for name in names:
+            value = loaded.get(name, "").strip()
+            if not value:
+                missing.append(name)
+            else:
+                credentials[name] = value
+    if missing:
+        raise StageGateError("write_browser_credentials_missing")
+    return {
+        **os.environ,
+        **credentials,
+        "PATH": f"{NODE_ROOT / 'bin'}:/usr/bin:/bin",
+        "NODE_PATH": str(BROWSER_ROOT / "node_modules"),
+        "PLAYWRIGHT_BROWSERS_PATH": str(PLAYWRIGHT_BROWSERS_ROOT),
+        "LOCAL_FRONTEND_URL": "http://127.0.0.1:9999",
+        "LOCAL_WEEK_KEY": week_key,
+        "LOCAL_WEEK_DATE": week_date,
+        "LOCAL_WRITE_UI_READY_FILE": str(ready_path),
+        "LOCAL_WRITE_UI_OUTAGE_RELEASE_FILE": str(release_path),
+    }
+
+
+def _restore_scheduler() -> None:
+    _run_checked(
+        "write_ui_scheduler_restart",
+        ["pm2", "restart", "scheduler", "--update-env"],
+        timeout=60,
+    )
+    _wait_json(LocalHttpClient(), READINESS_URLS["scheduler"])
+
+
+def _drive_write_browser(
+    context: StageContext,
+    environment: dict[str, str],
+    ready_path: Path,
+    release_path: Path,
+    state: dict[str, bool],
+) -> dict:
+    process = None
+    # stderr goes to a spill FILE, not a pipe. Nothing drains the pipes until
+    # after the outage release, so a chatty browser could fill the ~64KB buffer
+    # during the healthy phase, block, never write the ready file, and surface as
+    # a misleading `write_browser_ready_timeout`. The merged code used
+    # `_run_checked`, which drains concurrently; the Popen rewrite lost that.
+    stderr_sink = tempfile.TemporaryFile(mode="w+", encoding="utf-8")
+    stdout_sink = tempfile.TemporaryFile(mode="w+", encoding="utf-8")
+
+    def _spilled(sink) -> str:
+        sink.seek(0)
+        return sink.read()
+
+    try:
+        process = subprocess.Popen(
+            [
+                str(NODE_ROOT / "bin/node"),
+                str(context.harness_root / "run-write-browser.js"),
+            ],
+            env=environment,
+            stdout=stdout_sink,
+            stderr=stderr_sink,
+            text=True,
+            start_new_session=True,
+        )
+        deadline = time.monotonic() + 300
+        while not ready_path.exists():
+            if process.poll() is not None:
+                process.communicate()
+                safe_code = safe_subprocess_failure_code(
+                    _spilled(stderr_sink),
+                    "FAIL write_browser: ",
+                )
+                raise StageGateError(safe_code or "write_browser_failed")
+            if time.monotonic() >= deadline:
+                raise StageGateError("write_browser_ready_timeout")
+            time.sleep(0.1)
+        # The browser has finished every healthy-path drill and is parked. Only
+        # now is it safe to take the scheduler down: with it stopped, the BFF
+        # cannot resolve an operator principal, so planning-depth reads become
+        # genuinely unavailable rather than merely asserted to be.
+        # Set BEFORE the call, not after: a `pm2 stop` that exceeds the timeout
+        # usually still takes effect, so a post-call assignment would skip the
+        # restore and leave every later stage running against a dead scheduler.
+        # `_restore_scheduler` is idempotent, so an unnecessary restore is free.
+        state["scheduler_stopped"] = True
+        _run_checked(
+            "write_ui_scheduler_stop",
+            ["pm2", "stop", "scheduler"],
+            timeout=30,
+        )
+        _write_coordination_file(release_path, "released\n")
+        try:
+            process.communicate(timeout=300)
+        except subprocess.TimeoutExpired as exc:
+            raise StageGateError("write_browser_outage_timeout") from exc
+        stdout = _spilled(stdout_sink)
+        if process.returncode != 0:
+            safe_code = safe_subprocess_failure_code(
+                _spilled(stderr_sink),
+                "FAIL write_browser: ",
+            )
+            raise StageGateError(safe_code or "write_browser_failed")
+        try:
+            body = json.loads(stdout)
+        except json.JSONDecodeError as exc:
+            raise StageGateError("write_browser_output_invalid") from exc
+        return validate_write_browser_result(body)
+    except OSError as exc:
+        raise StageGateError("write_browser_process_failed") from exc
+    finally:
+        if process is not None:
+            _stop_temporary_process(process)
+        stderr_sink.close()
+        stdout_sink.close()
+        ready_path.unlink(missing_ok=True)
+        release_path.unlink(missing_ok=True)
 
 
 def _run_write_browser(
@@ -4613,30 +4881,62 @@ def _run_write_browser(
     week_key: str,
     week_date: str,
 ) -> dict:
-    operator = _load_env_file(context.runtime_env_dir / "operator.env")
-    output = _run_checked(
-        "write_browser",
-        [
-            str(NODE_ROOT / "bin/node"),
-            str(context.harness_root / "run-write-browser.js"),
-        ],
-        env={
-            **os.environ,
-            **operator,
-            "PATH": f"{NODE_ROOT / 'bin'}:/usr/bin:/bin",
-            "NODE_PATH": str(BROWSER_ROOT / "node_modules"),
-            "PLAYWRIGHT_BROWSERS_PATH": str(PLAYWRIGHT_BROWSERS_ROOT),
-            "LOCAL_FRONTEND_URL": "http://127.0.0.1:9999",
-            "LOCAL_WEEK_KEY": week_key,
-            "LOCAL_WEEK_DATE": week_date,
-        },
-        timeout=600,
+    ready_path = context.evidence_root / ".write-ui-ready"
+    release_path = context.evidence_root / ".write-ui-outage-release"
+    # A leftover release file from an aborted run would let the browser skip the
+    # outage wait entirely and report an "outage" that never happened.
+    for path in (ready_path, release_path):
+        path.unlink(missing_ok=True)
+    environment = _write_browser_environment(
+        context,
+        week_key=week_key,
+        week_date=week_date,
+        ready_path=ready_path,
+        release_path=release_path,
     )
+    state = {"scheduler_stopped": False}
     try:
-        body = json.loads(output)
-    except json.JSONDecodeError as exc:
-        raise StageGateError("write_browser_output_invalid") from exc
-    return validate_write_browser_result(body)
+        result = _drive_write_browser(
+            context, environment, ready_path, release_path, state
+        )
+    except BaseException as primary:
+        # Never leave the scheduler down for the stages that follow. If the
+        # restore ALSO fails, name BOTH: the failure manifest persists only the
+        # code, so letting the restore's exception replace the primary one would
+        # report "pm2 hiccuped" when the real finding was "the evidence was
+        # untruthful".
+        if state["scheduler_stopped"]:
+            try:
+                _restore_scheduler()
+            except Exception as restore_error:
+                primary_code = (
+                    primary.args[0]
+                    if isinstance(primary, StageGateError) and primary.args
+                    else type(primary).__name__
+                )
+                raise StageGateError(
+                    f"{primary_code}_and_scheduler_restore_failed"
+                ) from restore_error
+        raise
+    _restore_scheduler()
+    return result
+
+
+def _assert_operator_refresh_reuse_rejected(client, refresh_token: str) -> dict:
+    """Prove the logout actually revoked the session.
+
+    Central auth revokes rather than deletes the refresh token, so the only
+    observable proof that the session is gone is that reusing the token now
+    fails. Any other status -- including a fresh 200 -- fails the stage.
+    """
+    response = client.request(
+        "POST",
+        "http://127.0.0.1:3005/api/v1/auth/refresh",
+        payload={"refreshToken": refresh_token},
+    )
+    if response.status != 401:
+        raise StageGateError("write_ui_refresh_reuse_not_rejected")
+    return {"refresh_reuse_status": 401, "revoked": True}
 
 
 def run_local_write_ui(context: StageContext) -> dict:
@@ -4762,6 +5062,10 @@ def run_local_write_ui(context: StageContext) -> dict:
     )
     if logout.status not in {200, 204}:
         raise StageGateError("write_ui_operator_logout_failed")
+
+    steps["refresh_revoked"] = _assert_operator_refresh_reuse_rejected(
+        client, refresh_cookie
+    )
 
     steps["aws_actions"] = False
 

@@ -289,6 +289,12 @@ tests/
 # Track the auth JWT-issuer security regression test past the blanket tests/ ignore.
 !services/auth/tests/
 !services/auth/tests/token-signer.test.js
+# Track the control-plan local acceptance harness tests past the same blanket
+# ignore. These are the ONLY oracles for the acceptance stages; force-adding them
+# individually is not enough, because the path stays ignored and any future file
+# added here would silently drop out of the commit.
+!ops/control-plan-read-local/tests/
+!ops/control-plan-read-local/tests/*
 
 # Python virtual environments
 venv/

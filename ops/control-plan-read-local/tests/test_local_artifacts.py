@@ -232,19 +232,64 @@ def test_write_browser_runner_covers_create_conflict_retry_and_outage():
         "active_readback",
         "correct_result",
         "conflict_result",
-        "retry_result",
+        "field_team_result",
         "logout_result",
         "outage_result",
         "request_inventory",
-        "forbiddenMutations.push",
-        "writePhaseActive",
+        "forbiddenWrites.push",
+        "writeExpected",
         "FAIL write_browser:",
-        "client_submission_id",
         "conflict_reconciliation",
         "reload_result",
         "classifyProductRequest",
+        "isForbiddenWrite",
+        "authorizedRequestInit",
+        "validateControlPath",
+        "installResponseBoundary",
+        # The body must be read BEFORE the read is recorded -- a pure test cannot
+        # reach call ordering, so this is the declared fallback for it.
+        "await response.clone().arrayBuffer()",
+        "recordPlanningRead",
+        # Credentials must be the bootstrap's canonical names, and the outage
+        # must be coordinated rather than asserted.
+        "MUNBON_OPERATOR_EMAIL",
+        "MUNBON_FIELD_TEAM_EMAIL",
+        "LOCAL_WRITE_UI_OUTAGE_RELEASE_FILE",
     ):
         assert required in body
+
+    # The reload BEHAVIOUR is pinned behaviourally by
+    # tests/test_write_browser_inventory.js::navigationSteps -- a substring check
+    # here would survive a revert that left the surrounding comment intact.
+
+    # The fabrications R2 removed must not creep back in. A source-string check
+    # is weak evidence for behaviour, but it is exact evidence for absence --
+    # provided it is asserted against the file the string actually lived in.
+    for forbidden in (
+        "reads_preserved",
+        "LOCAL_OPERATOR_EMAIL",
+        "LOCAL_OPERATOR_PASSWORD",
+    ):
+        assert forbidden not in body
+
+    # The runbook is part of the deliverable and previously documented a
+    # readiness model the code had already removed. Pin the corrected one, and
+    # the absence of the claim that readiness comes from the container.
+    runbook = (
+        REPO_ROOT / "docs/operations/CONTROL_PLAN_ALL_STAGES_LOCAL_ACCEPTANCE.md"
+    ).read_text(encoding="utf-8")
+    assert "Readiness is **neither** network quiescence **nor** any DOM element" in runbook
+    assert "readiness is taken from the product's own" not in runbook
+    assert "the app's own roster and\nactive reads completing" in runbook
+
+    # `safe_redirect` was only ever emitted by the PYTHON validator, so asserting
+    # its absence from the browser source would be vacuous. Target the emitted
+    # dict KEY, not the name -- the validator's docstring names it deliberately
+    # to record what was removed and why.
+    stage_suite_body = (
+        REPO_ROOT / "ops/control-plan-read-local/run-stage-suite.py"
+    ).read_text(encoding="utf-8")
+    assert '"safe_redirect":' not in stage_suite_body
 
 
 def test_all_stages_runbook_locks_local_before_aws_and_documents_current_commands():

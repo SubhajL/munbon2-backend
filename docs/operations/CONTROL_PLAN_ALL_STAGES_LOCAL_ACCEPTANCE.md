@@ -207,11 +207,56 @@ python3 ops/control-plan-read-local/orchestrate.py collect \
 
 The evidence bundle contains stage JSON, two GO-READ screenshots, state, and
 `SHA256SUMS`. The write UI stage uses `run-write-browser.js` to drive the
-Playwright workflow across two browser contexts. Each
-transition verifies the state and every preceding stage checksum, rechecks clean
-backend and frontend SHAs, and binds the state to hashes of the installed
-harness files. It rejects secret-shaped keys, bearer values, credential-bearing
-URLs, and credential material before writing mode-600 files.
+Playwright workflow across three browser contexts (two operator, one field
+team). Each transition verifies the state and every preceding stage checksum,
+rechecks clean backend and frontend SHAs, and binds the state to hashes of the
+installed harness files. It rejects secret-shaped keys, bearer values,
+credential-bearing URLs, and credential material before writing mode-600 files.
+
+### `LOCAL-WRITE-UI-1` denial, outage, and logout evidence
+
+The stage records only what it actually observes. In particular it does **not**
+claim that planning-depth reads survive an outage, because they do not — both
+the roster and the active-submission reads resolve an operator principal through
+the scheduler.
+
+| Drill | How it is induced | What is proven |
+|---|---|---|
+| Field-team denial | A seeded `field_team` user (no operator rights) signs in | roster `403`, active `403`, the `ส่งแผน` control is **not rendered**, the denial banner is shown, and no write succeeds |
+| Scheduler outage | The stage runs `pm2 stop scheduler` once the browser signals ready, then restores it with `pm2 restart scheduler --update-env` and a readiness wait | roster `502`, active `502` (every upstream failure collapses to 502 at the proxy), the control is **not rendered**, the unavailable banner is shown, and no write succeeds |
+| Logout | The real `POST /api/auth/logout` for every context | a success status, a redirect that lands on `/login` on both navigation and reload, and a subsequent refresh-token reuse rejected with `401` |
+
+The discriminator is two-sided: each drill must show its own banner **and** must
+not show the other's, so an outage can never be recorded as a permission denial.
+That matters because the product collapses `not-requested`, `loading`,
+`unauthenticated`, and `unavailable` into a single state, so the outage banner is
+also what an expired session renders. The explicit `403`/`502` read probes carry
+the primary discrimination; the banners corroborate it.
+
+Each drill reads the panel only after the application's **own** roster and active
+requests have settled, and records the statuses they returned. That ordering is
+load-bearing: the panel renders its "upstream unavailable" banner from the
+`not-requested` placeholder, so reading it too early would let the outage drill
+pass having asked nothing. The recorded statuses must match the drill's explicit
+probes, so a banner alone can never stand in for a read.
+
+The browser run is **loopback-only**: every context aborts any request that
+leaves `http://127.0.0.1:9999`. The planning workspace mounts a map that would
+otherwise fetch tiles and marker icons from `tile.openstreetmap.org`,
+`server.arcgisonline.com`, and `unpkg.com` — none of which any assertion here
+depends on, and all of which would stall an isolated guest.
+
+Readiness is **neither** network quiescence **nor** any DOM element. `networkidle`
+never settles while third-party tiles retry; the `draft-action-bar` container
+renders from local draft state before the reads are issued; and the "upstream
+unavailable" banner renders from the *not-requested* placeholder, so it is
+present from the first client render in every drill. Each of those would resolve
+instantly and gate nothing. Readiness is therefore the app's own roster and
+active reads completing, observed inside the page and flushed through a render.
+
+Any snapshot, subprocess, coordination, or restore failure raises and fails the
+stage; the scheduler is restored on every exit path, and if a restore also fails
+the error names both it and the original finding.
 
 The 2026-07-23 rehearsal preserved its first otherwise-successful attempt as
 `evidence-with-wildcard` after listener inspection found package-started

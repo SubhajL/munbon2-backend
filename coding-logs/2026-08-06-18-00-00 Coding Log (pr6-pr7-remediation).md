@@ -640,3 +640,512 @@ Findings + disposition:
 
 Post-fix: **237 unit tests pass, 3× deterministic**; the 3 non-vacuity mutations still hold; the
 real-DB integration proof (12/12) is unaffected (snapshot path untouched).
+
+---
+
+## R2 (write-UI browser) — DREP + Opus-5 adversarial synthesis (2026-08-07)
+
+Branch `fix/write-ui-browser-harness-remediation` off `origin/main` (`45bb5433`, has R0+R1).
+Scope (user, "your call on scope" → **MINIMAL, like R1**): make `run-write-browser.js` + the
+`LOCAL-WRITE-UI-1` stage produce **truthful field-team / outage / logout evidence**. Ops-harness
+only; write flags stay DARK; **NO runtime run** (deferred to the 9-stage OrbStack run, gated on
+#150). Codex unavailable → independent adversarial plan review by **claude-opus-5 (high)** in
+place of gpt-5.6-sol.
+
+### The three untruths being corrected (source spec = R2 plan L163-166 + R10/R11/R14 reframes)
+- **Outage:** today induces NO outage, maps `submit_visible:=rosterOk`, asserts
+  `reads_preserved:True` (FALSE for planning-depth). Truthful: real scheduler outage (pm2 stop,
+  coordination) → roster/active **502** (unavailable) + Submit hidden (DOM) + no successful POST;
+  `reads_preserved` REMOVED.
+- **Logout:** today validator checks only `redirect_url` is a *string* and emits
+  `safe_redirect:True` UNCONDITIONALLY. Truthful: capture real `/api/auth/logout` status +
+  `waitForURL(/login)` + prove refresh-token revocation (operator refresh reuse → **401**); logout
+  every context.
+- **Field-team:** today ABSENT. Truthful: field_team (role literally `field_team`) → BFF **403**
+  on roster/active + `ส่งแผน` Submit ABSENT (DOM) + no successful write.
+
+### Opus-5 adversarial review — 2 CRITICAL, 3 HIGH, 4 MED, 3 LOW; ALL dispositioned (accepted)
+- **C1 no bearer on raw fetches → 401 not 403/502/201** (proxy `extractBearerToken`→401,
+  never forwards cookies; bearer is in-memory, attached only by app `authenticatedFetch`
+  client.ts:149-154). FIX: capture `accessToken` from the login response + attach
+  `Authorization: Bearer` on happy-path raw fetches; drive the real page for field-team/outage so
+  the APP fires roster/active (bearer attached) and OBSERVE via `page.on("response")` + DOM
+  assertions. NEW oracle: pure `authorizedRequestInit` bearer test.
+- **C2 `LOCAL_OPERATOR_*` alias → throws before login** (R1 deferred this to R2). FIX: browser
+  reads `MUNBON_OPERATOR_*`; env-name-completeness test.
+- **H3 only primary context monitored** → extract `installRequestBoundary` per-context (primary +
+  second + field-team). **H4 field-team submit→403 exceeds spec** → primary gate = Submit-absent +
+  roster/active 403 + zero field-team mutations; scripted 403 = optional corroboration. **H5
+  redirect race** (client router.push, no middleware gate) → `waitForURL(/login)`.
+- **M6 classifier lacks forbidden/phase logic** → extract phase-aware boundary classifier
+  `{kind,mutation,forbidden}`, node-test it. **M7 proxy always 502 never 503** → assert 502. **M8
+  stale coordination file** → pre-unlink before start + finally. **M9 offline blind to browser
+  truthfulness** → PR states the offline gate ≠ deferred-run-passes; add bearer-attachment +
+  env-completeness oracles that DO catch C1/C2; do NOT stand up the full stack.
+- **L10** `context.request.post(/api/auth/logout)` for status. **L11** `MUNBON_FIELD_TEAM_*`.
+  **L12** add outage + field-team screenshots (parity w/ go-read).
+- SOUND (confirmed by reviewer): field-team 403 chain, logout revoke-not-delete → refresh 401,
+  scheduler outage induction + restored-dark-gate ordering, reads_preserved/safe_redirect targets.
+
+### Change set (ops-harness only; Q0 fires — fail-closed acceptance gate, Claude owns solo)
+F1 `run-write-browser.js` (MUNBON creds, capture+attach bearer, per-context boundary, field-team
+context, real outage coordination, logout status+waitForURL, screenshots, export pure helpers) ·
+F2 `run-stage-suite.py` (`_run_write_browser`→Popen+`pm2 stop/restart scheduler` coordination;
+`validate_write_browser_result` rewrite — new outage/logout/field_team shape, drop
+reads_preserved/unconditional safe_redirect; operator refresh-reuse→401 proof; field-team env) ·
+F3 `seed-local-operators.js` (seed field_team role) · F4 `bootstrap-linux.sh` (field-team.env +
+seed) · F5 NEW `tests/test_write_browser_inventory.js` (node --test: boundary classifier +
+authorizedRequestInit + validateControlPath) · F6 `tests/test_stage_suite.py` (truthful fixture +
+accept/reject + coordination + refresh-reuse injected + mutation) · F7
+`tests/test_seed_local_operators.js` (field_team) · F8 docs. Full DREP in scratchpad
+`g2-drep-r2-write-ui.md`.
+
+### R2 IMPLEMENTATION (2026-08-07) — truthful write-UI evidence
+
+Branch `fix/write-ui-browser-harness-remediation` off `45bb5433` (has R0+R1), in worktree
+`.claude/worktrees/pr6-pr7-remediation`. Stop line: **N/A — Q0 fired** (fail-closed acceptance
+gate proving authz denial + outage + token revocation; security-adjacent). **Claude implemented
+the whole slice solo — no delegation, 0 delegate fix rounds.** Per g2-coding 2c-ter, solo work
+kept the same discipline: test → RED for the right reason → implement → GREEN per behaviour, with
+mutation wherever a fresh validator had no independent RED.
+
+**Codex Tier-2 was smoke-tested, not assumed:** `codex exec` returned "You've hit your usage
+limit … try again at Aug 8th, 2026 10:56 AM." Per the user's instruction, **claude-opus-5-0**
+substituted as the independent Tier-2 reviewer. Independence here is an uncorrelated context, NOT
+a different model family — recorded as a real limitation of this round.
+
+#### Ground truth that CORRECTED the DREP (verified at source before coding)
+- Proxy auth is header-only (`upstream-guard.ts:66-71`) → the merged happy path, which fetched
+  with cookies only, would have returned **401** at create. Broken by construction; never run.
+- Every upstream failure collapses to **502** (`upstream-guard.ts:48-58`) — the DREP's
+  `{502,503}` was wrong; 503 never reaches the browser.
+- Upstream **403 passes through as 403** (`planning-depth-roster/route.ts:79-80`), but a missing
+  bearer is **401** — so the field-team context MUST carry a bearer or the denial proof is a
+  masquerading auth error.
+- Submit receipt is reduced camelCase `{success, submissionId, submittedAt, replayed}`
+  (`route.ts:186-193`); the **active** route returns the BFF body VERBATIM in snake_case with 41
+  levels (`active/route.ts:158`). Mixing the two conventions is the drift that made PR 6 vacuous.
+- `PlanningRhsPanel.tsx:497` renders Submit only when `submitEnabled && policyAllowed &&
+  rosterAuthorized` → the control is **ABSENT** (not disabled) for both denial and outage, and the
+  two states carry **different banners** (`:517` denial vs `:522` unavailable). This is a STRONGER
+  oracle than the DREP specified and closes a false pass where an outage reads as a denial.
+
+#### A FOURTH and FIFTH vacuous claim found during implementation (beyond the three planned)
+- `retry_result.client_submission_id_reused` compared two fields the reduced receipt does not
+  return — both `None`, always equal, so the check could never fail. **Removed**, not rebuilt
+  (capture+byte-identical replay is an explicit R2 Non-Goal, still deferred).
+- `conflict_result.detail == "stale_active_submission"` — the proxy returns `{success,error}` and
+  has no `detail`, so this would have RAISED at runtime. Reduced to the status assertion.
+
+#### Change set
+`run-write-browser.js` (rewritten: MUNBON_* creds, bearer capture+attach, per-context response
+boundary, field-team context, real outage coordination, logout+revocation, pure exports) ·
+`run-stage-suite.py` (`validate_write_browser_result` rewrite; `_write_browser_environment`;
+`_drive_write_browser` Popen + `pm2 stop/restart scheduler`; `_restore_scheduler`;
+`_assert_operator_refresh_reuse_rejected` wired into `run_local_write_ui`) ·
+`seed-local-operators.js` (`seedLocalUser(roleName)`; field_team seeded with EXACTLY
+`["field_team"]`) · `bootstrap-linux.sh` (FIELD_TEAM_PASSWORD + backfill, field-team.env, seeder
+sources it) · tests F5/F6/F7 + `tests/test_local_artifacts.py` (**added to the modify list** — its
+source-string inventory pinned the old markers; now also asserts the fabrications are ABSENT) ·
+docs.
+
+#### Tier 1 (g2-check, self, contract-correctness framing) — 4 findings, ALL FIXED
+- **HIGH — `authorizedRequestInit` was an ORPHAN.** Exported and unit-tested but never called at
+  runtime (the fetches inlined their own header), so its test was a vacuous guard: the runtime
+  could drop the bearer and T13 would still pass. FIXED: inits are now built in Node by
+  `authorizedRequestInit` and passed into `page.evaluate`, making the oracle load-bearing.
+  Caught by the Phase 4b wiring rule (import ≠ runtime call site).
+- **HIGH — tautological logout evidence.** `waitForURL(pathname==="/login")` followed by recording
+  `page.url()` made `redirect_url` `/login` BY CONSTRUCTION — a fresh instance of the very
+  `safe_redirect: True` defect being deleted. FIXED via `landingPathAfter()`: wait, tolerate the
+  timeout, record the REAL landing path; a live session now reports the dashboard and is rejected.
+- **HIGH — cross-context observation contamination.** `observed` was keyed by one GLOBAL phase
+  while three contexts ran concurrently; a background refetch on the still-open operator page
+  during the field-team window could overwrite the 403 that IS the denial proof. FIXED: buckets
+  are per-context (`operatorBucket` / `fieldTeamBucket`); the phase no longer flips to field_team.
+- **MEDIUM — outage bucket race.** Phase flipped to `outage` before an up-to-180s wait, so a
+  pre-outage 200 could seed the bucket. FIXED: the bucket is reset when the release arrives (i.e.
+  once the scheduler is actually down).
+
+#### Non-vacuity (mandatory — these validators had no independent RED)
+Mutation harness reverted ONE behaviour at a time and required the NAMED test to fail. First run:
+**7 of 8 killed, 1 SURVIVED** — `rejects_forbidden_write` set both the count and the list, so the
+count check alone satisfied it and the list check was unpinned. That is exactly the merged bug in
+miniature (`forbiddenMutations` was never appended to, so the count read 0 forever). Added
+`rejects_forbidden_writes_when_count_claims_zero` to pin the list independently → **8/8 killed.**
+
+#### Gates (Claude ran each)
+pytest **254 passed** (baseline 237, +17), **3× deterministic** · node --test **17 passed** ·
+`ruff check .` **clean** (my `re` usage also retires the pre-existing unused-import finding R1
+noted) · `node --check` OK · wiring verified: every new export has a non-test runtime call site.
+
+#### Scope/limitation stated plainly
+This is an **offline** gate. It proves the validator, classifier, seed, coordination ordering,
+credential completeness, and bearer attachment. It does **NOT** certify that the deferred real
+nine-stage OrbStack run will pass — no browser ran. Write flags stay DARK; no runtime run is
+claimed. The real run remains gated on issue #150.
+
+**`.gitignore` trap:** `tests/` is ignored wholesale (`.gitignore:288`), so the new
+`tests/test_write_browser_inventory.js` needs `git add -f` — the sibling test files are tracked
+only because they were force-added the same way. A plain `git add` would have shipped the helpers
+with none of their oracles.
+
+#### Tier 1 rounds 2-3 (adversarial/secrets, then merged-artifact) — no further defects
+- **Secrets:** `field-team.env` is written at `bootstrap-linux.sh:344`, BEFORE the
+  `chmod 600 "${RUNTIME_ENV_DIR}"/*.env` at :349, so it is covered by the existing hardening. The
+  only credential-shaped literal is the same generated disposable pattern already used for the
+  operator (`L1!$(openssl rand -hex 20)aA`). No literal secret, no non-loopback host in the diff.
+- **Sanitizer:** the new `refresh_revoked` / `refresh_reuse_status` / `revoked` manifest keys do
+  not collide with `validate_evidence_payload`'s forbidden list (password/authorization/token/
+  cookie/secret/dsn/*_url), so the new evidence survives sanitization.
+- **Timing seams:** Python's 300s ready-poll vs the browser's 180s release-wait cannot deadlock —
+  Python acts within ~0.1s of seeing ready plus <=30s for `pm2 stop`. `_stop_temporary_process` is
+  guarded by `poll() is None`, so it is safe on an already-exited process.
+- **Restoration under failure:** if `_restore_scheduler` raises, it surfaces (the primary failure
+  is retained as its `__context__`), and `run_local_write_ui`'s outer `finally` still restores the
+  frontend and BFF flags. The restored dark-gate probe needs the scheduler, so a silent
+  failure-to-restore would be caught there too.
+- **Repo-answerable risk CHECKED rather than deferred** (g2-qcheck rule): would the app actually
+  FIRE roster/active for a denied field-team user, or short-circuit and leave the status `null`?
+  Answer: `WaterPlanningWorkspaceV2.tsx:84-88` gates BOTH `useActiveSubmissionQuery` and
+  `usePlanningDepthRosterQuery` on `submitEnabled` — the armed FEATURE FLAG, not on any role — so
+  both fire for any authenticated user and return the real 403. Both also set `retry: false`, so
+  each drill issues exactly one request and the outage produces no retry storm.
+
+#### Tier-2 reviewer round 1 FAILED — recorded, not counted as a pass
+The first claude-opus-5-0 Tier-2 agent **stalled** (no progress for 600s; watchdog did not
+recover) and produced only "I'll start by getting the full diff." Per g2-qcheck's false-negative
+rule, a reviewer that never reviewed is indistinguishable from a clean review and MUST NOT be
+recorded as one. Re-launched with the diff pre-materialized to scratchpad so the reviewer spends
+its budget reviewing rather than exploring.
+
+#### Tier-2 round 1 (claude-opus-5-0, contract framing) — **NO-GO**, 1 CRITICAL / 2 HIGH / 4 MED / 5 LOW
+Every finding dispositioned; silent omission would be a process defect.
+
+- **C1 CRITICAL — ACCEPTED, FIXED (reproduced independently before fixing).** `isForbiddenWrite`
+  was called on EVERY response with no `kind === "mutation"` gate — I dropped that filter when
+  moving from request- to response-based classification. `POST /api/auth/login -> 200` with
+  `writeExpected=false` returned `true`, so all THREE logins were recorded as forbidden writes and
+  the validator's non-empty-list check made the stage **permanently red**. Neither suite caught it:
+  the node test only fed water-planning paths and the Python fixture hardcodes `forbidden_writes:
+  []`. Green tests + impossible runtime is the exact class this PR exists to remove. FIX: the
+  product-path gate now lives INSIDE the predicate (`pathname.startsWith(W2_BASE + "/")`) so it
+  cannot drift from a caller again; new test covers login/logout/non-product paths.
+- **H1 HIGH — ACCEPTED IN PART, FIXED; one sub-claim REFUTED with evidence.** Accepted: roster/
+  active statuses were harvested opportunistically from whatever the app happened to fire. FIX:
+  added `probePlanningDepthReads()` — explicit roster+active probes in both drills; the passive
+  per-context observation is retained only as an `observed_roster_status` cross-check. REFUTED: the
+  claim that an outage disables the active query (`weekKey === null`) — `WaterPlanningProvider.tsx:
+  155-156` derives `activePeriod` from LOCAL reducer state via `getActivePeriod(state)`, not a
+  backend call, so `weekKey` stays non-null, the query stays enabled, returns 502, and the
+  unavailable banner renders. Per g2-qcheck, rejecting a finding needs the same evidence standard
+  as accepting one.
+- **H2 HIGH — ACCEPTED, FIXED.** "Not 2xx" accepted a 409 as proof of denial — but a 409 means the
+  field team got PAST authorization to the concurrency check, i.e. was wrongly authorized: exactly
+  the regression R7 exists to detect. A 401 (bearer not attached) and a transport failure were
+  likewise accepted. FIX: `fetchWithInit` now returns `{status: null, transport_error}` instead of
+  a fake `0`, and the validator pins EXACTLY `field_team.submit_status == 403` /
+  `outage.submit_status == 502`. Both pins are evidence-backed: the BFF raises **503**
+  `scheduler_principal_unavailable` (`planning_depths.py:109-111`) which the proxy collapses to
+  502, and **403** for a non-operator (`:119-120`) which passes straight through.
+- **M1 MEDIUM — ACCEPTED, FIXED.** `state["scheduler_stopped"] = True` was set AFTER `pm2 stop`
+  returned; a stop that exceeds the 30s timeout usually still takes effect, so the restore was
+  skipped and every later stage would run against a dead scheduler. FIX: set BEFORE the call
+  (`_restore_scheduler` is idempotent). The new test's RED output was literally
+  `['browser_spawned', 'browser_ready', 'stop:scheduler']` — no restart.
+- **M2 MEDIUM — ACCEPTED, FIXED, and the fix itself needed a second fix.** `reload_result` was a
+  duplicate `goto`. Adding `page.reload()` alone would have been WORSE: after the client-side
+  redirect the reload would reload `/login`, making the assertion trivially true. FIX: the reload
+  path uses `waitUntil: "commit"`, which resolves before hydration runs the redirect, so the reload
+  genuinely re-requests the PROTECTED path.
+- **M3 MEDIUM — ACCEPTED, FIXED.** The field-team context was closed without logging out. FIX:
+  logout before close; `field_team_result.logout_status` is now validated.
+- **M4 + L1 — ACCEPTED, FIXED.** The validator checked the banners but dropped them from the
+  emitted evidence, and emitted `True`/`0` literals that a preceding check happened to guarantee —
+  structurally the same shape as the fabrications being deleted. FIX: every emitted field now
+  echoes an OBSERVED value (`submit_absent`, `denied_banner`, `unavailable_banner`,
+  `redirect_to_login`, `len(forbidden_writes)`).
+- **L2 — ACCEPTED, FIXED.** `assert "safe_redirect" not in body` was VACUOUS: `body` is the JS file
+  but `safe_redirect` only ever existed in the Python validator. FIX: assert the emitted dict key
+  `"safe_redirect":` is absent from `run-stage-suite.py` (targets emission, not the docstring that
+  deliberately names it). Mutation-verified: KILLED.
+- **L3 — CLOSED by H1's fix.** The passive bucket is no longer load-bearing.
+- **L4 — ACCEPTED as pre-existing.** Hardcoded `EVIDENCE_ROOT` matches the `run-go-read-browser.js:8`
+  precedent; not a regression. Recorded, not changed.
+- **L5 — NOT TAKEN.** `_reject_unless` raising a bare `ValueError` collapses ~14 reasons into one
+  code; debuggability only, no correctness impact. Recorded as a follow-up candidate.
+
+Post-fix: pytest **261 passed** (from 254), node **18 passed**, ruff clean, all **3× deterministic**.
+Mutation harness re-run against the changed validator: **10/10 killed** (added pins for
+field-team-403 and field-team-logout).
+
+#### Tier-2 round 2 (claude-opus-5-0, merged-artifact/adversarial framing) — **NO-GO**, 1 CRITICAL / 0 HIGH / 4 MED / 4 LOW
+
+- **CRITICAL — ACCEPTED, VERIFIED, FIXED. `WATER_PLANNING_PATH` pointed at a route that has never
+  existed.** `app/smart-water/dashboard/` in smart-cms-app contains only `page.tsx`; there is no
+  `water-planning` segment. The V2 workspace renders at **`/smart-water/dashboard`** itself
+  (`page.tsx:41-45`), which is also where login redirects (`app/login/page.tsx:26,45`). So the
+  stage navigated to a 404: `getByRole("button", {name:"ส่งแผน"}).count()` → 0 → the
+  `submit_affordance_not_visible` assert throws → the ready file is never written → the Python
+  side times out after 300s with `write_browser_ready_timeout`, reporting a timeout rather than a
+  routing error. **This path was INHERITED VERBATIM from the merged PR 6** — one more proof that
+  stage never ran — and my refactor hoisted it into a constant driving five of the seven evidence
+  claims, widening the blast radius. FIX: `/smart-water/dashboard`, plus a runtime guard —
+  `readPanelAffordance` now asserts `response.status() === 200` → `water_planning_route_missing`,
+  so a wrong route can never again be recorded as "the affordance is correctly absent".
+- **MED dead code — ACCEPTED, FIXED.** `_is_successful_write_status` became unreferenced the moment
+  the exact-status pins landed, and ruff does not flag unused module-level functions. Leaving it
+  would advertise an invariant as enforced in Python when it is enforced only in JS. Deleted.
+- **MED restore replaces the diagnosis — ACCEPTED, FIXED.** The failure manifest persists only the
+  error CODE, so a failing `_restore_scheduler` overwrote `write_browser_result_not_accepted` with
+  `pm2_restart_failed` — the difference between "the evidence was untruthful" and "pm2 hiccuped".
+  FIX: raise `f"{primary_code}_and_scheduler_restore_failed"`. New test pins the primary code; its
+  RED output was literally `Input: 'pm2_restart_failed'`.
+- **MED one-sided banner discriminator — ACCEPTED, FIXED.** The validator asserted only the
+  PRESENCE of the expected banner, so the runbook's "the two banners differ" claim was unenforced —
+  and `resolvePlanningMutationPolicy` collapses not-requested/loading/unauthenticated/unavailable
+  into one `unavailable` state, so an expired session renders the outage banner. FIX: both drills
+  report BOTH flags and the validator asserts mutual exclusivity; runbook prose updated to state
+  the two-sided rule and that the 403/502 probes carry the primary discrimination.
+- **MED source-substring tests — ACCEPTED, FIXED for the reload case.** `assert "page.reload(" in
+  body` survives a behavioural revert that leaves the comment intact. FIX: extracted a pure
+  `navigationSteps({reload})` that the navigation loop actually consumes, node-tested
+  (`["goto"]` vs `["goto","reload"]`); removed the substring assertion.
+- **LOW `observed_roster_status` — ACCEPTED, FIXED.** It was the explicit probe echoed back (last
+  write wins), not an independent cross-check. Now snapshotted BEFORE the probe.
+- **LOW undrained stdout/stderr pipes — ACCEPTED as pre-existing** (identical to the go-read
+  precedent at `:3232-3248`). Recorded as a diagnostic hint for the real run: a
+  `write_browser_ready_timeout` with no stderr should be suspected here first.
+- **LOW EVIDENCE_ROOT coupling / credentials error code — recorded, not changed.**
+- Reviewer independently CONFIRMED the round-1 H1 refutation (`getActivePeriod` over local reducer
+  state; `createInitialPlanningState` seeds `selectedDate: todayBangkokIso()`, so `weekKey` is
+  never null from a backend outage) and confirmed the C1 fix + its test are load-bearing.
+
+#### Own first-contact check this round (not from the reviewer)
+The banner constants were the OPENING words of each banner, which are also prefixes of two
+`submitErrorLabel` strings (`PlanningRhsPanel.tsx:383,387`) — a transient submit error could have
+set the wrong flag, and the two flags are now asserted mutually exclusive. Switched to the
+distinctive TAIL of each banner; verified each occurs exactly once in the component and only in
+the policy banner (`:517`, `:522`). Login selectors (`input[name="email"]`, `input[name="password"]`,
+`button[type="submit"]`) verified present in `app/login/page.tsx:109,133,188`.
+
+Post-round-2: pytest **264 passed**, node **19 passed**, ruff clean, 3× deterministic. Mutation
+harness **13/13 killed**.
+
+#### Tier-2 round 3 (claude-opus-5-0, first-contact-realism framing) — **GO**, 0 CRITICAL / 1 HIGH / 2 MED / 3 LOW
+The reviewer re-verified the whole first-contact surface against the real frontend and found the
+round-1/round-2 defect classes exhausted: login selectors, the post-login landing URL,
+`data.accessToken`, the corrected route, the ส่งแผน render condition, the banner strings, and the
+41-level pin all check out. It also confirmed the new 200-assert cannot break the outage drill
+(`/smart-water/dashboard` is a client page whose SSR output is the AuthGuard spinner, so stopping
+the scheduler cannot turn it into a 500).
+
+- **HIGH undeclared third-party dependency — ACCEPTED, VERIFIED, FIXED (more strongly than
+  proposed).** `waitUntil: "networkidle"` on a page that unconditionally mounts a Leaflet map
+  (`WaterPlanningWorkspaceV2.tsx:134` -> `WaterQualityMap`) fetching tiles/icons from
+  `tile.openstreetmap.org`, `server.arcgisonline.com`, and `unpkg.com`. On an isolated guest those
+  stall until timeout and abort at the FIRST checkpoint, before any evidence exists; on a connected
+  guest the gate silently depends on three public hosts in a stage that is otherwise rigorously
+  loopback-pinned. Rather than blocklist three hosts, `installOriginBoundary` now aborts ANY
+  off-origin request on ALL THREE contexts (`context.route("**/*")` + `route.abort` — the go-read
+  pattern), so the run is genuinely loopback-only. `networkidle` is gone; readiness comes from the
+  product's own `draft-action-bar`. Pure `isOffOriginRequest`/`panelReadySteps` exported + node-tested.
+  **Own follow-up check:** `draft-action-bar` sits inside a panel that returns null when
+  `!activeWeekStatus`, which would have made the new wait hang — but
+  `WaterPlanningProvider.tsx:201` derives it from LOCAL reducer state
+  (`getWeekDraftStatus(state, weekKey)`), so it renders in all three drill states. Safe.
+- **MED weak readback oracle — ACCEPTED, FIXED.** `levels_count == 41` cannot distinguish a correct
+  zone->section fan-out from one serving every section a single zone's depth — the repo's OWN
+  `validate_w2_active_result` docstring (`:3986-3989`) says exactly this, but that strong check
+  covers the DIRECT API path against a different submission. The browser now emits
+  `active_readback.distinct_depths` and the validator pins it to the six submitted zone depths.
+  Verified against the contract: `PlanningDepthExpandedValue.planning_depth_mm`
+  (`planning_depth.py:127`) serializes to float, so the six values survive the round trip.
+- **MED `observed_roster_status` half-wired — ACCEPTED, FIXED.** It was captured, carried across the
+  process boundary, and discarded unread while a docstring called it a cross-check — the same
+  defect class rounds 1-2 deleted. `_reject_passive_contradiction` now raises when the passive
+  observation disagrees with the explicit probe (a plausible stale-cache scenario given
+  `staleTime: 30_000`), while `None` stays legitimate.
+- **LOW reload commit race — ACCEPTED, FIXED.** `commit` is a timing assumption, not a guarantee.
+  `landingPathAfter` now returns `{landing, reloaded_from}` so a race that reloads `/login` degrades
+  to a visibly weaker proof rather than a silently self-fulfilling one.
+- **LOW `getByRole` substring match — ACCEPTED, FIXED** (`{ exact: true }`).
+- **LOW banner `data-testid` — NOT TAKEN.** Would require a frontend change, an explicit non-goal.
+  Mitigated instead by matching each banner's distinctive TAIL (verified unique).
+
+**Mutation harness caught my own regression:** adding `_reject_passive_contradiction` made two older
+tests pass for the WRONG reason (the contradiction fired before the check they named). Their
+fixtures were decoupled so each pins its own check. **15/15 killed** after.
+
+Post-round-3: pytest **267 passed**, node **21 passed**, ruff clean, 3× deterministic.
+
+#### Tier-2 round 4 (claude-opus-5-0, regression-of-the-fixes framing) — **NO-GO**, 0 CRITICAL / 1 HIGH / 3 MED / 3 LOW
+The round-3 origin-boundary fix and the `distinct_depths` oracle were both confirmed correct
+(the reviewer traced `expand_planning_depth_values` and verified the fan-out copies each zone
+default verbatim with no area weighting, so `[250.0…300.0]` is exactly right). But the READINESS
+half of my networkidle fix had over-corrected.
+
+- **HIGH readiness fired before the app's reads were issued — ACCEPTED, FIXED.** `draft-action-bar`
+  renders from LOCAL draft state alone, before `useActiveSubmissionQuery`/`usePlanningDepthRosterQuery`
+  are even issued; their placeholder is `not-requested`, which `resolvePlanningMutationPolicy` maps
+  to `unavailable` — the OUTAGE banner. Consequences: the healthy drill would see no Submit control
+  and die at checkpoint 3; the field-team drill would record the wrong banner and reject a correctly
+  denying product; and worst, **the outage drill would PASS for the wrong reason**, recording exactly
+  `submit_absent/unavailable_banner` from a panel that had asked nothing. That is new self-fulfilling
+  evidence of precisely the class this PR deletes — I swapped a wait that settled the product's reads
+  for one that fires before they start. Rendered != settled. FIX: `panelSettledSignals()` returns the
+  three TERMINAL markers (node-tested to contain neither `draft-action-bar` nor `networkidle`);
+  `readPanelAffordance` arms `waitForResponse` for roster AND active BEFORE navigating, awaits both,
+  waits for any terminal signal, then reads — and returns `panel_roster_status`/`panel_active_status`,
+  which the validator pins to the drill's explicit probe statuses. A banner can no longer stand in
+  for a read. Verified the pin applies ONLY to the field-team/outage drills, so the healthy path's
+  legitimate `200 {active:null}` first-submission case cannot false-fail.
+- **MED `reloaded_from` captured then discarded — ACCEPTED, FIXED.** My round-3 claim that a lost
+  race "degrades to a visibly weaker proof" was false: nothing read the field, so it degraded
+  INVISIBLY. Now emitted and rejected unless it equals the protected path.
+- **MED `total_mutations` unbounded — ACCEPTED, FIXED.** `forbidden_writes == []` is also what an
+  inventory that observed NOTHING produces — the merged stage's defect in a new costume. Now
+  requires `>= 5` (the exact number of W2 POSTs the drills issue) and the `.get(..., 0)` default
+  is gone.
+- **MED route-handler teardown crash — ACCEPTED, FIXED.** Playwright leaves the route handler's
+  promise uncaught and rethrows, so an in-flight request during `context.close()` would become an
+  unhandled rejection and kill the process BEFORE the evidence was written — losing a completed
+  10-minute drill. Handler body wrapped; `closeContext()` does `unrouteAll({ignoreErrors})` first.
+  This failure mode did not exist before round 3 added routes.
+- **LOW origin normalization — FIXED** (`new URL(frontendOrigin).origin` on both sides; a trailing
+  slash would otherwise have aborted 100% of traffic).
+- **LOW absent-vs-None passive key — FIXED** via direct subscript. Redundantly enforced (helper +
+  emit), so no SINGLE-line mutation can kill it; non-vacuity verified with a COMBINED mutation, and
+  the redundant explicit `not in` check was removed rather than left as a line that pins nothing.
+- **LOW undrained pipes — ACCEPTED, FIXED.** A genuine regression of my own Popen rewrite: the
+  merged code used `_run_checked`, which drains concurrently. stderr now goes to a
+  `tempfile.TemporaryFile` spill file, so the healthy phase cannot deadlock on a full buffer.
+
+**Mutation harness caught two more of my own regressions this round** (the new panel-status check
+fired before two older tests' named checks, making them pass for the wrong reason); fixtures
+decoupled. **18/18 killed.**
+
+Post-round-4: pytest **272 passed**, node **21 passed**, ruff clean, 3× deterministic.
+
+#### Tier-2 round 5 (claude-opus-5-0, regression-of-round-4 framing) — **NO-GO**, 0 CRITICAL / 1 HIGH / 1 MED / 4 LOW
+
+- **HIGH the settle predicate was INERT, and my own test PINNED the defect — ACCEPTED, VERIFIED,
+  FIXED.** `panelSettledSignals()` included `UNAVAILABLE_BANNER`, but that banner renders from the
+  `not-requested` PLACEHOLDER: `resolvePlanningMutationPolicy` (`mutation-policy.ts:20`) maps every
+  non-authorized/forbidden outcome to `unavailable`, `DEFAULT_OUTCOME` is `{kind:"not-requested"}`
+  (`PlanningRhsPanel.tsx:597,741`), and the banner is NOT gated on `submitEnabled` (`:520`). So the
+  text is present from the first client render in EVERY drill, `signals.some(...)` resolved on its
+  first poll, and the gate did nothing. Round 4's HIGH therefore survived: the outage drill could
+  still sample placeholder state and pass having asked nothing, while healthy/field-team became
+  newly flaky in the fail-closed direction. Worse, the node test I added asserted the signal list
+  EQUALS one containing that banner — a passing test pinning the defect. FIX: readiness is no
+  longer a DOM signal at all. `installReadRecorder` wraps `window.fetch` via `addInitScript` on all
+  three contexts to record the app's OWN planning-depth read completions; `readPanelAffordance`
+  waits until both are recorded, then flushes two `requestAnimationFrame`s so React has committed,
+  and only then reads the oracles. The defect-pinning test was DELETED (not amended) and replaced
+  with `planningReadPaths()`, asserted to contain neither banner nor the container.
+- **MED runbook documented the removed readiness model — ACCEPTED, FIXED.** The doc still said
+  readiness "is taken from the product's own `draft-action-bar`" while contradicting itself eight
+  lines earlier; a future implementer could have reintroduced round 4's HIGH with documentation
+  cover. Rewritten to state that readiness is neither network quiescence nor any DOM element, and
+  why each candidate fails. Pinned in `test_local_artifacts.py`.
+- **LOW "undrained pipes FIXED" was OVERSTATED — ACCEPTED, FIXED.** I had spilled only stderr;
+  `stdout=PIPE` remained undrained for the whole healthy phase. Harmless today (the child writes
+  stdout only at the end) but any future `console.log` would refill the buffer and reproduce the
+  exact misleading `write_browser_ready_timeout` the fix claims to prevent. Both pipes now spill to
+  temp files; the test fake writes to the sink rather than returning from `communicate()`.
+- **LOW pre-navigation response could satisfy a waiter (outage only) / week-key asymmetry in the
+  panel-vs-probe pin / `required()` outside the try — RECORDED, NOT TAKEN.** All three are
+  fail-closed and none affects manifest truthfulness; recorded as follow-ups.
+- Reviewer independently CONFIRMED: the healthy path's `panel_*` values are not pinned (so the
+  legitimate `200 {active:null}` first-submission case cannot false-fail); `unrouteAll` exists in
+  the pinned playwright@1.54.2; both hard status pins (403 field-team, 502 outage) are correct
+  against the real stack; no secrets, all hosts loopback.
+
+Post-round-5: pytest **272 passed**, node **21 passed**, ruff clean, 3× deterministic, mutations
+all killed.
+
+#### Tier-2 round 6 (claude-opus-5-0, regression-of-round-5 framing) — **GO**, 0 CRITICAL / 0 HIGH / 2 MED / 5 LOW
+First round with no high-severity finding. The reviewer traced the round-5 fix to ground truth and
+confirmed it works: `authenticatedFetch` -> `fetchImpl`, whose default is the unqualified global
+`fetch` evaluated at `createAuthClient()` call time (`client.ts:52`, called with no argument at
+`auth-context.tsx:53`) — i.e. AFTER the init script, so the wrapper is captured. No axios, no XHR,
+no captured-before-wrap reference. `addInitScript` is on the CONTEXT and Playwright re-runs it on
+every navigation including the reload. Both reads are issued in all three drills (their `enabled`
+gates resolve to build-time/local constants, not network state).
+
+- **MED-1 headers-vs-body, and my comment claimed a guarantee it did not provide — ACCEPTED,
+  FIXED.** The recorder wrote at `await original(...)` resolution, i.e. EXACTLY headers-received —
+  the same moment `waitForResponse` fires. It added provenance, not timing, and my comment said
+  otherwise. FIX: `await response.clone().arrayBuffer()` before recording, so a read registers only
+  once its body has arrived (the app cannot derive policy from a body it has not read); the comment
+  now states the two conditions honestly, says the rAF flush is a HEURISTIC, and records that the
+  banners are therefore CORROBORATION while `panel_*_status` + the 403/502 probes are probative.
+- **MED-2 the replacement observation path had ZERO coverage — ACCEPTED, FIXED.** Round 5's defect
+  was caught by a node test; round 5's fix deleted that test and shipped an untested mechanism.
+  FIX: extracted the pure `recordPlanningRead(reads, url, status, paths, origin)`, injected into the
+  page via `new Function(recordPlanningRead.toString())` so the UNIT-TESTED function is the code that
+  actually runs (no second copy — CLAUDE.md MUST NOT #3). Four assertions: query strings ignored,
+  off-path traffic (incl. `/api/auth/login`) not recorded, relative URLs resolved, malformed URL
+  never throws. **Mutation-verified 3/3**: dropping the path filter, keying by full URL, and
+  removing the try/catch each kill the test. The three subsumed banner asserts were deleted (they
+  could not fail independently of the deepEqual).
+- **LOW-1 inverted timeout ladder — FIXED** (`waitForFunction` 20s -> 35s, now >= the 30s waiters).
+- **LOW-2 recorder nonce / LOW-3 field-team 403 at the scheduler boundary / LOW-4 access-token TTL
+  across the 180s outage park / LOW-5 unpkg subtree — RECORDED as #150 run-plan items, not taken.**
+  All fail-closed; each could cost a guest run, none can fabricate a pass.
+
+**Own follow-up (post-packet, disclosed):** verified smart-cms-app sets NO CSP anywhere (no header
+config, no middleware, no `script-src`), so the `new Function` injection is safe. Added a
+`read_recorder_not_installed` assert so that if a strict CSP is ever introduced, the failure is
+immediate and precise instead of an opaque 35s timeout. This one-line defensive assert landed
+AFTER the round-7 review packet was materialized — disclosed here rather than left as silent drift.
+
+Post-round-6: pytest **272 passed**, node **23 passed**, ruff clean, 3× deterministic; validator
+mutations all killed; recorder mutations 3/3 killed.
+
+#### Tier-2 round 7 (claude-opus-5-0, final dryness) — **NO-GO -> GO**, 0 CRITICAL / 1 HIGH / 0 MED / 5 LOW
+
+- **HIGH the whole test file was GITIGNORED and would not have been committed — ACCEPTED, VERIFIED,
+  FIXED.** I had spotted the `tests/` blanket ignore early and planned `git add -f`, which was an
+  UNDER-fix: `-f` leaves the path ignored, so any future file added there silently drops out again.
+  The blast radius was also larger than I had stated — `test_write_browser_inventory.js` is **11 of
+  23** node tests, including the entire round-6 MED-2 remediation and the only oracles for all 8
+  exported browser functions. `git add -An` confirmed it was invisible to a normal `git add -A`, so
+  the ordinary flow would have merged an untested observation path with no signal at all, while the
+  author's machine stayed green. FIX: a negation block in `.gitignore` mirroring the existing
+  `!services/auth/tests/` precedent, so the directory is genuinely tracked.
+  **Verified by artifact, not reasoning:** `git archive HEAD` extracted to a temp dir runs
+  **23 node tests and 272 pytest** in a clean tree.
+- **LOW-1 the body-before-record ordering had no oracle — FIXED.** Added
+  `await response.clone().arrayBuffer()` and `recordPlanningRead` to the declared source-substring
+  fallback in `test_local_artifacts.py` (this tree's stated mechanism for behaviour a pure test
+  cannot reach).
+- **LOW-3 the clone applied to EVERY response — FIXED.** Now path-gated, so the instrumentation
+  touches only the two planning-depth reads instead of the product's whole network surface.
+- **LOW-5 test description over-promised — FIXED.** Renamed to state exactly what the final assert
+  verifies (repo Writing-Tests rule 3).
+- **LOW-2 eval-free init-script refactor / LOW-4 ready-deadline derived from the JS timeouts —
+  RECORDED, NOT TAKEN.** Both fail-closed. Verified independently that smart-cms-app sets NO CSP,
+  so the `new Function` injection works today; a `read_recorder_not_installed` assert now makes a
+  future CSP fail immediately and precisely rather than as an opaque 35s timeout.
+- Reviewer independently confirmed clean: no secrets, all hosts loopback, no new self-fulfilling
+  evidence or fail-open path, the round-6 MED fixes behaviourally correct, and every frontend
+  precondition the readiness predicate depends on.
+
+### R2 REVIEW SUMMARY (7 rounds)
+Cumulative: **2 CRITICAL, 5 HIGH, 13 MEDIUM, ~20 LOW.** All CRITICAL/HIGH/MEDIUM fixed; LOWs either
+fixed or recorded with reasons. **Three of the defects were introduced by my own fixes to earlier
+findings** (a tautological logout redirect, an inert settle predicate whose test pinned the defect,
+and a headers-vs-body comment claiming a guarantee the code lacked) — the loop-until-dry discipline,
+not any single review, is what caught them. The mutation harness independently caught three further
+cases where a new check made an OLDER test pass for the wrong reason.
+
+**Reviewer-independence caveat, recorded honestly:** every round was claude-opus-5-0 substituting
+for Codex, which was smoke-tested and genuinely quota-blocked (resets Aug 8 10:56). That is an
+uncorrelated CONTEXT, not a different model family. A real Codex round is recommended before the
+nine-stage run.
+
+### Final gates
+pytest **272**, node --test **23**, ruff clean, **3× deterministic**; validator mutations all
+killed; recorder mutations 3/3 killed; clean-checkout verification passed.

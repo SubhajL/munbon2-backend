@@ -2655,61 +2655,90 @@ def test_stage_transition_rejects_write_ui_without_write_foundation():
 
 
 def _write_browser_evidence():
+    """Truthful write-UI evidence.
+
+    Every status here is what the real stack actually returns, verified at
+    source: the submit receipt is reduced camelCase with no client id
+    (submissions/route.ts:186-193); the active readback is the BFF body verbatim
+    (active/route.ts:158); a denied read is 403 passthrough
+    (planning-depth-roster/route.ts:79-80); and ANY upstream failure collapses to
+    502, never 503 (upstream-guard.ts:48-58).
+    """
     return {
         "create_result": {
             "status": 201,
             "submission_id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
-            "client_submission_id": "11111111-2222-4333-a444-555566667777",
-            "week_key": "2027-R01",
+            "replayed": False,
         },
         "active_readback": {
             "status": 200,
             "submission_id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
             "levels_count": 41,
+            "distinct_depths": [250.0, 260.0, 270.0, 280.0, 290.0, 300.0],
         },
         "correct_result": {
             "status": 201,
             "submission_id": "d4c3b2a1-f6e5-4b7a-9d8c-1e0f2a3b4c5d",
-            "client_submission_id": "22222222-3333-4444-a555-666677778888",
-            "supersedes_submission_id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
         },
-        "conflict_result": {
-            "status": 409,
-            "detail": "stale_active_submission",
-        },
+        "conflict_result": {"status": 409},
         "conflict_reconciliation": {
             "status": 200,
             "submission_id": "d4c3b2a1-f6e5-4b7a-9d8c-1e0f2a3b4c5d",
         },
-        "retry_result": {
-            "status": 201,
-            "submission_id": "e5d4c3b2-a1f6-4e5b-7a9d-8c1e0f2a3b4c",
-            "client_submission_id": "11111111-2222-4333-a444-555566667777",
+        "field_team_result": {
+            "roster_status": 403,
+            "active_status": 403,
+            "observed_roster_status": 403,
+            "panel_roster_status": 403,
+            "panel_active_status": 403,
+            "submit_absent": True,
+            "denied_banner": True,
+            "unavailable_banner": False,
+            "submit_status": 403,
+            "logout_status": 200,
+        },
+        "outage_result": {
+            "roster_status": 502,
+            "active_status": 502,
+            "observed_roster_status": 502,
+            "panel_roster_status": 502,
+            "panel_active_status": 502,
+            "submit_absent": True,
+            "unavailable_banner": True,
+            "denied_banner": False,
+            "submit_status": 502,
         },
         "logout_result": {
+            "status": 200,
+            "second_context_status": 200,
             "redirect_url": "/login",
         },
         "reload_result": {
             "redirect_url": "/login",
-        },
-        "outage_result": {
-            "submit_visible": False,
-            "reads_preserved": True,
+            "reloaded_from": "/smart-water/dashboard",
         },
         "request_inventory": {
-            "forbidden_mutation_count": 0,
-            "total_mutations": 4,
+            "forbidden_write_count": 0,
+            "forbidden_writes": [],
+            "total_mutations": 5,
         },
     }
 
 
-def test_validate_write_browser_result_accepts_complete_write_evidence():
+def test_validate_write_browser_result_accepts_truthful_write_evidence():
     result = stage_suite.validate_write_browser_result(_write_browser_evidence())
 
     assert result["create_result"]["submission_id"] is not None
     assert result["active_readback"]["levels_count"] == 41
     assert result["conflict_result"]["status"] == 409
-    assert result["request_inventory"]["forbidden_mutation_count"] == 0
+    assert result["request_inventory"]["forbidden_write_count"] == 0
+    assert result["field_team_result"]["roster_status"] == 403
+    assert result["outage_result"]["roster_status"] == 502
+    assert result["logout_result"]["redirect_to_login"] is True
+    # The two fabricated claims the merged stage emitted must be GONE, not merely
+    # false: an absent key cannot be misread as a proven property.
+    assert "reads_preserved" not in result["outage_result"]
+    assert "safe_redirect" not in result["logout_result"]
 
 
 def test_validate_write_browser_result_rejects_missing_create_proof():
@@ -2723,9 +2752,28 @@ def test_validate_write_browser_result_rejects_missing_create_proof():
         stage_suite.validate_write_browser_result(evidence)
 
 
-def test_validate_write_browser_result_rejects_forbidden_mutations():
+def test_validate_write_browser_result_rejects_forbidden_write_count():
     evidence = _write_browser_evidence()
-    evidence["request_inventory"]["forbidden_mutation_count"] = 1
+    evidence["request_inventory"]["forbidden_write_count"] = 1
+    evidence["request_inventory"]["forbidden_writes"] = ["POST /x 201"]
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_browser_result_not_accepted",
+    ):
+        stage_suite.validate_write_browser_result(evidence)
+
+
+def test_validate_write_browser_result_rejects_forbidden_writes_when_count_claims_zero():
+    """The merged stage's defect in miniature: `forbiddenMutations` was declared
+    but never appended to, so the count read 0 no matter what the browser did.
+    The recorded list -- not the self-reported count -- is the evidence, so a
+    non-empty list must reject even when the count claims zero."""
+    evidence = _write_browser_evidence()
+    evidence["request_inventory"]["forbidden_writes"] = [
+        "POST /api/smart-water-backend/water-planning/planning-depth-submissions 201"
+    ]
+    evidence["request_inventory"]["forbidden_write_count"] = 0
 
     with pytest.raises(
         stage_suite.StageGateError,
@@ -2745,9 +2793,122 @@ def test_validate_write_browser_result_rejects_nonuuid_submission_id():
         stage_suite.validate_write_browser_result(evidence)
 
 
-def test_validate_write_browser_result_rejects_retry_with_different_client_id():
+def test_validate_write_browser_result_rejects_lingering_reads_preserved_claim():
+    """The exact fabrication R2 exists to delete: a residual `reads_preserved`
+    key must reject rather than ride along unread."""
     evidence = _write_browser_evidence()
-    evidence["retry_result"]["client_submission_id"] = "99999999-0000-4000-a000-000000000000"
+    evidence["outage_result"]["reads_preserved"] = True
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_browser_result_not_accepted",
+    ):
+        stage_suite.validate_write_browser_result(evidence)
+
+
+def test_validate_write_browser_result_rejects_outage_read_that_succeeded():
+    evidence = _write_browser_evidence()
+    evidence["outage_result"]["roster_status"] = 200
+    evidence["outage_result"]["observed_roster_status"] = 200
+    evidence["outage_result"]["panel_roster_status"] = 200
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_browser_result_not_accepted",
+    ):
+        stage_suite.validate_write_browser_result(evidence)
+
+
+def test_validate_write_browser_result_rejects_outage_with_submit_present():
+    evidence = _write_browser_evidence()
+    evidence["outage_result"]["submit_absent"] = False
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_browser_result_not_accepted",
+    ):
+        stage_suite.validate_write_browser_result(evidence)
+
+
+def test_validate_write_browser_result_rejects_outage_write_that_succeeded():
+    evidence = _write_browser_evidence()
+    evidence["outage_result"]["submit_status"] = 201
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_browser_result_not_accepted",
+    ):
+        stage_suite.validate_write_browser_result(evidence)
+
+
+def test_validate_write_browser_result_rejects_field_team_that_saw_reads():
+    evidence = _write_browser_evidence()
+    # Move the passive observation too, so the contradiction check cannot reject
+    # this for a different reason than the one the test names.
+    evidence["field_team_result"]["roster_status"] = 200
+    evidence["field_team_result"]["observed_roster_status"] = 200
+    evidence["field_team_result"]["panel_roster_status"] = 200
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_browser_result_not_accepted",
+    ):
+        stage_suite.validate_write_browser_result(evidence)
+
+
+def test_validate_write_browser_result_rejects_field_team_successful_submit():
+    evidence = _write_browser_evidence()
+    evidence["field_team_result"]["submit_status"] = 201
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_browser_result_not_accepted",
+    ):
+        stage_suite.validate_write_browser_result(evidence)
+
+
+def test_validate_write_browser_result_rejects_field_team_with_submit_present():
+    evidence = _write_browser_evidence()
+    evidence["field_team_result"]["submit_absent"] = False
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_browser_result_not_accepted",
+    ):
+        stage_suite.validate_write_browser_result(evidence)
+
+
+def test_validate_write_browser_result_rejects_outage_mistaken_for_denial():
+    """Outage and denial must stay distinguishable: the product renders a
+    different banner for each (PlanningRhsPanel.tsx:517 vs :522). Accepting an
+    outage whose banner says 'denied' would let a permission bug pass as an
+    outage drill."""
+    evidence = _write_browser_evidence()
+    evidence["outage_result"]["unavailable_banner"] = False
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_browser_result_not_accepted",
+    ):
+        stage_suite.validate_write_browser_result(evidence)
+
+
+def test_validate_write_browser_result_rejects_logout_redirect_to_dashboard():
+    """The merged validator accepted ANY string here and then emitted
+    `safe_redirect: True` regardless -- this input is what it wrongly passed."""
+    evidence = _write_browser_evidence()
+    evidence["logout_result"]["redirect_url"] = "/smart-water/dashboard/water-planning"
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_browser_result_not_accepted",
+    ):
+        stage_suite.validate_write_browser_result(evidence)
+
+
+def test_validate_write_browser_result_rejects_failed_logout_status():
+    evidence = _write_browser_evidence()
+    evidence["logout_result"]["status"] = 500
 
     with pytest.raises(
         stage_suite.StageGateError,
@@ -2767,15 +2928,511 @@ def test_validate_write_browser_result_rejects_missing_outage_proof():
         stage_suite.validate_write_browser_result(evidence)
 
 
-def test_validate_write_browser_result_rejects_outage_with_visible_submit():
+def test_validate_write_browser_result_rejects_field_team_submit_that_only_conflicted():
+    """A 409 means the field team got PAST authorization to the concurrency
+    check -- i.e. it was wrongly authorized. Accepting any non-2xx as 'denied'
+    would let exactly the regression R7 exists to detect slip through."""
     evidence = _write_browser_evidence()
-    evidence["outage_result"]["submit_visible"] = True
+    evidence["field_team_result"]["submit_status"] = 409
 
     with pytest.raises(
         stage_suite.StageGateError,
         match="write_browser_result_not_accepted",
     ):
         stage_suite.validate_write_browser_result(evidence)
+
+
+def test_validate_write_browser_result_rejects_field_team_submit_that_never_left_browser():
+    """A transport failure is not a denial. The browser reports `None` rather
+    than a fake 0 so this can never be read as a status."""
+    evidence = _write_browser_evidence()
+    evidence["field_team_result"]["submit_status"] = None
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_browser_result_not_accepted",
+    ):
+        stage_suite.validate_write_browser_result(evidence)
+
+
+def test_validate_write_browser_result_rejects_field_team_submit_rejected_as_unauthenticated():
+    """401 means the bearer was not attached -- a C1 regression masquerading as
+    a denial. Only a real 403 proves the principal was identified and refused."""
+    evidence = _write_browser_evidence()
+    evidence["field_team_result"]["submit_status"] = 401
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_browser_result_not_accepted",
+    ):
+        stage_suite.validate_write_browser_result(evidence)
+
+
+def test_validate_write_browser_result_rejects_outage_submit_that_never_left_browser():
+    evidence = _write_browser_evidence()
+    evidence["outage_result"]["submit_status"] = None
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_browser_result_not_accepted",
+    ):
+        stage_suite.validate_write_browser_result(evidence)
+
+
+def test_validate_write_browser_result_rejects_missing_field_team_logout():
+    evidence = _write_browser_evidence()
+    evidence["field_team_result"]["logout_status"] = 500
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_browser_result_not_accepted",
+    ):
+        stage_suite.validate_write_browser_result(evidence)
+
+
+def test_validate_write_browser_result_echoes_observed_banners_not_literals():
+    """The runbook claims the manifest distinguishes denial from outage, so the
+    banner facts must actually appear in the emitted evidence."""
+    result = stage_suite.validate_write_browser_result(_write_browser_evidence())
+
+    assert result["field_team_result"]["denied_banner"] is True
+    assert result["outage_result"]["unavailable_banner"] is True
+    assert result["field_team_result"]["logout_status"] == 200
+
+
+def test_validate_write_browser_result_rejects_outage_showing_the_denial_banner():
+    """The runbook claims the two banners keep an outage from being recorded as a
+    permission denial. That is only true if the validator asserts the ABSENCE of
+    the other banner -- asserting presence alone leaves the claim unenforced."""
+    evidence = _write_browser_evidence()
+    evidence["outage_result"]["denied_banner"] = True
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_browser_result_not_accepted",
+    ):
+        stage_suite.validate_write_browser_result(evidence)
+
+
+def test_validate_write_browser_result_rejects_field_team_showing_the_unavailable_banner():
+    """`resolvePlanningMutationPolicy` collapses not-requested/loading/
+    unauthenticated/unavailable into one `unavailable` state, so an expired
+    session would render the outage banner. A denial must not show it."""
+    evidence = _write_browser_evidence()
+    evidence["field_team_result"]["unavailable_banner"] = True
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_browser_result_not_accepted",
+    ):
+        stage_suite.validate_write_browser_result(evidence)
+
+
+def test_validate_write_browser_result_rejects_uniform_zone_fanout():
+    """41 rows is not proof of a correct expansion: a regression that served every
+    section one zone's depth still returns exactly 41. The repo's own
+    `validate_w2_active_result` docstring says so -- but that strong check covers
+    the DIRECT API path, against a different submission, so the UI-path readback
+    needs its own."""
+    evidence = _write_browser_evidence()
+    evidence["active_readback"]["distinct_depths"] = [250.0]
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_browser_result_not_accepted",
+    ):
+        stage_suite.validate_write_browser_result(evidence)
+
+
+def test_validate_write_browser_result_rejects_outage_whose_passive_read_succeeded():
+    """The app's own query 200-ing while the explicit probe 502s means a stale
+    cache is being served as live data. Capturing that contradiction and then
+    discarding it unread is the defect class rounds 1-2 removed."""
+    evidence = _write_browser_evidence()
+    evidence["outage_result"]["observed_roster_status"] = 200
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_browser_result_not_accepted",
+    ):
+        stage_suite.validate_write_browser_result(evidence)
+
+
+def test_validate_write_browser_result_accepts_absent_passive_observation():
+    """A drill where the app never issued its own roster GET is legitimate -- the
+    explicit probe is the primary evidence. Only a CONTRADICTION is fatal."""
+    evidence = _write_browser_evidence()
+    evidence["field_team_result"]["observed_roster_status"] = None
+
+    result = stage_suite.validate_write_browser_result(evidence)
+
+    assert result["field_team_result"]["roster_status"] == 403
+
+
+def test_validate_write_browser_result_rejects_banner_rendered_before_the_reads_settled():
+    """The panel renders its `unavailable` banner from the `not-requested`
+    placeholder, BEFORE the roster/active queries are issued. Without pinning the
+    status the app's own read actually returned, the outage drill would pass
+    having asked nothing -- self-fulfilling evidence."""
+    evidence = _write_browser_evidence()
+    evidence["outage_result"]["panel_roster_status"] = None
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_browser_result_not_accepted",
+    ):
+        stage_suite.validate_write_browser_result(evidence)
+
+
+def test_validate_write_browser_result_rejects_panel_read_disagreeing_with_probe():
+    evidence = _write_browser_evidence()
+    evidence["field_team_result"]["panel_roster_status"] = 200
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_browser_result_not_accepted",
+    ):
+        stage_suite.validate_write_browser_result(evidence)
+
+
+def test_validate_write_browser_result_rejects_reload_that_only_reloaded_login():
+    """If hydration beats `commit`, the reload re-requests /login and proves
+    nothing. Capturing that and not reading it is the 'capture then discard'
+    pattern this stage's own checks condemn."""
+    evidence = _write_browser_evidence()
+    evidence["reload_result"]["reloaded_from"] = "/login"
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_browser_result_not_accepted",
+    ):
+        stage_suite.validate_write_browser_result(evidence)
+
+
+def test_validate_write_browser_result_rejects_inventory_that_observed_no_mutations():
+    """`forbidden_writes == []` is also what an inventory that saw NOTHING
+    produces -- the merged stage's defect in a new costume. The harness issues
+    exactly five W2 POSTs, so a live boundary must have seen at least that many."""
+    evidence = _write_browser_evidence()
+    evidence["request_inventory"]["total_mutations"] = 0
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_browser_result_not_accepted",
+    ):
+        stage_suite.validate_write_browser_result(evidence)
+
+
+def test_validate_write_browser_result_rejects_absent_passive_observation_key():
+    """An ABSENT key must not be indistinguishable from an observed None: a
+    browser regression that stops emitting the field would degrade silently."""
+    evidence = _write_browser_evidence()
+    del evidence["field_team_result"]["observed_roster_status"]
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_browser_result_not_accepted",
+    ):
+        stage_suite.validate_write_browser_result(evidence)
+
+
+def test_validate_write_browser_result_rejects_missing_field_team_proof():
+    evidence = _write_browser_evidence()
+    del evidence["field_team_result"]
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_browser_result_not_accepted",
+    ):
+        stage_suite.validate_write_browser_result(evidence)
+
+
+def _write_ui_context(tmp_path):
+    runtime_env_dir = tmp_path / "runtime-env"
+    runtime_env_dir.mkdir(parents=True, exist_ok=True)
+    (runtime_env_dir / "operator.env").write_text(
+        "MUNBON_OPERATOR_EMAIL=operator@local.invalid\n"
+        "MUNBON_OPERATOR_PASSWORD=disposable-operator-secret\n",
+        encoding="utf-8",
+    )
+    (runtime_env_dir / "field-team.env").write_text(
+        "MUNBON_FIELD_TEAM_EMAIL=field-team@local.invalid\n"
+        "MUNBON_FIELD_TEAM_PASSWORD=disposable-field-team-secret\n",
+        encoding="utf-8",
+    )
+    evidence_root = tmp_path / "evidence"
+    evidence_root.mkdir(parents=True, exist_ok=True)
+    return stage_suite.StageContext(
+        release_sha="8" * 40,
+        frontend_sha="9" * 40,
+        repo_root=tmp_path / "repo",
+        harness_root=MODULE_PATH.parent,
+        evidence_root=evidence_root,
+        runtime_env_dir=runtime_env_dir,
+    )
+
+
+def test_write_browser_environment_supplies_every_required_env_name(tmp_path):
+    """C2 in test form: the browser aborts before login if any `required(...)`
+    name is absent from the launcher env. The merged stage asked for
+    LOCAL_OPERATOR_* while bootstrap writes MUNBON_OPERATOR_*, so it could never
+    have logged in. Parse the names out of the JS rather than restating them,
+    so adding a new `required(...)` cannot silently go unprovisioned."""
+    context = _write_ui_context(tmp_path)
+    environment = stage_suite._write_browser_environment(
+        context,
+        week_key="2027-R01",
+        week_date="2026-11-02",
+        ready_path=context.evidence_root / ".write-ui-ready",
+        release_path=context.evidence_root / ".write-ui-outage-release",
+    )
+
+    source = (MODULE_PATH.parent / "run-write-browser.js").read_text(encoding="utf-8")
+    required_names = set(re.findall(r'required\("([A-Z0-9_]+)"\)', source))
+
+    assert required_names, "parsed no required() names -- the parse itself is broken"
+    assert sorted(n for n in required_names if not environment.get(n)) == []
+
+
+def test_write_browser_environment_fails_closed_without_field_team_credentials(
+    tmp_path,
+):
+    context = _write_ui_context(tmp_path)
+    (context.runtime_env_dir / "field-team.env").write_text("", encoding="utf-8")
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_browser_credentials_missing",
+    ):
+        stage_suite._write_browser_environment(
+            context,
+            week_key="2027-R01",
+            week_date="2026-11-02",
+            ready_path=context.evidence_root / ".write-ui-ready",
+            release_path=context.evidence_root / ".write-ui-outage-release",
+        )
+
+
+class _FakeWriteBrowserProcess:
+    """Stands in for the Playwright browser: signals ready on the second poll,
+    then writes truthful evidence to the stdout spill file once released.
+
+    It writes to the SINK rather than returning from communicate(), because the
+    real runner spills both pipes to temp files -- piping them would let a chatty
+    browser fill the buffer during the healthy phase and deadlock before the
+    ready file is written.
+    """
+
+    def __init__(self, ready_path, events, payload, stdout_sink):
+        self._ready_path = ready_path
+        self._events = events
+        self._payload = payload
+        self._stdout_sink = stdout_sink
+        self._polls = 0
+        self.returncode = 0
+
+    def poll(self):
+        self._polls += 1
+        if self._polls >= 2 and not self._ready_path.exists():
+            self._ready_path.write_text("ready\n", encoding="utf-8")
+            self._events.append("browser_ready")
+        return None
+
+    def communicate(self, timeout=None):
+        self._events.append("browser_exit")
+        if self._stdout_sink is not None:
+            self._stdout_sink.write(json.dumps(self._payload))
+        return None, None
+
+    def wait(self, timeout=None):
+        return 0
+
+    def kill(self):
+        return None
+
+    def terminate(self):
+        return None
+
+
+def _install_write_browser_fakes(monkeypatch, tmp_path, events, payload=None):
+    ready_path = tmp_path / "evidence" / ".write-ui-ready"
+    body = payload if payload is not None else _write_browser_evidence()
+
+    def fake_popen(*_args, **kwargs):
+        events.append("browser_spawned")
+        return _FakeWriteBrowserProcess(
+            ready_path, events, body, kwargs.get("stdout")
+        )
+
+    def fake_run_checked(label, argv, **_kwargs):
+        events.append(f"{argv[1]}:{argv[2]}")
+        return ""
+
+    def fake_write_coordination_file(path, value):
+        events.append("release_written")
+        path.write_text(value, encoding="utf-8")
+
+    monkeypatch.setattr(stage_suite.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(stage_suite, "_run_checked", fake_run_checked)
+    monkeypatch.setattr(
+        stage_suite, "_write_coordination_file", fake_write_coordination_file
+    )
+    monkeypatch.setattr(stage_suite, "_stop_temporary_process", lambda _p: None)
+    monkeypatch.setattr(stage_suite, "_wait_json", lambda *_a, **_k: {"status": "ready"})
+    monkeypatch.setattr(stage_suite, "LocalHttpClient", lambda *_a, **_k: object())
+
+
+def test_run_write_browser_stops_scheduler_only_after_ready_and_restores_after(
+    tmp_path, monkeypatch
+):
+    """The outage must be REAL and correctly ordered: the scheduler may only go
+    down once the browser has finished its healthy-path work and signalled
+    ready, and must be back up before the stage continues."""
+    context = _write_ui_context(tmp_path)
+    events = []
+    _install_write_browser_fakes(monkeypatch, tmp_path, events)
+
+    result = stage_suite._run_write_browser(
+        context, week_key="2027-R01", week_date="2026-11-02"
+    )
+
+    assert result["outage_result"]["roster_status"] == 502
+    assert events.index("browser_ready") < events.index("stop:scheduler")
+    assert events.index("stop:scheduler") < events.index("release_written")
+    assert events.index("release_written") < events.index("browser_exit")
+    assert events.index("browser_exit") < events.index("restart:scheduler")
+
+
+def test_run_write_browser_fails_closed_when_scheduler_restore_fails(
+    tmp_path, monkeypatch
+):
+    context = _write_ui_context(tmp_path)
+    events = []
+    _install_write_browser_fakes(monkeypatch, tmp_path, events)
+
+    def failing_run_checked(label, argv, **_kwargs):
+        events.append(f"{argv[1]}:{argv[2]}")
+        if argv[1] == "restart":
+            raise stage_suite.StageGateError("pm2_restart_failed")
+        return ""
+
+    monkeypatch.setattr(stage_suite, "_run_checked", failing_run_checked)
+
+    with pytest.raises(stage_suite.StageGateError):
+        stage_suite._run_write_browser(
+            context, week_key="2027-R01", week_date="2026-11-02"
+        )
+
+    assert "restart:scheduler" in events
+
+
+def test_run_write_browser_restores_scheduler_when_the_stop_itself_times_out(
+    tmp_path, monkeypatch
+):
+    """`pm2 stop` frequently still takes effect after the CLI call times out. If
+    the 'stopped' flag were only set once the call RETURNED, a timeout would skip
+    the restore and leave every later stage running against a dead scheduler."""
+    context = _write_ui_context(tmp_path)
+    events = []
+    _install_write_browser_fakes(monkeypatch, tmp_path, events)
+
+    def stop_times_out(label, argv, **_kwargs):
+        events.append(f"{argv[1]}:{argv[2]}")
+        if argv[1] == "stop":
+            raise stage_suite.StageGateError("write_ui_scheduler_stop_failed")
+        return ""
+
+    monkeypatch.setattr(stage_suite, "_run_checked", stop_times_out)
+
+    with pytest.raises(stage_suite.StageGateError):
+        stage_suite._run_write_browser(
+            context, week_key="2027-R01", week_date="2026-11-02"
+        )
+
+    assert "restart:scheduler" in events
+
+
+def test_run_write_browser_keeps_the_primary_diagnosis_when_restore_also_fails(
+    tmp_path, monkeypatch
+):
+    """The manifest persists only the error CODE, so if the restore's exception
+    replaced the primary one the operator would read 'pm2 hiccuped' when the real
+    finding was 'the evidence was untruthful'."""
+    context = _write_ui_context(tmp_path)
+    events = []
+    untruthful = _write_browser_evidence()
+    untruthful["outage_result"]["roster_status"] = 200
+    _install_write_browser_fakes(monkeypatch, tmp_path, events, payload=untruthful)
+
+    def restart_fails(label, argv, **_kwargs):
+        events.append(f"{argv[1]}:{argv[2]}")
+        if argv[1] == "restart":
+            raise stage_suite.StageGateError("pm2_restart_failed")
+        return ""
+
+    monkeypatch.setattr(stage_suite, "_run_checked", restart_fails)
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_browser_result_not_accepted",
+    ):
+        stage_suite._run_write_browser(
+            context, week_key="2027-R01", week_date="2026-11-02"
+        )
+
+    assert "restart:scheduler" in events
+
+
+def test_run_write_browser_restores_scheduler_when_evidence_is_rejected(
+    tmp_path, monkeypatch
+):
+    """A failed drill must not leave the scheduler down for every later stage."""
+    context = _write_ui_context(tmp_path)
+    events = []
+    untruthful = _write_browser_evidence()
+    untruthful["outage_result"]["roster_status"] = 200
+    _install_write_browser_fakes(monkeypatch, tmp_path, events, payload=untruthful)
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_browser_result_not_accepted",
+    ):
+        stage_suite._run_write_browser(
+            context, week_key="2027-R01", week_date="2026-11-02"
+        )
+
+    assert "restart:scheduler" in events
+
+
+class _RefreshClient:
+    def __init__(self, status):
+        self._status = status
+        self.calls = []
+
+    def request(self, method, url, *, payload=None, bearer=None, **_kwargs):
+        self.calls.append((method, url))
+        return stage_suite.HttpResult(status=self._status, body={}, headers={})
+
+
+def test_operator_refresh_reuse_after_logout_is_rejected():
+    client = _RefreshClient(401)
+
+    evidence = stage_suite._assert_operator_refresh_reuse_rejected(client, "refresh-token")
+
+    assert evidence == {"refresh_reuse_status": 401, "revoked": True}
+    assert client.calls == [("POST", "http://127.0.0.1:3005/api/v1/auth/refresh")]
+
+
+def test_operator_refresh_reuse_that_still_works_fails_the_stage():
+    """Logout revokes rather than deletes the refresh token, so the only proof
+    that the session is really gone is that reusing it now fails."""
+    client = _RefreshClient(200)
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_ui_refresh_reuse_not_rejected",
+    ):
+        stage_suite._assert_operator_refresh_reuse_rejected(client, "refresh-token")
 
 
 def test_build_planning_depth_request_v2_uses_rid_calendar():
