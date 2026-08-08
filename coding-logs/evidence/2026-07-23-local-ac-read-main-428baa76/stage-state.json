@@ -1,0 +1,19 @@
+{
+  "completed": [
+    "LOCAL-BASE-0",
+    "LOCAL-RTA-1",
+    "LOCAL-AC-1",
+    "LOCAL-READ-ACT-1"
+  ],
+  "frontend_sha": "3a16498a60927996ac38e741b276150968d0cadc",
+  "harness_hashes": {
+    "local-ac1.py": "94310e200216205552fb19a6470d1bd8aadfd9f245239b533e49fafbbef74e82",
+    "run-read-browser.js": "82bb79570bfa66e9b47a343166be659d1efc0c457ed2faba7614cb787b08e433",
+    "run-ros-manual-producer.sh": "41c52f4ab359595ecda4794bfa7da5b61c9950c2c69aff22841db3122a889704",
+    "run-stage-suite.py": "8557ce7efc63e3f8ae68ac6852efae2dabb5a26e20e6d7d4a36a11eac54a8141",
+    "seed-approved-sources.py": "59de1bda054e9c583b6343bbac05e4044bbfb4ace18399f1bc53f68a6b5d8ec4",
+    "seed-local-operators.js": "04ea3b8396e81c9dd6b4151bf7c07a2307bcc1073a1f67f62cc574a634b5f5ce",
+    "verify_bearer.py": "250b9a420515e91f3c7a65cb884b071893f735dfada65c3ec6a9b74a77fe3db4"
+  },
+  "release_sha": "428baa769df65569fc0a99e03fa01df5990773bf"
+}
