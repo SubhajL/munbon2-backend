@@ -149,11 +149,12 @@ jobs:
           cache-dependency-path: services/ros-gis-integration/requirements.txt
       - name: Install pinned dependencies
         run: pip install -r requirements.txt
-      - name: Authoritative roster source-loader and contract suites
+      - name: ROS-GIS unit suites (source-loader, roster contract, dataset-version immutability)
         run: >-
           python -m pytest -q
           tests/unit/test_requirement_source_loader.py
           tests/unit/test_planning_depth_roster_contract.py
+          tests/unit/test_dataset_version_immutability.py
 
   ros-postgis-integration:
     runs-on: ubuntu-latest
@@ -196,6 +197,12 @@ jobs:
         run: >-
           python -m pytest -q
           tests/integration/test_water_requirement_repository_postgres.py
+      - name: "Dataset-version immutability suite (real PostGIS, #150)"
+        env:
+          DATASET_VERSION_TEST_POSTGRES_URL: postgresql://postgres:postgres@127.0.0.1:5432/ros_gis_roster_test
+        run: >-
+          python -m pytest -q
+          tests/integration/test_dataset_version_immutability_postgres.py
 
   bff-postgres-integration:
     runs-on: ubuntu-latest
