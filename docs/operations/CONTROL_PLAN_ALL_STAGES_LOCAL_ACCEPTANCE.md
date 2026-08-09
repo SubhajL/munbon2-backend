@@ -31,8 +31,8 @@ bundle; the runtime checkout must remain at the accepted 40-character SHA.
 | ME-1 / FE-8        | `LOCAL-EVIDENCE-1`         | Implemented and passed       |
 | GO-READ-1          | `LOCAL-GO-READ-1`          | Implemented and passed       |
 | W1 / W2            | `LOCAL-WRITE-FOUNDATION-1` | Implemented; prior SHA passed |
-| FE-5 / FE-6        | `LOCAL-WRITE-UI-1`         | Implemented                  |
-| DEC-W4             | `LOCAL-PERSIST-ONLY-1`     | Implemented                  |
+| FE-5 / FE-6        | `LOCAL-WRITE-UI-1`         | Implemented; latest run failed |
+| DEC-W4             | `LOCAL-PERSIST-ONLY-1`     | Implemented; latest run not reached |
 | WRITE-ACT-1        | `LOCAL-WRITE-ACT-1`        | Planned; not yet implemented |
 | Combined clean run | `LOCAL-RC-1`               | Required before AWS          |
 
@@ -267,12 +267,69 @@ NO stage manifest — recording a `FAIL` for an abort would stamp a contradictio
 beside an already-written `PASS` when the interrupt lands just after a stage
 completed.
 
+The browser JSON is sanitizer-checked, written as
+`LOCAL-WRITE-UI-1-browser-result.json`, and checksum-indexed before its
+acceptance predicates run. A validator rejection records every disagreeing
+predicate as a stable code in the checksum-indexed failure manifest; it never
+records credentials, cookies, tokens, or arbitrary exception text. This makes a
+failure replayable without weakening the generic stage verdict.
+
+### Disposable WRITE-UI diagnostic lane
+
+Diagnostics are not acceptance evidence. Clone or snapshot the guest only after
+collecting the frozen evidence, update that clone to the diagnostic candidate,
+and use a fresh `--as-of-date` whose RID week has not been submitted in the
+cloned database. Run the stage runner directly on the clone with `--diagnostic`
+and a new evidence root:
+
+```bash
+orb -m munbon-control-plan-write-ui-diagnostic -u root \
+  install -d -o munbon -g munbon -m 0700 \
+  /var/lib/munbon-local-acceptance/write-ui-diagnostic
+
+orb -m munbon-control-plan-write-ui-diagnostic -u munbon \
+  python3 /opt/munbon/harness/run-stage-suite.py LOCAL-WRITE-UI-1 \
+  --release-sha "$diagnostic_backend_sha" \
+  --frontend-sha "$diagnostic_frontend_sha" \
+  --as-of-date "$fresh_diagnostic_date" \
+  --evidence-root /var/lib/munbon-local-acceptance/write-ui-diagnostic \
+  --diagnostic
+```
+
+The runner rejects `--diagnostic` on the canonical acceptance machine, on the
+canonical acceptance evidence root, or on a root containing `stage-state.json`.
+Diagnostic success writes
+`LOCAL-WRITE-UI-DIAGNOSTIC.json` with `acceptance_evidence=false`; failure uses
+the same explicit label. Neither path advances acceptance stage state. Always
+verify the backend write flag is false, all four backend services are ready,
+and no listener remains on port 9999 after the run.
+
 The 2026-07-23 rehearsal preserved its first otherwise-successful attempt as
 `evidence-with-wildcard` after listener inspection found package-started
 Prometheus services on ports 9090 and 9100. Those services were disabled, the
 gate was strengthened, and Stage 0/1 were rerun from a new evidence directory.
 
 ## Current local result
+
+The latest candidate result is acceptance-truthfully **7/9 PASS**:
+
+- Backend: `0228f495b7708b92cc7526f201687eb5b1441565`
+- Frontend: `067b3e22401854f8c6d6db42dc0c5c1872fca6f8`
+- stages 1–7: PASS
+- `LOCAL-WRITE-UI-1`: FAIL at `write_browser_result_not_accepted`
+- `LOCAL-PERSIST-ONLY-1`: not reached
+- scheduler restoration: succeeded on attempt 1
+- final backend write flag: false
+- final backend services: online and ready
+- final listener 9999: absent
+- frozen archive:
+  `coding-logs/evidence/2026-08-09-nine-stage-orbstack-0228f495/`
+
+The rejected browser JSON was not retained by that frozen candidate, so the
+historical bundle cannot prove whether one or several predicates disagreed.
+The older result below is retained as historical context only.
+
+### Historical six-stage result
 
 - Backend: `d47db8e3e61219ac6ff791a7b2e6642c5ae2cf70`
 - Frontend: `fbd4ce4df0bb0476b7cd402ac1a4e180a91a7792`

@@ -1,0 +1,12 @@
+{
+  "failed_at": "2026-08-09T07:51:56.426906Z",
+  "failed_gate": "write_browser_result_not_accepted",
+  "release_sha": "0228f495b7708b92cc7526f201687eb5b1441565",
+  "restoration": {
+    "attempts": 1,
+    "failed_gate": null,
+    "restored": true
+  },
+  "stage": "LOCAL-WRITE-UI-1",
+  "verdict": "FAIL"
+}
