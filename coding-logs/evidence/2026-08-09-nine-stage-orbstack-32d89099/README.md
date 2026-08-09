@@ -53,3 +53,6 @@ PERSIST-ONLY completion gate was not reached because the run halted at WRITE-UI.
 
 ## Follow-up
 WRITE-UI frontend gap tracked as issue #165.
+
+## Correction
+See CORRECTION.md — the ROOT-CAUSE-INVESTIGATION.md conclusion was WRONG (contaminated manual tests). The frozen frontend WORKS; the failure is the LOCAL-WRITE-UI-1 harness drill dropping the in-memory session on full-page navigation. Accurate root cause in CORRECTION.md and issue #165.
