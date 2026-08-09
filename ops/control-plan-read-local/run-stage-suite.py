@@ -1258,6 +1258,7 @@ def validate_migration_parity(
         "0001_dataset_version_parent",
         "0002_water_requirement_publication",
         "0003_daily_requirement_producer",
+        "0004_dataset_version_identity_immutable",
     ]
     expected_bff = [
         "009_crop_registry",
@@ -1280,6 +1281,43 @@ def validate_migration_parity(
         "bff_latest": bff_ids[-1],
         "bff_count": len(bff_ids),
     }
+
+
+ROS_DATASET_VERSION_TRIGGER_QUERY = (
+    "SELECT t.tgname, t.tgenabled, t.tgtype::integer, t.tgattr::text, "
+    "(t.tgqual IS NULL)::text, t.tgfoid::regprocedure::text "
+    "FROM pg_trigger AS t "
+    "WHERE t.tgrelid = 'ros_gis.dataset_versions'::regclass "
+    "AND NOT t.tgisinternal ORDER BY t.tgname"
+)
+ROS_DATASET_VERSION_TRIGGER_ROWS = (
+    # pg_trigger.tgtype: 27 = ROW|BEFORE|DELETE|UPDATE; 34 = BEFORE|TRUNCATE.
+    "dataset_versions_identity_is_immutable\tO\t27\t\tt\t"
+    "ros_gis.reject_dataset_version_identity_change()",
+    "dataset_versions_no_truncate\tO\t34\t\tt\t"
+    "ros_gis.reject_dataset_version_identity_change()",
+)
+
+
+def validate_ros_dataset_version_triggers(trigger_rows: list[str]) -> dict:
+    if tuple(trigger_rows) != ROS_DATASET_VERSION_TRIGGER_ROWS:
+        raise StageGateError("ros_dataset_version_trigger_parity_failed")
+    projected = []
+    for row in trigger_rows:
+        name, enabled, type_mask, column_filter, unconditional, function = row.split(
+            "\t"
+        )
+        projected.append(
+            {
+                "name": name,
+                "enabled": enabled,
+                "type_mask": int(type_mask),
+                "column_filter": column_filter or None,
+                "unconditional": unconditional == "t",
+                "function": function,
+            }
+        )
+    return {"dataset_version_triggers": projected}
 
 
 def _utc_timestamp() -> str:
@@ -1750,6 +1788,7 @@ def _apply_migrations(context: StageContext) -> dict:
         "0001_dataset_version_parent",
         "0002_water_requirement_publication",
         "0003_daily_requirement_producer",
+        "0004_dataset_version_identity_immutable",
     ):
         _run_checked(
             f"ros_{migration_id}",
@@ -1800,12 +1839,17 @@ def _apply_migrations(context: StageContext) -> dict:
         ).strip()
         == "t"
     )
+    ros_dataset_version_triggers = _psql(
+        context,
+        ROS_DATASET_VERSION_TRIGGER_QUERY,
+    ).splitlines()
     scheduler_ids = [row.split("\t", 1)[0] for row in scheduler_rows]
     ros_ids = [row.split("\t", 1)[0] for row in ros_rows]
     bff_ids = [row.split("\t", 1)[0] for row in bff_rows]
     if not bff_tables_present:
         raise StageGateError("migration_parity_failed")
     parity = validate_migration_parity(scheduler_ids, ros_ids, bff_ids)
+    parity.update(validate_ros_dataset_version_triggers(ros_dataset_version_triggers))
     parity["scheduler_migrations"] = scheduler_ids
     parity["ros_migrations"] = ros_ids
     parity["bff_migrations"] = bff_ids

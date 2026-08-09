@@ -33,6 +33,12 @@ Activation fails before PM2 changes when `MemAvailable` is below 512 MiB or used
 
 Exact bindings are Flow `127.0.0.1:3011`, Scheduler `127.0.0.1:3021`, ROS-GIS `127.0.0.1:3047`, and BFF `127.0.0.1:3022`. Scheduler remains `CONTROL_EXECUTION_MODE=disabled`, readback remains `off`, SCADA/service-token/capability settings are removed, and ROS daily requirement production remains disabled.
 
+ROS-GIS startup applies the ordered tracked migration set through
+`0004_dataset_version_identity_immutable`. LOCAL-RTA-1 requires all four ROS
+migration registrations and verifies that `ros_gis.dataset_versions` has
+exactly the `dataset_versions_identity_is_immutable` and
+`dataset_versions_no_truncate` non-internal triggers before runtime activation.
+
 The BFF migration runner verifies and applies the ordered tracked manifest,
 requiring `009_crop_registry`, `010_planning_depth_submissions`,
 `011_planning_depth_rid_calendar_v2`, and `012_planning_depth_roster_provenance`

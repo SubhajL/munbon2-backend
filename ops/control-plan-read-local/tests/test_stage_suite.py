@@ -1641,7 +1641,7 @@ def test_unexpected_non_loopback_listeners_rejects_wildcard_services():
     assert stage_suite.unexpected_non_loopback_listeners(listeners) == [9090, 9100]
 
 
-def test_validate_migration_parity_requires_scheduler_0013_ros_0003_and_bff_012():
+def test_validate_migration_parity_requires_scheduler_0013_ros_0004_and_bff_012():
     scheduler = [f"{index:04d}_migration" for index in range(1, 13)] + [
         "0013_operator_approved_execution"
     ]
@@ -1649,6 +1649,7 @@ def test_validate_migration_parity_requires_scheduler_0013_ros_0003_and_bff_012(
         "0001_dataset_version_parent",
         "0002_water_requirement_publication",
         "0003_daily_requirement_producer",
+        "0004_dataset_version_identity_immutable",
     ]
     bff = [
         "009_crop_registry",
@@ -1660,8 +1661,8 @@ def test_validate_migration_parity_requires_scheduler_0013_ros_0003_and_bff_012(
     assert stage_suite.validate_migration_parity(scheduler, ros, bff) == {
         "scheduler_latest": "0013_operator_approved_execution",
         "scheduler_count": 13,
-        "ros_latest": "0003_daily_requirement_producer",
-        "ros_count": 3,
+        "ros_latest": "0004_dataset_version_identity_immutable",
+        "ros_count": 4,
         "bff_latest": "012_planning_depth_roster_provenance",
         "bff_count": 4,
     }
@@ -1671,8 +1672,13 @@ def test_validate_migration_parity_requires_scheduler_0013_ros_0003_and_bff_012(
     "scheduler,ros,bff",
     [
         (
-            ["0012_authority_grants"],
-            ["0003_daily_requirement_producer"],
+            [f"{index:04d}_migration" for index in range(1, 13)],
+            [
+                "0001_dataset_version_parent",
+                "0002_water_requirement_publication",
+                "0003_daily_requirement_producer",
+                "0004_dataset_version_identity_immutable",
+            ],
             [
                 "009_crop_registry",
                 "010_planning_depth_submissions",
@@ -1681,8 +1687,13 @@ def test_validate_migration_parity_requires_scheduler_0013_ros_0003_and_bff_012(
             ],
         ),
         (
-            ["0013_operator_approved_execution"],
-            ["0002_water_requirement_publication"],
+            [f"{index:04d}_migration" for index in range(1, 13)]
+            + ["0013_operator_approved_execution"],
+            [
+                "0001_dataset_version_parent",
+                "0002_water_requirement_publication",
+                "0003_daily_requirement_producer",
+            ],
             [
                 "009_crop_registry",
                 "010_planning_depth_submissions",
@@ -1691,8 +1702,14 @@ def test_validate_migration_parity_requires_scheduler_0013_ros_0003_and_bff_012(
             ],
         ),
         (
-            ["0013_operator_approved_execution"],
-            ["0003_daily_requirement_producer"],
+            [f"{index:04d}_migration" for index in range(1, 13)]
+            + ["0013_operator_approved_execution"],
+            [
+                "0001_dataset_version_parent",
+                "0002_water_requirement_publication",
+                "0003_daily_requirement_producer",
+                "0004_dataset_version_identity_immutable",
+            ],
             [
                 "009_crop_registry",
                 "010_planning_depth_submissions",
@@ -1706,6 +1723,158 @@ def test_validate_migration_parity_fails_closed_on_any_missing_tail(
 ):
     with pytest.raises(stage_suite.StageGateError, match="migration_parity_failed"):
         stage_suite.validate_migration_parity(scheduler, ros, bff)
+
+
+ROS_DATASET_VERSION_TRIGGER_ROWS = [
+    (
+        "dataset_versions_identity_is_immutable\tO\t27\t\tt\t"
+        "ros_gis.reject_dataset_version_identity_change()"
+    ),
+    (
+        "dataset_versions_no_truncate\tO\t34\t\tt\t"
+        "ros_gis.reject_dataset_version_identity_change()"
+    ),
+]
+
+
+def test_validate_ros_dataset_version_triggers_requires_enabled_exact_definitions():
+    assert stage_suite.validate_ros_dataset_version_triggers(
+        ROS_DATASET_VERSION_TRIGGER_ROWS
+    ) == {
+        "dataset_version_triggers": [
+            {
+                "name": "dataset_versions_identity_is_immutable",
+                "enabled": "O",
+                "type_mask": 27,
+                "column_filter": None,
+                "unconditional": True,
+                "function": "ros_gis.reject_dataset_version_identity_change()",
+            },
+            {
+                "name": "dataset_versions_no_truncate",
+                "enabled": "O",
+                "type_mask": 34,
+                "column_filter": None,
+                "unconditional": True,
+                "function": "ros_gis.reject_dataset_version_identity_change()",
+            },
+        ]
+    }
+
+
+@pytest.mark.parametrize(
+    "trigger_rows",
+    [
+        [],
+        [
+            ROS_DATASET_VERSION_TRIGGER_ROWS[0].replace("\tO\t", "\tD\t"),
+            ROS_DATASET_VERSION_TRIGGER_ROWS[1],
+        ],
+        [
+            ROS_DATASET_VERSION_TRIGGER_ROWS[0].replace("\t27\t", "\t11\t"),
+            ROS_DATASET_VERSION_TRIGGER_ROWS[1],
+        ],
+        [
+            ROS_DATASET_VERSION_TRIGGER_ROWS[0].replace("\t\tt\t", "\t1 2\tt\t"),
+            ROS_DATASET_VERSION_TRIGGER_ROWS[1],
+        ],
+        [
+            ROS_DATASET_VERSION_TRIGGER_ROWS[0].replace("\t\tt\t", "\t\tf\t"),
+            ROS_DATASET_VERSION_TRIGGER_ROWS[1],
+        ],
+        [
+            ROS_DATASET_VERSION_TRIGGER_ROWS[0].replace(
+                "ros_gis.reject_dataset_version_identity_change()",
+                "ros_gis.unexpected_function()",
+            ),
+            ROS_DATASET_VERSION_TRIGGER_ROWS[1],
+        ],
+        ROS_DATASET_VERSION_TRIGGER_ROWS[:1],
+        [*ROS_DATASET_VERSION_TRIGGER_ROWS, "unexpected_trigger\tO\t27\t\tt\tfn()"],
+    ],
+)
+def test_validate_ros_dataset_version_triggers_fails_closed_on_any_mismatch(
+    trigger_rows,
+):
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="^ros_dataset_version_trigger_parity_failed$",
+    ):
+        stage_suite.validate_ros_dataset_version_triggers(trigger_rows)
+
+
+def test_apply_migrations_applies_ros_0004_and_queries_exact_triggers(
+    tmp_path, monkeypatch
+):
+    context = stage_suite.StageContext(
+        release_sha="a" * 40,
+        frontend_sha="b" * 40,
+        repo_root=tmp_path,
+        harness_root=tmp_path / "harness",
+        evidence_root=tmp_path / "evidence",
+        runtime_env_dir=tmp_path / "runtime-env",
+    )
+    commands = []
+    sql_queries = []
+    scheduler_ids = [f"{index:04d}_migration" for index in range(1, 13)] + [
+        "0013_operator_approved_execution"
+    ]
+    ros_ids = [
+        "0001_dataset_version_parent",
+        "0002_water_requirement_publication",
+        "0003_daily_requirement_producer",
+        "0004_dataset_version_identity_immutable",
+    ]
+    bff_ids = [
+        "009_crop_registry",
+        "010_planning_depth_submissions",
+        "011_planning_depth_rid_calendar_v2",
+        "012_planning_depth_roster_provenance",
+    ]
+
+    def fake_run_checked(label, argv, **_kwargs):
+        commands.append((label, argv))
+        return ""
+
+    def rows(values):
+        return "\n".join(f"{value}\tchecksum" for value in values)
+
+    def fake_psql(_context, sql):
+        sql_queries.append(sql)
+        if "scheduler.schema_migrations" in sql:
+            return rows(scheduler_ids)
+        if "ros_gis.schema_migrations" in sql:
+            return rows(ros_ids)
+        if "water_planning.schema_migrations" in sql:
+            return rows(bff_ids)
+        if "to_regclass" in sql:
+            return "t"
+        if sql == stage_suite.ROS_DATASET_VERSION_TRIGGER_QUERY:
+            return "\n".join(ROS_DATASET_VERSION_TRIGGER_ROWS)
+        raise AssertionError(f"unexpected SQL: {sql}")
+
+    monkeypatch.setattr(stage_suite, "_run_checked", fake_run_checked)
+    monkeypatch.setattr(stage_suite, "_psql", fake_psql)
+    monkeypatch.setattr(stage_suite, "_service_environment", lambda *_args: {})
+
+    result = stage_suite._apply_migrations(context)
+
+    ros_apply_ids = [
+        argv[-1] for label, argv in commands if label.startswith("ros_000")
+    ]
+    assert ros_apply_ids == ros_ids
+    assert stage_suite.ROS_DATASET_VERSION_TRIGGER_QUERY == (
+        "SELECT t.tgname, t.tgenabled, t.tgtype::integer, t.tgattr::text, "
+        "(t.tgqual IS NULL)::text, t.tgfoid::regprocedure::text "
+        "FROM pg_trigger AS t "
+        "WHERE t.tgrelid = 'ros_gis.dataset_versions'::regclass "
+        "AND NOT t.tgisinternal ORDER BY t.tgname"
+    )
+    assert stage_suite.ROS_DATASET_VERSION_TRIGGER_QUERY in sql_queries
+    assert [item["name"] for item in result["dataset_version_triggers"]] == [
+        "dataset_versions_identity_is_immutable",
+        "dataset_versions_no_truncate",
+    ]
 
 
 # --- LOCAL-WRITE-FOUNDATION-1 tests ---

@@ -25,4 +25,5 @@ export PYTHONPATH="${SERVICE_ROOT}/src"
 "${PYTHON_BIN}" migrations/migrate.py apply 0001_dataset_version_parent
 "${PYTHON_BIN}" migrations/migrate.py apply 0002_water_requirement_publication
 "${PYTHON_BIN}" migrations/migrate.py apply 0003_daily_requirement_producer
+"${PYTHON_BIN}" migrations/migrate.py apply 0004_dataset_version_identity_immutable
 exec "${PYTHON_BIN}" -m uvicorn src.main:app --host 127.0.0.1 --port 3047
