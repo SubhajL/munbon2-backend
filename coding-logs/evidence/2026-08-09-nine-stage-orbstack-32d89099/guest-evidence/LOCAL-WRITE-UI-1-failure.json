@@ -1,0 +1,7 @@
+{
+  "failed_at": "2026-08-09T05:04:47.826012Z",
+  "failed_gate": "browser_verify_submit_affordance_failed",
+  "release_sha": "32d89099a0e83eb58b9190841156e44a6f8ceeb1",
+  "stage": "LOCAL-WRITE-UI-1",
+  "verdict": "FAIL"
+}

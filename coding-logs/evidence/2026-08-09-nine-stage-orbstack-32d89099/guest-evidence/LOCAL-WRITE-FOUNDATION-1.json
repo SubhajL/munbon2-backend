@@ -1,0 +1,85 @@
+{
+  "completed_at": "2026-08-09T05:02:56.679756Z",
+  "frontend_sha": "067b3e22401854f8c6d6db42dc0c5c1872fca6f8",
+  "release_sha": "32d89099a0e83eb58b9190841156e44a6f8ceeb1",
+  "stage": "LOCAL-WRITE-FOUNDATION-1",
+  "steps": {
+    "aws_actions": false,
+    "login": {
+      "claims": "valid",
+      "status": 200
+    },
+    "migration_011": {
+      "planning_depth_writes_enabled": "false"
+    },
+    "target_week": {
+      "week_date": "2026-08-03",
+      "week_key": "2026-W32"
+    },
+    "w1_principal": {
+      "effective_roles": [
+        "field_team",
+        "operator"
+      ],
+      "subject": "107dbe72-3607-4e44-993e-2a7405e1b7c8"
+    },
+    "w2_active": {
+      "levels_count": 41,
+      "submission_id": "f0463285-1cf2-4fd0-9ed2-52694c55af77",
+      "zones_covered": [
+        "01-01",
+        "01-02",
+        "01-03",
+        "01-04",
+        "01-05",
+        "01-06"
+      ]
+    },
+    "w2_conflict": {
+      "detail": "stale_active_submission",
+      "status": 409
+    },
+    "w2_create": {
+      "calendar_system": null,
+      "client_submission_id": "765ec1af-a31b-50fb-8da5-1330e93ccbef",
+      "project_key": "mun-bon",
+      "replayed": false,
+      "request_sha256": "c1827641e36e7bbfe762391d7b1dfce0caa1e9e586bbb4ac16952fd96d5a4305",
+      "submission_id": "f0463285-1cf2-4fd0-9ed2-52694c55af77",
+      "submitted_at": "2026-08-09T05:02:55.141834Z",
+      "submitted_by": "107dbe72-3607-4e44-993e-2a7405e1b7c8",
+      "supersedes_submission_id": null,
+      "week_date": "2026-08-03",
+      "week_key": "2026-W32"
+    },
+    "w2_dark_flag_gate": {
+      "detail": "planning_depth_writes_disabled",
+      "status": 503
+    },
+    "w2_not_found": {
+      "status": 404
+    },
+    "w2_replay": {
+      "calendar_system": null,
+      "client_submission_id": "765ec1af-a31b-50fb-8da5-1330e93ccbef",
+      "project_key": "mun-bon",
+      "replayed": true,
+      "request_sha256": "c1827641e36e7bbfe762391d7b1dfce0caa1e9e586bbb4ac16952fd96d5a4305",
+      "submission_id": "f0463285-1cf2-4fd0-9ed2-52694c55af77",
+      "submitted_at": "2026-08-09T05:02:55.141834Z",
+      "submitted_by": "107dbe72-3607-4e44-993e-2a7405e1b7c8",
+      "supersedes_submission_id": null,
+      "week_date": "2026-08-03",
+      "week_key": "2026-W32"
+    },
+    "w2_restored_gate": {
+      "detail": "planning_depth_writes_disabled",
+      "status": 503
+    },
+    "w2_week_clean": {
+      "clean": true,
+      "status": 404
+    }
+  },
+  "verdict": "PASS"
+}
