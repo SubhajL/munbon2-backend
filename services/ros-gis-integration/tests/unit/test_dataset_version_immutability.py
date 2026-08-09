@@ -116,6 +116,8 @@ class TestMigration0004Down:
         assert "DELETE FROM" not in upper  # registry deletion is migrate.py's job
 
     def test_trigger_drop_is_guarded_against_a_missing_table(self):
-        # Out-of-order rollback (0001 before 0004) may have already dropped the
-        # table; the guard keeps this down from erroring and stranding the function.
+        # The runner now refuses out-of-order rollback (#155), but this guard
+        # stays as defense-in-depth for registries damaged outside the runner:
+        # if the table is already gone, the down must not error and strand the
+        # function.
         assert "to_regclass('ros_gis.dataset_versions')" in self._down()

@@ -285,6 +285,10 @@ class _StubConn:
         self.executed.append((sql, args, self._tx_depth > 0))
         if "CREATE TABLE IF NOT EXISTS ros_gis.schema_migrations" in sql:
             self.registry_exists = True
+        if "INSERT INTO ros_gis.schema_migrations" in sql and args:
+            self.applied[args[0]] = args[1]
+        if "DELETE FROM ros_gis.schema_migrations" in sql and args:
+            self.applied.pop(args[0], None)
         return "OK"
 
     async def fetchval(self, sql, *args):
@@ -399,6 +403,308 @@ class TestMigrationRunner:
         conn = _StubConn()
         with pytest.raises(MigrationError, match="not applied"):
             await rollback_migration(conn, "0001_dataset_version_parent")
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("applied_ids", "target", "expected_blockers"),
+        [
+            (
+                [
+                    "0001_dataset_version_parent",
+                    "0004_dataset_version_identity_immutable",
+                ],
+                "0001_dataset_version_parent",
+                ["0004_dataset_version_identity_immutable"],
+            ),
+            (
+                [
+                    "0001_dataset_version_parent",
+                    "0002_water_requirement_publication",
+                    "0004_dataset_version_identity_immutable",
+                ],
+                "0002_water_requirement_publication",
+                ["0004_dataset_version_identity_immutable"],
+            ),
+            (
+                [
+                    "0001_dataset_version_parent",
+                    "0002_water_requirement_publication",
+                    "0004_dataset_version_identity_immutable",
+                ],
+                "0001_dataset_version_parent",
+                [
+                    "0002_water_requirement_publication",
+                    "0004_dataset_version_identity_immutable",
+                ],
+            ),
+        ],
+    )
+    async def test_rollback_refuses_out_of_order_before_any_ddl(
+        self, applied_ids, target, expected_blockers
+    ):
+        # #155: while ANY higher-id migration is registered, rollback must fail
+        # closed before down SQL — the final assert pins that nothing beyond the
+        # advisory lock was executed (registry reads go through fetch*).
+        from migrations.migrate import (
+            MIGRATIONS_LOCK_ID,
+            MigrationError,
+            migration_checksum,
+            rollback_migration,
+        )
+
+        conn = _StubConn(
+            applied={mid: migration_checksum(mid) for mid in applied_ids}
+        )
+        with pytest.raises(MigrationError, match="latest-first") as excinfo:
+            await rollback_migration(conn, target)
+        message = str(excinfo.value)
+        for blocker in expected_blockers:
+            assert blocker in message
+        for earlier in applied_ids:
+            if earlier < target:
+                assert earlier not in message
+        assert conn.executed == [
+            ("SELECT pg_advisory_xact_lock($1)", (MIGRATIONS_LOCK_ID,), True)
+        ]
+
+    @pytest.mark.asyncio
+    async def test_rollback_latest_first_succeeds_while_earlier_remain(self):
+        # R3 overblocking boundary: rolling back the HIGHEST registered id still
+        # executes its down SQL and deletes its registry row while an earlier
+        # migration stays registered (guard must use strict >, not >=).
+        from migrations.migrate import migration_checksum, rollback_migration
+
+        latest = "0004_dataset_version_identity_immutable"
+        conn = _StubConn(
+            applied={
+                "0001_dataset_version_parent": migration_checksum(
+                    "0001_dataset_version_parent"
+                ),
+                latest: migration_checksum(latest),
+            }
+        )
+        assert await rollback_migration(conn, latest) == "rolled-back"
+        executed = [(sql, args) for sql, args, _ in conn.executed]
+        down_sql = (MIGRATIONS / f"{latest}.down.sql").read_text(encoding="utf-8")
+        assert (down_sql, ()) in executed
+        assert (
+            "DELETE FROM ros_gis.schema_migrations WHERE migration_id = $1",
+            (latest,),
+        ) in executed
+        assert conn.applied == {
+            "0001_dataset_version_parent": migration_checksum(
+                "0001_dataset_version_parent"
+            )
+        }
+
+    @pytest.mark.asyncio
+    async def test_rollback_not_applied_refusal_precedes_ordering_refusal(self):
+        # Precedence pin: an absent target while a later migration IS registered
+        # must surface "not applied" (the target's own state), not the ordering
+        # error — the row-absence check stays ahead of the #155 guard.
+        from migrations.migrate import (
+            MigrationError,
+            migration_checksum,
+            rollback_migration,
+        )
+
+        conn = _StubConn(
+            applied={
+                "0004_dataset_version_identity_immutable": migration_checksum(
+                    "0004_dataset_version_identity_immutable"
+                )
+            }
+        )
+        with pytest.raises(MigrationError, match="not applied"):
+            await rollback_migration(conn, "0001_dataset_version_parent")
+
+    @pytest.mark.asyncio
+    async def test_rollback_drift_refusal_precedes_ordering_refusal(self):
+        # Precedence lock: a drifted target with a later migration registered
+        # surfaces the checksum error (restore the pair), not the ordering error.
+        from migrations.migrate import (
+            MigrationError,
+            migration_checksum,
+            rollback_migration,
+        )
+
+        conn = _StubConn(
+            applied={
+                "0001_dataset_version_parent": "deadbeef",
+                "0004_dataset_version_identity_immutable": migration_checksum(
+                    "0004_dataset_version_identity_immutable"
+                ),
+            }
+        )
+        with pytest.raises(MigrationError, match="checksum"):
+            await rollback_migration(conn, "0001_dataset_version_parent")
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("action_name", ["apply", "rollback"])
+    @pytest.mark.parametrize(
+        "bad_id",
+        [
+            "00040_bad_pad",
+            # Unicode decimal digits satisfy \d but sort by raw code point,
+            # so they would silently break the ordering premise (round-2 HIGH):
+            "٠٠٠٥_arabic_indic",
+            "๐๐๐๕_thai",
+            "０００５_fullwidth",
+        ],
+    )
+    async def test_nonconventional_target_id_refuses_before_any_statement(
+        self, action_name, bad_id
+    ):
+        # The ordering guard's premise is the zero-padded ASCII NNNN_ id
+        # convention; a target id that breaks it must be refused up front —
+        # before any SQL executes — not treated as merely unknown.
+        from migrations.migrate import (
+            MigrationError,
+            apply_migration,
+            rollback_migration,
+        )
+
+        action = apply_migration if action_name == "apply" else rollback_migration
+        conn = _StubConn()
+        with pytest.raises(MigrationError, match="convention"):
+            await action(conn, bad_id)
+        assert conn.executed == []
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "bad_registry_id",
+        [
+            # numerically 40 but sorts BELOW '0004_...' ('0' < '_'): a naive
+            # guard would let 0004 roll back while a truly-later id remains
+            "00040_foo",
+            # Arabic-Indic digits pass a naive \d grammar yet sort ABOVE every
+            # ASCII id, corrupting the ordering premise the other way
+            "٠٠٠٥_x",
+        ],
+    )
+    async def test_rollback_fails_closed_when_registry_id_breaks_convention(
+        self, bad_registry_id
+    ):
+        # The runner must refuse to order an unorderable registry instead of
+        # silently under- or over-blocking on raw code-point comparison.
+        from migrations.migrate import (
+            MigrationError,
+            migration_checksum,
+            rollback_migration,
+        )
+
+        latest = "0004_dataset_version_identity_immutable"
+        conn = _StubConn(
+            applied={
+                latest: migration_checksum(latest),
+                bad_registry_id: "registered-outside-the-runner",
+            }
+        )
+        with pytest.raises(MigrationError, match="convention"):
+            await rollback_migration(conn, latest)
+        sqls = [sql for sql, _, _ in conn.executed]
+        assert sqls == ["SELECT pg_advisory_xact_lock($1)"]
+
+    @pytest.mark.asyncio
+    async def test_apply_refuses_malformed_registry_before_migration_ddl(self):
+        # Round-2 MEDIUM: without this, apply happily registers 0001 into a
+        # registry that rollback then refuses to order — the runner could apply
+        # what it can never undo. Apply must fail closed BEFORE the up SQL.
+        from migrations.migrate import (
+            MIGRATIONS_REGISTRY_DDL,
+            MIGRATIONS_SCHEMA_DDL,
+            MigrationError,
+            apply_migration,
+        )
+
+        conn = _StubConn(applied={"legacy-bad-id": "checksum-irrelevant"})
+        with pytest.raises(MigrationError, match="convention"):
+            await apply_migration(conn, "0001_dataset_version_parent")
+        sqls = [sql for sql, _, _ in conn.executed]
+        assert sqls == [
+            "SELECT pg_advisory_xact_lock($1)",
+            MIGRATIONS_SCHEMA_DDL,
+            MIGRATIONS_REGISTRY_DDL,
+        ]
+
+    @pytest.mark.asyncio
+    async def test_reapply_fails_closed_when_registry_has_corrupt_sibling(self):
+        # Idempotent re-apply is a routine deploy step (run-ros.sh re-applies
+        # 0001-0003 on every boot) — it must surface an unorderable registry
+        # instead of blessing it with "already-applied".
+        from migrations.migrate import (
+            MigrationError,
+            apply_migration,
+            migration_checksum,
+        )
+
+        conn = _StubConn(
+            applied={
+                "0001_dataset_version_parent": migration_checksum(
+                    "0001_dataset_version_parent"
+                ),
+                "legacy-bad-id": "registered-outside-the-runner",
+            }
+        )
+        with pytest.raises(MigrationError, match="convention"):
+            await apply_migration(conn, "0001_dataset_version_parent")
+        assert not any("INSERT INTO" in sql for sql, _, _ in conn.executed)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "sibling",
+        [
+            # sorts BELOW the target by suffix: a naive full-id guard would let
+            # 0004 roll back while the same-numbered sibling stays registered
+            "0004_aaa_sibling_branch",
+            # sorts ABOVE the target: previously the "latest-first" path; the
+            # prefix collision must now refuse before any ordering claim
+            "0004_zzz_sibling_branch",
+        ],
+    )
+    async def test_rollback_fails_closed_on_duplicate_numeric_prefix(
+        self, sibling
+    ):
+        # Suffix lexicography is not migration order — a duplicate numeric
+        # prefix makes the registry unorderable; refuse before any DDL.
+        from migrations.migrate import (
+            MigrationError,
+            migration_checksum,
+            rollback_migration,
+        )
+
+        latest = "0004_dataset_version_identity_immutable"
+        conn = _StubConn(
+            applied={
+                latest: migration_checksum(latest),
+                sibling: "registered-outside-the-runner",
+            }
+        )
+        with pytest.raises(MigrationError, match="prefix"):
+            await rollback_migration(conn, latest)
+        sqls = [sql for sql, _, _ in conn.executed]
+        assert sqls == ["SELECT pg_advisory_xact_lock($1)"]
+
+    @pytest.mark.asyncio
+    async def test_apply_refuses_target_colliding_with_registered_prefix(self):
+        # Applying a second migration numbered 0001 would CREATE the
+        # unorderable duplicate-prefix state; apply must refuse before up SQL.
+        from migrations.migrate import (
+            MIGRATIONS_REGISTRY_DDL,
+            MIGRATIONS_SCHEMA_DDL,
+            MigrationError,
+            apply_migration,
+        )
+
+        conn = _StubConn(applied={"0001_something_else": "other-branch"})
+        with pytest.raises(MigrationError, match="prefix"):
+            await apply_migration(conn, "0001_dataset_version_parent")
+        sqls = [sql for sql, _, _ in conn.executed]
+        assert sqls == [
+            "SELECT pg_advisory_xact_lock($1)",
+            MIGRATIONS_SCHEMA_DDL,
+            MIGRATIONS_REGISTRY_DDL,
+        ]
 
     @pytest.mark.asyncio
     async def test_mid_apply_failure_raises_and_never_registers(self):
