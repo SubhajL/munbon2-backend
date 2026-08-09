@@ -250,6 +250,15 @@ def test_write_browser_runner_covers_create_conflict_retry_and_outage():
         # reach call ordering, so this is the declared fallback for it.
         "await response.clone().arrayBuffer()",
         "recordPlanningRead",
+        "makePlanningFetchWrapper",
+        # #160 HIGH-1: each context's OWN pre-logout refresh cookie must be the
+        # revocation probe's input, and only integer statuses may be recorded.
+        "smart_cms_refresh",
+        "refresh_reuse_status",
+        "contextRefreshCookie",
+        "proveContextLogout",
+        "assertRefreshShaped",
+        "AbortSignal.timeout",
         # Credentials must be the bootstrap's canonical names, and the outage
         # must be coordinated rather than asserted.
         "MUNBON_OPERATOR_EMAIL",

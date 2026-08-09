@@ -2696,6 +2696,7 @@ def _write_browser_evidence():
             "unavailable_banner": False,
             "submit_status": 403,
             "logout_status": 200,
+            "refresh_reuse_status": 401,
         },
         "outage_result": {
             "roster_status": 502,
@@ -2711,6 +2712,8 @@ def _write_browser_evidence():
         "logout_result": {
             "status": 200,
             "second_context_status": 200,
+            "refresh_reuse_status": 401,
+            "second_context_refresh_reuse_status": 401,
             "redirect_url": "/login",
         },
         "reload_result": {
@@ -2750,6 +2753,598 @@ def test_validate_write_browser_result_rejects_missing_create_proof():
         match="write_browser_result_not_accepted",
     ):
         stage_suite.validate_write_browser_result(evidence)
+
+
+REFRESH_REUSE_FIELDS = (
+    ("field_team_result", "refresh_reuse_status"),
+    ("logout_result", "refresh_reuse_status"),
+    ("logout_result", "second_context_refresh_reuse_status"),
+)
+
+
+@pytest.mark.parametrize(("section", "field"), REFRESH_REUSE_FIELDS)
+def test_validate_write_browser_result_rejects_missing_refresh_reuse(section, field):
+    evidence = _write_browser_evidence()
+    del evidence[section][field]
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_browser_result_not_accepted",
+    ):
+        stage_suite.validate_write_browser_result(evidence)
+
+
+@pytest.mark.parametrize(
+    ("section", "field", "float_value"),
+    [
+        ("field_team_result", "panel_roster_status", 403.0),
+        ("field_team_result", "panel_active_status", 403.0),
+        ("field_team_result", "observed_roster_status", 403.0),
+        ("outage_result", "panel_roster_status", 502.0),
+        ("outage_result", "panel_active_status", 502.0),
+        ("outage_result", "observed_roster_status", 502.0),
+    ],
+)
+def test_validate_write_browser_result_rejects_float_passive_statuses(
+    section, field, float_value
+):
+    # The passive/panel cross-checks are int-strict too: a float that == the
+    # probe status must not be read as agreement (#160 round-3 review).
+    evidence = _write_browser_evidence()
+    evidence[section][field] = float_value
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_browser_result_not_accepted",
+    ):
+        stage_suite.validate_write_browser_result(evidence)
+
+
+@pytest.mark.parametrize(
+    ("section", "field", "float_value"),
+    [
+        ("create_result", "status", 201.0),
+        ("field_team_result", "roster_status", 403.0),
+        ("outage_result", "roster_status", 502.0),
+        ("conflict_result", "status", 409.0),
+    ],
+)
+def test_validate_write_browser_result_rejects_float_status_lookalikes(
+    section, field, float_value
+):
+    # Every status gate is int-strict, not just the 401 ones: a re-serialization
+    # emitting 403.0/502.0/201.0 must not sail through on == equality.
+    evidence = _write_browser_evidence()
+    evidence[section][field] = float_value
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_browser_result_not_accepted",
+    ):
+        stage_suite.validate_write_browser_result(evidence)
+
+
+@pytest.mark.parametrize(("section", "field"), REFRESH_REUSE_FIELDS)
+@pytest.mark.parametrize("unrevoked_status", [200, 403, None, 401.0, "401", True])
+def test_validate_write_browser_result_rejects_unrevoked_refresh_reuse(
+    section, field, unrevoked_status
+):
+    # The suppression scenario: logout status, redirect, and reload can all look
+    # perfect while the SAME context's refresh token still works (200) or fails
+    # for the wrong reason (403/None). Only an observed 401 proves revocation.
+    evidence = _write_browser_evidence()
+    evidence[section][field] = unrevoked_status
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_browser_result_not_accepted",
+    ):
+        stage_suite.validate_write_browser_result(evidence)
+
+
+def test_restore_scheduler_guarded_retries_then_reports_success(monkeypatch):
+    calls = {"restore": 0}
+
+    def restore_fail_once():
+        calls["restore"] += 1
+        if calls["restore"] == 1:
+            raise stage_suite.StageGateError("write_ui_scheduler_restart")
+
+    monkeypatch.setattr(stage_suite, "_restore_scheduler", restore_fail_once)
+    monkeypatch.setattr(
+        stage_suite, "_verify_scheduler_restoration", lambda: None
+    )
+    monkeypatch.setattr(stage_suite.time, "sleep", lambda _s: None)
+
+    report = stage_suite._restore_scheduler_guarded()
+
+    assert report == {"attempts": 2, "restored": True, "failed_gate": None}
+
+
+def test_restore_scheduler_guarded_reports_failure_after_bounded_attempts(
+    monkeypatch,
+):
+    calls = {"restore": 0}
+
+    def restore_always_fails():
+        calls["restore"] += 1
+        raise stage_suite.StageGateError("write_ui_scheduler_restart")
+
+    def verify_fails():
+        raise stage_suite.StageGateError("write_ui_scheduler_not_online_after_restore")
+
+    monkeypatch.setattr(stage_suite, "_restore_scheduler", restore_always_fails)
+    monkeypatch.setattr(
+        stage_suite, "_verify_scheduler_restoration", verify_fails
+    )
+    monkeypatch.setattr(stage_suite.time, "sleep", lambda _s: None)
+
+    report = stage_suite._restore_scheduler_guarded()
+
+    assert calls["restore"] == 3
+    # The final-state verification is authoritative on failure: it names the
+    # unmet condition, superseding the earlier restart error.
+    assert report == {
+        "attempts": 3,
+        "restored": False,
+        "failed_gate": "write_ui_scheduler_not_online_after_restore",
+    }
+
+
+def test_restore_scheduler_guarded_never_persists_raw_exception_text(
+    monkeypatch,
+):
+    # Raw str(exc) can carry credential context the sanitizer cannot recognize,
+    # and a sanitizer trip while writing the manifest silently discards it.
+    # Non-StageGateError failures must be reduced to a safe type code.
+    def restore_raises_with_secret():
+        raise RuntimeError("postgres://operator:hunter2@10.0.0.5/db unreachable")
+
+    monkeypatch.setattr(
+        stage_suite, "_restore_scheduler", restore_raises_with_secret
+    )
+
+    def verify_fails():
+        raise RuntimeError("also-secret: Bearer abc.def")
+
+    monkeypatch.setattr(
+        stage_suite, "_verify_scheduler_restoration", verify_fails
+    )
+    monkeypatch.setattr(stage_suite.time, "sleep", lambda _s: None)
+
+    report = stage_suite._restore_scheduler_guarded()
+
+    assert report == {
+        "attempts": 3,
+        "restored": False,
+        "failed_gate": "unexpected_RuntimeError",
+    }
+
+
+def test_safe_subprocess_failure_code_extracts_a_named_browser_code():
+    # The browser now prints a clean code token so a named diagnostic
+    # (refresh_cookie_ambiguous, …) reaches the failure manifest instead of
+    # collapsing to the generic write_browser_failed.
+    stderr = (
+        "FAIL write_browser: refresh_cookie_ambiguous\n"
+        "write_browser detail: two smart_cms_refresh cookies\n"
+    )
+    assert (
+        stage_suite.safe_subprocess_failure_code(stderr, "FAIL write_browser: ")
+        == "refresh_cookie_ambiguous"
+    )
+
+
+def test_safe_subprocess_failure_code_ignores_the_human_detail_line():
+    # The non-prefixed detail line must never be mistaken for a second code
+    # (which would collapse the extraction to None).
+    stderr = (
+        "FAIL write_browser: browser_logout_failed\n"
+        "write_browser detail: ECONNRESET 127.0.0.1:9999\n"
+    )
+    assert (
+        stage_suite.safe_subprocess_failure_code(stderr, "FAIL write_browser: ")
+        == "browser_logout_failed"
+    )
+
+
+def test_write_browser_environment_scrubs_node_preload_injection(
+    tmp_path, monkeypatch
+):
+    # A parent NODE_OPTIONS=--require preload can replace globalThis.fetch and
+    # fabricate a 401 the validator would accept, without ever contacting
+    # central auth. The launcher env must not inherit it (#160 review).
+    monkeypatch.setenv("NODE_OPTIONS", "--require /tmp/evil-preload.js")
+    monkeypatch.setenv("NODE_REPL_EXTERNAL_MODULE", "/tmp/evil.js")
+    context = _write_ui_context(tmp_path)
+    runtime = context.runtime_env_dir
+    runtime.mkdir(parents=True, exist_ok=True)
+    (runtime / "operator.env").write_text(
+        "MUNBON_OPERATOR_EMAIL=op@example.test\n"
+        "MUNBON_OPERATOR_PASSWORD=pw\n",
+        encoding="utf-8",
+    )
+    (runtime / "field-team.env").write_text(
+        "MUNBON_FIELD_TEAM_EMAIL=ft@example.test\n"
+        "MUNBON_FIELD_TEAM_PASSWORD=pw\n",
+        encoding="utf-8",
+    )
+
+    environment = stage_suite._write_browser_environment(
+        context,
+        week_key="2027-R01",
+        week_date="2026-11-02",
+        ready_path=tmp_path / ".ready",
+        release_path=tmp_path / ".release",
+    )
+
+    assert "NODE_OPTIONS" not in environment
+    assert "NODE_REPL_EXTERNAL_MODULE" not in environment
+
+
+def test_restore_scheduler_guarded_propagates_interrupt_class_exits(monkeypatch):
+    # An operator Ctrl-C must NOT be absorbed into a scheduler_restore_failed
+    # verdict: the guard lets interrupt-class exits propagate so the caller can
+    # route them to a manifest-then-propagate exit with their own semantics.
+    def restore_interrupted():
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(stage_suite, "_restore_scheduler", restore_interrupted)
+    monkeypatch.setattr(
+        stage_suite, "_verify_scheduler_restoration", lambda: None
+    )
+    monkeypatch.setattr(stage_suite.time, "sleep", lambda _s: None)
+
+    with pytest.raises(KeyboardInterrupt):
+        stage_suite._restore_scheduler_guarded()
+
+
+def test_restore_scheduler_guarded_backs_off_between_attempts(monkeypatch):
+    sleeps = []
+
+    def restore_always_fails():
+        raise stage_suite.StageGateError("write_ui_scheduler_restart")
+
+    monkeypatch.setattr(stage_suite, "_restore_scheduler", restore_always_fails)
+    monkeypatch.setattr(
+        stage_suite, "_verify_scheduler_restoration", lambda: None
+    )
+    monkeypatch.setattr(stage_suite.time, "sleep", sleeps.append)
+
+    stage_suite._restore_scheduler_guarded(attempts=3, backoff_seconds=2.5)
+
+    assert sleeps == [2.5, 2.5]
+
+
+def test_verify_scheduler_restoration_checks_state_and_readiness_without_restart(
+    monkeypatch,
+):
+    # ONE ordered log: readiness must be polled BEFORE the pm2 snapshot, or a
+    # restart still respawning is snapshotted as not-online and false-fails —
+    # the exact #160 HIGH-2 race. Separate lists cannot pin that order.
+    events = []
+
+    def recording_run_checked(label, argv, **_kwargs):
+        assert argv == ["pm2", "jlist"]
+        events.append("pm2_jlist")
+        return _scheduler_jlist("online")
+
+    monkeypatch.setattr(stage_suite, "_run_checked", recording_run_checked)
+    monkeypatch.setattr(
+        stage_suite,
+        "_wait_json",
+        lambda _c, _url: events.append("readiness"),
+    )
+    monkeypatch.setattr(stage_suite, "LocalHttpClient", lambda *_a, **_k: object())
+
+    stage_suite._verify_scheduler_restoration()
+
+    assert events == ["readiness", "pm2_jlist"]
+
+
+def test_verify_scheduler_restoration_tolerates_a_stale_stopped_duplicate(
+    monkeypatch,
+):
+    # pm2 can retain a stale errored/stopped duplicate entry beside the healthy
+    # one; a stage whose scheduler is genuinely online (and serving readiness)
+    # must not FAIL because a leftover duplicate is not online (#160 round-5).
+    monkeypatch.setattr(
+        stage_suite,
+        "_run_checked",
+        lambda *_a, **_k: _scheduler_jlist_entries("stopped", "online"),
+    )
+    monkeypatch.setattr(stage_suite, "_wait_json", lambda *_a, **_k: {"status": "ready"})
+    monkeypatch.setattr(stage_suite, "LocalHttpClient", lambda *_a, **_k: object())
+
+    stage_suite._verify_scheduler_restoration()  # must not raise
+
+
+def test_verify_scheduler_restoration_rejects_a_stopped_scheduler(monkeypatch):
+    # Readiness is polled first; a process that answers readiness but whose pm2
+    # entry is not 'online' (a stale/errored duplicate) is still rejected.
+    monkeypatch.setattr(
+        stage_suite,
+        "_run_checked",
+        lambda *_a, **_k: _scheduler_jlist("stopped"),
+    )
+    monkeypatch.setattr(stage_suite, "_wait_json", lambda *_a, **_k: {"status": "ready"})
+    monkeypatch.setattr(stage_suite, "LocalHttpClient", lambda *_a, **_k: object())
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_ui_scheduler_not_online_after_restore",
+    ):
+        stage_suite._verify_scheduler_restoration()
+
+
+def test_restore_scheduler_guarded_records_restored_despite_command_error(
+    monkeypatch,
+):
+    # `pm2 restart` can time out while still taking effect. The INDEPENDENT
+    # final-state check decides `restored`; the command error stays on record.
+    def restore_always_fails():
+        raise stage_suite.StageGateError("write_ui_scheduler_restart")
+
+    monkeypatch.setattr(stage_suite, "_restore_scheduler", restore_always_fails)
+    monkeypatch.setattr(
+        stage_suite, "_verify_scheduler_restoration", lambda: None
+    )
+    monkeypatch.setattr(stage_suite.time, "sleep", lambda _s: None)
+
+    report = stage_suite._restore_scheduler_guarded()
+
+    assert report == {
+        "attempts": 3,
+        "restored": True,
+        "failed_gate": "write_ui_scheduler_restart",
+    }
+
+
+def test_run_write_browser_restores_scheduler_then_propagates_a_primary_interrupt(
+    tmp_path, monkeypatch
+):
+    # An operator Ctrl-C aborting the drill is not a stage verdict: the guarded
+    # restore still runs (never leave the scheduler down), but the interrupt
+    # propagates with its exit semantics rather than being converted or recorded.
+    context = _write_ui_context(tmp_path)
+    events = []
+    _install_write_browser_fakes(monkeypatch, tmp_path, events)
+
+    def drive_interrupted(_context, _environment, _ready, _release, state):
+        state["scheduler_stopped"] = True
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(stage_suite, "_drive_write_browser", drive_interrupted)
+
+    with pytest.raises(KeyboardInterrupt):
+        stage_suite._run_write_browser(
+            context, week_key="2027-R01", week_date="2026-11-02"
+        )
+
+    assert "restart:scheduler" in events
+
+
+def test_run_write_browser_success_path_fails_closed_when_restore_fails(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        stage_suite, "_write_browser_environment", lambda *a, **k: {}
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_drive_write_browser",
+        lambda *_a, **_k: {"browser": "evidence"},
+    )
+    failed_report = {"attempts": 3, "restored": False, "failed_gate": "dead"}
+    monkeypatch.setattr(
+        stage_suite, "_restore_scheduler_guarded", lambda: failed_report
+    )
+
+    class _Context:
+        evidence_root = tmp_path
+        harness_root = tmp_path
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="write_ui_scheduler_restore_failed"
+    ) as excinfo:
+        stage_suite._run_write_browser(
+            _Context(), week_key="2026-W32", week_date="2026-08-03"
+        )
+
+    assert excinfo.value.restoration is failed_report
+
+
+def test_run_write_browser_success_records_restoration_after_retry(tmp_path, monkeypatch):
+    # The #160 combined scenario: browser evidence succeeds, the FIRST restore
+    # attempt fails, the retry succeeds — the stage passes and the evidence
+    # carries the real restoration report.
+    calls = {"restore": 0}
+
+    def restore_fail_once():
+        calls["restore"] += 1
+        if calls["restore"] == 1:
+            raise stage_suite.StageGateError("write_ui_scheduler_restart")
+
+    monkeypatch.setattr(
+        stage_suite, "_write_browser_environment", lambda *a, **k: {}
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_drive_write_browser",
+        lambda *_a, **_k: {"browser": "evidence"},
+    )
+    monkeypatch.setattr(stage_suite, "_restore_scheduler", restore_fail_once)
+    monkeypatch.setattr(
+        stage_suite, "_verify_scheduler_restoration", lambda: None
+    )
+    monkeypatch.setattr(stage_suite.time, "sleep", lambda _s: None)
+
+    class _Context:
+        evidence_root = tmp_path
+        harness_root = tmp_path
+
+    result = stage_suite._run_write_browser(
+        _Context(), week_key="2026-W32", week_date="2026-08-03"
+    )
+
+    assert result["browser"] == "evidence"
+    assert result["scheduler_restoration"] == {
+        "attempts": 2,
+        "restored": True,
+        "failed_gate": None,
+    }
+
+
+def test_run_write_browser_failure_path_attaches_restoration_report(tmp_path, monkeypatch):
+    report = {"attempts": 1, "restored": True, "failed_gate": None}
+
+    def drive_and_fail(_context, _environment, _ready, _release, state):
+        state["scheduler_stopped"] = True
+        raise stage_suite.StageGateError("write_browser_result_not_accepted")
+
+    monkeypatch.setattr(
+        stage_suite, "_write_browser_environment", lambda *a, **k: {}
+    )
+    monkeypatch.setattr(stage_suite, "_drive_write_browser", drive_and_fail)
+    monkeypatch.setattr(
+        stage_suite, "_restore_scheduler_guarded", lambda: report
+    )
+
+    class _Context:
+        evidence_root = tmp_path
+        harness_root = tmp_path
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="write_browser_result_not_accepted"
+    ) as excinfo:
+        stage_suite._run_write_browser(
+            _Context(), week_key="2026-W32", week_date="2026-08-03"
+        )
+
+    assert excinfo.value.restoration is report
+
+
+def test_main_propagates_a_primary_interrupt_without_writing_a_manifest(
+    tmp_path, monkeypatch
+):
+    # An operator interrupt is not a stage verdict: it propagates with its own
+    # process semantics and writes NO manifest — a FAIL manifest here would
+    # stamp a contradiction beside an already-written PASS if the abort landed
+    # just after a stage completed.
+    evidence_root = tmp_path / "evidence"
+    evidence_root.mkdir()
+    args = stage_suite.argparse.Namespace(
+        stage="LOCAL-WRITE-UI-1",
+        release_sha="8" * 40,
+        frontend_sha="9" * 40,
+        repo_root=tmp_path / "repo",
+        frontend_root=tmp_path / "frontend",
+        harness_root=tmp_path / "harness",
+        evidence_root=evidence_root,
+        runtime_env_dir=tmp_path / "runtime",
+        as_of_date=stage_suite.date(2026, 8, 9),
+    )
+
+    def interrupt(_context):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(stage_suite, "_parse_args", lambda _argv: args)
+    monkeypatch.setattr(stage_suite, "run_local_write_ui", interrupt)
+
+    with pytest.raises(KeyboardInterrupt):
+        stage_suite.main([])
+
+    assert not (evidence_root / "LOCAL-WRITE-UI-1-failure.json").exists()
+
+
+def test_rta1_manifest_records_a_swallowed_teardown_error(tmp_path, monkeypatch):
+    # Containing a _stop_runtime() failure must not make it INVISIBLE: the
+    # teardown error is recorded on the manifest so orphaned processes are
+    # explained, while the primary gate still leads (#160 round-4).
+    evidence_root = tmp_path / "evidence"
+    evidence_root.mkdir()
+    args = stage_suite.argparse.Namespace(
+        stage="LOCAL-RTA-1",
+        release_sha="8" * 40,
+        frontend_sha="9" * 40,
+        repo_root=tmp_path / "repo",
+        frontend_root=tmp_path / "frontend",
+        harness_root=tmp_path / "harness",
+        evidence_root=evidence_root,
+        runtime_env_dir=tmp_path / "runtime",
+        as_of_date=stage_suite.date(2026, 8, 9),
+    )
+
+    def gate_fails(_context):
+        raise stage_suite.StageGateError("rta1_bearer_rejected")
+
+    def teardown_times_out():
+        raise stage_suite.subprocess.TimeoutExpired(cmd="pm2", timeout=30)
+
+    monkeypatch.setattr(stage_suite, "_parse_args", lambda _argv: args)
+    monkeypatch.setattr(stage_suite, "run_local_rta", gate_fails)
+    monkeypatch.setattr(stage_suite, "_stop_runtime", teardown_times_out)
+
+    assert stage_suite.main([]) == 1
+
+    failure = json.loads(
+        (evidence_root / "LOCAL-RTA-1-failure.json").read_text(encoding="utf-8")
+    )
+    assert failure["failed_gate"] == "rta1_bearer_rejected"
+    assert failure["teardown_error"] == "unexpected_TimeoutExpired"
+
+
+def test_write_ui_failure_manifest_preserves_restoration_for_unexpected_errors(
+    tmp_path, monkeypatch
+):
+    # main() wraps a non-StageGateError primary in unexpected_<Type>; the
+    # restoration report must survive that wrapping into the failure manifest.
+    evidence_root = tmp_path / "evidence"
+    evidence_root.mkdir()
+    args = stage_suite.argparse.Namespace(
+        stage="LOCAL-WRITE-UI-1",
+        release_sha="8" * 40,
+        frontend_sha="9" * 40,
+        repo_root=tmp_path / "repo",
+        frontend_root=tmp_path / "frontend",
+        harness_root=tmp_path / "harness",
+        evidence_root=evidence_root,
+        runtime_env_dir=tmp_path / "runtime",
+        as_of_date=stage_suite.date(2026, 8, 9),
+    )
+
+    def fail_with_restoration(_context):
+        error = RuntimeError("browser exploded")
+        error.restoration = {"attempts": 2, "restored": True, "failed_gate": None}
+        raise error
+
+    monkeypatch.setattr(stage_suite, "_parse_args", lambda _argv: args)
+    monkeypatch.setattr(stage_suite, "run_local_write_ui", fail_with_restoration)
+
+    assert stage_suite.main([]) == 1
+    failure = json.loads(
+        (evidence_root / "LOCAL-WRITE-UI-1-failure.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert failure.pop("failed_at").endswith("Z")
+    assert failure == {
+        "stage": "LOCAL-WRITE-UI-1",
+        "verdict": "FAIL",
+        "release_sha": "8" * 40,
+        "failed_gate": "unexpected_RuntimeError",
+        "restoration": {"attempts": 2, "restored": True, "failed_gate": None},
+    }
+
+
+def test_validate_write_browser_result_projects_refresh_reuse_statuses():
+    # The projection must ECHO the observed 401s; checked-then-dropped evidence
+    # is the capture-then-discard pattern this stage exists to delete.
+    result = stage_suite.validate_write_browser_result(_write_browser_evidence())
+
+    assert result["field_team_result"]["refresh_reuse_status"] == 401
+    assert result["logout_result"]["refresh_reuse_status"] == 401
+    assert result["logout_result"]["second_context_refresh_reuse_status"] == 401
 
 
 def test_validate_write_browser_result_rejects_forbidden_write_count():
@@ -3254,6 +3849,34 @@ class _FakeWriteBrowserProcess:
         return None
 
 
+def _scheduler_jlist_entries(*statuses):
+    return json.dumps(
+        [
+            {
+                "name": "scheduler",
+                "pid": 4242 + i,
+                "pm2_env": {"status": s, "restart_time": 0},
+                "monit": {"memory": 1024, "cpu": 0},
+            }
+            for i, s in enumerate(statuses)
+        ]
+    )
+
+
+def _scheduler_jlist(status):
+    """A minimal pm2 jlist body that project_pm2_state accepts."""
+    return json.dumps(
+        [
+            {
+                "name": "scheduler",
+                "pid": 4242,
+                "pm2_env": {"status": status, "restart_time": 0},
+                "monit": {"memory": 1024, "cpu": 0},
+            }
+        ]
+    )
+
+
 def _install_write_browser_fakes(monkeypatch, tmp_path, events, payload=None):
     ready_path = tmp_path / "evidence" / ".write-ui-ready"
     body = payload if payload is not None else _write_browser_evidence()
@@ -3265,6 +3888,9 @@ def _install_write_browser_fakes(monkeypatch, tmp_path, events, payload=None):
         )
 
     def fake_run_checked(label, argv, **_kwargs):
+        if argv[:2] == ["pm2", "jlist"]:
+            events.append("jlist:scheduler")
+            return _scheduler_jlist("online")
         events.append(f"{argv[1]}:{argv[2]}")
         return ""
 
@@ -3280,6 +3906,7 @@ def _install_write_browser_fakes(monkeypatch, tmp_path, events, payload=None):
     monkeypatch.setattr(stage_suite, "_stop_temporary_process", lambda _p: None)
     monkeypatch.setattr(stage_suite, "_wait_json", lambda *_a, **_k: {"status": "ready"})
     monkeypatch.setattr(stage_suite, "LocalHttpClient", lambda *_a, **_k: object())
+    monkeypatch.setattr(stage_suite.time, "sleep", lambda _s: None)
 
 
 def test_run_write_browser_stops_scheduler_only_after_ready_and_restores_after(
@@ -3311,6 +3938,9 @@ def test_run_write_browser_fails_closed_when_scheduler_restore_fails(
     _install_write_browser_fakes(monkeypatch, tmp_path, events)
 
     def failing_run_checked(label, argv, **_kwargs):
+        if argv[:2] == ["pm2", "jlist"]:
+            # The restart genuinely never took: pm2 still reports it stopped.
+            return _scheduler_jlist("stopped")
         events.append(f"{argv[1]}:{argv[2]}")
         if argv[1] == "restart":
             raise stage_suite.StageGateError("pm2_restart_failed")
@@ -3318,7 +3948,9 @@ def test_run_write_browser_fails_closed_when_scheduler_restore_fails(
 
     monkeypatch.setattr(stage_suite, "_run_checked", failing_run_checked)
 
-    with pytest.raises(stage_suite.StageGateError):
+    with pytest.raises(
+        stage_suite.StageGateError, match="scheduler_restore_failed"
+    ):
         stage_suite._run_write_browser(
             context, week_key="2027-R01", week_date="2026-11-02"
         )
@@ -3337,6 +3969,8 @@ def test_run_write_browser_restores_scheduler_when_the_stop_itself_times_out(
     _install_write_browser_fakes(monkeypatch, tmp_path, events)
 
     def stop_times_out(label, argv, **_kwargs):
+        if argv[:2] == ["pm2", "jlist"]:
+            return _scheduler_jlist("online")
         events.append(f"{argv[1]}:{argv[2]}")
         if argv[1] == "stop":
             raise stage_suite.StageGateError("write_ui_scheduler_stop_failed")
@@ -3365,6 +3999,9 @@ def test_run_write_browser_keeps_the_primary_diagnosis_when_restore_also_fails(
     _install_write_browser_fakes(monkeypatch, tmp_path, events, payload=untruthful)
 
     def restart_fails(label, argv, **_kwargs):
+        if argv[:2] == ["pm2", "jlist"]:
+            # Dead for real: the primary diagnosis must still lead the code.
+            return _scheduler_jlist("stopped")
         events.append(f"{argv[1]}:{argv[2]}")
         if argv[1] == "restart":
             raise stage_suite.StageGateError("pm2_restart_failed")
@@ -3372,14 +4009,17 @@ def test_run_write_browser_keeps_the_primary_diagnosis_when_restore_also_fails(
 
     monkeypatch.setattr(stage_suite, "_run_checked", restart_fails)
 
-    with pytest.raises(
-        stage_suite.StageGateError,
-        match="write_browser_result_not_accepted",
-    ):
+    with pytest.raises(stage_suite.StageGateError) as excinfo:
         stage_suite._run_write_browser(
             context, week_key="2027-R01", week_date="2026-11-02"
         )
 
+    # Full-code pin: a regression to the bare primary code would still satisfy
+    # a substring match — the combined "name BOTH" code is the behavior.
+    assert (
+        str(excinfo.value)
+        == "write_browser_result_not_accepted_and_scheduler_restore_failed"
+    )
     assert "restart:scheduler" in events
 
 

@@ -223,8 +223,8 @@ the scheduler.
 | Drill | How it is induced | What is proven |
 |---|---|---|
 | Field-team denial | A seeded `field_team` user (no operator rights) signs in | roster `403`, active `403`, the `ส่งแผน` control is **not rendered**, the denial banner is shown, and no write succeeds |
-| Scheduler outage | The stage runs `pm2 stop scheduler` once the browser signals ready, then restores it with `pm2 restart scheduler --update-env` and a readiness wait | roster `502`, active `502` (every upstream failure collapses to 502 at the proxy), the control is **not rendered**, the unavailable banner is shown, and no write succeeds |
-| Logout | The real `POST /api/auth/logout` for every context | a success status, a redirect that lands on `/login` on both navigation and reload, and a subsequent refresh-token reuse rejected with `401` |
+| Scheduler outage | The stage runs `pm2 stop scheduler` once the browser signals ready, then restores it through the bounded guarded restart (retries + independent pm2/readiness verification) | roster `502`, active `502` (every upstream failure collapses to 502 at the proxy), the control is **not rendered**, the unavailable banner is shown, and no write succeeds |
+| Logout | The real `POST /api/auth/logout` for every context | a success status, a redirect that lands on `/login` on both navigation and reload, and — per browser context — reuse of that context's OWN pre-logout refresh credential rejected with `401`. A separate direct-auth session is probed identically and its non-`401` reuse also hard-fails the stage. |
 
 The discriminator is two-sided: each drill must show its own banner **and** must
 not show the other's, so an outage can never be recorded as a permission denial.
@@ -254,9 +254,18 @@ present from the first client render in every drill. Each of those would resolve
 instantly and gate nothing. Readiness is therefore the app's own roster and
 active reads completing, observed inside the page and flushed through a render.
 
-Any snapshot, subprocess, coordination, or restore failure raises and fails the
-stage; the scheduler is restored on every exit path, and if a restore also fails
-the error names both it and the original finding.
+Any snapshot, subprocess, coordination, or restore FAILURE (Exception-class)
+raises and fails the stage with a `-failure.json` manifest; the scheduler is
+restored through a bounded guarded restart (retries plus an independent
+pm2/readiness final-state check whose verdict is authoritative and never masks
+the primary error), the restoration report rides into the evidence on success
+and into the failure manifest otherwise, and if a restore also fails the error
+names both it and the original finding. An operator interrupt (Ctrl-C /
+`SystemExit`) is NOT a stage verdict: it makes a bounded best-effort to bring the
+scheduler back, then propagates with its own process exit semantics and writes
+NO stage manifest — recording a `FAIL` for an abort would stamp a contradiction
+beside an already-written `PASS` when the interrupt lands just after a stage
+completed.
 
 The 2026-07-23 rehearsal preserved its first otherwise-successful attempt as
 `evidence-with-wildcard` after listener inspection found package-started

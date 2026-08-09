@@ -78,6 +78,9 @@ FRONTEND_WRITE_PATH_ENVIRONMENT = {
     "PLANNING_DEPTH_ROSTER_PATH": "/api/v1/water-planning/planning-depth-roster/v1",
 }
 NODE_ROOT = Path("/opt/node-v22.23.1-linux-arm64")
+_NODE_PRELOAD_ENV_VARS = frozenset(
+    {"NODE_OPTIONS", "NODE_REPL_EXTERNAL_MODULE"}
+)
 BROWSER_ROOT = Path("/opt/munbon/browser")
 PLAYWRIGHT_BROWSERS_ROOT = Path("/opt/munbon/playwright-browsers")
 HARNESS_ARTIFACTS = (
@@ -4523,20 +4526,31 @@ def _reject_passive_contradiction(drill: dict) -> None:
     issued that particular GET.
     """
     expected = drill["roster_status"]
-    if drill["panel_roster_status"] != expected:
+    if not _is_strict_status(drill["panel_roster_status"], expected):
         raise ValueError
-    if drill["panel_active_status"] != drill["active_status"]:
+    if not _is_strict_status(drill["panel_active_status"], drill["active_status"]):
         raise ValueError
     # Subscript, not .get(): an ABSENT key must reject (KeyError -> rejection)
     # rather than be indistinguishable from an observed None.
     observed = drill["observed_roster_status"]
-    if observed is not None and observed != expected:
+    if observed is not None and not _is_strict_status(observed, expected):
         raise ValueError
 
 
 def _reject_unless(condition: object) -> None:
     if condition is not True:
         raise ValueError
+
+
+def _is_strict_status(value: object, expected: int) -> bool:
+    """A real HTTP status is a non-boolean int equal to `expected`. Guards the
+    whole validator against float/bool/string lookalikes (403.0, True, "401")
+    that Python's == would otherwise accept."""
+    return isinstance(value, int) and not isinstance(value, bool) and value == expected
+
+
+def _is_strict_status_in(value: object, allowed: set[int]) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value in allowed
 
 
 def validate_write_browser_result(body: Any) -> dict:
@@ -4567,12 +4581,12 @@ def validate_write_browser_result(body: Any) -> dict:
             raise ValueError
         create = body["create_result"]
         UUID(str(create["submission_id"]))
-        if create["status"] != 201:
+        if not _is_strict_status(create["status"], 201):
             raise ValueError
 
         active = body["active_readback"]
         UUID(str(active["submission_id"]))
-        if active["status"] != 200 or active["levels_count"] != 41:
+        if not _is_strict_status(active["status"], 200) or active["levels_count"] != 41:
             raise ValueError
         # Counting rows is not enough -- an expansion regression that served every
         # section one zone's depth still returns exactly 41. The six submitted zone
@@ -4582,25 +4596,27 @@ def validate_write_browser_result(body: Any) -> dict:
 
         correct = body["correct_result"]
         UUID(str(correct["submission_id"]))
-        if correct["status"] != 201:
+        if not _is_strict_status(correct["status"], 201):
             raise ValueError
 
         # The 409 proxy body is {success, error} -- it carries no `detail`, so no
         # detail claim can be made from it (submissions/route.ts:118-121).
         conflict = body["conflict_result"]
-        if conflict["status"] != 409:
+        if not _is_strict_status(conflict["status"], 409):
             raise ValueError
 
         reconciliation = body["conflict_reconciliation"]
         UUID(str(reconciliation["submission_id"]))
-        if reconciliation["status"] != 200:
+        if not _is_strict_status(reconciliation["status"], 200):
             raise ValueError
 
         # Field team: DENIED. Both planning-depth reads are operator-only, so the
         # proxy passes the BFF's 403 straight through; the Submit control is not
         # rendered at all and the product shows its denial banner.
         field_team = body["field_team_result"]
-        if field_team["roster_status"] != 403 or field_team["active_status"] != 403:
+        if not _is_strict_status(field_team["roster_status"], 403) or not _is_strict_status(
+            field_team["active_status"], 403
+        ):
             raise ValueError
         _reject_unless(field_team["submit_absent"])
         _reject_unless(field_team["denied_banner"])
@@ -4615,9 +4631,15 @@ def validate_write_browser_result(body: Any) -> dict:
         # authorized), a 401 would mean the bearer was never attached, and a
         # transport failure reports None. Each of those would otherwise be
         # accepted as proof of denial, hiding the very regression this proves.
-        if field_team["submit_status"] != 403:
+        if not _is_strict_status(field_team["submit_status"], 403):
             raise ValueError
-        if field_team["logout_status"] not in {200, 204}:
+        if not _is_strict_status_in(field_team["logout_status"], {200, 204}):
+            raise ValueError
+        # The field-team context's OWN pre-logout refresh token must be dead
+        # after ITS logout — 200 means revocation was suppressed, 403/None mean
+        # the probe never proved anything (#160 HIGH-1). Strict int: 401.0/True
+        # style lookalikes are not an observed HTTP status.
+        if not _is_strict_status(field_team["refresh_reuse_status"], 401):
             raise ValueError
 
         # Outage: reads are UNAVAILABLE, never "preserved". Every upstream failure
@@ -4627,7 +4649,9 @@ def validate_write_browser_result(body: Any) -> dict:
         outage = body["outage_result"]
         if "reads_preserved" in outage:
             raise ValueError
-        if outage["roster_status"] != 502 or outage["active_status"] != 502:
+        if not _is_strict_status(outage["roster_status"], 502) or not _is_strict_status(
+            outage["active_status"], 502
+        ):
             raise ValueError
         _reject_unless(outage["submit_absent"])
         _reject_unless(outage["unavailable_banner"])
@@ -4635,15 +4659,21 @@ def validate_write_browser_result(body: Any) -> dict:
         _reject_passive_contradiction(outage)
         # EXACTLY 502: the write must have REACHED the proxy and been refused by
         # an unavailable upstream. A transport failure (None) proves nothing.
-        if outage["submit_status"] != 502:
+        if not _is_strict_status(outage["submit_status"], 502):
             raise ValueError
 
         # Logout: the real response status, and a redirect that actually lands on
         # /login -- for every context, not just the first.
         logout = body["logout_result"]
-        if logout["status"] not in {200, 204}:
+        if not _is_strict_status_in(logout["status"], {200, 204}):
             raise ValueError
-        if logout["second_context_status"] not in {200, 204}:
+        if not _is_strict_status_in(logout["second_context_status"], {200, 204}):
+            raise ValueError
+        # Same-session revocation, per operator context: each context's own
+        # captured refresh token must return exactly 401 on reuse (#160 HIGH-1).
+        if not _is_strict_status(logout["refresh_reuse_status"], 401):
+            raise ValueError
+        if not _is_strict_status(logout["second_context_refresh_reuse_status"], 401):
             raise ValueError
         if logout["redirect_url"] != "/login":
             raise ValueError
@@ -4704,6 +4734,7 @@ def validate_write_browser_result(body: Any) -> dict:
                 "unavailable_banner": field_team["unavailable_banner"],
                 "submit_status": field_team["submit_status"],
                 "logout_status": field_team["logout_status"],
+                "refresh_reuse_status": field_team["refresh_reuse_status"],
             },
             "outage_result": {
                 "roster_status": outage["roster_status"],
@@ -4718,6 +4749,10 @@ def validate_write_browser_result(body: Any) -> dict:
             "logout_result": {
                 "status": logout["status"],
                 "second_context_status": logout["second_context_status"],
+                "refresh_reuse_status": logout["refresh_reuse_status"],
+                "second_context_refresh_reuse_status": logout[
+                    "second_context_refresh_reuse_status"
+                ],
                 "redirect_to_login": logout["redirect_url"] == "/login",
             },
             "reload_result": {
@@ -4766,8 +4801,22 @@ def _write_browser_environment(
                 credentials[name] = value
     if missing:
         raise StageGateError("write_browser_credentials_missing")
+    # Strip Node preload vectors: an inherited NODE_OPTIONS=--require/--import (or
+    # NODE_REPL_EXTERNAL_MODULE) could replace globalThis.fetch in the launcher
+    # and fabricate a refresh-reuse 401 the validator would accept, without ever
+    # contacting central auth. Harness-file hashes do not cover preload code
+    # (#160 review). The WHOLE variable is dropped (not parsed) — this is an
+    # evidence-integrity harness, so failing closed on the injection vector wins
+    # over honoring an inherited flag; the launcher needs none (it sets NODE_PATH
+    # / PLAYWRIGHT_BROWSERS_PATH explicitly). Any legitimate launcher flag must be
+    # set EXPLICITLY below, never inherited.
+    base_env = {
+        name: value
+        for name, value in os.environ.items()
+        if name not in _NODE_PRELOAD_ENV_VARS
+    }
     return {
-        **os.environ,
+        **base_env,
         **credentials,
         "PATH": f"{NODE_ROOT / 'bin'}:/usr/bin:/bin",
         "NODE_PATH": str(BROWSER_ROOT / "node_modules"),
@@ -4787,6 +4836,78 @@ def _restore_scheduler() -> None:
         timeout=60,
     )
     _wait_json(LocalHttpClient(), READINESS_URLS["scheduler"])
+
+
+def _safe_error_code(error: BaseException) -> str:
+    """Only StageGateError codes are safe to persist: arbitrary exception text
+    can carry credential context the sanitizer cannot recognize, and a sanitizer
+    trip while writing the failure manifest silently discards the manifest."""
+    if isinstance(error, StageGateError) and error.args:
+        return str(error.args[0])
+    return f"unexpected_{type(error).__name__}"
+
+
+def _verify_scheduler_restoration() -> None:
+    """Independent final-state check (#160 HIGH-2): no restart here. Readiness
+    is polled FIRST (up to _wait_json's own budget) so a restart that timed out
+    yet took effect is not misjudged by a one-shot pm2 snapshot that races the
+    respawn; only once readiness is healthy does pm2 confirm the process is the
+    online scheduler rather than a stale errored duplicate."""
+    _wait_json(LocalHttpClient(), READINESS_URLS["scheduler"])
+    projection = project_pm2_state(_pm2_json())
+    # Require AT LEAST ONE online 'scheduler' entry — readiness already proved
+    # it is serving. pm2 may retain a stale errored/stopped duplicate beside the
+    # healthy process; that must not FAIL an otherwise-restored stage.
+    online = [
+        item
+        for item in projection
+        if item.get("name") == "scheduler" and item.get("status") == "online"
+    ]
+    if not online:
+        raise StageGateError("write_ui_scheduler_not_online_after_restore")
+
+
+def _restore_scheduler_guarded(
+    attempts: int = 3, backoff_seconds: float = 5.0
+) -> dict[str, Any]:
+    """Bounded restoration with an INDEPENDENT verdict. Raises nothing for
+    Exception-class failures — the caller decides what a failed restoration
+    means. Interrupt-class exits (KeyboardInterrupt/SystemExit) deliberately
+    PROPAGATE: an operator abort must never be converted into a
+    scheduler_restore_failed verdict. On the failure path the caller restores
+    via this helper; on an interrupt the caller instead makes a bounded
+    best-effort single restore and lets the interrupt propagate with no manifest.
+
+    The final-state check is authoritative: if readiness+pm2 confirm the
+    scheduler is up, the restoration succeeded even when individual `pm2
+    restart` calls timed out (they frequently take effect anyway). When the
+    verification fails, ITS code is the reported failure — it names the actual
+    unmet final state, not an earlier restart hiccup."""
+    report: dict[str, Any] = {"attempts": 0, "restored": False, "failed_gate": None}
+    restart_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        report["attempts"] = attempt
+        try:
+            _restore_scheduler()
+            restart_error = None
+            break
+        except Exception as exc:
+            restart_error = exc
+            if attempt < attempts:
+                time.sleep(backoff_seconds)
+    if restart_error is not None:
+        report["failed_gate"] = _safe_error_code(restart_error)
+    try:
+        _verify_scheduler_restoration()
+    except Exception as verify_error:
+        # The final-state check is authoritative on failure: it names the
+        # unmet condition (e.g. not online / not ready), superseding an earlier
+        # restart timeout that may have taken effect anyway.
+        report["restored"] = False
+        report["failed_gate"] = _safe_error_code(verify_error)
+    else:
+        report["restored"] = True
+    return report
 
 
 def _drive_write_browser(
@@ -4899,26 +5020,40 @@ def _run_write_browser(
         result = _drive_write_browser(
             context, environment, ready_path, release_path, state
         )
-    except BaseException as primary:
-        # Never leave the scheduler down for the stages that follow. If the
-        # restore ALSO fails, name BOTH: the failure manifest persists only the
-        # code, so letting the restore's exception replace the primary one would
-        # report "pm2 hiccuped" when the real finding was "the evidence was
-        # untruthful".
+    except Exception as primary:
+        # A real (non-interrupt) failure: restore the scheduler, attach the
+        # report so it rides into the failure manifest, and if the restore ALSO
+        # failed name BOTH — reporting "pm2 hiccuped" when the real finding was
+        # "the evidence was untruthful" would hide the finding.
+        if state["scheduler_stopped"]:
+            report = _restore_scheduler_guarded()
+            setattr(primary, "restoration", report)
+            if not report["restored"]:
+                combined = StageGateError(
+                    f"{_safe_error_code(primary)}_and_scheduler_restore_failed"
+                )
+                combined.restoration = report
+                raise combined from primary
+        raise
+    except BaseException:
+        # An operator interrupt is not a stage verdict and writes no manifest.
+        # Still make a bounded best-effort to bring the scheduler back so later
+        # work is not left against a dead scheduler; contain any failure of that
+        # attempt and let the interrupt propagate with its own exit semantics.
         if state["scheduler_stopped"]:
             try:
                 _restore_scheduler()
-            except Exception as restore_error:
-                primary_code = (
-                    primary.args[0]
-                    if isinstance(primary, StageGateError) and primary.args
-                    else type(primary).__name__
-                )
-                raise StageGateError(
-                    f"{primary_code}_and_scheduler_restore_failed"
-                ) from restore_error
+            except Exception:
+                pass
         raise
-    _restore_scheduler()
+    # Success path (#160 HIGH-2): the restore verdict is part of the evidence,
+    # and a restoration that could not be verified FAILS the stage.
+    report = _restore_scheduler_guarded()
+    if not report["restored"]:
+        error = StageGateError("write_ui_scheduler_restore_failed")
+        error.restoration = report
+        raise error
+    result["scheduler_restoration"] = report
     return result
 
 
@@ -5702,13 +5837,30 @@ def main(argv: list[str] | None = None) -> int:
         else:
             run_local_persist_only(context)
     except Exception as exc:
+        # Only Exception is a stage verdict. An operator interrupt
+        # (KeyboardInterrupt/SystemExit) is NOT: it propagates with standard
+        # process semantics and writes no manifest — writing one here would
+        # stamp a FAIL beside an already-written PASS if the abort lands after
+        # a stage completed, permanently contradicting the evidence.
+        # DRY with _safe_error_code: same unexpected_<Type> fallback as the
+        # restoration guard, so non-StageGateError codes never diverge.
         safe_error = (
-            exc
-            if isinstance(exc, StageGateError)
-            else StageGateError(f"unexpected_{type(exc).__name__}")
+            exc if isinstance(exc, StageGateError)
+            else StageGateError(_safe_error_code(exc))
         )
+        if safe_error is not exc:
+            primary_restoration = getattr(exc, "restoration", None)
+            if isinstance(primary_restoration, dict):
+                safe_error.restoration = primary_restoration
+        teardown_error = None
         if args.stage == "LOCAL-RTA-1":
-            _stop_runtime()
+            # Contain teardown failure so it cannot mask the primary finding —
+            # but RECORD it, so orphaned runtime processes are explained rather
+            # than silently swallowed.
+            try:
+                _stop_runtime()
+            except Exception as exc_teardown:
+                teardown_error = _safe_error_code(exc_teardown)
         failure = {
             "stage": args.stage,
             "verdict": "FAIL",
@@ -5716,6 +5868,8 @@ def main(argv: list[str] | None = None) -> int:
             "failed_gate": str(safe_error),
             "failed_at": _utc_timestamp(),
         }
+        if teardown_error is not None:
+            failure["teardown_error"] = teardown_error
         restoration = getattr(safe_error, "restoration", None)
         if isinstance(restoration, dict):
             failure["restoration"] = restoration
