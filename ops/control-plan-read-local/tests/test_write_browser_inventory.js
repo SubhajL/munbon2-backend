@@ -1,6 +1,9 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 const test = require("node:test");
 const {
   recordPlanningRead,
@@ -17,6 +20,7 @@ const {
   isForbiddenWrite,
   authorizedRequestInit,
   validateControlPath,
+  writeControlFile,
 } = require("../run-write-browser.js");
 
 const ORIGIN = "http://127.0.0.1:9999";
@@ -185,6 +189,43 @@ test("validateControlPath accepts only the named hidden file in the evidence roo
     () => validateControlPath(`${root}/.write-ui-ready`, ".write-ui-outage-release"),
     /coordination_path_invalid/,
   );
+});
+
+test("validateControlPath binds diagnostic coordination files to their evidence root", () => {
+  const diagnosticRoot =
+    "/var/lib/munbon-local-acceptance/write-ui-diagnostic";
+  assert.equal(
+    validateControlPath(
+      `${diagnosticRoot}/.write-ui-ready`,
+      ".write-ui-ready",
+      diagnosticRoot,
+    ),
+    `${diagnosticRoot}/.write-ui-ready`,
+  );
+  assert.throws(
+    () =>
+      validateControlPath(
+        "/var/lib/munbon-local-acceptance/evidence/.write-ui-ready",
+        ".write-ui-ready",
+        diagnosticRoot,
+      ),
+    /coordination_path_invalid/,
+  );
+});
+
+test("writeControlFile refuses to follow an existing coordination symlink", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "write-ui-control-"));
+  try {
+    const victim = path.join(root, "victim");
+    const target = path.join(root, ".write-ui-ready");
+    fs.writeFileSync(victim, "unchanged\n");
+    fs.symlinkSync(victim, target);
+
+    assert.throws(() => writeControlFile(target, "ready\n"), /EEXIST/);
+    assert.equal(fs.readFileSync(victim, "utf8"), "unchanged\n");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("navigationSteps performs a real reload only when asked", () => {

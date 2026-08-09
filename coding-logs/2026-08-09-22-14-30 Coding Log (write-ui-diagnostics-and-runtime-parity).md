@@ -357,3 +357,108 @@ LOW
 - Harness-only observability remains fail closed and changes no product API or default flag.
 - Diagnostic manifests are explicitly non-acceptance and never update `stage-state.json`.
 - The frozen canonical guest and the earlier `32d89099...` archive remain unchanged.
+
+## PR A follow-up: diagnostic evidence-root contract
+
+The first two merged diagnostic attempts on the disposable
+`munbon-control-plan-write-ui-diagnostic` clone both reached the armed frontend
+and then failed as `write_browser_failed`. A credential-free Playwright launch
+probe passed. Direct source tracing then identified the deterministic cause:
+`run-write-browser.js` required both coordination files to live under the
+canonical acceptance evidence directory, while `--diagnostic` deliberately
+requires a different evidence root. The resulting
+`coordination_path_invalid` exception occurred before the browser's safe child
+failure protocol.
+
+### TDD evidence
+
+- RED: `test_write_browser_environment_binds_coordination_to_the_resolved_evidence_root` failed with `KeyError: LOCAL_WRITE_UI_EVIDENCE_ROOT`.
+- RED: `validateControlPath binds diagnostic coordination files to their evidence root` failed with `coordination_path_invalid`.
+- GREEN: Python now passes the resolved `StageContext.evidence_root`; JavaScript validates each named coordination file against that exact supplied root. Canonical acceptance keeps the same effective directory constraint.
+- GREEN: the two focused Python tests pass and all 26 Node browser-inventory tests pass.
+
+### Wiring verification
+
+| Contract | Producer | Consumer | Test |
+|---|---|---|---|
+| `LOCAL_WRITE_UI_EVIDENCE_ROOT` | `_write_browser_environment` | `run-write-browser.js` startup | Python environment test parses every required name and checks the resolved value |
+| exact coordination parent | `StageContext.evidence_root` | `validateControlPath` | Node test accepts the diagnostic root and rejects the canonical root when the diagnostic root is expected |
+
+The follow-up changes no product route or acceptance verdict. It only makes the
+already-merged isolated diagnostic lane executable while preserving exact-root
+path confinement.
+
+### Follow-up quality gates
+
+- Three consecutive runs: 335/335 Python harness tests passed each time.
+- Three consecutive runs: 26/26 Node browser-inventory tests passed each time.
+- Black check, Python compilation, Node syntax check, and `git diff --check` passed.
+
+## Review (2026-08-09 22:47:03 +0700) - diagnostic-root follow-up
+
+### Reviewed
+
+- Repo: `/Users/subhajlimanond/dev/munbon2-backend-write-ui-diagnostic-root`
+- Branch: `fix/write-ui-diagnostic-evidence-root`
+- Scope: staged working tree against `origin/main` `78df02f17bfb91bc145d308bee50c1c175bc6e6e`
+- Commands run: staged status/stat and bounded staged diff inspection; `git diff --staged --check`; three consecutive full Python harness and Node browser-inventory test runs; Black, Python compilation, and Node syntax checks.
+
+### Findings
+
+CRITICAL
+
+- No findings.
+
+HIGH
+
+- No findings.
+
+MEDIUM
+
+- No findings. The supplied root is the resolved Python `StageContext.evidence_root`, both coordination basenames remain fixed, and a mismatched parent fails closed. Canonical acceptance resolves to the same directory enforced before this patch.
+
+LOW
+
+- No findings.
+
+### Open questions and assumptions
+
+- The live replay still must use the exact merged follow-up SHA on the disposable clone; the source review does not substitute for that runtime check.
+- Direct execution of the JavaScript outside the Python harness can supply its own evidence root, but the caller could already write arbitrary evidence through `--evidence-root`; this change adds no broader filesystem authority to the lifecycle runner.
+
+### Recommended validation
+
+- After merge, install the exact SHA in the diagnostic clone and rerun against the still-clean target week.
+- Require a checksum-valid sanitized browser-result artifact or enumerated failure, then verify the dark flag, all backend readiness endpoints, scheduler restoration, and closed frontend port.
+
+### Independent QCHECK remediation
+
+Independent QCHECK identified that a symlinked diagnostic evidence root exported
+its resolved location but built lexical coordination paths, recreating the
+pre-browser rejection. It also identified that both coordination writers would
+follow an existing symlink.
+
+The remediation was test-first:
+
+- RED/GREEN: `_run_write_browser` now derives both paths from the resolved evidence root; a symlink-root test pins the exact paths delivered to the launcher.
+- RED/GREEN: Python creates the release marker with exclusive, no-follow semantics and a fixed safe failure code.
+- RED/GREEN: JavaScript creates the ready marker with `wx` semantics; a real filesystem test proves an existing symlink is rejected and its target remains unchanged.
+
+The remaining same-UID concurrent-replacement possibility is denial-of-service,
+not a path to a false PASS: pre-creation makes an exclusive writer fail, and
+replacement after creation cannot reverse the scheduler-down ordering. The
+diagnostic directory is provisioned mode 0700 in the disposable guest.
+
+### Final review addendum
+
+The remediated staged patch was re-reviewed against `origin/main`. Independent
+QCHECK reports no remaining P0-P2 findings in the prior path-normalization and
+symlink scope. Formal g-check accepts that disposition: canonical path binding
+is preserved, symlinked roots normalize consistently, and pre-existing marker
+symlinks fail closed without altering their targets.
+
+Final post-remediation gates:
+
+- 337/337 Python harness tests on each of three consecutive runs.
+- 27/27 Node browser-inventory tests on each of three consecutive runs.
+- Black check, Python compilation, Node syntax check, and staged diff check passed.
