@@ -569,3 +569,27 @@ LOW
 ### Open question and release gate
 
 - Apply the merged SHA on the disposable OrbStack clone, restart ROS through the tracked wrapper, verify all four registered migrations, run the real PostgreSQL immutability integration suite, and capture the exact enabled trigger projection. Until that completes, source delivery is not represented as runtime activation.
+
+## Post-merge catalog rendering follow-up
+
+PR #171 merged as `ec72cdd3152eecea498948a64e89cd8fa3a12de7` and
+was installed on the disposable clone. ROS restarted successfully through the
+tracked wrapper and applied 0004, but the new validator correctly blocked the
+release gate. The safe real-catalog projection showed PostgreSQL renders
+`(tgqual IS NULL)::text` as `true`, while the source fixture expected the psql
+boolean shorthand `t`. The trigger definitions themselves matched.
+
+TDD follow-up:
+
+- RED: both the semantic validator test and `_apply_migrations` wiring test failed when their fixture was changed to the real `true` projection.
+- GREEN: the expected rows and observed projection now use PostgreSQL's explicit text rendering; disabled/false conditions remain negative cases.
+- The real catalog gate must be rerun on the follow-up merge SHA before runtime success is claimed.
+
+### Follow-up formal g-check (2026-08-09 23:12:10 +0700)
+
+No CRITICAL, HIGH, MEDIUM, or LOW findings. The three-file staged diff matches
+the real PostgreSQL projection without weakening exact-row comparison: `false`,
+shorthand `t`, disabled state, altered masks, filters, functions, missing rows,
+and extra rows still fail closed. Independent QCHECK reports no remaining
+P0-P2 findings and ran 296 focused tests. Primary gates remain 382/382 on each
+of three consecutive runs, with Black, compilation, and diff checks passing.

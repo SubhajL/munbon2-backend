@@ -1292,9 +1292,9 @@ ROS_DATASET_VERSION_TRIGGER_QUERY = (
 )
 ROS_DATASET_VERSION_TRIGGER_ROWS = (
     # pg_trigger.tgtype: 27 = ROW|BEFORE|DELETE|UPDATE; 34 = BEFORE|TRUNCATE.
-    "dataset_versions_identity_is_immutable\tO\t27\t\tt\t"
+    "dataset_versions_identity_is_immutable\tO\t27\t\ttrue\t"
     "ros_gis.reject_dataset_version_identity_change()",
-    "dataset_versions_no_truncate\tO\t34\t\tt\t"
+    "dataset_versions_no_truncate\tO\t34\t\ttrue\t"
     "ros_gis.reject_dataset_version_identity_change()",
 )
 
@@ -1313,7 +1313,7 @@ def validate_ros_dataset_version_triggers(trigger_rows: list[str]) -> dict:
                 "enabled": enabled,
                 "type_mask": int(type_mask),
                 "column_filter": column_filter or None,
-                "unconditional": unconditional == "t",
+                "unconditional": unconditional == "true",
                 "function": function,
             }
         )
