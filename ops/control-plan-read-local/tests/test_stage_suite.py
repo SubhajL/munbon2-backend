@@ -4061,6 +4061,66 @@ def test_write_browser_environment_supplies_every_required_env_name(tmp_path):
     assert sorted(n for n in required_names if not environment.get(n)) == []
 
 
+def test_write_browser_environment_binds_coordination_to_the_resolved_evidence_root(
+    tmp_path,
+):
+    context = _write_ui_context(tmp_path)
+    environment = stage_suite._write_browser_environment(
+        context,
+        week_key="2027-R01",
+        week_date="2026-11-02",
+        ready_path=context.evidence_root / ".write-ui-ready",
+        release_path=context.evidence_root / ".write-ui-outage-release",
+    )
+
+    assert environment["LOCAL_WRITE_UI_EVIDENCE_ROOT"] == str(
+        context.evidence_root.resolve()
+    )
+
+
+def test_run_write_browser_resolves_a_symlinked_evidence_root(tmp_path, monkeypatch):
+    context = _write_ui_context(tmp_path)
+    resolved_root = tmp_path / "resolved-evidence"
+    resolved_root.mkdir()
+    alias_root = tmp_path / "diagnostic-alias"
+    alias_root.symlink_to(resolved_root, target_is_directory=True)
+    context = dataclasses.replace(context, evidence_root=alias_root)
+    observed = {}
+
+    def capture_environment(_context, *, ready_path, release_path, **_kwargs):
+        observed["ready_path"] = ready_path
+        observed["release_path"] = release_path
+        raise stage_suite.StageGateError("captured_coordination_paths")
+
+    monkeypatch.setattr(stage_suite, "_write_browser_environment", capture_environment)
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="^captured_coordination_paths$"
+    ):
+        stage_suite._run_write_browser(
+            context, week_key="2027-R01", week_date="2026-11-02"
+        )
+
+    assert observed == {
+        "ready_path": resolved_root.resolve() / ".write-ui-ready",
+        "release_path": resolved_root.resolve() / ".write-ui-outage-release",
+    }
+
+
+def test_write_coordination_file_refuses_an_existing_symlink(tmp_path):
+    victim = tmp_path / "victim"
+    victim.write_text("unchanged\n", encoding="utf-8")
+    target = tmp_path / ".write-ui-outage-release"
+    target.symlink_to(victim)
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="^coordination_file_not_private$"
+    ):
+        stage_suite._write_coordination_file(target, "released\n")
+
+    assert victim.read_text(encoding="utf-8") == "unchanged\n"
+
+
 def test_write_browser_environment_fails_closed_without_field_team_credentials(
     tmp_path,
 ):

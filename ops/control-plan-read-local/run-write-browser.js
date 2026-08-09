@@ -89,15 +89,19 @@ function authorizedRequestInit(token, init = {}) {
   };
 }
 
-function validateControlPath(value, expectedName) {
+function validateControlPath(value, expectedName, evidenceRoot = EVIDENCE_ROOT) {
   const resolved = path.resolve(value);
   if (
-    path.dirname(resolved) !== EVIDENCE_ROOT ||
+    path.dirname(resolved) !== path.resolve(evidenceRoot) ||
     path.basename(resolved) !== expectedName
   ) {
     throw new Error("coordination_path_invalid");
   }
   return resolved;
+}
+
+function writeControlFile(target, value) {
+  fs.writeFileSync(target, value, { encoding: "utf8", mode: 0o600, flag: "wx" });
 }
 
 /** Per-context response boundary. Installed on EVERY context (primary, second,
@@ -655,6 +659,7 @@ module.exports = {
   isForbiddenWrite,
   authorizedRequestInit,
   validateControlPath,
+  writeControlFile,
 };
 
 if (require.main === module) {
@@ -668,13 +673,16 @@ if (require.main === module) {
     const fieldTeamPassword = required("MUNBON_FIELD_TEAM_PASSWORD");
     const weekKey = required("LOCAL_WEEK_KEY");
     const weekDate = required("LOCAL_WEEK_DATE");
+    const evidenceRoot = required("LOCAL_WRITE_UI_EVIDENCE_ROOT");
     const readyPath = validateControlPath(
       required("LOCAL_WRITE_UI_READY_FILE"),
       ".write-ui-ready",
+      evidenceRoot,
     );
     const releasePath = validateControlPath(
       required("LOCAL_WRITE_UI_OUTAGE_RELEASE_FILE"),
       ".write-ui-outage-release",
+      evidenceRoot,
     );
 
     const inventory = {
@@ -859,7 +867,7 @@ if (require.main === module) {
 
       checkpoint = "outage-coordination";
       inventory.phase = "outage";
-      fs.writeFileSync(readyPath, "ready\n");
+      writeControlFile(readyPath, "ready\n");
       await waitForControlFile(releasePath, 180000);
 
       // The release means the scheduler is now DOWN. Discard anything observed

@@ -3202,7 +3202,11 @@ def _probe_go_read_scada(context: StageContext) -> dict[str, Any]:
 
 
 def _write_coordination_file(path: Path, value: str) -> None:
-    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags, 0o600)
+    except OSError as exc:
+        raise StageGateError("coordination_file_not_private") from exc
     with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
         stream.write(value)
         stream.flush()
@@ -4903,6 +4907,7 @@ def _write_browser_environment(
         "LOCAL_FRONTEND_URL": "http://127.0.0.1:9999",
         "LOCAL_WEEK_KEY": week_key,
         "LOCAL_WEEK_DATE": week_date,
+        "LOCAL_WRITE_UI_EVIDENCE_ROOT": str(context.evidence_root.resolve()),
         "LOCAL_WRITE_UI_READY_FILE": str(ready_path),
         "LOCAL_WRITE_UI_OUTAGE_RELEASE_FILE": str(release_path),
     }
@@ -5077,8 +5082,9 @@ def _run_write_browser(
     week_key: str,
     week_date: str,
 ) -> dict:
-    ready_path = context.evidence_root / ".write-ui-ready"
-    release_path = context.evidence_root / ".write-ui-outage-release"
+    coordination_root = context.evidence_root.resolve()
+    ready_path = coordination_root / ".write-ui-ready"
+    release_path = coordination_root / ".write-ui-outage-release"
     # A leftover release file from an aborted run would let the browser skip the
     # outage wait entirely and report an "outage" that never happened.
     for path in (ready_path, release_path):
