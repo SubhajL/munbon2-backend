@@ -1727,11 +1727,11 @@ def test_validate_migration_parity_fails_closed_on_any_missing_tail(
 
 ROS_DATASET_VERSION_TRIGGER_ROWS = [
     (
-        "dataset_versions_identity_is_immutable\tO\t27\t\tt\t"
+        "dataset_versions_identity_is_immutable\tO\t27\t\ttrue\t"
         "ros_gis.reject_dataset_version_identity_change()"
     ),
     (
-        "dataset_versions_no_truncate\tO\t34\t\tt\t"
+        "dataset_versions_no_truncate\tO\t34\t\ttrue\t"
         "ros_gis.reject_dataset_version_identity_change()"
     ),
 ]
@@ -1775,11 +1775,11 @@ def test_validate_ros_dataset_version_triggers_requires_enabled_exact_definition
             ROS_DATASET_VERSION_TRIGGER_ROWS[1],
         ],
         [
-            ROS_DATASET_VERSION_TRIGGER_ROWS[0].replace("\t\tt\t", "\t1 2\tt\t"),
+            ROS_DATASET_VERSION_TRIGGER_ROWS[0].replace("\t\ttrue\t", "\t1 2\ttrue\t"),
             ROS_DATASET_VERSION_TRIGGER_ROWS[1],
         ],
         [
-            ROS_DATASET_VERSION_TRIGGER_ROWS[0].replace("\t\tt\t", "\t\tf\t"),
+            ROS_DATASET_VERSION_TRIGGER_ROWS[0].replace("\t\ttrue\t", "\t\tfalse\t"),
             ROS_DATASET_VERSION_TRIGGER_ROWS[1],
         ],
         [
@@ -1790,7 +1790,10 @@ def test_validate_ros_dataset_version_triggers_requires_enabled_exact_definition
             ROS_DATASET_VERSION_TRIGGER_ROWS[1],
         ],
         ROS_DATASET_VERSION_TRIGGER_ROWS[:1],
-        [*ROS_DATASET_VERSION_TRIGGER_ROWS, "unexpected_trigger\tO\t27\t\tt\tfn()"],
+        [
+            *ROS_DATASET_VERSION_TRIGGER_ROWS,
+            "unexpected_trigger\tO\t27\t\ttrue\tfn()",
+        ],
     ],
 )
 def test_validate_ros_dataset_version_triggers_fails_closed_on_any_mismatch(
