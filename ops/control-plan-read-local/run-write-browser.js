@@ -155,6 +155,17 @@ async function loginAndCaptureToken(page, frontendUrl, email, password) {
   const token = body?.data?.accessToken;
   assert(typeof token === "string" && token.length > 0, "access_token_not_captured");
   await page.waitForURL("**/smart-water/**", { timeout: 15000 });
+  // The auth context silently refreshes on mount (auth-context.tsx), and central
+  // auth ROTATES the refresh cookie on every refresh. Wait for that first
+  // refresh to COMPLETE before any further full-page navigation: a second
+  // navigation whose mount-refresh races the still-in-flight first one on the
+  // same rotating token permanently signs the session out (AuthGuard then
+  // bounces to /login and the planning-depth reads never fire) — #165.
+  await page
+    .waitForResponse((r) => new URL(r.url()).pathname === AUTH_REFRESH_PATH, {
+      timeout: 15000,
+    })
+    .catch(() => null);
   return token;
 }
 
@@ -327,6 +338,7 @@ async function logoutContext(context, frontendUrl) {
 // cookie (smart-cms-app lib/auth/server.ts:5, hardenRefreshCookie) -- so this
 // cookie's value IS the credential central auth revokes on logout.
 const REFRESH_COOKIE_NAME = "smart_cms_refresh";
+const AUTH_REFRESH_PATH = "/api/auth/refresh";
 const AUTH_REFRESH_URL = "http://127.0.0.1:3005/api/v1/auth/refresh";
 
 /** The strongest non-destructive control on a captured refresh credential:
