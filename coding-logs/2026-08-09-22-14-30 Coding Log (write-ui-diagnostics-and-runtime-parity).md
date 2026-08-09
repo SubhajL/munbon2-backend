@@ -462,3 +462,110 @@ Final post-remediation gates:
 - 337/337 Python harness tests on each of three consecutive runs.
 - 27/27 Node browser-inventory tests on each of three consecutive runs.
 - Black check, Python compilation, Node syntax check, and staged diff check passed.
+
+## Disposable WRITE-UI diagnosis on merged SHA
+
+PR #170 merged as `2818e3676f8d28a9b156b7c835879343e4d2ecfe`
+and was installed exactly on `munbon-control-plan-write-ui-diagnostic`. The
+target week was still unsubmitted because both earlier attempts had failed
+before browser startup. The merged diagnostic completed the full browser drill,
+restored the scheduler on attempt one, restored the frontend build, and failed
+only at `write_browser_result_not_accepted`.
+
+Both `LOCAL-WRITE-UI-1-browser-result.json` and
+`LOCAL-WRITE-UI-DIAGNOSTIC-failure.json` verify against `SHA256SUMS`. Direct
+replay through `validate_write_browser_result` produced exactly these six codes:
+
+- `field_team_logout_status_not_success`
+- `field_team_refresh_reuse_status_not_401`
+- `logout_status_not_success`
+- `logout_second_context_status_not_success`
+- `logout_refresh_reuse_status_not_401`
+- `logout_second_context_refresh_reuse_status_not_401`
+
+No create, readback, correction, conflict, reconciliation, authorization,
+outage, redirect, reload, or forbidden-write predicate failed. Observed logout
+statuses were 401 and all three captured refresh credentials remained reusable
+with status 200. The diagnostic is explicitly non-acceptance evidence. After
+the run, all four backend services were online, the scheduler was listening,
+`PLANNING_DEPTH_WRITES_ENABLED=false`, and no frontend listener remained.
+
+## PR B implementation: issue #159 migration parity
+
+### RED
+
+- The runtime wrapper order test failed because `run-ros.sh` stopped at 0003.
+- The RTA parity acceptance test failed because the validator still expected three ROS migrations.
+- Exact-trigger tests failed because no catalog validator existed.
+- The `_apply_migrations` wiring test failed before it could query `pg_trigger` because 0004 was absent from the apply/parity contract.
+
+### GREEN
+
+- `run-ros.sh` applies 0001 through `0004_dataset_version_identity_immutable` in exact order before Uvicorn.
+- `_apply_migrations` applies the same ordered set and `validate_migration_parity` requires all four registrations.
+- LOCAL-RTA-1 queries non-internal triggers on `ros_gis.dataset_versions` and requires the two expected names to be enabled with their exact timing/event/level masks, no column or `WHEN` filter, and the expected bound function.
+- Focused runtime and stage-suite tests pass, including a full wiring test from migration commands through the catalog query and returned parity manifest.
+
+### Wiring verification
+
+| Contract | Startup path | RTA path | Proof |
+|---|---|---|---|
+| ordered ROS migrations 0001-0004 | `run-ros.sh` | `_apply_migrations` | exact-order wrapper test and command-capture wiring test |
+| migration registration parity | service migrator | `validate_migration_parity` | exact four-ID acceptance plus isolated missing-tail cases |
+| immutable trigger activation | migration 0004 DDL | `pg_trigger` query and semantic validator | exact-definition unit tests; same-SHA real PostgreSQL proof remains pending until post-merge |
+
+### Independent QCHECK remediation
+
+Independent QCHECK found that name-only trigger validation would false-pass if
+an operator disabled both triggers. It also found the wiring test accepted any
+query containing `pg_trigger`. The remediation added RED/GREEN cases for a
+disabled trigger, wrong type mask, column filter, `WHEN` condition, wrong bound
+function, missing trigger, and extra trigger. The catalog projection now pins:
+
+- `tgenabled = 'O'`;
+- `tgtype` 27 for row-level BEFORE UPDATE/DELETE and 34 for statement-level BEFORE TRUNCATE;
+- empty `tgattr` and null `tgqual`;
+- `ros_gis.reject_dataset_version_identity_change()` as the bound function.
+
+The wiring test asserts the complete deterministic SQL query, including the
+exact table, non-internal filter, and ordering. Real PostgreSQL verification is
+not claimed by this working-tree evidence; it remains a required post-merge
+step on the exact merged SHA.
+
+## Review (2026-08-09 23:06:56 +0700) - PR B working tree
+
+### Reviewed
+
+- Repo: `/Users/subhajlimanond/dev/munbon2-backend-runtime-migration-0004`
+- Branch: `fix/159-ros-runtime-migration-parity`
+- Scope: staged working tree against `origin/main` `2818e3676f8d28a9b156b7c835879343e4d2ecfe`
+- Commands run: bounded staged diff inspection; three consecutive combined ops test runs; focused migration DDL unit tests; Black, Python compilation, shell syntax, and staged diff checks.
+
+### Findings
+
+CRITICAL
+
+- No findings.
+
+HIGH
+
+- No findings. The first QCHECK disabled-trigger false-pass was remediated before this review.
+
+MEDIUM
+
+- No findings. Exact query wiring and semantic trigger definition checks prevent the prior name-only false pass.
+
+LOW
+
+- No findings.
+
+### Test and review evidence
+
+- 382/382 combined local/runtime ops tests passed on each of three consecutive runs.
+- 9/9 migration-0004 DDL unit tests passed.
+- Independent QCHECK recheck reports no remaining P0-P2 findings; its focused review ran 303 tests.
+- The broader ROS schema unit module could not collect under the host interpreter because its service dependencies are not installed (`structlog` missing). No dependency overlay was added; the exact service environment and real PostgreSQL integration remain the post-merge runtime gate.
+
+### Open question and release gate
+
+- Apply the merged SHA on the disposable OrbStack clone, restart ROS through the tracked wrapper, verify all four registered migrations, run the real PostgreSQL immutability integration suite, and capture the exact enabled trigger projection. Until that completes, source delivery is not represented as runtime activation.

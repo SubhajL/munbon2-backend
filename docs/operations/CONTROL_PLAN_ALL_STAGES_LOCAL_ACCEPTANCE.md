@@ -127,7 +127,9 @@ The gate requires:
 - no more than 1 GiB used swap;
 - no application-port conflict or non-loopback TCP listener;
 - Scheduler migration parity through `0013_operator_approved_execution`;
-- ROS parity through `0003_daily_requirement_producer`;
+- ROS parity through `0004_dataset_version_identity_immutable`, including exact
+  catalog proof of `dataset_versions_identity_is_immutable` and
+  `dataset_versions_no_truncate` on `ros_gis.dataset_versions`;
 - BFF migration parity through `012_planning_depth_roster_provenance`;
 - promtool and repository preflight success;
 - four ready loopback services for 300 continuous seconds;

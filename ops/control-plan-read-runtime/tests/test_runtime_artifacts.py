@@ -57,14 +57,16 @@ def test_flow_wrapper_uses_the_v5_hydraulic_release():
     assert "engineering-prior-v3-v1.json" not in body
 
 
-def test_ros_wrapper_applies_every_tracked_migration():
+def test_ros_wrapper_applies_every_tracked_migration_in_order():
     body = _text(RUNTIME_DIR / "run-ros.sh")
-    for migration_id in (
+    applied = re.findall(r"migrations/migrate\.py apply ([a-z0-9_]+)", body)
+
+    assert applied == [
         "0001_dataset_version_parent",
         "0002_water_requirement_publication",
         "0003_daily_requirement_producer",
-    ):
-        assert migration_id in body
+        "0004_dataset_version_identity_immutable",
+    ]
 
 
 def test_ecosystem_is_repo_relative_and_registers_exact_processes():
