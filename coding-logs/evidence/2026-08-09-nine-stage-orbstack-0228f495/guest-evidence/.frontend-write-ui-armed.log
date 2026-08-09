@@ -1,0 +1,627 @@
+   ▲ Next.js 15.5.9
+   - Local:        http://127.0.0.1:9999
+   - Network:      http://127.0.0.1:9999
+
+ ✓ Starting...
+ ✓ Ready in 292ms
+Error fetching layers: error: password authentication failed for user "postgres"
+    at async h (.next/server/app/api/smart-water-backend/gis-service/layers/route.js:70:17)
+    at async k (.next/server/app/api/smart-water-backend/gis-service/layers/route.js:1:4401)
+    at async g (.next/server/app/api/smart-water-backend/gis-service/layers/route.js:1:5404)
+    at async x (.next/server/app/api/smart-water-backend/gis-service/layers/route.js:1:6526) {
+  length: 104,
+  severity: 'FATAL',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '334',
+  routine: 'auth_failed'
+}
+Failed to load water-planning configuration error: password authentication failed for user "postgres"
+    at async m (.next/server/app/api/smart-water-backend/water-planning/configuration/route.js:20:387)
+    at async n (.next/server/app/api/smart-water-backend/water-planning/configuration/route.js:20:842)
+    at async k (.next/server/app/api/smart-water-backend/water-planning/configuration/route.js:40:12258)
+    at async g (.next/server/app/api/smart-water-backend/water-planning/configuration/route.js:40:13261)
+    at async x (.next/server/app/api/smart-water-backend/water-planning/configuration/route.js:40:14383) {
+  length: 104,
+  severity: 'FATAL',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '334',
+  routine: 'auth_failed'
+}
+Calling Water Level API: http://127.0.0.1:3022/scada-service/water-level
+Calling Moisture API: http://127.0.0.1:3022/scada-service/moisture-readings
+dataType areas
+layerName อ่างเก็บน้ำมูลบน
+Error calling Water Level API: Error: Water Level API returned 404: Not Found
+    at v (.next/server/app/api/smart-water-backend/sensor-service/water-level/route.js:1:1105)
+    at async k (.next/server/app/api/smart-water-backend/sensor-service/water-level/route.js:1:5201)
+    at async g (.next/server/app/api/smart-water-backend/sensor-service/water-level/route.js:1:6204)
+    at async B (.next/server/app/api/smart-water-backend/sensor-service/water-level/route.js:1:7326)
+Error calling Moisture API: Error: Moisture API returned 404: Not Found
+    at v (.next/server/app/api/smart-water-backend/sensor-service/moisture/route.js:1:900)
+    at async k (.next/server/app/api/smart-water-backend/sensor-service/moisture/route.js:1:4622)
+    at async g (.next/server/app/api/smart-water-backend/sensor-service/moisture/route.js:1:5625)
+    at async B (.next/server/app/api/smart-water-backend/sensor-service/moisture/route.js:1:6747)
+Error fetching GIS data: error: password authentication failed for user "postgres"
+    at async i (.next/server/app/api/smart-water-backend/gis/route.js:42:134)
+    at async k (.next/server/app/api/smart-water-backend/gis/route.js:42:4871)
+    at async g (.next/server/app/api/smart-water-backend/gis/route.js:42:5874)
+    at async x (.next/server/app/api/smart-water-backend/gis/route.js:42:6996) {
+  length: 104,
+  severity: 'FATAL',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '334',
+  routine: 'auth_failed'
+}
+dataType areas
+layerName พื้นที่โครงการบำรุงรักษามูลบนที่1
+Error fetching GIS data: error: password authentication failed for user "postgres"
+    at async i (.next/server/app/api/smart-water-backend/gis/route.js:42:134)
+    at async k (.next/server/app/api/smart-water-backend/gis/route.js:42:4871)
+    at async g (.next/server/app/api/smart-water-backend/gis/route.js:42:5874)
+    at async x (.next/server/app/api/smart-water-backend/gis/route.js:42:6996) {
+  length: 104,
+  severity: 'FATAL',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '334',
+  routine: 'auth_failed'
+}
+dataType areas
+layerName พื้นที่โครงการบำรุงรักษามูลบนที่2
+Error fetching GIS data: error: password authentication failed for user "postgres"
+    at async i (.next/server/app/api/smart-water-backend/gis/route.js:42:134)
+    at async k (.next/server/app/api/smart-water-backend/gis/route.js:42:4871)
+    at async g (.next/server/app/api/smart-water-backend/gis/route.js:42:5874)
+    at async x (.next/server/app/api/smart-water-backend/gis/route.js:42:6996) {
+  length: 104,
+  severity: 'FATAL',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '334',
+  routine: 'auth_failed'
+}
+dataType lines
+layerName คลองชลประทานมูลบน
+Error fetching GIS data: error: password authentication failed for user "postgres"
+    at async i (.next/server/app/api/smart-water-backend/gis/route.js:42:134)
+    at async k (.next/server/app/api/smart-water-backend/gis/route.js:42:4871)
+    at async g (.next/server/app/api/smart-water-backend/gis/route.js:42:5874)
+    at async x (.next/server/app/api/smart-water-backend/gis/route.js:42:6996) {
+  length: 104,
+  severity: 'FATAL',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '334',
+  routine: 'auth_failed'
+}
+dataType lines
+layerName เส้นทางลุ่มน้ำมูล สบ1
+Error fetching GIS data: error: password authentication failed for user "postgres"
+    at async i (.next/server/app/api/smart-water-backend/gis/route.js:42:134)
+    at async k (.next/server/app/api/smart-water-backend/gis/route.js:42:4871)
+    at async g (.next/server/app/api/smart-water-backend/gis/route.js:42:5874)
+    at async x (.next/server/app/api/smart-water-backend/gis/route.js:42:6996) {
+  length: 104,
+  severity: 'FATAL',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '334',
+  routine: 'auth_failed'
+}
+dataType lines
+layerName เส้นทางลุ่มน้ำมูล สบ2
+Error fetching GIS data: error: password authentication failed for user "postgres"
+    at async i (.next/server/app/api/smart-water-backend/gis/route.js:42:134)
+    at async k (.next/server/app/api/smart-water-backend/gis/route.js:42:4871)
+    at async g (.next/server/app/api/smart-water-backend/gis/route.js:42:5874)
+    at async x (.next/server/app/api/smart-water-backend/gis/route.js:42:6996) {
+  length: 104,
+  severity: 'FATAL',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '334',
+  routine: 'auth_failed'
+}
+dataType buildings
+layerName null
+Error fetching GIS data: error: password authentication failed for user "postgres"
+    at async i (.next/server/app/api/smart-water-backend/gis/route.js:42:134)
+    at async k (.next/server/app/api/smart-water-backend/gis/route.js:42:4871)
+    at async g (.next/server/app/api/smart-water-backend/gis/route.js:42:5874)
+    at async x (.next/server/app/api/smart-water-backend/gis/route.js:42:6996) {
+  length: 104,
+  severity: 'FATAL',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '334',
+  routine: 'auth_failed'
+}
+🔄 Calling SV Sensors Available API: http://127.0.0.1:3022/scada-service/sv-sensors/available
+❌ Error calling SV Sensors Available API: Error: SV Sensors Available API returned 404: Not Found
+    at v (.next/server/app/api/smart-water-backend/sensor-service/sv-sensors/route.js:1:1476)
+    at async k (.next/server/app/api/smart-water-backend/sensor-service/sv-sensors/route.js:1:5062)
+    at async g (.next/server/app/api/smart-water-backend/sensor-service/sv-sensors/route.js:1:6065)
+    at async B (.next/server/app/api/smart-water-backend/sensor-service/sv-sensors/route.js:1:7187)
+Error fetching layers: error: password authentication failed for user "postgres"
+    at async h (.next/server/app/api/smart-water-backend/gis-service/layers/route.js:70:17)
+    at async k (.next/server/app/api/smart-water-backend/gis-service/layers/route.js:1:4401)
+    at async g (.next/server/app/api/smart-water-backend/gis-service/layers/route.js:1:5404)
+    at async x (.next/server/app/api/smart-water-backend/gis-service/layers/route.js:1:6526) {
+  length: 104,
+  severity: 'FATAL',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '334',
+  routine: 'auth_failed'
+}
+Failed to load water-planning configuration error: password authentication failed for user "postgres"
+    at async m (.next/server/app/api/smart-water-backend/water-planning/configuration/route.js:20:387)
+    at async n (.next/server/app/api/smart-water-backend/water-planning/configuration/route.js:20:842)
+    at async k (.next/server/app/api/smart-water-backend/water-planning/configuration/route.js:40:12258)
+    at async g (.next/server/app/api/smart-water-backend/water-planning/configuration/route.js:40:13261)
+    at async x (.next/server/app/api/smart-water-backend/water-planning/configuration/route.js:40:14383) {
+  length: 104,
+  severity: 'FATAL',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '334',
+  routine: 'auth_failed'
+}
+Calling Water Level API: http://127.0.0.1:3022/scada-service/water-level
+Calling Moisture API: http://127.0.0.1:3022/scada-service/moisture-readings
+Error calling Water Level API: Error: Water Level API returned 404: Not Found
+    at v (.next/server/app/api/smart-water-backend/sensor-service/water-level/route.js:1:1105)
+    at async k (.next/server/app/api/smart-water-backend/sensor-service/water-level/route.js:1:5201)
+    at async g (.next/server/app/api/smart-water-backend/sensor-service/water-level/route.js:1:6204)
+    at async B (.next/server/app/api/smart-water-backend/sensor-service/water-level/route.js:1:7326)
+Error calling Moisture API: Error: Moisture API returned 404: Not Found
+    at v (.next/server/app/api/smart-water-backend/sensor-service/moisture/route.js:1:900)
+    at async k (.next/server/app/api/smart-water-backend/sensor-service/moisture/route.js:1:4622)
+    at async g (.next/server/app/api/smart-water-backend/sensor-service/moisture/route.js:1:5625)
+    at async B (.next/server/app/api/smart-water-backend/sensor-service/moisture/route.js:1:6747)
+dataType areas
+layerName อ่างเก็บน้ำมูลบน
+Error fetching GIS data: error: password authentication failed for user "postgres"
+    at async i (.next/server/app/api/smart-water-backend/gis/route.js:42:134)
+    at async k (.next/server/app/api/smart-water-backend/gis/route.js:42:4871)
+    at async g (.next/server/app/api/smart-water-backend/gis/route.js:42:5874)
+    at async x (.next/server/app/api/smart-water-backend/gis/route.js:42:6996) {
+  length: 104,
+  severity: 'FATAL',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '334',
+  routine: 'auth_failed'
+}
+dataType areas
+layerName พื้นที่โครงการบำรุงรักษามูลบนที่1
+Error fetching GIS data: error: password authentication failed for user "postgres"
+    at async i (.next/server/app/api/smart-water-backend/gis/route.js:42:134)
+    at async k (.next/server/app/api/smart-water-backend/gis/route.js:42:4871)
+    at async g (.next/server/app/api/smart-water-backend/gis/route.js:42:5874)
+    at async x (.next/server/app/api/smart-water-backend/gis/route.js:42:6996) {
+  length: 104,
+  severity: 'FATAL',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '334',
+  routine: 'auth_failed'
+}
+dataType areas
+layerName พื้นที่โครงการบำรุงรักษามูลบนที่2
+Error fetching GIS data: error: password authentication failed for user "postgres"
+    at async i (.next/server/app/api/smart-water-backend/gis/route.js:42:134)
+    at async k (.next/server/app/api/smart-water-backend/gis/route.js:42:4871)
+    at async g (.next/server/app/api/smart-water-backend/gis/route.js:42:5874)
+    at async x (.next/server/app/api/smart-water-backend/gis/route.js:42:6996) {
+  length: 104,
+  severity: 'FATAL',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '334',
+  routine: 'auth_failed'
+}
+dataType lines
+layerName คลองชลประทานมูลบน
+Error fetching GIS data: error: password authentication failed for user "postgres"
+    at async i (.next/server/app/api/smart-water-backend/gis/route.js:42:134)
+    at async k (.next/server/app/api/smart-water-backend/gis/route.js:42:4871)
+    at async g (.next/server/app/api/smart-water-backend/gis/route.js:42:5874)
+    at async x (.next/server/app/api/smart-water-backend/gis/route.js:42:6996) {
+  length: 104,
+  severity: 'FATAL',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '334',
+  routine: 'auth_failed'
+}
+dataType lines
+layerName เส้นทางลุ่มน้ำมูล สบ1
+Error fetching GIS data: error: password authentication failed for user "postgres"
+    at async i (.next/server/app/api/smart-water-backend/gis/route.js:42:134)
+    at async k (.next/server/app/api/smart-water-backend/gis/route.js:42:4871)
+    at async g (.next/server/app/api/smart-water-backend/gis/route.js:42:5874)
+    at async x (.next/server/app/api/smart-water-backend/gis/route.js:42:6996) {
+  length: 104,
+  severity: 'FATAL',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '334',
+  routine: 'auth_failed'
+}
+dataType lines
+layerName เส้นทางลุ่มน้ำมูล สบ2
+Error fetching GIS data: error: password authentication failed for user "postgres"
+    at async i (.next/server/app/api/smart-water-backend/gis/route.js:42:134)
+    at async k (.next/server/app/api/smart-water-backend/gis/route.js:42:4871)
+    at async g (.next/server/app/api/smart-water-backend/gis/route.js:42:5874)
+    at async x (.next/server/app/api/smart-water-backend/gis/route.js:42:6996) {
+  length: 104,
+  severity: 'FATAL',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '334',
+  routine: 'auth_failed'
+}
+dataType buildings
+layerName null
+Error fetching GIS data: error: password authentication failed for user "postgres"
+    at async i (.next/server/app/api/smart-water-backend/gis/route.js:42:134)
+    at async k (.next/server/app/api/smart-water-backend/gis/route.js:42:4871)
+    at async g (.next/server/app/api/smart-water-backend/gis/route.js:42:5874)
+    at async x (.next/server/app/api/smart-water-backend/gis/route.js:42:6996) {
+  length: 104,
+  severity: 'FATAL',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '334',
+  routine: 'auth_failed'
+}
+🔄 Calling SV Sensors Available API: http://127.0.0.1:3022/scada-service/sv-sensors/available
+❌ Error calling SV Sensors Available API: Error: SV Sensors Available API returned 404: Not Found
+    at v (.next/server/app/api/smart-water-backend/sensor-service/sv-sensors/route.js:1:1476)
+    at async k (.next/server/app/api/smart-water-backend/sensor-service/sv-sensors/route.js:1:5062)
+    at async g (.next/server/app/api/smart-water-backend/sensor-service/sv-sensors/route.js:1:6065)
+    at async B (.next/server/app/api/smart-water-backend/sensor-service/sv-sensors/route.js:1:7187)
+Error fetching layers: error: password authentication failed for user "postgres"
+    at async h (.next/server/app/api/smart-water-backend/gis-service/layers/route.js:70:17)
+    at async k (.next/server/app/api/smart-water-backend/gis-service/layers/route.js:1:4401)
+    at async g (.next/server/app/api/smart-water-backend/gis-service/layers/route.js:1:5404)
+    at async x (.next/server/app/api/smart-water-backend/gis-service/layers/route.js:1:6526) {
+  length: 104,
+  severity: 'FATAL',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '334',
+  routine: 'auth_failed'
+}
+Failed to load water-planning configuration error: password authentication failed for user "postgres"
+    at async m (.next/server/app/api/smart-water-backend/water-planning/configuration/route.js:20:387)
+    at async n (.next/server/app/api/smart-water-backend/water-planning/configuration/route.js:20:842)
+    at async k (.next/server/app/api/smart-water-backend/water-planning/configuration/route.js:40:12258)
+    at async g (.next/server/app/api/smart-water-backend/water-planning/configuration/route.js:40:13261)
+    at async x (.next/server/app/api/smart-water-backend/water-planning/configuration/route.js:40:14383) {
+  length: 104,
+  severity: 'FATAL',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '334',
+  routine: 'auth_failed'
+}
+Error fetching layers: error: password authentication failed for user "postgres"
+    at async h (.next/server/app/api/smart-water-backend/gis-service/layers/route.js:70:17)
+    at async k (.next/server/app/api/smart-water-backend/gis-service/layers/route.js:1:4401)
+    at async g (.next/server/app/api/smart-water-backend/gis-service/layers/route.js:1:5404)
+    at async x (.next/server/app/api/smart-water-backend/gis-service/layers/route.js:1:6526) {
+  length: 104,
+  severity: 'FATAL',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '334',
+  routine: 'auth_failed'
+}
+Failed to load water-planning configuration error: password authentication failed for user "postgres"
+    at async m (.next/server/app/api/smart-water-backend/water-planning/configuration/route.js:20:387)
+    at async n (.next/server/app/api/smart-water-backend/water-planning/configuration/route.js:20:842)
+    at async k (.next/server/app/api/smart-water-backend/water-planning/configuration/route.js:40:12258)
+    at async g (.next/server/app/api/smart-water-backend/water-planning/configuration/route.js:40:13261)
+    at async x (.next/server/app/api/smart-water-backend/water-planning/configuration/route.js:40:14383) {
+  length: 104,
+  severity: 'FATAL',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '334',
+  routine: 'auth_failed'
+}
+Error fetching layers: error: password authentication failed for user "postgres"
+    at async h (.next/server/app/api/smart-water-backend/gis-service/layers/route.js:70:17)
+    at async k (.next/server/app/api/smart-water-backend/gis-service/layers/route.js:1:4401)
+    at async g (.next/server/app/api/smart-water-backend/gis-service/layers/route.js:1:5404)
+    at async x (.next/server/app/api/smart-water-backend/gis-service/layers/route.js:1:6526) {
+  length: 104,
+  severity: 'FATAL',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '334',
+  routine: 'auth_failed'
+}
+Failed to load water-planning configuration error: password authentication failed for user "postgres"
+    at async m (.next/server/app/api/smart-water-backend/water-planning/configuration/route.js:20:387)
+    at async n (.next/server/app/api/smart-water-backend/water-planning/configuration/route.js:20:842)
+    at async k (.next/server/app/api/smart-water-backend/water-planning/configuration/route.js:40:12258)
+    at async g (.next/server/app/api/smart-water-backend/water-planning/configuration/route.js:40:13261)
+    at async x (.next/server/app/api/smart-water-backend/water-planning/configuration/route.js:40:14383) {
+  length: 104,
+  severity: 'FATAL',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '334',
+  routine: 'auth_failed'
+}

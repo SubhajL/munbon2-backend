@@ -20,7 +20,7 @@ import subprocess
 import tempfile
 import sys
 import time
-from typing import Any
+from typing import Any, Callable
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import (
@@ -53,6 +53,9 @@ STAGE_ORDER = (
     "LOCAL-WRITE-UI-1",
     "LOCAL-PERSIST-ONLY-1",
 )
+WRITE_UI_DIAGNOSTIC_STAGE = "LOCAL-WRITE-UI-DIAGNOSTIC"
+ACCEPTANCE_MACHINE_NAME = "munbon-control-plan-local"
+DEFAULT_ACCEPTANCE_EVIDENCE_ROOT = Path("/var/lib/munbon-local-acceptance/evidence")
 READINESS_URLS = {
     "flow-monitoring": "http://127.0.0.1:3011/ready",
     "scheduler": "http://127.0.0.1:3021/ready",
@@ -62,9 +65,7 @@ READINESS_URLS = {
 WRITE_FOUNDATION_NAMESPACE = uuid5(
     NAMESPACE_DNS, "local-write-foundation.munbon.invalid"
 )
-WRITE_UI_NAMESPACE = uuid5(
-    NAMESPACE_DNS, "local-write-ui.munbon.invalid"
-)
+WRITE_UI_NAMESPACE = uuid5(NAMESPACE_DNS, "local-write-ui.munbon.invalid")
 # The frontend's Next.js planning-depth proxy routes fetch `${API_SERVER}${PATH}`
 # for the three write-path env vars below. Values are the exact real BFF routes:
 # v2 submit/active (planning_depths_v2.py prefix + POST ""/GET "/active") and the
@@ -78,9 +79,7 @@ FRONTEND_WRITE_PATH_ENVIRONMENT = {
     "PLANNING_DEPTH_ROSTER_PATH": "/api/v1/water-planning/planning-depth-roster/v1",
 }
 NODE_ROOT = Path("/opt/node-v22.23.1-linux-arm64")
-_NODE_PRELOAD_ENV_VARS = frozenset(
-    {"NODE_OPTIONS", "NODE_REPL_EXTERNAL_MODULE"}
-)
+_NODE_PRELOAD_ENV_VARS = frozenset({"NODE_OPTIONS", "NODE_REPL_EXTERNAL_MODULE"})
 BROWSER_ROOT = Path("/opt/munbon/browser")
 PLAYWRIGHT_BROWSERS_ROOT = Path("/opt/munbon/playwright-browsers")
 HARNESS_ARTIFACTS = (
@@ -1174,9 +1173,20 @@ def write_stage_manifest(path, payload: dict) -> None:
 
 
 def clear_failure_manifest(evidence_root: Path, stage: str) -> None:
-    if stage not in STAGE_ORDER:
+    if stage not in (*STAGE_ORDER, WRITE_UI_DIAGNOSTIC_STAGE):
         raise StageGateError("stage_not_supported")
-    (evidence_root / f"{stage}-failure.json").unlink(missing_ok=True)
+    _clear_checksum_artifact(evidence_root, f"{stage}-failure.json")
+
+
+def _clear_checksum_artifact(evidence_root: Path, filename: str) -> None:
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", filename):
+        raise StageGateError("evidence_artifact_name_invalid")
+    (evidence_root / filename).unlink(missing_ok=True)
+    index = evidence_root / "SHA256SUMS"
+    entries = _read_checksum_index(index)
+    if filename in entries:
+        del entries[filename]
+        _write_checksum_index(index, entries)
 
 
 def parse_listening_sockets(ss_output: str) -> list[dict]:
@@ -1953,6 +1963,10 @@ def _checksum_manifest(path: Path) -> None:
     index = path.parent / "SHA256SUMS"
     entries = _read_checksum_index(index)
     entries[path.name] = digest
+    _write_checksum_index(index, entries)
+
+
+def _write_checksum_index(index: Path, entries: dict[str, str]) -> None:
     temporary = index.with_suffix(".tmp")
     descriptor = os.open(
         temporary,
@@ -3820,11 +3834,11 @@ def run_local_go_read(context: StageContext) -> dict:
                 process_code="go_read_gate_web_process_failed",
                 readiness_code="go_read_gate_web_readiness_failed",
             ) as gate_web_process:
-                steps[
-                    "actual_runtime_environment"
-                ] = validate_go_read_runtime_environment(
-                    _actual_process_environment(scada_process),
-                    _actual_process_environment(gate_web_process),
+                steps["actual_runtime_environment"] = (
+                    validate_go_read_runtime_environment(
+                        _actual_process_environment(scada_process),
+                        _actual_process_environment(gate_web_process),
+                    )
                 )
                 steps["loopback_listeners"] = go_read_listener_projection(
                     _listener_snapshot()
@@ -3914,11 +3928,7 @@ def validate_w2_write_disabled_result(
     try:
         no_store = "no-store" in headers.get("cache-control", "").lower()
         detail = str(body["detail"])
-        if (
-            status != 503
-            or not no_store
-            or detail != "planning_depth_writes_disabled"
-        ):
+        if status != 503 or not no_store or detail != "planning_depth_writes_disabled":
             raise ValueError
         return {"status": 503, "detail": detail}
     except (KeyError, TypeError, ValueError) as exc:
@@ -4055,11 +4065,7 @@ def _require_absent_active_submission(
 ) -> None:
     no_store = "no-store" in headers.get("cache-control", "").lower()
     detail = body.get("detail") if isinstance(body, dict) else None
-    if (
-        status != 404
-        or not no_store
-        or detail != "planning_depth_submission_not_found"
-    ):
+    if status != 404 or not no_store or detail != "planning_depth_submission_not_found":
         raise StageGateError(code)
 
 
@@ -4076,9 +4082,7 @@ def validate_write_flag_is_dark(flag_value: str) -> dict:
     return {"planning_depth_writes_enabled": flag_value}
 
 
-def validate_w2_week_is_clean(
-    status: int, body: Any, headers: dict[str, str]
-) -> dict:
+def validate_w2_week_is_clean(status: int, body: Any, headers: dict[str, str]) -> dict:
     """Require the target week to hold no active submission before writing.
 
     The stage can only prove a first create (201) against a week with no active
@@ -4443,7 +4447,9 @@ def _persist_only_rid_week(as_of_date: date) -> tuple[str, str]:
     """
     _, write_key = _write_ui_rid_week(as_of_date)
     ending_year = int(write_key[:4])
-    if not (PERSIST_ONLY_MIN_ENDING_YEAR <= ending_year <= PERSIST_ONLY_MAX_ENDING_YEAR):
+    if not (
+        PERSIST_ONLY_MIN_ENDING_YEAR <= ending_year <= PERSIST_ONLY_MAX_ENDING_YEAR
+    ):
         raise StageGateError("persist_only_week_out_of_supported_range")
     write_week = int(write_key[6:])
     persist_week = write_week + 1 if write_week <= 52 else 52
@@ -4452,9 +4458,7 @@ def _persist_only_rid_week(as_of_date: date) -> tuple[str, str]:
     return week_start.isoformat(), f"{ending_year:04d}-R{persist_week:02d}"
 
 
-def _write_ui_client_submission_id(
-    release_sha: str, week_key: str, drill: str
-) -> str:
+def _write_ui_client_submission_id(release_sha: str, week_key: str, drill: str) -> str:
     return str(uuid5(WRITE_UI_NAMESPACE, f"{release_sha}:{week_key}:{drill}"))
 
 
@@ -4511,37 +4515,6 @@ WRITE_UI_EXPECTED_MUTATIONS = 5
 WATER_PLANNING_PATH = "/smart-water/dashboard"
 
 
-def _reject_passive_contradiction(drill: dict) -> None:
-    """The app's OWN reads must have settled, and must agree with the probe.
-
-    `panel_roster_status`/`panel_active_status` are the statuses the application
-    itself received before its policy banner rendered. Pinning them is what stops
-    a banner that rendered from the `not-requested` PLACEHOLDER -- which the
-    product maps to `unavailable`, i.e. the outage banner -- from being read as
-    proof of an outage the drill never actually observed.
-
-    The passive boundary observation is a weaker cross-check: absent is not
-    allowed (a browser regression that stopped emitting it must not degrade
-    silently), but a null VALUE is, since the app may legitimately not have
-    issued that particular GET.
-    """
-    expected = drill["roster_status"]
-    if not _is_strict_status(drill["panel_roster_status"], expected):
-        raise ValueError
-    if not _is_strict_status(drill["panel_active_status"], drill["active_status"]):
-        raise ValueError
-    # Subscript, not .get(): an ABSENT key must reject (KeyError -> rejection)
-    # rather than be indistinguishable from an observed None.
-    observed = drill["observed_roster_status"]
-    if observed is not None and not _is_strict_status(observed, expected):
-        raise ValueError
-
-
-def _reject_unless(condition: object) -> None:
-    if condition is not True:
-        raise ValueError
-
-
 def _is_strict_status(value: object, expected: int) -> bool:
     """A real HTTP status is a non-boolean int equal to `expected`. Guards the
     whole validator against float/bool/string lookalikes (403.0, True, "401")
@@ -4553,17 +4526,21 @@ def _is_strict_status_in(value: object, allowed: set[int]) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value in allowed
 
 
-def validate_write_browser_result(body: Any) -> dict:
-    """Accept ONLY evidence that proves what it claims.
+def _is_uuid_value(value: object) -> bool:
+    UUID(str(value))
+    return True
 
-    Three claims the merged stage emitted were fabricated or vacuous and are
-    deleted rather than weakened: `reads_preserved` (asserted True while no
-    outage was ever induced), `safe_redirect` (emitted True unconditionally for
-    any string), and the retry/client-id reuse claim (compared two fields the
-    reduced proxy receipt does not return, so both were None and always equal).
-    An absent key cannot be misread as a proven property, so a residual
-    `reads_preserved` is rejected outright.
-    """
+
+def collect_write_browser_predicate_codes(body: Any) -> tuple[str, ...]:
+    failures: list[str] = []
+
+    def check(code: str, predicate: Callable[[], object]) -> None:
+        try:
+            if predicate() is not True:
+                failures.append(code)
+        except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
+            failures.append(code)
+
     required_keys = (
         "create_result",
         "active_readback",
@@ -4576,196 +4553,298 @@ def validate_write_browser_result(body: Any) -> dict:
         "reload_result",
         "request_inventory",
     )
+    check("browser_result_not_object", lambda: isinstance(body, dict))
+    sections = {
+        key: body.get(key, {}) if isinstance(body, dict) else {}
+        for key in required_keys
+    }
+    for key in required_keys:
+        check(f"{key}_not_object", lambda key=key: isinstance(sections[key], dict))
+
+    create = sections["create_result"]
+    active = sections["active_readback"]
+    correct = sections["correct_result"]
+    conflict = sections["conflict_result"]
+    reconciliation = sections["conflict_reconciliation"]
+    field_team = sections["field_team_result"]
+    outage = sections["outage_result"]
+    logout = sections["logout_result"]
+    reload_res = sections["reload_result"]
+    inventory = sections["request_inventory"]
+
+    check(
+        "create_submission_id_not_uuid",
+        lambda: _is_uuid_value(create["submission_id"]),
+    )
+    check(
+        "create_status_not_201",
+        lambda: _is_strict_status(create["status"], 201),
+    )
+    check(
+        "active_submission_id_not_uuid",
+        lambda: _is_uuid_value(active["submission_id"]),
+    )
+    check(
+        "active_status_not_200",
+        lambda: _is_strict_status(active["status"], 200),
+    )
+    check("active_levels_count_not_41", lambda: active["levels_count"] == 41)
+    check(
+        "active_distinct_depths_mismatch",
+        lambda: [float(depth) for depth in active["distinct_depths"]]
+        == WRITE_UI_ZONE_DEPTHS,
+    )
+    check(
+        "correct_submission_id_not_uuid",
+        lambda: _is_uuid_value(correct["submission_id"]),
+    )
+    check(
+        "correct_status_not_201",
+        lambda: _is_strict_status(correct["status"], 201),
+    )
+    check(
+        "conflict_status_not_409",
+        lambda: _is_strict_status(conflict["status"], 409),
+    )
+    check(
+        "reconciliation_submission_id_not_uuid",
+        lambda: _is_uuid_value(reconciliation["submission_id"]),
+    )
+    check(
+        "reconciliation_status_not_200",
+        lambda: _is_strict_status(reconciliation["status"], 200),
+    )
+
+    check(
+        "field_team_roster_status_not_403",
+        lambda: _is_strict_status(field_team["roster_status"], 403),
+    )
+    check(
+        "field_team_active_status_not_403",
+        lambda: _is_strict_status(field_team["active_status"], 403),
+    )
+    check("field_team_submit_not_absent", lambda: field_team["submit_absent"] is True)
+    check(
+        "field_team_denied_banner_absent", lambda: field_team["denied_banner"] is True
+    )
+    check(
+        "field_team_unavailable_banner_present",
+        lambda: field_team["unavailable_banner"] is False,
+    )
+    check(
+        "field_team_panel_roster_status_mismatch",
+        lambda: _is_strict_status(
+            field_team["panel_roster_status"], field_team["roster_status"]
+        ),
+    )
+    check(
+        "field_team_panel_active_status_mismatch",
+        lambda: _is_strict_status(
+            field_team["panel_active_status"], field_team["active_status"]
+        ),
+    )
+    check(
+        "field_team_observed_roster_status_mismatch",
+        lambda: field_team["observed_roster_status"] is None
+        or _is_strict_status(
+            field_team["observed_roster_status"], field_team["roster_status"]
+        ),
+    )
+    check(
+        "field_team_submit_status_not_403",
+        lambda: _is_strict_status(field_team["submit_status"], 403),
+    )
+    check(
+        "field_team_logout_status_not_success",
+        lambda: _is_strict_status_in(field_team["logout_status"], {200, 204}),
+    )
+    check(
+        "field_team_refresh_reuse_status_not_401",
+        lambda: _is_strict_status(field_team["refresh_reuse_status"], 401),
+    )
+
+    check("outage_reads_preserved_present", lambda: "reads_preserved" not in outage)
+    check(
+        "outage_roster_status_not_502",
+        lambda: _is_strict_status(outage["roster_status"], 502),
+    )
+    check(
+        "outage_active_status_not_502",
+        lambda: _is_strict_status(outage["active_status"], 502),
+    )
+    check("outage_submit_not_absent", lambda: outage["submit_absent"] is True)
+    check(
+        "outage_unavailable_banner_absent",
+        lambda: outage["unavailable_banner"] is True,
+    )
+    check("outage_denied_banner_present", lambda: outage["denied_banner"] is False)
+    check(
+        "outage_panel_roster_status_mismatch",
+        lambda: _is_strict_status(
+            outage["panel_roster_status"], outage["roster_status"]
+        ),
+    )
+    check(
+        "outage_panel_active_status_mismatch",
+        lambda: _is_strict_status(
+            outage["panel_active_status"], outage["active_status"]
+        ),
+    )
+    check(
+        "outage_observed_roster_status_mismatch",
+        lambda: outage["observed_roster_status"] is None
+        or _is_strict_status(outage["observed_roster_status"], outage["roster_status"]),
+    )
+    check(
+        "outage_submit_status_not_502",
+        lambda: _is_strict_status(outage["submit_status"], 502),
+    )
+
+    check(
+        "logout_status_not_success",
+        lambda: _is_strict_status_in(logout["status"], {200, 204}),
+    )
+    check(
+        "logout_second_context_status_not_success",
+        lambda: _is_strict_status_in(logout["second_context_status"], {200, 204}),
+    )
+    check(
+        "logout_refresh_reuse_status_not_401",
+        lambda: _is_strict_status(logout["refresh_reuse_status"], 401),
+    )
+    check(
+        "logout_second_context_refresh_reuse_status_not_401",
+        lambda: _is_strict_status(logout["second_context_refresh_reuse_status"], 401),
+    )
+    check("logout_redirect_not_login", lambda: logout["redirect_url"] == "/login")
+    check(
+        "reload_redirect_not_login",
+        lambda: reload_res["redirect_url"] == "/login",
+    )
+    check(
+        "reload_source_not_water_planning",
+        lambda: reload_res["reloaded_from"] == WATER_PLANNING_PATH,
+    )
+
+    check(
+        "forbidden_writes_not_empty",
+        lambda: isinstance(inventory["forbidden_writes"], list)
+        and not inventory["forbidden_writes"],
+    )
+    check(
+        "forbidden_write_count_not_integer",
+        lambda: isinstance(inventory.get("forbidden_write_count"), int),
+    )
+    check(
+        "forbidden_write_count_not_zero",
+        lambda: inventory["forbidden_write_count"] == 0,
+    )
+    check(
+        "total_mutations_below_expected",
+        lambda: inventory["total_mutations"] >= WRITE_UI_EXPECTED_MUTATIONS,
+    )
+    return tuple(failures)
+
+
+def validate_write_browser_result(body: Any) -> dict:
+    """Accept only evidence that satisfies every named browser predicate."""
+    predicate_codes = collect_write_browser_predicate_codes(body)
+    if predicate_codes:
+        error = StageGateError("write_browser_result_not_accepted")
+        error.predicate_codes = predicate_codes
+        raise error
+
+    create = body["create_result"]
+    active = body["active_readback"]
+    correct = body["correct_result"]
+    conflict = body["conflict_result"]
+    reconciliation = body["conflict_reconciliation"]
+    field_team = body["field_team_result"]
+    outage = body["outage_result"]
+    logout = body["logout_result"]
+    reload_res = body["reload_result"]
+    inventory = body["request_inventory"]
+    forbidden_writes = inventory["forbidden_writes"]
+    return {
+        "create_result": {
+            "status": create["status"],
+            "submission_id": str(create["submission_id"]),
+        },
+        "active_readback": {
+            "status": active["status"],
+            "levels_count": active["levels_count"],
+            "distinct_depths": list(active["distinct_depths"]),
+        },
+        "correct_result": {
+            "status": correct["status"],
+            "submission_id": str(correct["submission_id"]),
+        },
+        "conflict_result": {"status": conflict["status"]},
+        "conflict_reconciliation": {
+            "status": reconciliation["status"],
+            "submission_id": str(reconciliation["submission_id"]),
+        },
+        # Every field below echoes an OBSERVED value. Emitting a literal
+        # `True` that a preceding check happens to guarantee is structurally
+        # the same shape as the fabrications this stage deletes, and survives
+        # a reordering that drops the check.
+        "field_team_result": {
+            "roster_status": field_team["roster_status"],
+            "active_status": field_team["active_status"],
+            "observed_roster_status": field_team["observed_roster_status"],
+            "panel_roster_status": field_team["panel_roster_status"],
+            "submit_absent": field_team["submit_absent"],
+            "denied_banner": field_team["denied_banner"],
+            "unavailable_banner": field_team["unavailable_banner"],
+            "submit_status": field_team["submit_status"],
+            "logout_status": field_team["logout_status"],
+            "refresh_reuse_status": field_team["refresh_reuse_status"],
+        },
+        "outage_result": {
+            "roster_status": outage["roster_status"],
+            "active_status": outage["active_status"],
+            "observed_roster_status": outage["observed_roster_status"],
+            "panel_roster_status": outage["panel_roster_status"],
+            "submit_absent": outage["submit_absent"],
+            "unavailable_banner": outage["unavailable_banner"],
+            "denied_banner": outage["denied_banner"],
+            "submit_status": outage["submit_status"],
+        },
+        "logout_result": {
+            "status": logout["status"],
+            "second_context_status": logout["second_context_status"],
+            "refresh_reuse_status": logout["refresh_reuse_status"],
+            "second_context_refresh_reuse_status": logout[
+                "second_context_refresh_reuse_status"
+            ],
+            "redirect_to_login": logout["redirect_url"] == "/login",
+        },
+        "reload_result": {
+            "redirect_to_login": reload_res["redirect_url"] == "/login",
+            "reloaded_from": reload_res["reloaded_from"],
+        },
+        "request_inventory": {
+            "forbidden_write_count": len(forbidden_writes),
+            "total_mutations": inventory["total_mutations"],
+        },
+    }
+
+
+def _persist_write_browser_result(context: StageContext, body: Any) -> Path:
+    validate_evidence_payload(body)
+    target = context.evidence_root / "LOCAL-WRITE-UI-1-browser-result.json"
+    write_stage_manifest(target, body)
+    _checksum_manifest(target)
+    return target
+
+
+def _accept_write_browser_output(context: StageContext, stdout: str) -> dict:
     try:
-        if not isinstance(body, dict) or any(key not in body for key in required_keys):
-            raise ValueError
-        create = body["create_result"]
-        UUID(str(create["submission_id"]))
-        if not _is_strict_status(create["status"], 201):
-            raise ValueError
-
-        active = body["active_readback"]
-        UUID(str(active["submission_id"]))
-        if not _is_strict_status(active["status"], 200) or active["levels_count"] != 41:
-            raise ValueError
-        # Counting rows is not enough -- an expansion regression that served every
-        # section one zone's depth still returns exactly 41. The six submitted zone
-        # depths must survive the round trip through the proxy.
-        if [float(depth) for depth in active["distinct_depths"]] != WRITE_UI_ZONE_DEPTHS:
-            raise ValueError
-
-        correct = body["correct_result"]
-        UUID(str(correct["submission_id"]))
-        if not _is_strict_status(correct["status"], 201):
-            raise ValueError
-
-        # The 409 proxy body is {success, error} -- it carries no `detail`, so no
-        # detail claim can be made from it (submissions/route.ts:118-121).
-        conflict = body["conflict_result"]
-        if not _is_strict_status(conflict["status"], 409):
-            raise ValueError
-
-        reconciliation = body["conflict_reconciliation"]
-        UUID(str(reconciliation["submission_id"]))
-        if not _is_strict_status(reconciliation["status"], 200):
-            raise ValueError
-
-        # Field team: DENIED. Both planning-depth reads are operator-only, so the
-        # proxy passes the BFF's 403 straight through; the Submit control is not
-        # rendered at all and the product shows its denial banner.
-        field_team = body["field_team_result"]
-        if not _is_strict_status(field_team["roster_status"], 403) or not _is_strict_status(
-            field_team["active_status"], 403
-        ):
-            raise ValueError
-        _reject_unless(field_team["submit_absent"])
-        _reject_unless(field_team["denied_banner"])
-        # Two-sided: the product collapses not-requested/loading/unauthenticated/
-        # unavailable into ONE `unavailable` state, so an expired session renders
-        # the outage banner. Asserting only the expected banner's presence would
-        # leave the runbook's "the two banners differ" claim unenforced.
-        _reject_unless(field_team["unavailable_banner"] is False)
-        _reject_passive_contradiction(field_team)
-        # EXACTLY 403 -- not merely "not 2xx". A 409 would mean the principal got
-        # PAST authorization to the concurrency check (i.e. was wrongly
-        # authorized), a 401 would mean the bearer was never attached, and a
-        # transport failure reports None. Each of those would otherwise be
-        # accepted as proof of denial, hiding the very regression this proves.
-        if not _is_strict_status(field_team["submit_status"], 403):
-            raise ValueError
-        if not _is_strict_status_in(field_team["logout_status"], {200, 204}):
-            raise ValueError
-        # The field-team context's OWN pre-logout refresh token must be dead
-        # after ITS logout — 200 means revocation was suppressed, 403/None mean
-        # the probe never proved anything (#160 HIGH-1). Strict int: 401.0/True
-        # style lookalikes are not an observed HTTP status.
-        if not _is_strict_status(field_team["refresh_reuse_status"], 401):
-            raise ValueError
-
-        # Outage: reads are UNAVAILABLE, never "preserved". Every upstream failure
-        # collapses to 502 (upstream-guard.ts:48-58), so 503 never reaches here.
-        # The unavailable banner is what keeps an outage distinguishable from a
-        # permission denial.
-        outage = body["outage_result"]
-        if "reads_preserved" in outage:
-            raise ValueError
-        if not _is_strict_status(outage["roster_status"], 502) or not _is_strict_status(
-            outage["active_status"], 502
-        ):
-            raise ValueError
-        _reject_unless(outage["submit_absent"])
-        _reject_unless(outage["unavailable_banner"])
-        _reject_unless(outage["denied_banner"] is False)
-        _reject_passive_contradiction(outage)
-        # EXACTLY 502: the write must have REACHED the proxy and been refused by
-        # an unavailable upstream. A transport failure (None) proves nothing.
-        if not _is_strict_status(outage["submit_status"], 502):
-            raise ValueError
-
-        # Logout: the real response status, and a redirect that actually lands on
-        # /login -- for every context, not just the first.
-        logout = body["logout_result"]
-        if not _is_strict_status_in(logout["status"], {200, 204}):
-            raise ValueError
-        if not _is_strict_status_in(logout["second_context_status"], {200, 204}):
-            raise ValueError
-        # Same-session revocation, per operator context: each context's own
-        # captured refresh token must return exactly 401 on reuse (#160 HIGH-1).
-        if not _is_strict_status(logout["refresh_reuse_status"], 401):
-            raise ValueError
-        if not _is_strict_status(logout["second_context_refresh_reuse_status"], 401):
-            raise ValueError
-        if logout["redirect_url"] != "/login":
-            raise ValueError
-
-        reload_res = body["reload_result"]
-        if reload_res["redirect_url"] != "/login":
-            raise ValueError
-        # If hydration beat the `commit` navigation the reload re-requested
-        # /login, which proves nothing. Capturing that and not reading it is the
-        # "capture then discard" pattern these checks exist to prevent.
-        if reload_res["reloaded_from"] != WATER_PLANNING_PATH:
-            raise ValueError
-
-        inventory = body["request_inventory"]
-        forbidden_writes = inventory["forbidden_writes"]
-        if not isinstance(forbidden_writes, list) or forbidden_writes:
-            raise ValueError
-        if not isinstance(inventory.get("forbidden_write_count"), int):
-            raise ValueError
-        if inventory["forbidden_write_count"] != 0:
-            raise ValueError
-        # An empty forbidden list is ALSO what an inventory that observed nothing
-        # produces -- the merged stage's defect in a new costume. The drills issue
-        # exactly five W2 POSTs, so a live boundary must have seen at least that.
-        if inventory["total_mutations"] < WRITE_UI_EXPECTED_MUTATIONS:
-            raise ValueError
-
-        return {
-            "create_result": {
-                "status": create["status"],
-                "submission_id": str(create["submission_id"]),
-            },
-            "active_readback": {
-                "status": active["status"],
-                "levels_count": active["levels_count"],
-                "distinct_depths": list(active["distinct_depths"]),
-            },
-            "correct_result": {
-                "status": correct["status"],
-                "submission_id": str(correct["submission_id"]),
-            },
-            "conflict_result": {"status": conflict["status"]},
-            "conflict_reconciliation": {
-                "status": reconciliation["status"],
-                "submission_id": str(reconciliation["submission_id"]),
-            },
-            # Every field below echoes an OBSERVED value. Emitting a literal
-            # `True` that a preceding check happens to guarantee is structurally
-            # the same shape as the fabrications this stage deletes, and survives
-            # a reordering that drops the check.
-            "field_team_result": {
-                "roster_status": field_team["roster_status"],
-                "active_status": field_team["active_status"],
-                "observed_roster_status": field_team["observed_roster_status"],
-                "panel_roster_status": field_team["panel_roster_status"],
-                "submit_absent": field_team["submit_absent"],
-                "denied_banner": field_team["denied_banner"],
-                "unavailable_banner": field_team["unavailable_banner"],
-                "submit_status": field_team["submit_status"],
-                "logout_status": field_team["logout_status"],
-                "refresh_reuse_status": field_team["refresh_reuse_status"],
-            },
-            "outage_result": {
-                "roster_status": outage["roster_status"],
-                "active_status": outage["active_status"],
-                "observed_roster_status": outage["observed_roster_status"],
-                "panel_roster_status": outage["panel_roster_status"],
-                "submit_absent": outage["submit_absent"],
-                "unavailable_banner": outage["unavailable_banner"],
-                "denied_banner": outage["denied_banner"],
-                "submit_status": outage["submit_status"],
-            },
-            "logout_result": {
-                "status": logout["status"],
-                "second_context_status": logout["second_context_status"],
-                "refresh_reuse_status": logout["refresh_reuse_status"],
-                "second_context_refresh_reuse_status": logout[
-                    "second_context_refresh_reuse_status"
-                ],
-                "redirect_to_login": logout["redirect_url"] == "/login",
-            },
-            "reload_result": {
-                "redirect_to_login": reload_res["redirect_url"] == "/login",
-                "reloaded_from": reload_res["reloaded_from"],
-            },
-            "request_inventory": {
-                "forbidden_write_count": len(forbidden_writes),
-                "total_mutations": inventory["total_mutations"],
-            },
-        }
-    except (KeyError, TypeError, ValueError) as exc:
-        raise StageGateError("write_browser_result_not_accepted") from exc
+        body = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise StageGateError("write_browser_output_invalid") from exc
+    _persist_write_browser_result(context, body)
+    return validate_write_browser_result(body)
 
 
 WRITE_BROWSER_CREDENTIAL_FILES = (
@@ -4980,11 +5059,7 @@ def _drive_write_browser(
                 "FAIL write_browser: ",
             )
             raise StageGateError(safe_code or "write_browser_failed")
-        try:
-            body = json.loads(stdout)
-        except json.JSONDecodeError as exc:
-            raise StageGateError("write_browser_output_invalid") from exc
-        return validate_write_browser_result(body)
+        return _accept_write_browser_output(context, stdout)
     except OSError as exc:
         raise StageGateError("write_browser_process_failed") from exc
     finally:
@@ -5033,6 +5108,9 @@ def _run_write_browser(
                     f"{_safe_error_code(primary)}_and_scheduler_restore_failed"
                 )
                 combined.restoration = report
+                predicate_codes = getattr(primary, "predicate_codes", None)
+                if isinstance(predicate_codes, tuple):
+                    combined.predicate_codes = predicate_codes
                 raise combined from primary
         raise
     except BaseException:
@@ -5074,9 +5152,63 @@ def _assert_operator_refresh_reuse_rejected(client, refresh_token: str) -> dict:
     return {"refresh_reuse_status": 401, "revoked": True}
 
 
-def run_local_write_ui(context: StageContext) -> dict:
-    state = _load_state(context)
-    validate_stage_transition(tuple(state["completed"]), "LOCAL-WRITE-UI-1")
+def _write_local_write_ui_manifest(
+    context: StageContext,
+    steps: dict[str, Any],
+    *,
+    diagnostic: bool,
+) -> dict:
+    stage = WRITE_UI_DIAGNOSTIC_STAGE if diagnostic else "LOCAL-WRITE-UI-1"
+    manifest = {
+        "stage": stage,
+        "verdict": "DIAGNOSTIC_PASS" if diagnostic else "PASS",
+        "release_sha": context.release_sha,
+        "frontend_sha": context.frontend_sha,
+        "completed_at": _utc_timestamp(),
+        "steps": steps,
+    }
+    if diagnostic:
+        manifest["acceptance_evidence"] = False
+    validate_evidence_payload(manifest)
+    target = context.evidence_root / f"{stage}.json"
+    clear_failure_manifest(context.evidence_root, stage)
+    write_stage_manifest(target, manifest)
+    _checksum_manifest(target)
+    if not diagnostic:
+        _save_state(context, list(STAGE_ORDER[:8]))
+    print(f"PASS {stage}")
+    return manifest
+
+
+def _verify_write_ui_diagnostic_isolation(context: StageContext) -> None:
+    if os.uname().nodename == ACCEPTANCE_MACHINE_NAME:
+        raise StageGateError("write_ui_diagnostic_machine_not_isolated")
+    if (
+        context.evidence_root.resolve() == DEFAULT_ACCEPTANCE_EVIDENCE_ROOT.resolve()
+        or (context.evidence_root / "stage-state.json").exists()
+    ):
+        raise StageGateError("write_ui_diagnostic_evidence_not_isolated")
+
+
+def run_local_write_ui(context: StageContext, *, diagnostic: bool = False) -> dict:
+    if diagnostic:
+        _verify_write_ui_diagnostic_isolation(context)
+        _clear_checksum_artifact(
+            context.evidence_root,
+            f"{WRITE_UI_DIAGNOSTIC_STAGE}.json",
+        )
+        _clear_checksum_artifact(
+            context.evidence_root,
+            "LOCAL-WRITE-UI-1-browser-result.json",
+        )
+        _verify_source_checkouts(context)
+    else:
+        state = _load_state(context)
+        validate_stage_transition(tuple(state["completed"]), "LOCAL-WRITE-UI-1")
+        _clear_checksum_artifact(
+            context.evidence_root,
+            "LOCAL-WRITE-UI-1-browser-result.json",
+        )
 
     _verify_frontend_source(context)
 
@@ -5204,22 +5336,11 @@ def run_local_write_ui(context: StageContext) -> dict:
 
     steps["aws_actions"] = False
 
-    manifest = {
-        "stage": "LOCAL-WRITE-UI-1",
-        "verdict": "PASS",
-        "release_sha": context.release_sha,
-        "frontend_sha": context.frontend_sha,
-        "completed_at": _utc_timestamp(),
-        "steps": steps,
-    }
-    validate_evidence_payload(manifest)
-    target = context.evidence_root / "LOCAL-WRITE-UI-1.json"
-    clear_failure_manifest(context.evidence_root, "LOCAL-WRITE-UI-1")
-    write_stage_manifest(target, manifest)
-    _checksum_manifest(target)
-    _save_state(context, list(STAGE_ORDER[:8]))
-    print("PASS LOCAL-WRITE-UI-1")
-    return manifest
+    return _write_local_write_ui_manifest(
+        context,
+        steps,
+        diagnostic=diagnostic,
+    )
 
 
 # --- LOCAL-PERSIST-ONLY-1 helpers ---
@@ -5794,7 +5915,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--evidence-root",
         type=Path,
-        default=Path("/var/lib/munbon-local-acceptance/evidence"),
+        default=DEFAULT_ACCEPTANCE_EVIDENCE_ROOT,
     )
     parser.add_argument(
         "--runtime-env-dir",
@@ -5802,7 +5923,17 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=Path("/etc/munbon/control-plan-read-runtime"),
     )
     parser.add_argument("--as-of-date", type=date.fromisoformat, default=date.today())
-    return parser.parse_args(argv)
+    parser.add_argument("--diagnostic", action="store_true")
+    args = parser.parse_args(argv)
+    if args.diagnostic:
+        if args.stage != "LOCAL-WRITE-UI-1":
+            parser.error("--diagnostic is supported only for LOCAL-WRITE-UI-1")
+        if (
+            args.evidence_root.resolve() == DEFAULT_ACCEPTANCE_EVIDENCE_ROOT.resolve()
+            or (args.evidence_root / "stage-state.json").exists()
+        ):
+            parser.error("--diagnostic requires an isolated evidence root")
+    return args
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -5833,7 +5964,10 @@ def main(argv: list[str] | None = None) -> int:
         elif args.stage == "LOCAL-WRITE-FOUNDATION-1":
             run_local_write_foundation(context)
         elif args.stage == "LOCAL-WRITE-UI-1":
-            run_local_write_ui(context)
+            if getattr(args, "diagnostic", False):
+                run_local_write_ui(context, diagnostic=True)
+            else:
+                run_local_write_ui(context)
         else:
             run_local_persist_only(context)
     except Exception as exc:
@@ -5845,7 +5979,8 @@ def main(argv: list[str] | None = None) -> int:
         # DRY with _safe_error_code: same unexpected_<Type> fallback as the
         # restoration guard, so non-StageGateError codes never diverge.
         safe_error = (
-            exc if isinstance(exc, StageGateError)
+            exc
+            if isinstance(exc, StageGateError)
             else StageGateError(_safe_error_code(exc))
         )
         if safe_error is not exc:
@@ -5861,25 +5996,39 @@ def main(argv: list[str] | None = None) -> int:
                 _stop_runtime()
             except Exception as exc_teardown:
                 teardown_error = _safe_error_code(exc_teardown)
+        diagnostic = getattr(args, "diagnostic", False)
+        stage = WRITE_UI_DIAGNOSTIC_STAGE if diagnostic else args.stage
         failure = {
-            "stage": args.stage,
+            "stage": stage,
             "verdict": "FAIL",
             "release_sha": args.release_sha,
             "failed_gate": str(safe_error),
             "failed_at": _utc_timestamp(),
         }
+        if diagnostic:
+            failure["acceptance_evidence"] = False
         if teardown_error is not None:
             failure["teardown_error"] = teardown_error
         restoration = getattr(safe_error, "restoration", None)
         if isinstance(restoration, dict):
             failure["restoration"] = restoration
-        try:
-            write_stage_manifest(
-                args.evidence_root / f"{args.stage}-failure.json", failure
+        predicate_codes = getattr(safe_error, "predicate_codes", None)
+        if (
+            isinstance(predicate_codes, (list, tuple))
+            and predicate_codes
+            and all(
+                isinstance(code, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,127}", code)
+                for code in predicate_codes
             )
+        ):
+            failure["predicate_codes"] = list(predicate_codes)
+        try:
+            target = args.evidence_root / f"{stage}-failure.json"
+            write_stage_manifest(target, failure)
+            _checksum_manifest(target)
         except Exception:
             pass
-        print(f"FAIL {args.stage}: {safe_error}")
+        print(f"FAIL {stage}: {safe_error}")
         return 1
     return 0
 

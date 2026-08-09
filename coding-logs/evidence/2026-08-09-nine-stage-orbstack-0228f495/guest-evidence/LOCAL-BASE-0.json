@@ -1,0 +1,29 @@
+{
+  "activation_flags": {
+    "control_plan_evidence_reads": false,
+    "control_plan_reads": false,
+    "machine_commands": false,
+    "planning_depth_writes": false,
+    "planning_depth_writes_visible": false,
+    "ros_manual_production": false,
+    "ros_recurring_production": false,
+    "ros_startup_production": false,
+    "scheduler_execution": false
+  },
+  "backend_sha": "0228f495b7708b92cc7526f201687eb5b1441565",
+  "captured_at": "2026-08-09T07:37:26.261417Z",
+  "frontend_sha": "067b3e22401854f8c6d6db42dc0c5c1872fca6f8",
+  "frontend_status": {
+    "FE-0": "complete",
+    "FE-1": "complete",
+    "FE-2": "complete",
+    "FE-3": "complete",
+    "FE-4": "complete",
+    "FE-8": "complete"
+  },
+  "pending_starts": [
+    "LOCAL-RTA-1"
+  ],
+  "stage": "LOCAL-BASE-0",
+  "verdict": "PASS"
+}
