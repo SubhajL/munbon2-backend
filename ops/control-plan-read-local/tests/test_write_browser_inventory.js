@@ -4,6 +4,12 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const {
   recordPlanningRead,
+  makePlanningFetchWrapper,
+  proveContextLogout,
+  proveBothOperatorLogouts,
+  browserFailureCode,
+  assertRefreshShaped,
+  contextRefreshCookie,
   isOffOriginRequest,
   planningReadPaths,
   navigationSteps,
@@ -240,25 +246,319 @@ test("recordPlanningRead keys planning reads by pathname and ignores everything 
     502,
     [ROSTER_PATH, ACTIVE_PATH],
     ORIGIN,
+    true,
   );
-  recordPlanningRead(reads, `${ORIGIN}${ROSTER_PATH}`, 502, [ROSTER_PATH, ACTIVE_PATH], ORIGIN);
+  recordPlanningRead(reads, `${ORIGIN}${ROSTER_PATH}`, 502, [ROSTER_PATH, ACTIVE_PATH], ORIGIN, true);
   assert.deepEqual(reads, { [ACTIVE_PATH]: 502, [ROSTER_PATH]: 502 });
 
   // Off-path traffic (including the harness's own auth calls) must not register.
-  recordPlanningRead(reads, `${ORIGIN}/api/auth/login`, 200, [ROSTER_PATH, ACTIVE_PATH], ORIGIN);
-  recordPlanningRead(reads, `${ORIGIN}/_next/static/x.js`, 200, [ROSTER_PATH, ACTIVE_PATH], ORIGIN);
+  recordPlanningRead(reads, `${ORIGIN}/api/auth/login`, 200, [ROSTER_PATH, ACTIVE_PATH], ORIGIN, true);
+  recordPlanningRead(reads, `${ORIGIN}/_next/static/x.js`, 200, [ROSTER_PATH, ACTIVE_PATH], ORIGIN, true);
   assert.deepEqual(Object.keys(reads).sort(), [ACTIVE_PATH, ROSTER_PATH].sort());
 
   // A relative URL resolves against the page origin.
   const relative = {};
-  recordPlanningRead(relative, ROSTER_PATH, 403, [ROSTER_PATH], ORIGIN);
+  recordPlanningRead(relative, ROSTER_PATH, 403, [ROSTER_PATH], ORIGIN, true);
   assert.deepEqual(relative, { [ROSTER_PATH]: 403 });
+});
+
+test("recordPlanningRead refuses to record a read whose body never settled", () => {
+  // #160 MEDIUM: recording on headers alone lets a truncated body satisfy the
+  // settle predicate. Anything but an explicit true means NOT settled.
+  const reads = {};
+  recordPlanningRead(reads, `${ORIGIN}${ROSTER_PATH}`, 502, [ROSTER_PATH], ORIGIN, false);
+  recordPlanningRead(reads, `${ORIGIN}${ROSTER_PATH}`, 502, [ROSTER_PATH], ORIGIN, undefined);
+  assert.deepEqual(reads, {});
 });
 
 test("recordPlanningRead never throws into the product's own request", () => {
   const reads = {};
   assert.doesNotThrow(() =>
-    recordPlanningRead(reads, "::not a url::", 200, [ROSTER_PATH], undefined),
+    recordPlanningRead(reads, "::not a url::", 200, [ROSTER_PATH], undefined, true),
   );
   assert.deepEqual(reads, {});
+});
+
+function fakeResponse({ url, status, bodyRejects }) {
+  return {
+    url,
+    status,
+    clone() {
+      return {
+        arrayBuffer: () =>
+          bodyRejects
+            ? Promise.reject(new Error("body aborted after headers"))
+            : Promise.resolve(new ArrayBuffer(0)),
+      };
+    },
+  };
+}
+
+test("planning fetch wrapper records an on-path read only after its body settles", async () => {
+  const reads = {};
+  let releaseBody;
+  const bodyGate = new Promise((resolve) => {
+    releaseBody = resolve;
+  });
+  const wrapper = makePlanningFetchWrapper({
+    originalFetch: async () => ({
+      url: `${ORIGIN}${ROSTER_PATH}`,
+      status: 200,
+      clone() {
+        return { arrayBuffer: () => bodyGate };
+      },
+    }),
+    reads,
+    paths: [ROSTER_PATH, ACTIVE_PATH],
+    origin: ORIGIN,
+    record: recordPlanningRead,
+  });
+  const pending = wrapper(`${ORIGIN}${ROSTER_PATH}`);
+  await new Promise((resolve) => setImmediate(resolve));
+  // Recording at headers-received is exactly the #160 fail-open this pins.
+  assert.deepEqual(reads, {});
+  releaseBody(new ArrayBuffer(0));
+  const response = await pending;
+  assert.equal(response.status, 200);
+  assert.deepEqual(reads, { [ROSTER_PATH]: 200 });
+});
+
+test("proveContextLogout captures BEFORE logout and probes THAT value after", async () => {
+  // #160 HIGH-1's load-bearing ordering, as behavior rather than source strings:
+  // the revocation probe must receive the SAME context's pre-logout credential.
+  const events = [];
+  const fakeContext = { label: "ctx-a" };
+  const proof = await proveContextLogout(fakeContext, "http://127.0.0.1:9999", {
+    capture: async (context) => {
+      events.push(`capture:${context.label}`);
+      return "credential-of-ctx-a";
+    },
+    logout: async (context, frontendUrl) => {
+      events.push(`logout:${context.label}:${new URL(frontendUrl).port}`);
+      return 204;
+    },
+    probe: async (value) => {
+      events.push(`probe:${value}`);
+      return 401;
+    },
+  });
+  assert.deepEqual(events, [
+    "capture:ctx-a",
+    "logout:ctx-a:9999",
+    "probe:credential-of-ctx-a",
+  ]);
+  assert.deepEqual(proof, { logout_status: 204, refresh_reuse_status: 401 });
+});
+
+test("proveBothOperatorLogouts logs BOTH contexts out even when the first proof throws", async () => {
+  const loggedOut = [];
+  const prove = async (context) => {
+    loggedOut.push(context.label);
+    if (context.label === "primary") throw new Error("refresh_cookie_ambiguous");
+    return { logout_status: 204, refresh_reuse_status: 401 };
+  };
+  await assert.rejects(
+    () =>
+      proveBothOperatorLogouts(
+        { label: "primary" },
+        { label: "second" },
+        "http://127.0.0.1:9999",
+        { prove },
+      ),
+    /refresh_cookie_ambiguous/,
+  );
+  assert.deepEqual(loggedOut, ["primary", "second"]);
+});
+
+test("browserFailureCode surfaces a code-shaped message and sanitizes hyphenated checkpoints", () => {
+  assert.equal(
+    browserFailureCode(new Error("refresh_cookie_ambiguous"), "logout"),
+    "refresh_cookie_ambiguous",
+  );
+  assert.equal(
+    browserFailureCode(new Error("net::ERR_RESET"), "create-submission"),
+    "browser_create_submission_failed",
+  );
+  assert.equal(
+    browserFailureCode("a bare string", "outage-probe"),
+    "browser_outage_probe_failed",
+  );
+  assert.equal(
+    browserFailureCode(undefined, "reload-after-logout"),
+    "browser_reload_after_logout_failed",
+  );
+  for (const cp of ["create-submission", "field-team-context", "reload-after-logout"]) {
+    assert.match(browserFailureCode(new Error("x y"), cp), /^[a-z][a-z0-9_]{0,127}$/);
+  }
+});
+
+test("proveContextLogout surfaces the CAPTURE error even when logout also throws", async () => {
+  // The renamed/reshaped-cookie diagnosis is the root cause; a logout transport
+  // error under the same regression must not bury it (#160 round-3 review).
+  await assert.rejects(
+    proveContextLogout({ label: "ctx-c" }, "http://127.0.0.1:9999", {
+      capture: async () => {
+        throw new Error("refresh_cookie_not_captured");
+      },
+      logout: async () => {
+        throw new Error("browser_logout_transport_reset");
+      },
+      probe: async () => 401,
+    }),
+    /refresh_cookie_not_captured/,
+  );
+});
+
+test("proveContextLogout STILL logs out when capture fails, then surfaces the error", async () => {
+  // A capture/shape failure must not leave the session live server-side: the
+  // logout POST is the cleanup guarantee and must fire regardless (#160 review).
+  const events = [];
+  await assert.rejects(
+    proveContextLogout({ label: "ctx-b" }, "http://127.0.0.1:9999", {
+      capture: async () => {
+        throw new Error("refresh_cookie_not_captured");
+      },
+      logout: async (context) => {
+        events.push(`logout:${context.label}`);
+        return 204;
+      },
+      probe: async () => {
+        events.push("probe");
+        return 401;
+      },
+    }),
+    /refresh_cookie_not_captured/,
+  );
+  // logout happened; probe did not (no captured credential to reuse).
+  assert.deepEqual(events, ["logout:ctx-b"]);
+});
+
+test("planning fetch wrapper does NOT record an on-path read whose body aborts after headers", async () => {
+  // #160 MEDIUM: the app cannot have derived policy from a body it never got.
+  // Leaving the read unrecorded keeps the settle waiter waiting, so the drill
+  // fails closed on its existing timeout instead of reporting headers as reads.
+  const reads = {};
+  const wrapper = makePlanningFetchWrapper({
+    originalFetch: async () =>
+      fakeResponse({ url: `${ORIGIN}${ROSTER_PATH}`, status: 502, bodyRejects: true }),
+    reads,
+    paths: [ROSTER_PATH, ACTIVE_PATH],
+    origin: ORIGIN,
+    record: recordPlanningRead,
+  });
+  const response = await wrapper(`${ORIGIN}${ROSTER_PATH}`);
+  assert.equal(response.status, 502);
+  assert.deepEqual(reads, {});
+});
+
+test("planning fetch wrapper never touches an off-path response body", async () => {
+  // The paths gate must run BEFORE the clone: instrumentation reading every
+  // response body would perturb the product's own request handling.
+  const reads = {};
+  let cloneCalls = 0;
+  const wrapper = makePlanningFetchWrapper({
+    originalFetch: async () => ({
+      url: `${ORIGIN}/api/auth/login`,
+      status: 200,
+      clone() {
+        cloneCalls += 1;
+        return { arrayBuffer: () => Promise.reject(new Error("must not run")) };
+      },
+    }),
+    reads,
+    paths: [ROSTER_PATH, ACTIVE_PATH],
+    origin: ORIGIN,
+    record: recordPlanningRead,
+  });
+  const response = await wrapper(`${ORIGIN}/api/auth/login`);
+  assert.equal(response.status, 200);
+  assert.equal(cloneCalls, 0);
+  assert.deepEqual(reads, {});
+});
+
+function jwtLike(payload) {
+  const middle = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  return `header.${middle}.signature`;
+}
+
+function refreshJwt(sub) {
+  const middle = Buffer.from(
+    JSON.stringify({ type: "refresh", sub }),
+  ).toString("base64url");
+  return `header.${middle}.signature`;
+}
+
+test("contextRefreshCookie returns the single shaped smart_cms_refresh cookie", async () => {
+  const value = refreshJwt("user-1");
+  const context = {
+    cookies: async () => [
+      { name: "other", value: "x" },
+      { name: "smart_cms_refresh", value },
+    ],
+  };
+  assert.equal(await contextRefreshCookie(context), value);
+});
+
+test("contextRefreshCookie rejects ambiguous duplicate refresh cookies", async () => {
+  const context = {
+    cookies: async () => [
+      { name: "smart_cms_refresh", value: refreshJwt("user-1") },
+      { name: "smart_cms_refresh", value: refreshJwt("user-2") },
+    ],
+  };
+  await assert.rejects(
+    () => contextRefreshCookie(context),
+    /refresh_cookie_ambiguous/,
+  );
+});
+
+test("contextRefreshCookie rejects when no refresh cookie exists", async () => {
+  const context = { cookies: async () => [{ name: "other", value: "x" }] };
+  await assert.rejects(
+    () => contextRefreshCookie(context),
+    /refresh_cookie_not_captured/,
+  );
+});
+
+test("assertRefreshShaped accepts a refresh-type JWT and rejects lookalikes", () => {
+  const good = jwtLike({ type: "refresh", sub: "user-1" });
+  assert.equal(assertRefreshShaped(good), good);
+  // The failure modes a wrongly-captured cookie value actually takes:
+  for (const bad of [
+    jwtLike({ type: "access", sub: "user-1" }),
+    // a re-encoded wrapper (e.g. the frontend base64-wrapping the JWT):
+    Buffer.from(jwtLike({ type: "refresh", sub: "user-1" })).toString("base64"),
+    "opaque-session-blob",
+    "a.b",
+    "",
+  ]) {
+    assert.throws(
+      () => assertRefreshShaped(bad),
+      /refresh_cookie_not_refresh_shaped/,
+    );
+  }
+});
+
+test("injected sources survive the new Function round-trip out of module scope", async () => {
+  // The init script rebuilds these from source in the PAGE realm, where module
+  // constants do not exist — a future edit capturing one would pass every
+  // direct-call test and fail only as an opaque 35s in-page timeout.
+  // eslint-disable-next-line no-new-func
+  const rebuiltRecord = new Function(`return (${recordPlanningRead.toString()})`)();
+  // eslint-disable-next-line no-new-func
+  const rebuiltMakeWrapper = new Function(
+    `return (${makePlanningFetchWrapper.toString()})`,
+  )();
+  const reads = {};
+  const wrapper = rebuiltMakeWrapper({
+    originalFetch: async () =>
+      fakeResponse({ url: `${ORIGIN}${ROSTER_PATH}`, status: 200, bodyRejects: false }),
+    reads,
+    paths: [ROSTER_PATH, ACTIVE_PATH],
+    origin: ORIGIN,
+    record: rebuiltRecord,
+  });
+  const response = await wrapper(`${ORIGIN}${ROSTER_PATH}`);
+  assert.equal(response.status, 200);
+  assert.deepEqual(reads, { [ROSTER_PATH]: 200 });
 });

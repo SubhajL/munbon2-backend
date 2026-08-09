@@ -323,6 +323,131 @@ async function logoutContext(context, frontendUrl) {
   return response.status();
 }
 
+// The frontend re-wraps the central refreshToken VALUE into its own hardened
+// cookie (smart-cms-app lib/auth/server.ts:5, hardenRefreshCookie) -- so this
+// cookie's value IS the credential central auth revokes on logout.
+const REFRESH_COOKIE_NAME = "smart_cms_refresh";
+const AUTH_REFRESH_URL = "http://127.0.0.1:3005/api/v1/auth/refresh";
+
+/** The strongest non-destructive control on a captured refresh credential:
+ * central auth ROTATES (revokes + reissues) on every refresh, so probing
+ * liveness would itself kill the token and make the post-logout 401 vacuous.
+ * Shape-checking the raw JWT (payload.type === "refresh") instead catches the
+ * real wrong-capture modes -- re-encoded/wrapped/percent-escaped values or the
+ * wrong cookie entirely -- without consuming the credential. */
+function assertRefreshShaped(value) {
+  try {
+    const segments = String(value).split(".");
+    if (segments.length !== 3) throw new Error("segments");
+    const payload = JSON.parse(Buffer.from(segments[1], "base64url").toString());
+    if (payload.type !== "refresh") throw new Error("type");
+    return value;
+  } catch {
+    throw new Error("refresh_cookie_not_refresh_shaped");
+  }
+}
+
+/** THIS context's own refresh credential, captured BEFORE its logout -- the
+ * revocation proof must concern the session the browser actually held, not a
+ * separately created one (#160 HIGH-1). context.cookies() includes HttpOnly. */
+async function contextRefreshCookie(context) {
+  const matches = (await context.cookies()).filter(
+    (candidate) => candidate.name === REFRESH_COOKIE_NAME && candidate.value,
+  );
+  if (matches.length === 0) throw new Error("refresh_cookie_not_captured");
+  // Refuse to guess: two same-named cookies (different scope) could bind the
+  // probe to a stale credential rather than the one logout revokes (#160).
+  if (matches.length > 1) throw new Error("refresh_cookie_ambiguous");
+  return assertRefreshShaped(matches[0].value);
+}
+
+/** Reuse the captured credential against central auth AFTER logout; only the
+ * integer status is ever recorded (the sanitizer forbids token material).
+ * express.json() only parses with the explicit JSON content type. */
+async function refreshReuseStatus(refreshValue) {
+  // Bounded: a wedged auth service must surface HERE (named checkpoint), not
+  // as the outer 300s communicate timeout blaming the outage coordination.
+  const response = await fetch(AUTH_REFRESH_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refreshToken: refreshValue }),
+    signal: AbortSignal.timeout(15000),
+  });
+  return response.status;
+}
+
+/** The one logout-proof ordering for every context: capture THIS context's own
+ * credential, log THIS context out, prove THAT captured value is now dead.
+ * Extracted as a seam so the ordering is pinned by a node test rather than by
+ * source-string inspection (#160 review). */
+/** Revoke BOTH operator sessions even if one context's proof throws: a
+ * capture/shape failure on the primary must not skip the second context's
+ * logout (#160). Runs both proofs, then surfaces the first error. */
+async function proveBothOperatorLogouts(
+  primaryContext,
+  secondContext,
+  frontendUrl,
+  deps = {},
+) {
+  const { prove = proveContextLogout } = deps;
+  let primaryProof = null;
+  let secondProof = null;
+  let firstError = null;
+  try {
+    primaryProof = await prove(primaryContext, frontendUrl);
+  } catch (error) {
+    firstError = error;
+  }
+  try {
+    secondProof = await prove(secondContext, frontendUrl);
+  } catch (error) {
+    firstError = firstError || error;
+  }
+  if (firstError) throw firstError;
+  return { primaryProof, secondProof };
+}
+
+/** The failure code the subprocess emits for `checkpoint`. A code-shaped
+ * (string) err.message surfaces directly so named diagnostics reach the
+ * manifest; anything else — a hyphenated checkpoint, a non-Error throw, a
+ * message with spaces — becomes `browser_<checkpoint>_failed` with hyphens
+ * underscored so the Python extractor's [a-z0-9_] grammar accepts it. */
+function browserFailureCode(err, checkpoint) {
+  const message = err && typeof err.message === "string" ? err.message : "";
+  if (/^[a-z][a-z0-9_]{0,127}$/.test(message)) return message;
+  const safeCheckpoint = String(checkpoint).replace(/[^a-z0-9]+/g, "_");
+  return `browser_${safeCheckpoint}_failed`;
+}
+
+async function proveContextLogout(context, frontendUrl, deps = {}) {
+  const {
+    capture = contextRefreshCookie,
+    logout = logoutContext,
+    probe = refreshReuseStatus,
+  } = deps;
+  // Capture may fail (renamed/reshaped cookie), but the logout POST is the
+  // server-side session-revocation guarantee and must fire regardless (#160);
+  // only surface the capture failure AFTER logging out.
+  let refreshValue = null;
+  let captureError = null;
+  try {
+    refreshValue = await capture(context);
+  } catch (error) {
+    captureError = error;
+  }
+  let logoutStatus;
+  try {
+    logoutStatus = await logout(context, frontendUrl);
+  } catch (logoutError) {
+    // A capture failure is the ROOT diagnosis (renamed/reshaped cookie); if the
+    // mandatory logout ALSO fails, do not let the transport error bury it.
+    throw captureError || logoutError;
+  }
+  if (captureError) throw captureError;
+  const reuseStatus = await probe(refreshValue);
+  return { logout_status: logoutStatus, refresh_reuse_status: reuseStatus };
+}
+
 /** Navigate to a protected page and report where the browser ACTUALLY ended up.
  *
  * The redirect is client-side (middleware.ts does not gate /smart-water), so a
@@ -376,7 +501,10 @@ function planningReadPaths() {
  * ignored (the active read carries `?project_key=…&week_key=…`), off-path URLs
  * are skipped, and a malformed URL must never throw into the product's request.
  */
-function recordPlanningRead(reads, url, status, paths, origin) {
+function recordPlanningRead(reads, url, status, paths, origin, bodySettled) {
+  // Only an EXPLICIT true records (#160): an omitted or false flag means the
+  // body never settled, and headers alone are not evidence the app read it.
+  if (bodySettled !== true) return reads;
   try {
     const pathname = new URL(url, origin).pathname;
     if (paths.includes(pathname)) reads[pathname] = status;
@@ -386,39 +514,58 @@ function recordPlanningRead(reads, url, status, paths, origin) {
   return reads;
 }
 
+/** The in-page fetch instrumentation, extracted so the SAME source that runs in
+ * the browser (injected via toString, like recordPlanningRead) is the code the
+ * node tests drive with an aborting body — no second copy. */
+function makePlanningFetchWrapper({ originalFetch, reads, paths, origin, record }) {
+  return async (...args) => {
+    const response = await originalFetch(...args);
+    // Record only once the BODY has arrived, not at headers-received: the app
+    // cannot have derived its policy from a response it has not read. A clone
+    // keeps the product's own stream untouched, and the path gate keeps the
+    // instrumentation off every OTHER response the product makes. A body that
+    // aborts after headers leaves the read UNRECORDED, so the settle waiter
+    // times out instead of accepting headers as reads (#160).
+    let bodySettled = true;
+    try {
+      const settled = new URL(response.url, origin).pathname;
+      if (paths.includes(settled)) await response.clone().arrayBuffer();
+    } catch {
+      bodySettled = false;
+    }
+    record(reads, response.url, response.status, paths, origin, bodySettled);
+    return response;
+  };
+}
+
 /** Record the app's own planning-depth read completions inside the page.
  * Must be installed on the CONTEXT before any navigation; Playwright re-runs
  * init scripts on every navigation, which also resets the map per page load. */
 function installReadRecorder(context) {
   return context.addInitScript(
-    ({ paths, source }) => {
-      window.__planningDepthReads = {};
+    ({ paths, recordSource, wrapperSource }) => {
       // eslint-disable-next-line no-new-func
-      const record = new Function(`return (${source})`)();
-      const original = window.fetch;
-      window.fetch = async (...args) => {
-        const response = await original(...args);
-        // Record only once the BODY has arrived, not at headers-received: the app
-        // cannot have derived its policy from a response it has not read. A clone
-        // keeps the product's own stream untouched, and the path gate keeps the
-        // instrumentation off every OTHER response the product makes.
-        try {
-          const settled = new URL(response.url, window.location.origin).pathname;
-          if (paths.includes(settled)) await response.clone().arrayBuffer();
-        } catch {
-          // Opaque/consumed body: fall through and record on headers alone.
-        }
-        record(
-          window.__planningDepthReads,
-          response.url,
-          response.status,
-          paths,
-          window.location.origin,
-        );
-        return response;
-      };
+      const record = new Function(`return (${recordSource})`)();
+      // eslint-disable-next-line no-new-func
+      const makeWrapper = new Function(`return (${wrapperSource})`)();
+      const reads = {};
+      window.fetch = makeWrapper({
+        originalFetch: window.fetch.bind(window),
+        reads,
+        paths,
+        origin: window.location.origin,
+        record,
+      });
+      // Sentinel LAST: readPanelAffordance's read_recorder_not_installed check
+      // must fail if either injected source failed to rebuild in this realm --
+      // a pre-set sentinel would report an unwrapped fetch as installed.
+      window.__planningDepthReads = reads;
     },
-    { paths: planningReadPaths(), source: recordPlanningRead.toString() },
+    {
+      paths: planningReadPaths(),
+      recordSource: recordPlanningRead.toString(),
+      wrapperSource: makePlanningFetchWrapper.toString(),
+    },
   );
 }
 
@@ -483,6 +630,12 @@ async function landingPathAfter(page, frontendUrl, { reload = false } = {}) {
 
 module.exports = {
   recordPlanningRead,
+  makePlanningFetchWrapper,
+  proveContextLogout,
+  proveBothOperatorLogouts,
+  browserFailureCode,
+  assertRefreshShaped,
+  contextRefreshCookie,
   isOffOriginRequest,
   planningReadPaths,
   navigationSteps,
@@ -673,7 +826,10 @@ if (require.main === module) {
         weekDate,
         submitPath: SUBMIT_PATH,
       });
-      const fieldLogoutStatus = await logoutContext(fieldTeamContext, frontendUrl);
+      const fieldLogoutProof = await proveContextLogout(
+        fieldTeamContext,
+        frontendUrl,
+      );
       result.field_team_result = {
         roster_status: fieldReads.roster_status,
         active_status: fieldReads.active_status,
@@ -684,7 +840,8 @@ if (require.main === module) {
         panel_roster_status: fieldPanel.panel_roster_status,
         panel_active_status: fieldPanel.panel_active_status,
         submit_status: fieldSubmitStatus,
-        logout_status: fieldLogoutStatus,
+        logout_status: fieldLogoutProof.logout_status,
+        refresh_reuse_status: fieldLogoutProof.refresh_reuse_status,
       };
       await closeContext(fieldTeamContext);
 
@@ -720,11 +877,18 @@ if (require.main === module) {
       };
 
       checkpoint = "logout";
-      const logoutStatus = await logoutContext(primaryContext, frontendUrl);
-      const secondLogoutStatus = await logoutContext(secondContext, frontendUrl);
+      // Both operator sessions must be revoked; a proof failure on one context
+      // must not skip the other's logout POST.
+      const { primaryProof, secondProof } = await proveBothOperatorLogouts(
+        primaryContext,
+        secondContext,
+        frontendUrl,
+      );
       result.logout_result = {
-        status: logoutStatus,
-        second_context_status: secondLogoutStatus,
+        status: primaryProof.logout_status,
+        second_context_status: secondProof.logout_status,
+        refresh_reuse_status: primaryProof.refresh_reuse_status,
+        second_context_refresh_reuse_status: secondProof.refresh_reuse_status,
         redirect_url: (await landingPathAfter(page, frontendUrl)).landing,
       };
 
@@ -746,9 +910,14 @@ if (require.main === module) {
         total_mutations: inventory.mutations.length,
       };
     } catch (err) {
-      process.stderr.write(
-        `FAIL write_browser: browser_${checkpoint}_failed: ${err.message}\n`,
-      );
+      // A clean, extractor-valid code token (see browserFailureCode); the human
+      // detail rides on a separate, non-extracted line.
+      const failureCode = browserFailureCode(err, checkpoint);
+      const detail = err && err.message ? err.message : String(err);
+      process.stderr.write(`FAIL write_browser: ${failureCode}\n`);
+      if (failureCode !== detail) {
+        process.stderr.write(`write_browser detail: ${detail}\n`);
+      }
       await browser.close();
       process.exit(1);
     }
