@@ -1,0 +1,13 @@
+# Drift check — R2 range files vs origin/main at review time
+
+Reviewed range: 45bb5433..46cdaa03740e1a19badf7eea04bfb8ef3a3f4663 (PR #153, squash)
+origin/main at review time: b467967e76cca2921832a1d70148868997560b41 (contains #155 / PR #157)
+Review date: 2026-08-09 (Asia/Bangkok)
+
+$ git diff --stat 46cdaa03 origin/main -- .gitignore "coding-logs/2026-08-06-18-00-00 Coding Log (pr6-pr7-remediation).md" docs/operations/CONTROL_PLAN_ALL_STAGES_LOCAL_ACCEPTANCE.md ops/control-plan-read-local/
+(empty — zero drift)
+
+$ git log --oneline 46cdaa03..origin/main -- ops/control-plan-read-local/ docs/operations/CONTROL_PLAN_ALL_STAGES_LOCAL_ACCEPTANCE.md
+(empty — no commit since 46cdaa03 touched any R2 path)
+
+Independently re-verified by the Codex reviewer inside its own sandbox (see review.md, Validation).

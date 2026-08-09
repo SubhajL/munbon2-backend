@@ -1149,3 +1149,33 @@ nine-stage run.
 ### Final gates
 pytest **272**, node --test **23**, ruff clean, **3× deterministic**; validator mutations all
 killed; recorder mutations 3/3 killed; clean-checkout verification passed.
+
+---
+
+## ADDENDUM 2026-08-09 — the recommended real Codex round has run; independence caveat SUPERSEDED
+
+The R2 REVIEW SUMMARY above recorded that every R2 round was claude-opus-5-0
+substituting for quota-blocked Codex, and recommended a real Codex round before
+the nine-stage run. That round has now been performed and recorded as
+Codex-authored evidence:
+
+- Reviewer: codex exec `gpt-5.6-sol`, `model_reasoning_effort=xhigh`, read-only —
+  a model family independent of both the implementer and the Opus substitute.
+- Scope: the EXACT landed R2 range `45bb5433..46cdaa03` (PR #153), after a
+  two-way drift check proved every R2 file at `origin/main` (`b467967e`)
+  byte-identical to the landed range.
+- Evidence: `coding-logs/evidence/2026-08-09-codex-r2-tier2-46cdaa03/`
+  (verbatim review, exact prompt, drift proof, SHA256SUMS).
+- Result: the R2 claims were verified materially delivered — five fabrications
+  removed, field-team denial real, scheduler outage real, fetches
+  bearer-authenticated — and the reviewer additionally found 2 HIGH + 1 MEDIUM
+  the seven same-family Opus rounds missed (logout evidence combines two
+  unrelated sessions; restoration unguarded on the success-then-restore-failure
+  path; read-settle fails open to headers-only). Verdict: NO-GO for an
+  acceptance-counting nine-stage run until fixed — tracked in issue #160 and
+  remediated through the g2 lifecycle before the freeze.
+
+This addendum SUPERSEDES the reviewer-independence caveat: the independence gap
+is closed, and the caveat no longer gates the nine-stage run (issue #160's fixes
+do). The seven Opus rounds above remain the unaltered historical record — this
+addendum adds to it and erases nothing.
