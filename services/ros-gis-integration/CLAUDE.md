@@ -25,8 +25,10 @@ replace it with a host-level package overlay.
 pytest + pytest-asyncio. `tests/conftest.py` puts `src` on the path (src-rooted imports);
 suite = `pytest` (settings + the 2.6b fail-closed/interface/query-shape locks
 for `daily_demand_calculator` + the 2.5 dataset-version and requirement-publication
-schema/repository locks). The PostgreSQL contract test under `tests/integration/` skips
-unless `WATER_REQUIREMENT_TEST_POSTGRES_URL` names a disposable migrated database. Tracked via a
+schema/repository locks). The PostgreSQL contract tests under `tests/integration/` skip
+unless their gate env vars name a disposable migrated database
+(`WATER_REQUIREMENT_TEST_POSTGRES_URL` for the repository contract suite,
+`DATASET_VERSION_TEST_POSTGRES_URL` for the immutability/rollback suite). Tracked via a
 scoped `.gitignore` negation (Wave 2.6b).
 
 ## Migrations (Wave 2.5)
@@ -34,7 +36,9 @@ Tracked DDL pairs in `migrations/` (`<id>.up.sql`/`<id>.down.sql`; a scoped nega
 allowlists only those suffixes past the blanket `*.sql` ignore). Commands:
 `python migrations/migrate.py apply|rollback <id>` and `status` — one transaction per
 migration, pair checksum registry in `ros_gis.schema_migrations`, drift refuses on apply
-or rollback (fail closed). The runner loads the service `.env`, parses reserved password
+or rollback, and out-of-order rollback refuses while a later migration is still
+registered (latest-first only, #155) — fail closed. Ids require unique ASCII
+`NNNN_` prefixes; both directions refuse unorderable registry states. The runner loads the service `.env`, parses reserved password
 characters into asyncpg keyword arguments, and keeps `status` read-only.
 `0001_dataset_version_parent`: dataset_versions parent + effective-dated
 section_master_history / gate_mapping_history (gist exclusions reject overlapping

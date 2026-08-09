@@ -149,12 +149,13 @@ jobs:
           cache-dependency-path: services/ros-gis-integration/requirements.txt
       - name: Install pinned dependencies
         run: pip install -r requirements.txt
-      - name: ROS-GIS unit suites (source-loader, roster contract, dataset-version immutability)
+      - name: ROS-GIS unit suites (source-loader, roster contract, dataset-version immutability, dataset-version schema + migration runner)
         run: >-
           python -m pytest -q
           tests/unit/test_requirement_source_loader.py
           tests/unit/test_planning_depth_roster_contract.py
           tests/unit/test_dataset_version_immutability.py
+          tests/unit/test_dataset_version_schema.py
 
   ros-postgis-integration:
     runs-on: ubuntu-latest

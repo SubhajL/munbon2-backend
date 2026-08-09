@@ -27,7 +27,11 @@ from contextlib import asynccontextmanager
 import asyncpg
 import pytest
 
-from migrations.migrate import apply_migration, rollback_migration
+from migrations.migrate import (
+    MigrationError,
+    apply_migration,
+    rollback_migration,
+)
 
 POSTGRES_URL = os.environ.get("DATASET_VERSION_TEST_POSTGRES_URL")
 pytestmark = pytest.mark.skipif(
@@ -36,6 +40,16 @@ pytestmark = pytest.mark.skipif(
 )
 
 MIGRATION_0004 = "0004_dataset_version_identity_immutable"
+
+
+async def _noninternal_trigger_count(conn) -> int:
+    return await conn.fetchval(
+        "SELECT count(*) FROM pg_trigger t "
+        "JOIN pg_class c ON c.oid = t.tgrelid "
+        "JOIN pg_namespace n ON n.oid = c.relnamespace "
+        "WHERE n.nspname='ros_gis' AND c.relname='dataset_versions' "
+        "AND NOT t.tgisinternal"
+    )
 
 # Substrings of the trigger's RAISE messages — asserted so a rejection is
 # attributed to THIS trigger, not to some incidental constraint.
@@ -354,25 +368,58 @@ async def test_down_migration_round_trips_against_real_postgres():
     # Service convention (CLAUDE.md 0002 note): DDL pairs are proven by apply ->
     # rollback -> reapply on real PostGIS, not just a string check of the down SQL.
     # Runs committed operations on its own connection and always restores 0004.
-    async def trigger_count(conn):
-        return await conn.fetchval(
-            "SELECT count(*) FROM pg_trigger t "
-            "JOIN pg_class c ON c.oid = t.tgrelid "
-            "JOIN pg_namespace n ON n.oid = c.relnamespace "
-            "WHERE n.nspname='ros_gis' AND c.relname='dataset_versions' "
-            "AND NOT t.tgisinternal"
-        )
-
     conn = await asyncpg.connect(POSTGRES_URL)
     try:
         await _ensure_schema(conn)
         try:
-            assert await trigger_count(conn) == 2  # identity + truncate guards
+            assert await _noninternal_trigger_count(conn) == 2  # identity + truncate guards
             await rollback_migration(conn, MIGRATION_0004)
-            assert await trigger_count(conn) == 0  # the down really executed
+            assert await _noninternal_trigger_count(conn) == 0  # the down really executed
         finally:
             # Always restore, so a mid-test failure cannot break sibling tests.
             await apply_migration(conn, MIGRATION_0004)
-        assert await trigger_count(conn) == 2  # reapply restored both guards
+        assert await _noninternal_trigger_count(conn) == 2  # reapply restored both guards
+    finally:
+        await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_out_of_order_rollback_is_refused_with_no_persistent_change():
+    # #155 incident path: with 0001 and 0004 both registered, rolling back 0001
+    # must raise MigrationError and leave NO persistent change — triggers and
+    # the full registry survive the attempt unchanged. (That the refusal happens
+    # before the down statement is even attempted is pinned statement-level by
+    # the unit suite's executed-list assert, which a real rolled-back tx cannot
+    # distinguish.)
+    async def registered_ids(conn):
+        return [
+            row["migration_id"]
+            for row in await conn.fetch(
+                "SELECT migration_id FROM ros_gis.schema_migrations "
+                "ORDER BY migration_id"
+            )
+        ]
+
+    conn = await asyncpg.connect(POSTGRES_URL)
+    try:
+        await _ensure_schema(conn)
+        before = await registered_ids(conn)
+        assert "0001_dataset_version_parent" in before
+        assert MIGRATION_0004 in before
+        assert await _noninternal_trigger_count(conn) == 2
+        try:
+            with pytest.raises(MigrationError, match="latest-first") as excinfo:
+                await rollback_migration(conn, "0001_dataset_version_parent")
+            assert MIGRATION_0004 in str(excinfo.value)
+            assert await _noninternal_trigger_count(conn) == 2
+            assert await registered_ids(conn) == before
+        finally:
+            # If the guard is absent or broken, the rollback executed 0001's
+            # down (dropping the parent table when no FK from 0002 blocks it);
+            # restore 0001+0004 so sibling tests keep a valid schema.
+            await apply_migration(conn, "0001_dataset_version_parent")
+            if await _noninternal_trigger_count(conn) == 0:
+                await rollback_migration(conn, MIGRATION_0004)
+                await apply_migration(conn, MIGRATION_0004)
     finally:
         await conn.close()
