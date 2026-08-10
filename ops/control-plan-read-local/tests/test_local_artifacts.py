@@ -258,13 +258,21 @@ def test_dependency_builder_produces_content_addressed_arm64_closure():
         "validate-node-archive",
         "unshare -n",
         "playwright-browsers",
-        "apt-cache depends --recurse",
         "sha256sum",
         "manifest.json",
         "SHA256SUMS",
     ):
         assert required in body
-    assert "--no-recommends" in body
+    assert "--no-install-recommends" in body
+
+
+def test_dependency_builder_uses_apt_resolver_for_pristine_debian_closure():
+    body = (LOCAL_DIR / "build-dependency-bundle-linux.sh").read_text(encoding="utf-8")
+
+    assert "Dir::State::status=${APT_STATUS}" in body
+    assert "Dir::Cache::archives=${BUNDLE_ROOT}/debian" in body
+    assert "--download-only" in body
+    assert "apt-cache depends --recurse" not in body
 
 
 def test_dependency_validator_exercises_every_closure_without_network():
@@ -289,6 +297,16 @@ def test_dependency_validator_exercises_every_closure_without_network():
     ):
         assert required in body
     assert '"${NODE_ROOT}/bin/npm" --prefix "${target_root}" ci' not in body
+
+
+def test_dependency_validator_simulates_complete_offline_debian_install():
+    body = (LOCAL_DIR / "validate-dependency-bundle-linux.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "apt-get --simulate" in body
+    assert "--no-download" in body
+    assert 'install "${BUNDLE_ROOT}"/debian/*.deb' in body
 
 
 def test_python_closure_lock_content_addresses_all_arm64_wheel_sets():

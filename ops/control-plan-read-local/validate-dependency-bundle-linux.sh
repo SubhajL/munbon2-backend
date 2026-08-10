@@ -22,6 +22,19 @@ for package in "${BUNDLE_ROOT}"/debian/*.deb; do
   dpkg-deb --info "${package}" >/dev/null
 done
 
+APT_STATUS="${SCRATCH_ROOT}/apt-status"
+APT_LISTS="${SCRATCH_ROOT}/apt-lists"
+APT_ARCHIVES="${SCRATCH_ROOT}/apt-archives"
+: > "${APT_STATUS}"
+mkdir -p "${APT_LISTS}/partial" "${APT_ARCHIVES}/partial"
+apt-get --simulate --no-download --no-install-recommends \
+  -o "Dir::State::status=${APT_STATUS}" \
+  -o "Dir::State::lists=${APT_LISTS}" \
+  -o "Dir::Cache::archives=${APT_ARCHIVES}" \
+  -o Dir::Etc::sourcelist=/dev/null \
+  -o Dir::Etc::sourceparts=- \
+  install "${BUNDLE_ROOT}"/debian/*.deb >/dev/null
+
 mkdir -p "${SCRATCH_ROOT}/node"
 tar -xJf "${BUNDLE_ROOT}/node-v22.23.1-linux-arm64.tar.xz" \
   --strip-components=1 --directory="${SCRATCH_ROOT}/node"
