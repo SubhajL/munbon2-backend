@@ -15,6 +15,7 @@ BOOTSTRAP_SUBSTEP=validate-arguments
 INFLUX_KEY=
 NODE_TEMP=
 OWNER_TEMP=
+APT_SOURCEPARTS=
 STATE_ROOT=/var/lib/munbon-local-acceptance
 PROVISION_ROOT="${STATE_ROOT}/provisioning"
 BOOTSTRAP_LOG=/run/munbon-bootstrap.log
@@ -23,6 +24,7 @@ on_exit() {
   [[ -z "${INFLUX_KEY}" ]] || rm -f "${INFLUX_KEY}"
   [[ -z "${NODE_TEMP}" ]] || rm -rf "${NODE_TEMP}"
   [[ -z "${OWNER_TEMP}" ]] || rm -f "${OWNER_TEMP}"
+  [[ -z "${APT_SOURCEPARTS}" ]] || rm -rf "${APT_SOURCEPARTS}"
   if [[ "${status}" != "0" ]]; then
     local was_interrupted=false
     if [[ "${status}" == "130" || "${status}" == "143" ]]; then
@@ -111,8 +113,13 @@ substep inner-checksum
 phase base_packages
 substep offline-debian-packages
 export DEBIAN_FRONTEND=noninteractive
+APT_SOURCEPARTS="$(mktemp -d)"
 apt-get install -y -qq --no-download --no-install-recommends \
+  -o Dir::Etc::sourcelist=/dev/null \
+  -o "Dir::Etc::sourceparts=${APT_SOURCEPARTS}" \
   "${DEPENDENCY_ROOT}"/debian/*.deb
+rm -rf "${APT_SOURCEPARTS}"
+APT_SOURCEPARTS=
 systemctl disable --now prometheus prometheus-node-exporter >/dev/null 2>&1 || true
 
 phase node_runtime
