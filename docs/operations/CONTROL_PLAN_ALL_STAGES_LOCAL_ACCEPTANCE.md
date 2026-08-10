@@ -43,27 +43,81 @@ machine execution.
 ## Provision
 
 Run from the isolated implementation worktree. Replace SHAs only with explicitly
-accepted full values.
+accepted full values. Canonical provisioning accepts no live dependency
+downloads. First build the ARM64 dependency closure in the explicitly
+non-authoritative diagnostic guest:
 
 ```bash
 accepted_backend_sha=REPLACE_WITH_ACCEPTED_40_CHARACTER_BACKEND_SHA
 accepted_frontend_sha=fbd4ce4df0bb0476b7cd402ac1a4e180a91a7792
+dependency_bundle=/absolute/external/evidence/dependencies-${accepted_backend_sha}.tar.gz
+
+python3 ops/control-plan-read-local/orchestrate.py build-dependencies \
+  --release-sha "$accepted_backend_sha" \
+  --frontend-sha "$accepted_frontend_sha" \
+  --accept-later-origin-main \
+  --confirm-diagnostic-build \
+  --dependency-bundle "$dependency_bundle"
+```
+
+The builder cold-acquires and checksum-indexes the Debian/PostgreSQL/PostGIS,
+InfluxDB, Node 22.23.1/npm 10.9.8, PM2 5.4.3, four Python wheel closures, five
+application Node lockfile closures, Playwright 1.54.2, and Chromium surfaces.
+It binds the manifest to Debian 12 ARM64, the exact backend/frontend SHAs, every
+committed requirements/lockfile hash, the ARM64 Python wheel-closure lock, and
+every bundled byte. Public registries are allowed only in this diagnostic build
+lane. A bundle-build failure has no
+acceptance meaning and must not trigger a canonical guest retry.
+
+Verify the resulting digest, choose a new external failure destination, and
+then provision:
+
+```bash
+dependency_bundle_sha256="$(shasum -a 256 "$dependency_bundle" | awk '{print $1}')"
+bootstrap_failure_dir=/absolute/external/evidence/bootstrap-failure-${accepted_backend_sha}
 
 python3 ops/control-plan-read-local/orchestrate.py provision \
   --release-sha "$accepted_backend_sha" \
   --frontend-sha "$accepted_frontend_sha" \
-  --accept-later-origin-main
+  --accept-later-origin-main \
+  --dependency-bundle "$dependency_bundle" \
+  --dependency-bundle-sha256 "$dependency_bundle_sha256" \
+  --bootstrap-failure-dir "$bootstrap_failure_dir"
 ```
 
-Provisioning installs PostgreSQL/PostGIS, Redis, loopback InfluxDB, promtool,
-PM2, central auth, one service-local `.venv` from each of the four tracked
-requirements manifests, and the locked Node manifests for SCADA and Gate Web.
-It creates local-only credentials inside the guest and stores them in mode-600
-files. It never returns their values to macOS.
-Reprovisioning first archives the prior evidence directory, stops the harness
-runtime, recreates the harness-owned `munbon_local` database, and flushes the
-guest-local Redis instance so an exact-candidate run cannot reuse an earlier
-requirement publication, plan, session, or cache entry.
+Provisioning verifies the outer archive digest, every inner artifact digest,
+the environment contract, exact source SHAs, and all committed dependency
+inputs before it changes runtime state. npm lifecycle scripts and Prisma
+generation run only in the diagnostic build; canonical bootstrap extracts their
+checksum-bound ARM64 `node_modules` outputs without invoking npm. pip runs with
+`--no-index --find-links`; Playwright and Chromium come from the bundle. One
+explicit Node 22/npm 10 toolchain runs PM2, auth seeding,
+central auth, SCADA, Gate Web, Smart CMS, and stage preflight.
+
+The durable state machine is `created → dependency-staged → runtime-reset →
+ready`; `failed` and `interrupted` are terminal. PostgreSQL recreation, Redis
+flush, evidence rotation, and runtime quiescing occur only after
+`dependency-staged`. The ready owner marker becomes visible only in the final
+ownership step. A failed or interrupted ownerless guest is evidence-only: it cannot resume provisioning or
+run acceptance. There is no automatic transport retry, guest replacement, or
+reprovision of a ready guest.
+
+On failure, the guest writes a mode-600 sanitized bundle containing only a
+stable classification, phase/substep, exit code, exact SHAs, tool versions, and
+redacted log. The host streams it without requiring an owner marker, verifies
+the inner checksums, and writes an outer checksum index before returning the
+safe error code. If automatic collection is interrupted, recover it explicitly
+without modifying the guest:
+
+```bash
+python3 ops/control-plan-read-local/orchestrate.py collect-bootstrap-failure \
+  --bootstrap-failure-dir "$bootstrap_failure_dir"
+```
+
+Do not manually complete installs, import an unverified cache, snapshot a
+partial guest as fresh, or classify pre-stage provisioning as an acceptance
+stage failure. Guest deletion or a new canonical attempt always needs separate
+authorization after the failure bundle verifies.
 
 The Prometheus Debian package is used only for `promtool`; its Prometheus and
 node-exporter services are disabled to prevent wildcard listeners.

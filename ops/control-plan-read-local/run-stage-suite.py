@@ -79,8 +79,10 @@ FRONTEND_WRITE_PATH_ENVIRONMENT = {
     "PLANNING_DEPTH_ROSTER_PATH": "/api/v1/water-planning/planning-depth-roster/v1",
 }
 NODE_ROOT = Path("/opt/node-v22.23.1-linux-arm64")
+DEPENDENCY_ROOT = Path("/opt/munbon/dependencies")
 _NODE_PRELOAD_ENV_VARS = frozenset({"NODE_OPTIONS", "NODE_REPL_EXTERNAL_MODULE"})
 BROWSER_ROOT = Path("/opt/munbon/browser")
+PM2_CLI = BROWSER_ROOT / "node_modules/pm2/bin/pm2"
 PLAYWRIGHT_BROWSERS_ROOT = Path("/opt/munbon/playwright-browsers")
 HARNESS_ARTIFACTS = (
     "local-ac1.py",
@@ -92,6 +94,8 @@ HARNESS_ARTIFACTS = (
     "run-write-browser.js",
     "seed-approved-sources.py",
     "seed-local-operators.js",
+    "provisioning_contract.py",
+    "validate-dependency-bundle-linux.sh",
     "verify_bearer.py",
 )
 GATE_ENV_NAMES = {
@@ -1563,8 +1567,12 @@ def _psql(context: StageContext, query: str) -> str:
     )
 
 
+def _pm2_command(*arguments: str) -> list[str]:
+    return [str(NODE_ROOT / "bin/node"), str(PM2_CLI), *arguments]
+
+
 def _pm2_json() -> str:
-    return _run_checked("pm2_snapshot", ["pm2", "jlist"], timeout=30)
+    return _run_checked("pm2_snapshot", _pm2_command("jlist"), timeout=30)
 
 
 def _capacity_snapshot() -> dict[str, int]:
@@ -1703,6 +1711,9 @@ def run_local_base(context: StageContext) -> dict:
         or owner.get("machine") != "munbon-control-plan-local"
         or owner.get("architecture") != "arm64"
         or owner.get("release_sha") != context.release_sha
+        or owner.get("frontend_sha") != context.frontend_sha
+        or not re.fullmatch(r"[0-9a-f]{64}", owner.get("dependency_sha256", ""))
+        or owner.get("state") != "ready"
     ):
         raise StageGateError("local_baseline_invalid")
     manifest = {
@@ -1711,6 +1722,7 @@ def run_local_base(context: StageContext) -> dict:
         "captured_at": _utc_timestamp(),
         "backend_sha": actual_sha,
         "frontend_sha": context.frontend_sha,
+        "dependency_bundle_sha256": owner["dependency_sha256"],
         "frontend_status": {
             "FE-0": "complete",
             "FE-1": "complete",
@@ -1759,6 +1771,9 @@ def _install_manifests(context: StageContext) -> dict:
                 "install",
                 "--disable-pip-version-check",
                 "--quiet",
+                "--no-index",
+                "--find-links",
+                str(DEPENDENCY_ROOT / "python" / service),
                 "--requirement",
                 str(root / "requirements.txt"),
             ],
@@ -1870,8 +1885,24 @@ def _monitoring_preflight(context: StageContext) -> dict:
         ["promtool", "check", "config", "/etc/prometheus/control-plane-prometheus.yml"],
     )
     infra = context.repo_root / "infra/pm2"
-    _run_checked("infra_verify", ["npm", "run", "verify"], cwd=infra, timeout=900)
-    _run_checked("infra_build", ["npm", "run", "build"], cwd=infra, timeout=300)
+    node_environment = {
+        **os.environ,
+        "PATH": f"{NODE_ROOT / 'bin'}:{os.environ.get('PATH', '')}",
+    }
+    _run_checked(
+        "infra_verify",
+        [str(NODE_ROOT / "bin/npm"), "run", "verify"],
+        cwd=infra,
+        env=node_environment,
+        timeout=900,
+    )
+    _run_checked(
+        "infra_build",
+        [str(NODE_ROOT / "bin/npm"), "run", "build"],
+        cwd=infra,
+        env=node_environment,
+        timeout=300,
+    )
     scheduler_env = _service_environment(context, "scheduler")
     bff_env = _service_environment(context, "bff")
     flow_env = _service_environment(context, "flow")
@@ -1887,7 +1918,7 @@ def _monitoring_preflight(context: StageContext) -> dict:
     output = _run_checked(
         "repository_preflight",
         [
-            "node",
+            str(NODE_ROOT / "bin/node"),
             "dist/deploy-preflight-cli.js",
             "--role",
             "central",
@@ -1895,7 +1926,7 @@ def _monitoring_preflight(context: StageContext) -> dict:
             context.release_sha,
         ],
         cwd=infra,
-        env=preflight_env,
+        env={**preflight_env, "PATH": node_environment["PATH"]},
         timeout=120,
     )
     try:
@@ -1994,7 +2025,7 @@ def _run_bearer(context: StageContext) -> dict:
 
 def _stop_runtime() -> None:
     subprocess.run(
-        ["pm2", "stop", *PROCESS_NAMES],
+        _pm2_command("stop", *PROCESS_NAMES),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         check=False,
@@ -2102,7 +2133,7 @@ def run_local_rta(context: StageContext) -> dict:
     runtime_env = {**os.environ, "MUNBON_RUNTIME_ENV_DIR": str(context.runtime_env_dir)}
     _run_checked(
         "start_four_processes",
-        ["pm2", "start", "ecosystem.config.cjs", "--update-env"],
+        _pm2_command("start", "ecosystem.config.cjs", "--update-env"),
         cwd=context.repo_root / "ops/control-plan-read-runtime",
         env=runtime_env,
         timeout=120,
@@ -2194,7 +2225,7 @@ def run_local_rta(context: StageContext) -> dict:
         "steps": steps,
     }
     validate_evidence_payload(manifest)
-    _run_checked("pm2_save", ["pm2", "save"], timeout=60)
+    _run_checked("pm2_save", _pm2_command("save"), timeout=60)
     target = context.evidence_root / "LOCAL-RTA-1.json"
     clear_failure_manifest(context.evidence_root, "LOCAL-RTA-1")
     write_stage_manifest(target, manifest)
@@ -2233,13 +2264,12 @@ def _wait_json(
 def _start_manual_ros(context: StageContext, client: LocalHttpClient) -> dict:
     _run_checked(
         "stop_dark_ros",
-        ["pm2", "delete", "ros-gis-integration"],
+        _pm2_command("delete", "ros-gis-integration"),
         timeout=30,
     )
     _run_checked(
         "start_manual_ros",
-        [
-            "pm2",
+        _pm2_command(
             "start",
             str(context.harness_root / "run-ros-manual-producer.sh"),
             "--name",
@@ -2247,7 +2277,7 @@ def _start_manual_ros(context: StageContext, client: LocalHttpClient) -> dict:
             "--interpreter",
             "bash",
             "--update-env",
-        ],
+        ),
         env={
             **os.environ,
             "MUNBON_RUNTIME_ENV_DIR": str(context.runtime_env_dir),
@@ -2261,7 +2291,7 @@ def _start_manual_ros(context: StageContext, client: LocalHttpClient) -> dict:
 
 def _restore_dark_ros(context: StageContext, client: LocalHttpClient) -> dict:
     subprocess.run(
-        ["pm2", "delete", "ros-gis-integration"],
+        _pm2_command("delete", "ros-gis-integration"),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         check=False,
@@ -2273,14 +2303,13 @@ def _restore_dark_ros(context: StageContext, client: LocalHttpClient) -> dict:
     }
     _run_checked(
         "restore_dark_ros",
-        [
-            "pm2",
+        _pm2_command(
             "start",
             "ecosystem.config.cjs",
             "--only",
             "ros-gis-integration",
             "--update-env",
-        ],
+        ),
         cwd=context.repo_root / "ops/control-plan-read-runtime",
         env=runtime_env,
         timeout=60,
@@ -2288,7 +2317,7 @@ def _restore_dark_ros(context: StageContext, client: LocalHttpClient) -> dict:
     _wait_json(client, READINESS_URLS["ros-gis-integration"])
     status = _wait_json(client, "http://127.0.0.1:3047/api/v1/status")
     lifecycle = validate_ros_lifecycle(status, manual_enabled=False)
-    _run_checked("pm2_save_dark_runtime", ["pm2", "save"], timeout=60)
+    _run_checked("pm2_save_dark_runtime", _pm2_command("save"), timeout=60)
     return lifecycle
 
 
@@ -4250,7 +4279,7 @@ def _restart_bff_with_flag(context: StageContext, *, enabled: bool) -> None:
     os.replace(temporary, bff_env_path)
     _run_checked(
         "bff_restart",
-        ["pm2", "restart", "bff-water-planning", "--update-env"],
+        _pm2_command("restart", "bff-water-planning", "--update-env"),
         timeout=30,
     )
     client = LocalHttpClient()
@@ -4960,7 +4989,7 @@ def _write_browser_environment(
 def _restore_scheduler() -> None:
     _run_checked(
         "write_ui_scheduler_restart",
-        ["pm2", "restart", "scheduler", "--update-env"],
+        _pm2_command("restart", "scheduler", "--update-env"),
         timeout=60,
     )
     _wait_json(LocalHttpClient(), READINESS_URLS["scheduler"])
@@ -5093,7 +5122,7 @@ def _drive_write_browser(
         state["scheduler_stopped"] = True
         _run_checked(
             "write_ui_scheduler_stop",
-            ["pm2", "stop", "scheduler"],
+            _pm2_command("stop", "scheduler"),
             timeout=30,
         )
         _write_coordination_file(release_path, "released\n")

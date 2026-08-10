@@ -331,3 +331,189 @@ LOW
 - All three browser identities now use their own real page and bearer for logout; result and validation schemas are unchanged.
 - The request-context comparison payload and launcher switch are removed. Diagnostic orchestration remains isolated and non-advancing.
 - No Smart CMS, central-auth, cookie, or validation-predicate change is included.
+
+## Phase C economic qualification (2026-08-10 11:06 +0700)
+
+Goal: qualify the merged stage-8 and stage-9 behavior economically in the disposable OrbStack guest without changing authoritative acceptance state.
+
+Context and provenance:
+
+- PR #174 is merged; local `HEAD == main == origin/main == d07fde2ed49950272ca49261a39ec087fcae31ba`.
+- The frozen frontend remained `067b3e22401854f8c6d6db42dc0c5c1872fca6f8`.
+- Both Phase 0 and Phase 1 external diagnostic archives reverified at their guest inner and host outer checksum layers before guest mutation.
+- The exact backend merge SHA was transferred by a local Git bundle, checked out detached in `munbon-control-plan-write-ui-diagnostic`, and the installed `run-stage-suite.py` and `run-write-browser.js` hashes matched the exact checkout.
+- No service source differs between the prior diagnostic SHA and this merge SHA; runtime services were not rebuilt. The operations harness was replaced from the exact checkout.
+- Auggie semantic retrieval exceeded the required two-second bound. Fallback inspection covered the stage runner, host orchestrator, acceptance runbook, focused tests, and the current pickup plan.
+
+Live database selection:
+
+- A read-only live PostgreSQL query found R41, R42, and R43 already used; R44 onward were initially unused.
+- WRITE-UI run 1 used database-proven clean `2026-R44` (`--as-of-date 2026-08-31`).
+- WRITE-UI run 2 used separately re-queried clean `2026-R45` (`--as-of-date 2026-09-07`).
+- R46 remained unused.
+- PERSIST attempt 1 used clean R47; its external wrapper failed at the manifest boundary after the tested body completed, so R47 was preserved as not qualified and never reused.
+- PERSIST retry used separately re-queried clean R48 (`as-of 2026-09-21`, persist target R48).
+
+WRITE-UI qualification results:
+
+- Both R44 and R45 completed `LOCAL-WRITE-UI-1 --diagnostic` as `DIAGNOSTIC_PASS` with `acceptance_evidence=false`.
+- Each run produced field-team, primary-operator, and second-operator logout statuses `200 / 200 / 200` and refresh-reuse statuses `401 / 401 / 401`.
+- Each run restored the scheduler on attempt one with no failed gate.
+- After each run all four PM2 services were online, `PLANNING_DEPTH_WRITES_ENABLED=false`, port 9999 was absent, and the isolated root contained no `stage-state.json`.
+- No repair or reprovision occurred between the two consecutive runs.
+
+PERSIST-only qualification results:
+
+- The canonical `run_local_persist_only` entry point was intentionally not called because it requires prior acceptance state and invokes `_save_state`.
+- A no-state wrapper called the exact merged `_persist_only_body`, retained strict logout and failure behavior, relabeled the manifest `LOCAL-PERSIST-ONLY-QUALIFICATION`, and set `acceptance_evidence=false`.
+- Attempt 1 on R47 completed the persist body and restored the BFF, then failed because `clear_failure_manifest` rejects noncanonical stage labels; its fallback also referenced a nonexistent exception attribute. No success manifest existed, so the attempt was classified `QUALIFICATION_FAIL`, preserved with inner and outer checksums, and R47 was consumed rather than reused.
+- The corrected wrapper omitted the canonical-only cleanup helper and used `_safe_error_code`. The retry on R48 passed: 33 non-W2 tables unchanged, exactly 2 W2 submissions and 82 W2 values added, correction/supersession shape accepted, rate-accounting increment exactly 2, and no AWS action.
+- After the R48 run all four services were online and ready, writes were false, port 9999 was absent, and no qualification root contained stage state.
+
+Durable bundles and outer-index digests:
+
+- `/Users/subhajlimanond/dev/munbon2-backend-external-evidence/2026-08-10-phase-c-write-ui-r44-d07fde2e/` -> `6ed10c05da2355dfc6b38898f41014c84123f2ce25429577431dcf437542f419`
+- `/Users/subhajlimanond/dev/munbon2-backend-external-evidence/2026-08-10-phase-c-write-ui-r45-d07fde2e/` -> `27c98f55d0f7579e41a763ea87f395545dbe633c28827bc5c168dee35f87b6c2`
+- `/Users/subhajlimanond/dev/munbon2-backend-external-evidence/2026-08-10-phase-c-persist-r47-attempt1-wrapper-failure/` -> `e28b518df943e285b42de2c6cb99c7e7b61670bde0e1e8d23d09eb4316b13731`
+- `/Users/subhajlimanond/dev/munbon2-backend-external-evidence/2026-08-10-phase-c-persist-r48-d07fde2e/` -> `101c746c9322011c9c8b1d0d2f7afdf22cc8badccf4063386a00bd1d9da34946`
+
+Every bundle's guest `SHA256SUMS` and host `OUTER-SHA256SUMS` reverified at finalization. Host projections exclude raw logs, stderr, credentials, cookies, tokens, headers, response bodies, and submission identifiers.
+
+Acceptance truth remains unchanged: the frozen authoritative chain is 7/9 PASS, current main has not received a fresh authoritative nine-stage run, and all Phase C results are qualification-only.
+
+## Phase D authoritative-chain attempt (2026-08-10 12:10 +0700)
+
+Goal: provision a fresh canonical guest and database, then run all nine stages once without repairs, reused submissions, skips, or reprovisioning.
+
+Frozen inputs and preservation:
+
+- Backend `HEAD == main == origin/main == d07fde2ed49950272ca49261a39ec087fcae31ba`; frontend `HEAD == main == origin/main == 067b3e22401854f8c6d6db42dc0c5c1872fca6f8` after fetch.
+- The clean detached worktree is `/Users/subhajlimanond/dev/munbon2-backend-phase-d-acceptance` at the exact backend SHA.
+- The frozen 7/9 guest evidence matched its external archive digest-for-digest before the canonical guest was replaced. All four Phase C bundles reverified at both checksum layers.
+- Only `munbon-control-plan-local` was replaced. The diagnostic guest and every preserved worktree remained untouched.
+- Fresh canonical machine ID `01KZMYBSVC4TF6FH69QSKNYAKM` has the required Debian 12 arm64, 8 GiB, 4 CPU, 40 GiB, filesystem-isolated, network-isolated shape.
+
+Provisioning result:
+
+- `provision` passed SHA validation, both bundle creation/verification gates, fresh guest creation, and every harness transfer.
+- Bootstrap recreated PostgreSQL/Redis state and reached `service_manifests`.
+- All four Python virtual environments report no broken requirements.
+- The first Node install, `npm --prefix services/auth ci --omit=dev --silent`, failed with `ERR_SOCKET_TIMEOUT` while fetching from the public npm registry. The preserved guest npm log is `/home/munbon/.npm/_logs/2026-08-10T05_08_20_897Z-debug-0.log`, SHA-256 `3e54b970ed624a9e16c955124adab6b88247a0f5e47f1fb6bbe67525171debd3`.
+- This is a pre-stage infrastructure/bootstrap failure, not a product or acceptance-stage verdict: the guest source SHAs are exact, the canonical evidence directory contains zero files, `stage-state.json` is absent, the owner marker is absent, central auth is inactive, and no RID week was consumed.
+- The partially provisioned guest was retained for inspection. No repair, retry, reprovision, stage skip, or acceptance command was attempted after the failure.
+
+Authoritative truth remains 7/9 PASS at the older frozen candidate. Advancing Phase D requires explicit authorization to replace the failed partial guest and make a new clean provisioning attempt despite the no-reprovision rule; the next attempt must still run all nine stages sequentially with no repair after stage execution begins.
+
+### Authorized fresh provisioning retry (2026-08-10 13:07 +0700)
+
+- The user explicitly authorized deletion of the failed partial canonical guest. Before deletion, its exact machine ID, `service_manifests` phase, absent owner marker, and absent `stage-state.json` were revalidated.
+- The failed guest was deleted and replaced with new canonical machine ID `01KZN1QSBSMMMSGYRF9BSAFW6P` at the same required isolated Debian 12 arm64 shape.
+- The retry used the unchanged clean detached worktree and frozen backend/frontend SHAs. Both bundles and every harness transfer passed again.
+- Bootstrap again recreated fresh PostgreSQL/Redis state and installed all four Python dependency sets successfully.
+- The retry then failed at the same first Node installation boundary: `npm --prefix services/auth ci --omit=dev --silent` returned `ERR_SOCKET_TIMEOUT` while fetching from the public npm registry.
+- The second preserved guest npm log is `/home/munbon/.npm/_logs/2026-08-10T06_05_33_144Z-debug-0.log`, SHA-256 `87b50fad0c3345ea64f557fb46f9c85f9b60dfc622fc24c07fb7ea7cd3cbbb82`.
+- The second partial guest remains intact. Its source SHAs are exact, central auth is inactive, the owner marker is absent, the evidence directory contains zero files, `stage-state.json` is absent, and no acceptance stage or RID week was consumed.
+- No repair, additional retry, stage skip, or acceptance command followed the repeated infrastructure failure.
+
+Phase D remains pre-stage and incomplete. A further fresh attempt requires new authorization and should wait for npm-registry connectivity to be stable; changing bootstrap behavior would be a separate reviewed source remediation and would change the candidate lifecycle.
+
+## Provisioning hermeticity remediation (2026-08-10 17:15:55 +0700)
+
+Goal: preserve the second failed canonical guest, make provisioning failures diagnosable and recoverable without canonical reuse, stage all dependencies before runtime reset, unify Node/npm, and replace live canonical dependency acquisition with a content-addressed ARM64 bundle.
+
+Preflight and preservation:
+
+- Protected primary checkout remained on `main` at `d07fde2ed49950272ca49261a39ec087fcae31ba` with its pre-existing Coding Log modification and two untracked `.codex` pointer backups.
+- Created isolated worktree `/Users/subhajlimanond/dev/munbon2-backend-provisioning-hermetic` on `fix/provisioning-hermetic-state` from exact `origin/main`.
+- The second canonical guest remains running and unmodified. Reverified raw npm log SHA-256 `87b50fad0c3345ea64f557fb46f9c85f9b60dfc622fc24c07fb7ea7cd3cbbb82`, missing owner marker, missing stage state, and zero evidence files.
+- Preserved sanitized host bundle `/Users/subhajlimanond/dev/munbon2-backend-external-evidence/2026-08-10-phase-d-bootstrap-failure-guest2-d07fde2e/`; inner and outer checksums passed. Outer-index SHA-256 is `db3910531afb0bcb34aa140203528e5116caba9b28eb51c907b93273937bd3d7`; sanitized log SHA-256 is `ee828a0c9da234bb549e9bb6fa3f476ff8682ab98668a437889ee02fa9973b4a`.
+- The first capture attempt failed before writing evidence because root Git ownership checks rejected two metadata probes. Removed only the two newly created empty directories, changed those probes to run as `munbon`, and reran atomically.
+- Auggie was unavailable through the current tool interface, so the required two-second semantic lookup could not be enforced. Fallback inspection covered `bootstrap-linux.sh`, `orchestrate.py`, `run-stage-suite.py`, the auth systemd unit, focused tests, lockfiles/manifests, and the acceptance runbook.
+- Two read-only `terra_support` reviews independently confirmed the failure-observability, state-machine, destructive-ordering, toolchain, and test gaps. They also found that `LOCAL-RTA-1` repeats live pip installs and uses bare Node/npm for PM2 verification; the primary independently inspected those call sites.
+
+Work unit 1 — provisioning contract primitives:
+
+- Files: `ops/control-plan-read-local/provisioning_contract.py`, `ops/control-plan-read-local/tests/test_provisioning_contract.py`.
+- Contract: only `created → dependency-staged → runtime-reset → ready` is accepted, with `failed` and `interrupted` terminal transitions; failure classifications are stable safe codes; secret-shaped log lines and credential URLs are redacted; state/failure files are atomic mode 600; dependency manifests bind exact backend/frontend SHAs, Debian ARM64/Python/Node/npm versions, input hashes, inventory, and every artifact hash.
+- RED: `python3 -m pytest -q ops/control-plan-read-local/tests/test_provisioning_contract.py` failed 10/10 with the scaffolded functions raising `NotImplementedError`, which is the expected missing-behavior reason.
+- GREEN: the same command passed 10/10 in 0.02 seconds.
+- Runtime wiring is intentionally pending: the next slices connect these pure contracts to the guest bootstrap, host collector, dependency builder, stage manifest reinstall, and CLI.
+
+Work unit 2 — host failure preservation and lifecycle enforcement:
+
+- Files: `ops/control-plan-read-local/orchestrate.py`, `ops/control-plan-read-local/tests/test_orchestrate.py`.
+- Contract: existing incomplete guests cannot be reprovisioned; terminal guests are evidence-only; failure collection does not require an owner marker; inner sanitized log/metadata checksums, exact metadata shape, state/metadata binding, and an outer checksum index are verified before atomic host finalization.
+- RED: five focused host tests failed at their new lifecycle, safe-classification, and failure-bundle seams for the expected missing behavior.
+- GREEN: focused host tests passed after wiring `CommandExecutionError`, safe collection, archive validation, diagnostic-only dependency building, and explicit CLI arguments. A later timestamp slice produced 3 expected fixture failures before all 52 contract/orchestrator tests passed.
+
+Work unit 3 — content-addressed dependency closure:
+
+- Files: dependency builder/validator, `dependency-roots/package*.json`, `python-closures.lock`, provisioning contract inputs, static behavioral tests, and the operations runbook.
+- The build lane is fixed to the existing non-authoritative diagnostic guest and acquires Debian 12 ARM64 packages, Node 22.23.1/npm 10.9.8, PM2 5.4.3, Playwright 1.54.2/Chromium, six npm lock trees, and four Python wheel sets. Canonical bootstrap uses no public package registry.
+- Every archive byte is indexed by SHA-256 and bound to exact backend/frontend SHAs and committed inputs. The four complete ARM64 Python wheel sets are additionally fail-closed by committed wheel counts and canonical checksum-index digests: 84 flow, 96 scheduler, 67 ROS/GIS, and 81 BFF wheels.
+- RED/GREEN examples: unordered but valid checksum indexes were rejected before the validator was corrected and regression-tested; the validator initially used the guest-installed Node path before a focused RED required use of the Node binary extracted from the bundle itself.
+
+Work unit 4 — prepare/reset/activate bootstrap and one toolchain:
+
+- Files: `bootstrap-linux.sh`, the auth systemd unit, `run-stage-suite.py`, and their tests.
+- Bootstrap now records timestamped phase/substep state and a sanitized failure bundle with exit code, classification, Node/npm/Python/Bash versions, and exact source/dependency identities. Dependency archive verification, offline apt/npm/pip installation, Prisma generation, and browser staging precede evidence archival, service quiescence, PostgreSQL recreation, and Redis flush.
+- Node 22/npm 10 now runs auth installation/seeding/service execution, PM2, SCADA, Gate Web, Smart CMS, repository preflight, and stage-suite PM2 operations. `LOCAL-RTA-1` reinstalls Python manifests only from the verified local wheelhouse.
+- The ready owner binds the dependency archive digest; `LOCAL-BASE-0` requires matching ready state, owner, backend/frontend SHAs, and dependency digest before stage execution.
+
+Work unit 5 — diagnostic cold-cache qualification before commit:
+
+- Built from temporary staged commit `9c902522e31ab500230d6d134be2cd5c9b53f25f` and frozen frontend `067b3e22401854f8c6d6db42dc0c5c1872fca6f8` in `munbon-control-plan-write-ui-diagnostic`; the canonical guest was not read or mutated by this build.
+- First build failed after all six npm cache fills because Debian's system Python had no pip. Remediation created a dedicated wheel-builder venv. Second build reached the final manifest gate and exposed order-sensitive checksum-index validation; remediation made exact-set validation order-independent and added a behavioral regression test.
+- Third build passed and produced host archive `/Users/subhajlimanond/dev/munbon2-backend-external-evidence/2026-08-10-provisioning-precommit-dependencies.tar.gz`, 1,668,530,499 bytes, mode 600, SHA-256 `0c83aff8ef0f42f67ec8bb7a94bc5600e6e56724f6d401ebe3484f3253fa9c55`. Host validation accepted its exact source inputs, platform, inventory, and artifact hashes.
+- Cold validation installed all six npm trees with `--offline`, all four Python environments with `--no-index --find-links`, passed all four `pip check` runs, and found bundled Chromium. After correcting the validator to use its scratch-extracted Node runtime, the full cold validation passed again; log SHA-256 is `617d4dc3a931fa1ebd2cdcc050225e3bf50d68e766cb49d2d6b0d5ae951ceae0`.
+- This precommit archive is diagnostic evidence only. It cannot provision a canonical guest or qualify the eventual merge SHA.
+
+Current local gates before independent QCHECK:
+
+- `python3 -m pytest -q ops/control-plan-read-local/tests` -> 376/376 PASS.
+- `node --test ops/control-plan-read-local/tests/*.js` -> 41/41 PASS.
+- Black check, Python byte compilation, and Bash syntax checks for all three shell programs passed.
+- The canonical guest remains frozen; no acceptance stage ran and no RID week was consumed.
+
+Independent QCHECK and lifecycle-output remediation:
+
+- Initial QCHECK found release blockers: canonical npm lifecycle scripts could still make direct downloads; the stage user could not read the private provisioning state; host timeout collection did not catch `TimeoutExpired`; the cold validator was not wired; apt recommend policies differed; URI sanitization was too narrow; failure collection was coupled to current `origin/main`; and the diagnostic build guest lacked an explicit identity/authorization preflight.
+- All were remediated. npm lifecycle scripts and Prisma generation now run only in the diagnostic lane; six deterministic ARM64 `node_modules` archives are checksum-bound and canonical bootstrap does not invoke npm. The builder itself runs the full validator under `unshare -n`; bcrypt and Prisma Client must load there. Private state/failure evidence remains root-only, while a final atomic owner attestation is readable by the stage user. Host stage launch also validates private state and public owner together.
+- `TimeoutExpired` now enters the same safe failure-collection path; canonical apt install uses `--no-install-recommends`; sanitization covers credential userinfo for every URI scheme plus URL/URI/DSN and secret-shaped assignments; failure collection dispatches without consulting current source branches; and the diagnostic lane requires the exact isolated guest shape, `--confirm-diagnostic-build`, and a mode-600 noncanonical purpose marker.
+- Diagnostic lifecycle build attempts exposed two honest npm-tree validation exceptions after successful installs: the auth workspace reports missing dev dependencies when production-only, and Prisma generation leaves optional platform packages that `npm ls` reports as extraneous. Those two trees are instead validated by successful lockfile `npm ci`, manifest/artifact hashes, and egress-denied runtime loads of bcrypt/Prisma; the other four trees retain `npm ls --all` validation.
+- The complete revised build passed from temporary staged SHA `789ba81f74e06bde485a6981eb4398c57248ed32`. Its egress-denied validator passed all Node, Python, Playwright, bcrypt, and Prisma checks. Host archive `/Users/subhajlimanond/dev/munbon2-backend-external-evidence/2026-08-10-provisioning-lifecycle-precommit-dependencies.tar.gz` is mode 600, approximately 1.6 GiB, and matched guest/host SHA-256 `465dfe8bb0d093a9dcb8d8d4684e1d8fbe8eec18ff51ce1ab0dd27de2bb8a2fd`; host manifest/inventory/input validation passed.
+- QCHECK re-review cleared those findings and found two later publication/safety issues. The private `ready` transition now precedes final atomic owner publication, host `run_stage` rejects a private terminal state even if a stale public owner says ready, and owner-publication failure can transition private ready to failed/interrupted. Every nested Node archive is now validated before root extraction for root confinement, safe member types, safe links, and no member below a symlink path; the exact auth workspace symlink is narrowly allowlisted. All six already-built precommit archives passed the new inventory validator.
+- The superseded diagnostic build scratch at `/opt/munbon/dependency-build/9c902522e31a-067b3e224018-30418` was removed only after its host archive and checksum evidence were retained. Failed later task-owned diagnostic scratch remains until final exact-SHA cleanup. No canonical guest file or state was changed.
+
+Final QCHECK follow-up:
+
+- The reported owner-publication gap was stale against the latest tree: `ready → failed/interrupted` was already allowed. Added a direct regression that walks the full lifecycle to private `ready`, simulates both ordinary failure and SIGTERM during final owner publication, and proves a checksummed terminal failure bundle remains collectable.
+- The archive-context finding was valid. RED: six focused nested-archive tests failed because the validator had no archive-identity argument. GREEN: validation now requires one of the six exact archive names at every builder, egress-validator, and canonical-bootstrap call site; only the `auth` archive may contain the exact `@munbon/shared` workspace link, and the same link is rejected for all other archives.
+- Focused result after remediation: `20 passed` for the provisioning contract, plus Bash syntax PASS for all affected scripts. The three consecutive final full-gate runs follow below.
+
+Final full quality gates:
+
+- Three consecutive identical runs passed with `389 passed` Python tests and `41 passed` Node tests in each run.
+- Each run also passed Black check for all seven changed Python/test files, Bash syntax for all three provisioning shell programs, Python byte compilation for the orchestrator/contract/stage suite, and `git diff --check`.
+- The recurring `pytest-asyncio` default-loop-scope deprecation warning is pre-existing tool configuration noise; it does not affect these synchronous operations tests or their results.
+
+### Formal g-check — provisioning hermeticity remediation
+
+Scope reviewed: the complete staged change across the host orchestrator, guest bootstrap, dependency builder and egress-denied validator, provisioning contract, stage-suite toolchain/offline reinstall wiring, auth systemd unit, runbook, lock inputs, and all changed tests.
+
+Severity-ordered findings:
+
+- CRITICAL: none.
+- HIGH: none.
+- MEDIUM: none.
+- LOW: none.
+
+Disposition and evidence:
+
+- The two independent QCHECK rounds found and closed all identified safety/lifecycle issues, including lifecycle-script egress, private/public readiness publication, host timeouts, dependency-validator wiring, apt-policy parity, sanitization, diagnostic authorization, unsafe nested archives, and archive-specific workspace-link scoping.
+- Function review: new logic is kept in composable functions with explicit state/error vocabulary; streaming hashes avoid unbounded reads; archive/state/failure validation fails closed; no hidden canonical network fallback or retry path remains.
+- Test review: behavioral cases cover transport, integrity, interruption, terminal partial state, exact input drift, unsafe outer/inner archives, secrets, timeout propagation, destructive ordering, one toolchain, offline stage installs, stale-owner/private-state mismatch, owner-publication failure, and archive-context confinement. Assertions use independent expected structures/codes and exercise real defect paths.
+- Implementation review: dependency acquisition completes and is egress-denied validated before canonical reset; canonical uses exact content and one Node/npm runtime; failure artifacts are atomic, sanitized, checksum-bound, host-preserved, and owner-independent; the second failed canonical guest remains untouched.
+- Verification: three consecutive full gate runs each passed 389 Python tests, 41 Node tests, Black, Bash syntax, Python byte compilation, and `git diff --check`.
+
+Open boundary, not a code finding: the precommit dependency archives are diagnostic-only and source-bound to predecessor temporary SHAs. An exact merged-SHA bundle and noncanonical Phase C requalification are still required after merge; no third canonical guest is authorized.
