@@ -613,3 +613,60 @@ PR and hosted-check evidence:
 - PR #176 is mergeable against base `b50b3d43745dca464387d383ebbc76147dfd958d`. GitHub reports no branch protection or required checks on `main`.
 - Both `Secret Scan (diff)` jobs completed with zero steps and the explicit annotation `The job was not started because your account is locked due to a billing issue.` They are infrastructure-blocked, not passing or code-failing CI.
 - Reproduced the workflow's per-commit plus endpoint added-line scan and full-tree baseline logic locally against the exact `b50b3d43..a5b9a164` range. It passed with no new secret or legacy-host carrier.
+
+## Exact-merge offline Debian closure remediation (2026-08-10 21:18:32 +0700)
+
+Goal: preserve the failed canonical guest, prove the exact cause of `base_packages/offline-debian-packages` exit 100, and make dependency construction plus validation reject a Debian closure that cannot be jointly installed on a pristine isolated guest.
+
+- Frozen guest `01KZNY7Q6WAJ4QHAYTVVNJXXZ9` remained unmodified. Its checksum-bound failure state is tied to backend `53c6664a62350049ee4d1547a3caa03c0046809a`, frontend `067b3e22401854f8c6d6db42dc0c5c1872fca6f8`, and dependency bundle `ac94e9a3a561469a7d9302dc0b95aba42bde60c97780e4f21928d8bf6aee397c`.
+- Read-only APT simulation reproduced the invalid closure. The bundle contained both `libcurl4-gnutls-dev` and `libcurl4-openssl-dev`, plus both `libqt5gui5` and `libqt5gui5-gles`; each pair is mutually conflicting. Recursive textual dependency enumeration selected all alternatives while suppressing conflict edges.
+- Auggie semantic retrieval was bounded to two seconds and timed out. Fallback inspection covered `orchestrate.py`, the dependency builder and validator, `bootstrap-linux.sh`, focused artifact tests, the exact bundle inventory, and the frozen guest's sanitized package-manager diagnostics.
+- Files changed: `ops/control-plan-read-local/build-dependency-bundle-linux.sh`, `ops/control-plan-read-local/validate-dependency-bundle-linux.sh`, and `ops/control-plan-read-local/tests/test_local_artifacts.py`.
+- RED: `/Library/Frameworks/Python.framework/Versions/3.13/bin/python3 -m pytest -q ops/control-plan-read-local/tests/test_local_artifacts.py -k 'apt_resolver_for_pristine_debian_closure or simulates_complete_offline_debian_install'` failed exactly because the builder lacked an empty-status APT resolver and the validator lacked a complete offline installation simulation. Two stale tests that required the defective `apt-cache depends --recurse` path and its `--no-recommends` option were reconciled before implementation.
+- GREEN: the builder now runs APT's resolver against an empty package-status database, downloads only the selected closure into the bundle cache, removes cache artifacts, and derives `package-names.txt` deterministically from the downloaded package metadata. The validator now simulates installing the complete explicit `.deb` set with empty status/lists/cache, disabled sources, and `--no-download`.
+- Terra implementation stayed within its two-file production allowlist. The primary inspected the complete diff and independently reran the scoped GREEN test plus Bash syntax checks.
+- Full gates: `397 passed` Python operations tests, `41 passed` Node browser/harness tests, Black check, Bash syntax across the four provisioning shell programs, Python byte compilation, and `git diff --check` all passed. The three affected tests passed three consecutive identical runs. The pre-existing `pytest-asyncio` loop-scope warning remains unrelated.
+- Independent QCHECK: GO, no P0-P2 findings. It confirmed resolver selection, hermetic offline simulation, deterministic package inventory, scratch-only APT state, unchanged canonical guest state, and meaningful wiring assertions.
+
+Wiring verification:
+
+| Component | Non-test call site | Registration/config load | Schema/contract match |
+| --- | --- | --- | --- |
+| Debian dependency resolver | `ops/control-plan-read-local/build-dependency-bundle-linux.sh:206` | `ops/control-plan-read-local/orchestrate.py:605-628` transfers and invokes the builder | Empty APT status resolves the exact root set and downloaded bytes enter the content-addressed manifest |
+| Offline joint-install validator | `ops/control-plan-read-local/validate-dependency-bundle-linux.sh:30` | `ops/control-plan-read-local/build-dependency-bundle-linux.sh:239` invokes it under `unshare -n` | Empty status/lists plus disabled sources and `--no-download` require the explicit local `.deb` set to be complete and conflict-free |
+| Canonical package installation | `ops/control-plan-read-local/bootstrap-linux.sh:114` | `ops/control-plan-read-local/orchestrate.py:729` transfers the validator with canonical inputs | Bootstrap installs only the checksum-bound closure already accepted by the same offline validator |
+
+Known boundary: runtime ARM64 bundle construction and pristine-guest installation remain post-merge exact-SHA gates. The failed guest is evidence-only; deletion or another canonical attempt still requires separate authorization.
+
+## Review (2026-08-10 21:18:32 +0700) - working-tree offline Debian closure remediation
+
+### Reviewed
+- Repo: `/Users/subhajlimanond/dev/munbon2-backend-offline-debian-closure`
+- Branch: `fix/offline-debian-closure-resolution`
+- Scope: working tree based on `53c6664a62350049ee4d1547a3caa03c0046809a`
+- Commands Run: bounded Auggie attempt with direct-inspection fallback; staged name/stat and targeted diffs; focused RED/GREEN pytest; full Python operations and Node harness suites; Black; Bash syntax; Python byte compilation; affected tests three times; independent QCHECK; `git diff --check`
+
+### Findings
+CRITICAL
+- No findings.
+
+HIGH
+- No findings.
+
+MEDIUM
+- No findings.
+
+LOW
+- No findings.
+
+### Open Questions / Assumptions
+- The diagnostic builder has Debian Bookworm ARM64 repository metadata available during bundle construction; canonical validation and installation remain network-isolated.
+- Exact bundle bytes may change as repository candidates change, but every produced archive remains bound by its own SHA-256 manifest and exact backend/frontend input digests.
+
+### Recommended Tests / Validation
+- Build the complete dependency archive in the protected diagnostic guest at the exact merged backend SHA and require the source-less APT simulation to pass under `unshare -n`.
+- On a separately authorized pristine canonical guest, require the same exact archive to pass checksum validation and `offline-debian-packages` installation before any runtime reset or acceptance stage.
+
+### Rollout Notes
+- No acceptance stage, deployment, write activation, AWS action, or canonical guest mutation is part of this source review.
+- Formal g-check disposition: no CRITICAL/HIGH/MEDIUM/LOW findings; proceed through the standard PR lifecycle, exact-SHA dependency build, and separately authorized canonical attempt.

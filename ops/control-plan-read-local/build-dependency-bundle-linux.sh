@@ -200,24 +200,27 @@ APT_ROOTS=(
   postgis prometheus python3 python3-dev python3-venv redis-server rsync
   xz-utils influxdb2 "${PLAYWRIGHT_PACKAGES[@]}"
 )
-{
-  printf '%s\n' "${APT_ROOTS[@]}"
-  apt-cache depends --recurse --no-recommends --no-suggests \
-    --no-conflicts --no-breaks --no-replaces --no-enhances "${APT_ROOTS[@]}" \
-    | sed -nE 's/^[ |]*(Pre)?Depends: ([A-Za-z0-9.+:-]+)$/\2/p'
-} | sed -E 's/:any$//' | sort -u > "${BUNDLE_ROOT}/debian/package-names.txt"
+APT_STATUS="${BUILD_ROOT}/apt-status"
+: > "${APT_STATUS}"
+mkdir -p "${BUNDLE_ROOT}/debian/partial"
+apt-get --yes --download-only --no-install-recommends \
+  -o "Dir::State::status=${APT_STATUS}" \
+  -o "Dir::Cache::archives=${BUNDLE_ROOT}/debian" \
+  install "${APT_ROOTS[@]}"
+rm -rf "${BUNDLE_ROOT}/debian/partial"
+rm -f "${BUNDLE_ROOT}/debian/lock"
 
-while IFS= read -r package; do
-  version="$(apt-cache policy "${package}" | awk '/Candidate:/ {print $2; exit}')"
-  if [[ -z "${version}" || "${version}" == "(none)" ]]; then
-    printf '%s\n' "FAIL dependency_bundle_apt_candidate" >&2
-    exit 1
-  fi
-  (
-    cd "${BUNDLE_ROOT}/debian"
-    apt-get download "${package}=${version}" >/dev/null
-  )
-done < "${BUNDLE_ROOT}/debian/package-names.txt"
+if ! find "${BUNDLE_ROOT}/debian" -maxdepth 1 -type f -name '*.deb' \
+  -print -quit | grep -q .; then
+  printf '%s\n' "FAIL dependency_bundle_apt_candidate" >&2
+  exit 1
+fi
+while IFS= read -r -d '' package; do
+  dpkg-deb --field "${package}" Package
+done < <(
+  find "${BUNDLE_ROOT}/debian" -maxdepth 1 -type f -name '*.deb' -print0 \
+    | LC_ALL=C sort -z
+) | LC_ALL=C sort -u > "${BUNDLE_ROOT}/debian/package-names.txt"
 
 python3 "${CONTRACT_SCRIPT}" create-manifest \
   --bundle-root "${BUNDLE_ROOT}" \
