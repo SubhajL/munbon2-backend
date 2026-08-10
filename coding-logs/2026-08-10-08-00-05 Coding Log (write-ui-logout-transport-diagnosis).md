@@ -517,3 +517,10 @@ Disposition and evidence:
 - Verification: three consecutive full gate runs each passed 389 Python tests, 41 Node tests, Black, Bash syntax, Python byte compilation, and `git diff --check`.
 
 Open boundary, not a code finding: the precommit dependency archives are diagnostic-only and source-bound to predecessor temporary SHAs. An exact merged-SHA bundle and noncanonical Phase C requalification are still required after merge; no third canonical guest is authorized.
+
+PR and hosted-check handling:
+
+- Committed source as `412c50d63f6fbae05a2cf180a68a0413dbb7b5f0` (`fix(ops): make local provisioning content-addressed`), pushed `fix/provisioning-hermetic-state`, and opened PR #175.
+- Both GitHub `Secret Scan (diff)` jobs completed with zero steps and the explicit annotation `The job was not started because your account is locked due to a billing issue.` Hosted CI is infrastructure-blocked, not passing.
+- Reproduced the workflow locally at the exact PR head: the per-commit plus endpoint added-line secret scan passed. The full-tree scan found one baseline mismatch in `services/scheduler/coding-logs/2026-07-18 Impl (pr-4-4a-2-runtime-readiness).md`; the same carrier already exists at predecessor `d07fde2e` and is already absent from the predecessor `.security/full-tree-baseline.txt`, so it is pre-existing and unrelated to this change.
+- GitHub reports `main` has no branch protection. A normal merge therefore requires no status bypass; the unrelated historical carrier was not changed or added to the baseline in this PR.
