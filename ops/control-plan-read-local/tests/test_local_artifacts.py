@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import subprocess
 import sys
@@ -70,7 +71,8 @@ def test_bootstrap_is_valid_bash_and_provisions_only_isolated_manifests():
     assert "prisma generate" not in body
     assert "https://nodejs.org" not in body
     assert "https://repos.influxdata.com" not in body
-    assert "--no-download --no-install-recommends" in body
+    assert "install-debian-closure-linux.sh" in body
+    assert "--no-download" not in body
     assert body.index("--state ready") < body.index(
         'mv -- "${OWNER_TEMP}" "${STATE_ROOT}/owner.json"'
     )
@@ -272,6 +274,9 @@ def test_dependency_builder_uses_apt_resolver_for_pristine_debian_closure():
     assert "Dir::State::status=${APT_STATUS}" in body
     assert "Dir::Cache::archives=${BUNDLE_ROOT}/debian" in body
     assert "--download-only" in body
+    assert "dpkg-scanpackages --multiversion" in body
+    assert "package-specs.txt" in body
+    assert "install-debian-closure-linux.sh" in body
     assert "apt-cache depends --recurse" not in body
 
 
@@ -304,9 +309,135 @@ def test_dependency_validator_simulates_complete_offline_debian_install():
         encoding="utf-8"
     )
 
-    assert "apt-get --simulate" in body
-    assert "--no-download" in body
-    assert 'install "${BUNDLE_ROOT}"/debian/*.deb' in body
+    assert (
+        'bash "${BUNDLE_ROOT}/install-debian-closure-linux.sh" '
+        '--simulate "${BUNDLE_ROOT}/debian"' in body
+    )
+    assert "apt-get --simulate" not in body
+    assert 'install "${BUNDLE_ROOT}"/debian/*.deb' not in body
+
+
+def test_offline_debian_installer_uses_only_local_repo_and_exact_versions(tmp_path):
+    installer = LOCAL_DIR / "install-debian-closure-linux.sh"
+    repository = tmp_path / "debian"
+    repository.mkdir()
+    (repository / "Packages").write_text("Package: placeholder\n", encoding="utf-8")
+    (repository / "Packages.gz").write_bytes(b"packages")
+    (repository / "package-specs.txt").write_text(
+        "perl-modules-5.36=5.36.0-7+deb12u3\npython3=3.11.2-1+b1\n",
+        encoding="utf-8",
+    )
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    capture = tmp_path / "apt-calls.log"
+    fake_apt_get = fake_bin / "apt-get"
+    fake_apt_get.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        "printf 'CALL' >> \"${APT_CAPTURE}\"\n"
+        "source_list=\n"
+        'for argument in "$@"; do\n'
+        '  printf \' <%s>\' "${argument}" >> "${APT_CAPTURE}"\n'
+        '  case "${argument}" in\n'
+        '    Dir::Etc::sourcelist=*) source_list="${argument#*=}" ;;\n'
+        "  esac\n"
+        "done\n"
+        "printf '\\n' >> \"${APT_CAPTURE}\"\n"
+        'if [[ -n "${source_list}" ]]; then\n'
+        "  printf 'SOURCE ' >> \"${APT_CAPTURE}\"\n"
+        '  cat "${source_list}" >> "${APT_CAPTURE}"\n'
+        "fi\n",
+        encoding="utf-8",
+    )
+    fake_apt_get.chmod(0o755)
+
+    subprocess.run(
+        ["bash", str(installer), "--simulate", str(repository)],
+        check=True,
+        env={
+            **os.environ,
+            "APT_CAPTURE": str(capture),
+            "PATH": f"{fake_bin}:{os.environ['PATH']}",
+        },
+    )
+
+    calls = capture.read_text(encoding="utf-8")
+    assert f"SOURCE deb [trusted=yes] file:{repository} ./\n" in calls
+    assert "<Dir::Etc::main=/dev/null>" in calls
+    assert "<Dir::Etc::parts=->" in calls
+    assert "<update> <-qq>" in calls
+    assert "<install> <--simulate> <--no-install-recommends>" in calls
+    assert "<perl-modules-5.36=5.36.0-7+deb12u3>" in calls
+    assert "<python3=3.11.2-1+b1>" in calls
+    assert "--no-download" not in calls
+    assert ".deb>" not in calls
+
+
+def test_offline_debian_installer_rejects_option_shaped_package_specs(tmp_path):
+    installer = LOCAL_DIR / "install-debian-closure-linux.sh"
+    repository = tmp_path / "debian"
+    repository.mkdir()
+    (repository / "Packages").write_text("Package: placeholder\n", encoding="utf-8")
+    (repository / "Packages.gz").write_bytes(b"packages")
+    (repository / "package-specs.txt").write_text(
+        "--allow-unauthenticated=true\n", encoding="utf-8"
+    )
+
+    result = subprocess.run(
+        ["bash", str(installer), "--simulate", str(repository)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert (result.returncode, result.stdout, result.stderr) == (
+        1,
+        "",
+        "FAIL offline_debian_installer_package_specs\n",
+    )
+
+
+def test_offline_debian_installer_allows_only_exact_local_downgrades(tmp_path):
+    installer = LOCAL_DIR / "install-debian-closure-linux.sh"
+    repository = tmp_path / "debian"
+    repository.mkdir()
+    (repository / "Packages").write_text("Package: example\n", encoding="utf-8")
+    (repository / "Packages.gz").write_bytes(b"packages")
+    (repository / "package-specs.txt").write_text("example=1.0\n", encoding="utf-8")
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    capture = tmp_path / "apt-calls.log"
+    fake_apt_get = fake_bin / "apt-get"
+    fake_apt_get.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        "printf 'CALL' >> \"${APT_CAPTURE}\"\n"
+        'for argument in "$@"; do\n'
+        '  printf \' <%s>\' "${argument}" >> "${APT_CAPTURE}"\n'
+        "done\n"
+        "printf '\\n' >> \"${APT_CAPTURE}\"\n",
+        encoding="utf-8",
+    )
+    fake_apt_get.chmod(0o755)
+    fake_id = fake_bin / "id"
+    fake_id.write_text("#!/usr/bin/env bash\nprintf '0\\n'\n", encoding="utf-8")
+    fake_id.chmod(0o755)
+
+    subprocess.run(
+        ["bash", str(installer), "--install", str(repository)],
+        check=True,
+        env={
+            **os.environ,
+            "APT_CAPTURE": str(capture),
+            "PATH": f"{fake_bin}:{os.environ['PATH']}",
+        },
+    )
+
+    calls = capture.read_text(encoding="utf-8")
+    assert (
+        "<install> <-y> <-qq> <--allow-downgrades> "
+        "<--no-install-recommends> <example=1.0>" in calls
+    )
 
 
 def test_python_closure_lock_content_addresses_all_arm64_wheel_sets():
@@ -352,7 +483,8 @@ def test_bootstrap_records_state_before_dependencies_and_installs_python_before_
     outer_checksum = body.index("phase dependency_archive")
     inner_checksum = body.index("substep inner-checksum")
     offline_packages = body.index(
-        "apt-get install -y -qq --no-download --no-install-recommends"
+        'bash "${DEPENDENCY_ROOT}/install-debian-closure-linux.sh" '
+        '--install "${DEPENDENCY_ROOT}/debian"'
     )
     dependency_staged = body.index("phase dependency_staged")
 
@@ -369,17 +501,22 @@ def test_bootstrap_records_state_before_dependencies_and_installs_python_before_
     ).read_text(encoding="utf-8")
 
 
-def test_bootstrap_forces_offline_debian_install_to_use_only_local_debs():
+def test_bootstrap_delegates_offline_debian_install_to_bundle_installer():
     body = (LOCAL_DIR / "bootstrap-linux.sh").read_text(encoding="utf-8")
 
-    install_start = body.index(
-        "apt-get install -y -qq --no-download --no-install-recommends"
+    assert (
+        'bash "${DEPENDENCY_ROOT}/install-debian-closure-linux.sh" '
+        '--install "${DEPENDENCY_ROOT}/debian"' in body
     )
-    install_end = body.index("systemctl disable", install_start)
-    install_command = body[install_start:install_end]
+    assert '"${DEPENDENCY_ROOT}"/debian/*.deb' not in body
+    assert "--no-download" not in body
 
-    assert "-o Dir::Etc::sourcelist=/dev/null" in install_command
-    assert '-o "Dir::Etc::sourceparts=${APT_SOURCEPARTS}"' in install_command
+
+def test_orchestrator_embeds_offline_debian_installer_in_dependency_bundle():
+    body = (LOCAL_DIR / "orchestrate.py").read_text(encoding="utf-8")
+
+    assert 'local_dir / "install-debian-closure-linux.sh"' in body
+    assert 'f"{remote_root}/install-debian-closure-linux.sh"' in body
 
 
 def test_pre_python_failure_writer_emits_collectable_checksum_bound_state(tmp_path):

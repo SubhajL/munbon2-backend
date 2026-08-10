@@ -528,6 +528,11 @@ def _prepare_diagnostic_machine(*, confirmed: bool) -> None:
             timeout=30,
         )
     validate_diagnostic_owner(marker)
+    _run_checked(
+        "diagnostic_dpkg_scanpackages",
+        build_diagnostic_command(["dpkg-scanpackages", "--version"]),
+        timeout=30,
+    )
 
 
 def _create_bundle(repo: Path, release_sha: str, target: Path) -> None:
@@ -620,6 +625,7 @@ def build_dependency_bundle(
             local_dir / "build-dependency-bundle-linux.sh",
             local_dir / "provisioning_contract.py",
             local_dir / "validate-dependency-bundle-linux.sh",
+            local_dir / "install-debian-closure-linux.sh",
         )
         _run_checked(
             "diagnostic_build_directory",
@@ -641,6 +647,7 @@ def build_dependency_bundle(
                 frontend_sha,
                 f"{remote_root}/provisioning_contract.py",
                 f"{remote_root}/validate-dependency-bundle-linux.sh",
+                f"{remote_root}/install-debian-closure-linux.sh",
                 remote_archive,
             ]
         ),

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ "$(id -u)" != "0" || "$#" != "7" || "$(uname -m)" != "aarch64" ]]; then
+if [[ "$(id -u)" != "0" || "$#" != "8" || "$(uname -m)" != "aarch64" ]]; then
   printf '%s\n' "FAIL dependency_bundle_arguments" >&2
   exit 2
 fi
@@ -12,7 +12,8 @@ FRONTEND_BUNDLE="$3"
 FRONTEND_SHA="$4"
 CONTRACT_SCRIPT="$5"
 VALIDATOR_SCRIPT="$6"
-OUTPUT_ARCHIVE="$7"
+INSTALLER_SCRIPT="$7"
+OUTPUT_ARCHIVE="$8"
 NODE_VERSION=22.23.1
 NPM_VERSION=10.9.8
 PLAYWRIGHT_VERSION=1.54.2
@@ -31,6 +32,8 @@ if [[ \
   || ! -f "${FRONTEND_BUNDLE}" \
   || ! -f "${CONTRACT_SCRIPT}" \
   || ! -f "${VALIDATOR_SCRIPT}" \
+  || ! -f "${INSTALLER_SCRIPT}" \
+  || ! -x "$(command -v dpkg-scanpackages)" \
   || -e "${OUTPUT_ARCHIVE}" \
   || "$(. /etc/os-release && printf '%s' "${ID}")" != "debian" \
   || "$(. /etc/os-release && printf '%s' "${VERSION_ID}")" != "12" \
@@ -221,6 +224,28 @@ done < <(
   find "${BUNDLE_ROOT}/debian" -maxdepth 1 -type f -name '*.deb' -print0 \
     | LC_ALL=C sort -z
 ) | LC_ALL=C sort -u > "${BUNDLE_ROOT}/debian/package-names.txt"
+while IFS= read -r -d '' package; do
+  printf '%s=%s\n' \
+    "$(dpkg-deb --field "${package}" Package)" \
+    "$(dpkg-deb --field "${package}" Version)"
+done < <(
+  find "${BUNDLE_ROOT}/debian" -maxdepth 1 -type f -name '*.deb' -print0 \
+    | LC_ALL=C sort -z
+) | LC_ALL=C sort -u > "${BUNDLE_ROOT}/debian/package-specs.txt"
+if [[ \
+  "$(wc -l < "${BUNDLE_ROOT}/debian/package-names.txt" | tr -d ' ')" \
+    != "$(wc -l < "${BUNDLE_ROOT}/debian/package-specs.txt" | tr -d ' ')" \
+]]; then
+  printf '%s\n' "FAIL dependency_bundle_apt_package_inventory" >&2
+  exit 1
+fi
+(
+  cd "${BUNDLE_ROOT}/debian"
+  dpkg-scanpackages --multiversion . /dev/null > Packages
+  gzip -n -c Packages > Packages.gz
+)
+install -m 0755 "${INSTALLER_SCRIPT}" \
+  "${BUNDLE_ROOT}/install-debian-closure-linux.sh"
 
 python3 "${CONTRACT_SCRIPT}" create-manifest \
   --bundle-root "${BUNDLE_ROOT}" \

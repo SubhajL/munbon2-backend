@@ -1,3 +1,4 @@
+import gzip
 import hashlib
 import importlib.util
 import json
@@ -17,6 +18,30 @@ SPEC.loader.exec_module(provisioning)
 
 def _sha256(body: bytes) -> str:
     return hashlib.sha256(body).hexdigest()
+
+
+def _write_required_debian_repository(bundle_root: Path) -> None:
+    deb_body = b"deb"
+    packages = (
+        "Package: example\n"
+        "Version: 1.0\n"
+        "Architecture: arm64\n"
+        "Filename: ./example_1.0_arm64.deb\n"
+        f"Size: {len(deb_body)}\n"
+        f"SHA256: {_sha256(deb_body)}\n"
+    ).encode()
+    artifacts = {
+        "debian/Packages": packages,
+        "debian/Packages.gz": gzip.compress(packages, mtime=0),
+        "debian/example_1.0_arm64.deb": deb_body,
+        "debian/package-names.txt": b"example\n",
+        "debian/package-specs.txt": b"example=1.0\n",
+        "install-debian-closure-linux.sh": b"#!/usr/bin/env bash\n",
+    }
+    for relative_name, body in artifacts.items():
+        path = bundle_root / relative_name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(body)
 
 
 def test_transition_provision_state_accepts_only_canonical_sequence_and_terminals():
@@ -304,12 +329,13 @@ def test_validate_dependency_bundle_binds_shas_inputs_platform_and_artifacts(tmp
     npm_cache.parent.mkdir(parents=True)
     wheel.write_bytes(b"wheel")
     npm_cache.write_bytes(b"npm")
+    _write_required_debian_repository(bundle_root)
     input_digests = {
         "services/scheduler/requirements.txt": "c" * 64,
         "frontend/package-lock.json": "d" * 64,
     }
     manifest = {
-        "schema": 1,
+        "schema": 2,
         "platform": {
             "architecture": "aarch64",
             "distribution": "debian",
@@ -322,8 +348,9 @@ def test_validate_dependency_bundle_binds_shas_inputs_platform_and_artifacts(tmp
         "frontend_sha": frontend_sha,
         "inputs": input_digests,
         "artifacts": {
-            "npm-cache/content": _sha256(b"npm"),
-            "python/scheduler/example.whl": _sha256(b"wheel"),
+            path.relative_to(bundle_root).as_posix(): _sha256(path.read_bytes())
+            for path in sorted(bundle_root.rglob("*"))
+            if path.is_file()
         },
     }
     (bundle_root / "manifest.json").write_text(json.dumps(manifest))
@@ -351,6 +378,109 @@ def test_validate_dependency_bundle_binds_shas_inputs_platform_and_artifacts(tmp
         )
 
 
+@pytest.mark.parametrize(
+    "missing_artifact",
+    (
+        "debian/Packages",
+        "debian/Packages.gz",
+        "debian/example_1.0_arm64.deb",
+        "debian/package-names.txt",
+        "debian/package-specs.txt",
+        "install-debian-closure-linux.sh",
+    ),
+)
+def test_validate_dependency_bundle_rejects_missing_flat_debian_repository(
+    tmp_path, missing_artifact
+):
+    release_sha = "a" * 40
+    frontend_sha = "b" * 40
+    bundle_root = tmp_path / "bundle"
+    _write_required_debian_repository(bundle_root)
+    (bundle_root / missing_artifact).unlink()
+    artifacts = {
+        path.relative_to(bundle_root).as_posix(): _sha256(path.read_bytes())
+        for path in sorted(bundle_root.rglob("*"))
+        if path.is_file()
+    }
+    manifest = {
+        "schema": 2,
+        "platform": {
+            "architecture": "aarch64",
+            "distribution": "debian",
+            "distribution_version": "12",
+            "node": "22.23.1",
+            "npm": "10.9.8",
+            "python": "3.11",
+        },
+        "release_sha": release_sha,
+        "frontend_sha": frontend_sha,
+        "inputs": {},
+        "artifacts": artifacts,
+    }
+    (bundle_root / "manifest.json").write_text(json.dumps(manifest))
+
+    with pytest.raises(
+        provisioning.ProvisioningContractError,
+        match="dependency_debian_repository_not_accepted",
+    ):
+        provisioning.validate_dependency_bundle(
+            bundle_root,
+            release_sha=release_sha,
+            frontend_sha=frontend_sha,
+            expected_inputs={},
+        )
+
+
+@pytest.mark.parametrize(
+    ("relative_name", "replacement"),
+    (
+        ("debian/Packages.gz", b"not-gzip"),
+        ("debian/package-names.txt", b"different\n"),
+        ("debian/package-specs.txt", b"example=2.0\n"),
+    ),
+)
+def test_validate_dependency_bundle_rejects_incoherent_flat_debian_repository(
+    tmp_path, relative_name, replacement
+):
+    release_sha = "a" * 40
+    frontend_sha = "b" * 40
+    bundle_root = tmp_path / "bundle"
+    _write_required_debian_repository(bundle_root)
+    (bundle_root / relative_name).write_bytes(replacement)
+    artifacts = {
+        path.relative_to(bundle_root).as_posix(): _sha256(path.read_bytes())
+        for path in sorted(bundle_root.rglob("*"))
+        if path.is_file()
+    }
+    manifest = {
+        "schema": 2,
+        "platform": {
+            "architecture": "aarch64",
+            "distribution": "debian",
+            "distribution_version": "12",
+            "node": "22.23.1",
+            "npm": "10.9.8",
+            "python": "3.11",
+        },
+        "release_sha": release_sha,
+        "frontend_sha": frontend_sha,
+        "inputs": {},
+        "artifacts": artifacts,
+    }
+    (bundle_root / "manifest.json").write_text(json.dumps(manifest))
+
+    with pytest.raises(
+        provisioning.ProvisioningContractError,
+        match="dependency_debian_repository_not_accepted",
+    ):
+        provisioning.validate_dependency_bundle(
+            bundle_root,
+            release_sha=release_sha,
+            frontend_sha=frontend_sha,
+            expected_inputs={},
+        )
+
+
 def test_validate_bundle_cli_accepts_checksum_index_in_any_order(tmp_path):
     repo = tmp_path / "repo"
     frontend = tmp_path / "frontend"
@@ -365,13 +495,15 @@ def test_validate_bundle_cli_accepts_checksum_index_in_any_order(tmp_path):
         path = bundle / relative_name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(relative_name)
-    provisioning.create_dependency_manifest(
+    _write_required_debian_repository(bundle)
+    manifest = provisioning.create_dependency_manifest(
         bundle,
         repo_root=repo,
         frontend_root=frontend,
         release_sha="a" * 40,
         frontend_sha="b" * 40,
     )
+    assert manifest["schema"] == 2
     checksum_path = bundle / "SHA256SUMS"
     checksum_path.write_text(
         "\n".join(reversed(checksum_path.read_text().splitlines())) + "\n"

@@ -1,3 +1,4 @@
+import gzip
 import importlib.util
 import hashlib
 import json
@@ -174,6 +175,49 @@ def test_diagnostic_build_requires_explicit_confirmation_and_exact_owner_marker(
         orchestrate.OrchestrationError, match="diagnostic_owner_not_accepted"
     ):
         orchestrate.validate_diagnostic_owner(marker.replace("false", "true"))
+
+
+def test_diagnostic_build_preflights_flat_repository_toolchain(monkeypatch):
+    machine = {
+        "name": "munbon-control-plan-write-ui-diagnostic",
+        "image": {"distro": "debian", "version": "bookworm", "arch": "arm64"},
+        "config": {
+            "isolated": True,
+            "isolate_network": True,
+            "default_username": "munbonlocal",
+            "memory_limit_mib": 8192,
+            "cpu_limit": 4,
+            "disk_limit_bytes": 40 * 1024**3,
+        },
+        "state": "running",
+    }
+    marker = json.dumps(
+        {
+            "architecture": "arm64",
+            "canonical": False,
+            "machine": "munbon-control-plan-write-ui-diagnostic",
+            "purpose": "dependency-build",
+        }
+    )
+    outputs = {
+        "diagnostic_orb_inventory": json.dumps([machine]),
+        "diagnostic_owner": marker,
+        "diagnostic_dpkg_scanpackages": "/usr/bin/dpkg-scanpackages\n",
+    }
+    calls = []
+
+    def fake_run_checked(code, _argv, **_kwargs):
+        calls.append(code)
+        return outputs[code]
+
+    monkeypatch.setattr(orchestrate, "_run_checked", fake_run_checked)
+
+    assert orchestrate._prepare_diagnostic_machine(confirmed=True) is None
+    assert calls == [
+        "diagnostic_orb_inventory",
+        "diagnostic_owner",
+        "diagnostic_dpkg_scanpackages",
+    ]
 
 
 @pytest.mark.parametrize(
@@ -674,7 +718,27 @@ def test_validate_dependency_archive_accepts_only_exact_content_bound_archive(
         path.write_text(relative_name)
     frontend.mkdir()
     (frontend / "package-lock.json").write_text("frontend-lock")
-    (bundle_root / "artifact").write_bytes(b"content")
+    deb_body = b"deb"
+    packages = (
+        "Package: example\n"
+        "Version: 1.0\n"
+        "Architecture: arm64\n"
+        "Filename: ./example_1.0_arm64.deb\n"
+        f"Size: {len(deb_body)}\n"
+        f"SHA256: {hashlib.sha256(deb_body).hexdigest()}\n"
+    ).encode()
+    bundle_artifacts = {
+        "debian/Packages": packages,
+        "debian/Packages.gz": gzip.compress(packages, mtime=0),
+        "debian/example_1.0_arm64.deb": deb_body,
+        "debian/package-names.txt": b"example\n",
+        "debian/package-specs.txt": b"example=1.0\n",
+        "install-debian-closure-linux.sh": b"#!/usr/bin/env bash\n",
+    }
+    for relative_name, body in bundle_artifacts.items():
+        path = bundle_root / relative_name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(body)
     release_sha = "a" * 40
     frontend_sha = "b" * 40
     provisioning.create_dependency_manifest(

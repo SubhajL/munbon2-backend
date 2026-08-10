@@ -759,3 +759,72 @@ LOW
 ### Rollout Notes
 - The failed guest and immutable failure archive remain preserved. No stage, deployment, activation, AWS action, or retry occurred during this source review.
 - Formal g-check disposition: no CRITICAL/HIGH/MEDIUM/LOW findings; proceed through the ordinary PR lifecycle, exact-SHA bundle rebuild, and separately authorized canonical replacement.
+
+## Exact-merge canonical provisioning attempt (2026-08-11 05:05 +0700)
+
+Goal: use the separately authorized replacement of failed guest `01KZP2DG7VJSRQZBBMN9ZV0T9X` for one fresh provisioning at backend `dd81b687a558d696828ebf1d8848d8936f5cade8`, frontend `067b3e22401854f8c6d6db42dc0c5c1872fca6f8`, and dependency bundle `63ed11aaa58901b9ff8451a6f2239ec00267377b5e3760b309588d5afdc08f9f`, followed by one pinned authoritative nine-stage run only if provisioning reached ready.
+
+- Reverified `HEAD == main == origin/main` for both repositories, bundle mode `0600` and SHA-256, both checksum layers of the predecessor failure archive, and the exact live ID/name/shape mapping before mutation. The OrbStack CLI panicked on deletion by ID without changing inventory; deletion by the uniquely mapped authorized name then succeeded. The diagnostic and Ubuntu guests remained unchanged.
+- Fresh isolated Debian 12 ARM64 guest `01KZPVAFAXG3ZNQ649ZBFSYMHJ` was created with 8 GiB, 4 CPU, and 40 GiB. Exact source, frontend, dependency, harness, auth, and verifier inputs transferred successfully.
+- Provisioning failed before readiness at `base_packages/offline-debian-packages` with exit 100 and classification `nonretryable-bootstrap`. The raw mode-600 guest log records APT 2.6.1 `Internal Error, Pathname to install is not absolute 'perl-modules-5.36_5.36.0-7+deb12u3_all.deb'`; the referenced package archive exists at an absolute checksum-indexed path. The bundle validator's empty-status simulation had passed, and a post-failure no-write real-status simulation also resolved every candidate as `local-deb`, so the uncovered boundary is APT's real install/acquire execution rather than dependency resolution or missing bundle bytes.
+- The orchestrator preserved a sanitized mode-600 failure bundle at `/Users/subhajlimanond/dev/munbon2-backend-external-evidence/2026-08-11-phase-d-dd81b687-bootstrap-failure-canonical-attempt-1`; its inner and outer checksum indexes both pass. Metadata binds the exact backend, frontend, dependency digest, phase, substep, exit 100, and classification.
+- The fresh failed guest remains running and unmodified after read-only diagnosis. Its terminal provisioning state is present; owner and stage state are absent; the evidence directory contains zero files; auth is inactive. No acceptance stage, pinned RID date/week, deployment, activation, or AWS action occurred. The authorized single provisioning attempt is consumed, and the nine-stage run was not started.
+
+## APT real-install parity remediation (2026-08-11)
+
+Goal: replace direct local `.deb` installation with one checksum-bound flat repository and a shared installer used by validation and canonical bootstrap, then prove it on one disposable non-authoritative guest before any authorized canonical replacement.
+
+- User authorization covers TDD remediation, the ordinary PR/merge lifecycle, one disposable qualification guest, and only after qualification passes deletion of failed canonical guest `01KZPVAFAXG3ZNQ649ZBFSYMHJ`, one fresh canonical provisioning, and one pinned nine-stage run.
+- Work is isolated in `/Users/subhajlimanond/dev/munbon2-backend-apt-real-install-parity` on `fix/apt-real-install-parity`, based exactly on `origin/main@dd81b687a558d696828ebf1d8848d8936f5cade8`. Dirty primary-worktree artifacts remain untouched.
+- Auggie semantic retrieval was bounded to two seconds and timed out. Fallback inspection covered the dependency builder, validator, bootstrap, provisioning manifest contract, orchestrator wiring, and focused tests.
+- Read-only Terra risk analysis independently confirmed the defect boundary: the builder and validator exercised dependency resolution only, while bootstrap was the first real APT acquire/install transaction. It recommended the same flat-repository acquire path, checksum binding, isolated APT state, and pristine qualification boundary.
+- Locked contract: manifest schema 2 requires `debian/Packages`, `debian/Packages.gz`, at least one `.deb`, exact `package-specs.txt`, inventory `package-names.txt`, and `install-debian-closure-linux.sh`. The shared installer must use only a `file:` source, scratch APT lists/cache, exact `Package=Version` requests, and no `--no-download` or direct `.deb` arguments.
+- RED: the focused provisioning/artifact selection failed 14 tests for the expected reasons: no repository index/spec generation, no shared installer behavior or wiring, bootstrap still passed direct `.deb` paths with `--no-download`, the orchestrator did not embed the installer, and schema 1 still accepted non-installable inventories.
+- GREEN: the builder now creates deterministic `Packages`/`Packages.gz` indexes, exact `Package=Version` specs, and an embedded shared installer before manifest creation. The installer disables host APT configuration and external sources, uses scratch lists/cache plus the checksum-bound `file:` repository, simulates against empty status, and performs real installation against system status without direct `.deb` arguments or `--no-download`.
+- Manifest schema 2 now rejects presence-only repositories: it verifies compressed/uncompressed index parity, strict unique package records, exact `.deb` filename/size/SHA-256 coverage, and sorted package-name/spec coherence before accepting or creating a manifest.
+- Primary QCHECK added fail-closed rejection of option-shaped package specs and isolated APT main/parts configuration. Independent QCHECK initially returned NO-GO for missing exact-version downgrade permission and missing diagnostic `dpkg-scanpackages` preflight; both were fixed under separate RED/GREEN tests. The final independent re-review returned GO with no P0-P3 findings.
+- Exact local downgrades are permitted only in the real-install branch, alongside local-only sources and exact checksum-bound specs. The diagnostic lane now runs a named `dpkg-scanpackages --version` preflight; the live diagnostic guest also exposes `/usr/bin/dpkg-scanpackages`.
+- Full gates after remediation: `421 passed` Python operations tests and `41 passed` Node harness/browser tests. The 21 affected contracts passed three consecutive identical runs. Black, Bash syntax across all four affected shell scripts, Python byte compilation, and `git diff --check` passed. The pre-existing `pytest-asyncio` loop-scope warning remains unrelated.
+- The root `make test` target returned zero but attempted only `services/sensor-data/vercel-deployment`, whose package has no `test` script; because the Makefile suppresses service failures with `|| true`, this is recorded as a non-authoritative legacy target rather than passing evidence.
+
+Wiring verification:
+
+| Component | Non-test call site | Registration/config load | Schema/contract match |
+| --- | --- | --- | --- |
+| Flat Debian repository builder | `ops/control-plan-read-local/build-dependency-bundle-linux.sh` | `ops/control-plan-read-local/orchestrate.py` transfers the builder, contract, validator, and installer to the owned diagnostic guest | Schema 2 binds every index, spec, `.deb`, and installer byte before archive creation |
+| Shared offline installer | `ops/control-plan-read-local/install-debian-closure-linux.sh` | Embedded at bundle root and invoked by both validator and bootstrap | Simulation uses empty status; canonical installation uses real status; both share local acquire/cache semantics |
+| Diagnostic validation | `ops/control-plan-read-local/validate-dependency-bundle-linux.sh` | Builder invokes it under `unshare -n` after schema validation | Exact specs must resolve from the generated local repository with no network namespace |
+| Canonical bootstrap | `ops/control-plan-read-local/bootstrap-linux.sh` | `orchestrate.py` transfers bootstrap and the exact content-bound archive | Real APT acquire/install receives absolute scratch-cache paths and permits only exact local downgrades |
+
+## Review (2026-08-11 05:36:32 +0700) - working-tree APT real-install parity remediation
+
+### Reviewed
+- Repo: `/Users/subhajlimanond/dev/munbon2-backend-apt-real-install-parity`
+- Branch: `fix/apt-real-install-parity`
+- Scope: working tree based on `dd81b687a558d696828ebf1d8848d8936f5cade8`
+- Commands Run: bounded Auggie attempt with targeted-inspection fallback; complete production/test diff and untracked-installer inspection; focused RED/GREEN cycles; full Python and Node operations suites; affected contracts three times; Black; Bash syntax; Python byte compilation; `git diff --check`; legacy `make test`; live read-only diagnostic toolchain preflight; independent QCHECK with remediation and re-review
+
+### Findings
+CRITICAL
+- No findings.
+
+HIGH
+- No findings.
+
+MEDIUM
+- No findings.
+
+LOW
+- No findings.
+
+### Open Questions / Assumptions
+- Source tests and the diagnostic empty-status simulation do not prove an actual dpkg mutation. The separately authorized pristine Debian 12 ARM64 qualification guest remains mandatory before deleting canonical guest `01KZPVAFAXG3ZNQ649ZBFSYMHJ`.
+- Qualification is non-authoritative and must use the exact merged backend SHA, exact frontend SHA, and exact content-addressed schema 2 dependency archive; it cannot advance acceptance state.
+
+### Recommended Tests / Validation
+- Merge through one ordinary PR, build and validate the dependency archive on the owned diagnostic guest at the exact merge SHA, then create one disposable pristine qualification guest and require real installation plus dpkg-state verification.
+- Only after qualification passes, reverify the preserved canonical failure archive and exact guest mapping, delete the authorized failed guest, provision one fresh canonical guest, and run the nine stages once with one pinned `--as-of-date`.
+
+### Rollout Notes
+- No canonical guest mutation, acceptance stage, deployment, activation, or AWS action occurred during source remediation and review.
+- Formal g-check disposition: no remaining CRITICAL/HIGH/MEDIUM/LOW findings; source is ready for the standard commit/PR/merge lifecycle and exact-merge qualification gates.
