@@ -4250,7 +4250,7 @@ def test_write_browser_environment_binds_coordination_to_the_resolved_evidence_r
     )
 
 
-def test_write_browser_environment_enables_transport_comparison_only_for_diagnostic(
+def test_write_browser_environment_rejects_removed_transport_comparison_switch(
     tmp_path, monkeypatch
 ):
     monkeypatch.setenv("LOCAL_WRITE_UI_DIAGNOSTIC", "1")
@@ -4262,36 +4262,39 @@ def test_write_browser_environment_enables_transport_comparison_only_for_diagnos
         "release_path": context.evidence_root / ".write-ui-outage-release",
     }
 
-    acceptance = stage_suite._write_browser_environment(context, **kwargs)
-    diagnostic = stage_suite._write_browser_environment(
-        context, diagnostic=True, **kwargs
-    )
+    environment = stage_suite._write_browser_environment(context, **kwargs)
 
-    assert acceptance.get("LOCAL_WRITE_UI_DIAGNOSTIC") is None
-    assert diagnostic["LOCAL_WRITE_UI_DIAGNOSTIC"] == "1"
+    assert environment.get("LOCAL_WRITE_UI_DIAGNOSTIC") is None
+    with pytest.raises(TypeError):
+        stage_suite._write_browser_environment(context, diagnostic=True, **kwargs)
 
 
-def test_run_write_browser_threads_diagnostic_mode_to_the_launcher_environment(
+def test_run_write_browser_does_not_forward_removed_transport_comparison_switch(
     tmp_path, monkeypatch
 ):
+    monkeypatch.setenv("LOCAL_WRITE_UI_DIAGNOSTIC", "1")
     context = _write_ui_context(tmp_path)
     observed = {}
 
-    def capture_environment(_context, *, diagnostic, **_kwargs):
-        observed["diagnostic"] = diagnostic
-        raise stage_suite.StageGateError("captured_diagnostic_mode")
+    def capture_environment(_context, environment, *_args):
+        observed.update(environment)
+        return {"write_browser": "evidence"}
 
-    monkeypatch.setattr(stage_suite, "_write_browser_environment", capture_environment)
+    monkeypatch.setattr(stage_suite, "_drive_write_browser", capture_environment)
+    monkeypatch.setattr(
+        stage_suite,
+        "_restore_scheduler_guarded",
+        lambda: {"attempts": 1, "restored": True, "failed_gate": None},
+    )
 
-    with pytest.raises(stage_suite.StageGateError, match="^captured_diagnostic_mode$"):
-        stage_suite._run_write_browser(
-            context,
-            week_key="2027-R01",
-            week_date="2026-11-02",
-            diagnostic=True,
-        )
+    result = stage_suite._run_write_browser(
+        context,
+        week_key="2027-R01",
+        week_date="2026-11-02",
+    )
 
-    assert observed == {"diagnostic": True}
+    assert observed.get("LOCAL_WRITE_UI_DIAGNOSTIC") is None
+    assert result["write_browser"] == "evidence"
 
 
 def test_run_write_browser_resolves_a_symlinked_evidence_root(tmp_path, monkeypatch):

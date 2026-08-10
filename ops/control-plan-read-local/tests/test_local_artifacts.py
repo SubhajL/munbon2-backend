@@ -258,7 +258,8 @@ def test_write_browser_runner_covers_create_conflict_retry_and_outage():
         "smart_cms_refresh",
         "refresh_reuse_status",
         "contextRefreshCookie",
-        "proveContextLogout",
+        "provePageOriginLogout",
+        "pageOriginLogout",
         "assertRefreshShaped",
         "AbortSignal.timeout",
         # Credentials must be the bootstrap's canonical names, and the outage

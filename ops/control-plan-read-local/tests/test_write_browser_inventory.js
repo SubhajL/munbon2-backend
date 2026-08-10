@@ -8,12 +8,9 @@ const test = require("node:test");
 const {
   recordPlanningRead,
   makePlanningFetchWrapper,
-  proveContextLogout,
-  proveRequestContextLogout,
+  provePageOriginLogout,
   proveBothOperatorLogouts,
-  logoutContext,
   pageOriginLogout,
-  projectRefreshSessionMetadata,
   browserFailureCode,
   assertRefreshShaped,
   contextRefreshCookie,
@@ -368,28 +365,35 @@ test("planning fetch wrapper records an on-path read only after its body settles
   assert.deepEqual(reads, { [ROSTER_PATH]: 200 });
 });
 
-test("proveContextLogout captures BEFORE logout and probes THAT value after", async () => {
+test("provePageOriginLogout captures before its page logout and probes that value", async () => {
   // #160 HIGH-1's load-bearing ordering, as behavior rather than source strings:
   // the revocation probe must receive the SAME context's pre-logout credential.
   const events = [];
   const fakeContext = { label: "ctx-a" };
-  const proof = await proveContextLogout(fakeContext, "http://127.0.0.1:9999", {
-    capture: async (context) => {
-      events.push(`capture:${context.label}`);
-      return "credential-of-ctx-a";
+  const fakePage = { label: "page-a" };
+  const accessToken = "access-of-ctx-a";
+  const proof = await provePageOriginLogout(
+    fakeContext,
+    fakePage,
+    accessToken,
+    {
+      capture: async (context) => {
+        events.push(`capture:${context.label}`);
+        return "credential-of-ctx-a";
+      },
+      logout: async (page, token) => {
+        events.push(`logout:${page.label}:${token}`);
+        return 204;
+      },
+      probe: async (value) => {
+        events.push(`probe:${value}`);
+        return 401;
+      },
     },
-    logout: async (context, frontendUrl) => {
-      events.push(`logout:${context.label}:${new URL(frontendUrl).port}`);
-      return 204;
-    },
-    probe: async (value) => {
-      events.push(`probe:${value}`);
-      return 401;
-    },
-  });
+  );
   assert.deepEqual(events, [
     "capture:ctx-a",
-    "logout:ctx-a:9999",
+    "logout:page-a:access-of-ctx-a",
     "probe:credential-of-ctx-a",
   ]);
   assert.deepEqual(proof, { logout_status: 204, refresh_reuse_status: 401 });
@@ -426,152 +430,91 @@ test("pageOriginLogout uses a relative same-origin credentialed POST", async () 
   ]);
 });
 
-test("logoutContext sends the same bearer semantics through request context", async () => {
-  const calls = [];
-  const accessToken = "second-access-token";
-  const context = {
-    request: {
-      post: async (url, options) => {
-        calls.push({ url, options });
-        return { status: () => 204 };
-      },
-    },
-  };
-
-  assert.equal(await logoutContext(context, ORIGIN, accessToken), 204);
-  assert.deepEqual(calls, [
-    {
-      url: `${ORIGIN}/api/auth/logout`,
-      options: { headers: { Authorization: `Bearer ${accessToken}` } },
-    },
-  ]);
-});
-
-test("proveRequestContextLogout adds the bearer only for diagnostic mode", async () => {
-  const accessToken = "field-team-access-token";
-  const events = [];
-  const context = { label: "field-team" };
-  const logout = async (receivedContext, frontendUrl, receivedToken) => {
-    events.push({
-      event: "logout",
-      context: receivedContext.label,
-      frontendUrl,
-      accessToken: receivedToken,
-    });
-    return 204;
-  };
-  const prove = async (receivedContext, frontendUrl, deps) => {
-    events.push({ event: "prove", dependency_count: Object.keys(deps).length });
-    if (deps.logout) await deps.logout(receivedContext, frontendUrl);
-    return { logout_status: 204, refresh_reuse_status: 401 };
-  };
-
-  await proveRequestContextLogout(context, ORIGIN, accessToken, {
-    diagnostic: false,
-    prove,
-    logout,
-  });
-  await proveRequestContextLogout(context, ORIGIN, accessToken, {
-    diagnostic: true,
-    prove,
-    logout,
-  });
-
-  assert.deepEqual(events, [
-    { event: "prove", dependency_count: 0 },
-    { event: "prove", dependency_count: 1 },
-    {
-      event: "logout",
-      context: "field-team",
-      frontendUrl: ORIGIN,
-      accessToken,
-    },
-  ]);
-});
-
-test("projectRefreshSessionMetadata retains attributes but never values", async () => {
-  const context = {
-    cookies: async () => [
-      {
-        name: "smart_cms_refresh",
-        value: "sensitive-refresh-value",
-        domain: "127.0.0.1",
-        path: "/",
-        secure: true,
-        sameSite: "Lax",
-        httpOnly: true,
-        expires: 1234567890,
-      },
-      {
-        name: "unrelated",
-        value: "also-sensitive",
-        domain: "127.0.0.1",
-        path: "/",
-        secure: false,
-        sameSite: "Lax",
-      },
-    ],
-  };
-
-  const metadata = await projectRefreshSessionMetadata(context);
-
-  assert.deepEqual(metadata, {
-    session_count: 1,
-    sessions: [
-      {
-        name: "smart_cms_refresh",
-        domain: "127.0.0.1",
-        path: "/",
-        secure: true,
-        same_site: "Lax",
-      },
-    ],
-  });
-  assert.equal(JSON.stringify(metadata).includes("sensitive"), false);
-  assert.equal(
-    Object.keys(metadata).some((key) => key.includes("cookie")),
-    false,
-  );
-});
-
-test("proveBothOperatorLogouts logs BOTH contexts out even when the first proof throws", async () => {
+test("proveBothOperatorLogouts attempts both pages when the primary proof throws", async () => {
   const loggedOut = [];
-  const primaryProve = async (context) => {
-    loggedOut.push(context.label);
-    throw new Error("refresh_cookie_ambiguous");
-  };
-  const secondProve = async (context) => {
-    loggedOut.push(context.label);
+  const prove = async (context, page, accessToken) => {
+    loggedOut.push(`${context.label}:${page.label}:${accessToken}`);
+    if (context.label === "primary")
+      throw new Error("refresh_cookie_ambiguous");
     return { logout_status: 204, refresh_reuse_status: 401 };
   };
   await assert.rejects(
     () =>
-      proveBothOperatorLogouts({ label: "primary" }, { label: "second" }, "http://127.0.0.1:9999", {
-        primaryProve,
-        secondProve,
-      }),
+      proveBothOperatorLogouts(
+        {
+          context: { label: "primary" },
+          page: { label: "page-primary" },
+          accessToken: "token-primary",
+        },
+        {
+          context: { label: "second" },
+          page: { label: "page-second" },
+          accessToken: "token-second",
+        },
+        { prove },
+      ),
     /refresh_cookie_ambiguous/,
   );
-  assert.deepEqual(loggedOut, ["primary", "second"]);
+  assert.deepEqual(loggedOut, [
+    "primary:page-primary:token-primary",
+    "second:page-second:token-second",
+  ]);
 });
 
-test("proveBothOperatorLogouts can compare distinct primary and second transports", async () => {
-  const transports = [];
-  const proof = await proveBothOperatorLogouts({ label: "primary" }, { label: "second" }, "http://127.0.0.1:9999", {
-    primaryProve: async (context) => {
-      transports.push(`page:${context.label}`);
-      return { logout_status: 200, refresh_reuse_status: 401 };
+test("page-origin proofs use field and each operator's own page and bearer", async () => {
+  const proofs = [];
+  const fieldProof = await provePageOriginLogout(
+    { label: "field" },
+    { label: "page-field" },
+    "token-field",
+    {
+      capture: async (context) => {
+        proofs.push(`capture:${context.label}`);
+        return "refresh-field";
+      },
+      logout: async (page, accessToken) => {
+        proofs.push(`logout:${page.label}:${accessToken}`);
+        return 200;
+      },
+      probe: async (refreshCredential) => {
+        proofs.push(`probe:${refreshCredential}`);
+        return 401;
+      },
     },
-    secondProve: async (context) => {
-      transports.push(`request:${context.label}`);
-      return { logout_status: 401, refresh_reuse_status: 200 };
+  );
+  const proof = await proveBothOperatorLogouts(
+    {
+      context: { label: "primary" },
+      page: { label: "page-primary" },
+      accessToken: "token-primary",
     },
-  });
+    {
+      context: { label: "second" },
+      page: { label: "page-second" },
+      accessToken: "token-second",
+    },
+    {
+      prove: async (context, page, accessToken) => {
+        proofs.push(`${context.label}:${page.label}:${accessToken}`);
+        return { logout_status: 200, refresh_reuse_status: 401 };
+      },
+    },
+  );
 
-  assert.deepEqual(transports, ["page:primary", "request:second"]);
+  assert.deepEqual(proofs, [
+    "capture:field",
+    "logout:page-field:token-field",
+    "probe:refresh-field",
+    "primary:page-primary:token-primary",
+    "second:page-second:token-second",
+  ]);
+  assert.deepEqual(fieldProof, {
+    logout_status: 200,
+    refresh_reuse_status: 401,
+  });
   assert.deepEqual(proof, {
     primaryProof: { logout_status: 200, refresh_reuse_status: 401 },
-    secondProof: { logout_status: 401, refresh_reuse_status: 200 },
+    secondProof: { logout_status: 200, refresh_reuse_status: 401 },
   });
 });
 
@@ -597,11 +540,11 @@ test("browserFailureCode surfaces a code-shaped message and sanitizes hyphenated
   }
 });
 
-test("proveContextLogout surfaces the CAPTURE error even when logout also throws", async () => {
+test("provePageOriginLogout surfaces the capture error when page logout also throws", async () => {
   // The renamed/reshaped-cookie diagnosis is the root cause; a logout transport
   // error under the same regression must not bury it (#160 round-3 review).
   await assert.rejects(
-    proveContextLogout({ label: "ctx-c" }, "http://127.0.0.1:9999", {
+    provePageOriginLogout({ label: "ctx-c" }, { label: "page-c" }, "token-c", {
       capture: async () => {
         throw new Error("refresh_cookie_not_captured");
       },
@@ -614,17 +557,17 @@ test("proveContextLogout surfaces the CAPTURE error even when logout also throws
   );
 });
 
-test("proveContextLogout STILL logs out when capture fails, then surfaces the error", async () => {
+test("provePageOriginLogout still uses the page when capture fails", async () => {
   // A capture/shape failure must not leave the session live server-side: the
   // logout POST is the cleanup guarantee and must fire regardless (#160 review).
   const events = [];
   await assert.rejects(
-    proveContextLogout({ label: "ctx-b" }, "http://127.0.0.1:9999", {
+    provePageOriginLogout({ label: "ctx-b" }, { label: "page-b" }, "token-b", {
       capture: async () => {
         throw new Error("refresh_cookie_not_captured");
       },
-      logout: async (context) => {
-        events.push(`logout:${context.label}`);
+      logout: async (page, accessToken) => {
+        events.push(`logout:${page.label}:${accessToken}`);
         return 204;
       },
       probe: async () => {
@@ -635,7 +578,7 @@ test("proveContextLogout STILL logs out when capture fails, then surfaces the er
     /refresh_cookie_not_captured/,
   );
   // logout happened; probe did not (no captured credential to reuse).
-  assert.deepEqual(events, ["logout:ctx-b"]);
+  assert.deepEqual(events, ["logout:page-b:token-b"]);
 });
 
 test("planning fetch wrapper does NOT record an on-path read whose body aborts after headers", async () => {

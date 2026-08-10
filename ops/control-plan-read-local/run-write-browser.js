@@ -333,17 +333,6 @@ async function submitProbe(page, token, { weekKey, weekDate, submitPath }) {
   return response.status;
 }
 
-async function logoutContext(context, frontendUrl, accessToken = null) {
-  const options = accessToken
-    ? { headers: authorizedRequestInit(accessToken).headers }
-    : undefined;
-  const response = await context.request.post(
-    `${frontendUrl}/api/auth/logout`,
-    options,
-  );
-  return response.status();
-}
-
 async function pageOriginLogout(page, accessToken) {
   return page.evaluate(
     async (init) => {
@@ -396,19 +385,6 @@ async function contextRefreshCookie(context) {
   return assertRefreshShaped(matches[0].value);
 }
 
-async function projectRefreshSessionMetadata(context) {
-  const sessions = (await context.cookies())
-    .filter((candidate) => candidate.name === REFRESH_COOKIE_NAME)
-    .map((candidate) => ({
-      name: candidate.name,
-      domain: candidate.domain,
-      path: candidate.path,
-      secure: candidate.secure,
-      same_site: candidate.sameSite,
-    }));
-  return { session_count: sessions.length, sessions };
-}
-
 /** Reuse the captured credential against central auth AFTER logout; only the
  * integer status is ever recorded (the sanitizer forbids token material).
  * express.json() only parses with the explicit JSON content type. */
@@ -424,33 +400,33 @@ async function refreshReuseStatus(refreshValue) {
   return response.status;
 }
 
-/** The one logout-proof ordering for every context: capture THIS context's own
- * credential, log THIS context out, prove THAT captured value is now dead.
- * Extracted as a seam so the ordering is pinned by a node test rather than by
- * source-string inspection (#160 review). */
 /** Revoke BOTH operator sessions even if one context's proof throws: a
  * capture/shape failure on the primary must not skip the second context's
  * logout (#160). Runs both proofs, then surfaces the first error. */
 async function proveBothOperatorLogouts(
-  primaryContext,
-  secondContext,
-  frontendUrl,
+  primaryOperator,
+  secondOperator,
   deps = {},
 ) {
-  const {
-    primaryProve = proveContextLogout,
-    secondProve = proveContextLogout,
-  } = deps;
+  const { prove = provePageOriginLogout } = deps;
   let primaryProof = null;
   let secondProof = null;
   let firstError = null;
   try {
-    primaryProof = await primaryProve(primaryContext, frontendUrl);
+    primaryProof = await prove(
+      primaryOperator.context,
+      primaryOperator.page,
+      primaryOperator.accessToken,
+    );
   } catch (error) {
     firstError = error;
   }
   try {
-    secondProof = await secondProve(secondContext, frontendUrl);
+    secondProof = await prove(
+      secondOperator.context,
+      secondOperator.page,
+      secondOperator.accessToken,
+    );
   } catch (error) {
     firstError = firstError || error;
   }
@@ -470,10 +446,12 @@ function browserFailureCode(err, checkpoint) {
   return `browser_${safeCheckpoint}_failed`;
 }
 
-async function proveContextLogout(context, frontendUrl, deps = {}) {
+/** Capture this context's credential, log out through its page, then prove that
+ * captured value is dead. */
+async function provePageOriginLogout(context, page, accessToken, deps = {}) {
   const {
     capture = contextRefreshCookie,
-    logout = logoutContext,
+    logout = pageOriginLogout,
     probe = refreshReuseStatus,
   } = deps;
   // Capture may fail (renamed/reshaped cookie), but the logout POST is the
@@ -488,7 +466,7 @@ async function proveContextLogout(context, frontendUrl, deps = {}) {
   }
   let logoutStatus;
   try {
-    logoutStatus = await logout(context, frontendUrl);
+    logoutStatus = await logout(page, accessToken);
   } catch (logoutError) {
     // A capture failure is the ROOT diagnosis (renamed/reshaped cookie); if the
     // mandatory logout ALSO fails, do not let the transport error bury it.
@@ -497,29 +475,6 @@ async function proveContextLogout(context, frontendUrl, deps = {}) {
   if (captureError) throw captureError;
   const reuseStatus = await probe(refreshValue);
   return { logout_status: logoutStatus, refresh_reuse_status: reuseStatus };
-}
-
-async function proveRequestContextLogout(
-  context,
-  frontendUrl,
-  accessToken,
-  deps = {},
-) {
-  const {
-    diagnostic = false,
-    prove = proveContextLogout,
-    logout = logoutContext,
-  } = deps;
-  return prove(
-    context,
-    frontendUrl,
-    diagnostic
-      ? {
-          logout: (logoutContextValue, logoutUrl) =>
-            logout(logoutContextValue, logoutUrl, accessToken),
-        }
-      : {},
-  );
 }
 
 /** Navigate to a protected page and report where the browser ACTUALLY ended up.
@@ -705,12 +660,9 @@ async function landingPathAfter(page, frontendUrl, { reload = false } = {}) {
 module.exports = {
   recordPlanningRead,
   makePlanningFetchWrapper,
-  proveContextLogout,
-  proveRequestContextLogout,
+  provePageOriginLogout,
   proveBothOperatorLogouts,
-  logoutContext,
   pageOriginLogout,
-  projectRefreshSessionMetadata,
   browserFailureCode,
   assertRefreshShaped,
   contextRefreshCookie,
@@ -746,8 +698,6 @@ if (require.main === module) {
       ".write-ui-outage-release",
       evidenceRoot,
     );
-    const diagnostic = process.env.LOCAL_WRITE_UI_DIAGNOSTIC === "1";
-
     const inventory = {
       phase: "healthy",
       writeExpected: false,
@@ -909,11 +859,10 @@ if (require.main === module) {
         weekDate,
         submitPath: SUBMIT_PATH,
       });
-      const fieldLogoutProof = await proveRequestContextLogout(
+      const fieldLogoutProof = await provePageOriginLogout(
         fieldTeamContext,
-        frontendUrl,
+        fieldPage,
         fieldToken,
-        { diagnostic },
       );
       result.field_team_result = {
         roster_status: fieldReads.roster_status,
@@ -964,28 +913,9 @@ if (require.main === module) {
       checkpoint = "logout";
       // Both operator sessions must be revoked; a proof failure on one context
       // must not skip the other's logout POST.
-      const [primarySessionMetadata, secondSessionMetadata] = diagnostic
-        ? await Promise.all([
-            projectRefreshSessionMetadata(primaryContext),
-            projectRefreshSessionMetadata(secondContext),
-          ])
-        : [null, null];
       const { primaryProof, secondProof } = await proveBothOperatorLogouts(
-        primaryContext,
-        secondContext,
-        frontendUrl,
-        diagnostic
-          ? {
-              primaryProve: (context, url) =>
-                proveContextLogout(context, url, {
-                  logout: () => pageOriginLogout(page, token),
-                }),
-              secondProve: (context, url) =>
-                proveRequestContextLogout(context, url, token2, {
-                  diagnostic: true,
-                }),
-            }
-          : {},
+        { context: primaryContext, page, accessToken: token },
+        { context: secondContext, page: page2, accessToken: token2 },
       );
       result.logout_result = {
         status: primaryProof.logout_status,
@@ -994,21 +924,6 @@ if (require.main === module) {
         second_context_refresh_reuse_status: secondProof.refresh_reuse_status,
         redirect_url: (await landingPathAfter(page, frontendUrl)).landing,
       };
-      if (diagnostic) {
-        result.logout_transport_diagnostic = {
-          page_origin_fetch: {
-            transport: "page_origin_fetch",
-            ...primarySessionMetadata,
-            ...primaryProof,
-          },
-          context_request: {
-            transport: "context_request",
-            ...secondSessionMetadata,
-            ...secondProof,
-          },
-        };
-      }
-
       checkpoint = "reload-after-logout";
       const reloadOutcome = await landingPathAfter(page, frontendUrl, {
         reload: true,
