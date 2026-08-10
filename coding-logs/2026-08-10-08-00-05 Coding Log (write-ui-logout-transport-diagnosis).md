@@ -606,3 +606,10 @@ LOW
 - No acceptance stage, runtime activation, write enablement, deployment, or AWS action is part of this source review.
 - Runtime reset remains after `dependency-staged`; the new helper does not alter PostgreSQL, Redis, evidence, PM2, services, or flags.
 - Formal g-check disposition: no remaining CRITICAL/HIGH/MEDIUM/LOW findings; source is ready for the standard branch/PR lifecycle, subject to exact-SHA runtime requalification after merge.
+
+PR and hosted-check evidence:
+
+- Committed the reviewed source as `a5b9a164581b7eb5d43c3708d866433f5f44c2ed` (`fix(ops): bootstrap pristine guests before Python`), pushed `fix/provisioning-bootstrap-python-order`, and opened PR #176.
+- PR #176 is mergeable against base `b50b3d43745dca464387d383ebbc76147dfd958d`. GitHub reports no branch protection or required checks on `main`.
+- Both `Secret Scan (diff)` jobs completed with zero steps and the explicit annotation `The job was not started because your account is locked due to a billing issue.` They are infrastructure-blocked, not passing or code-failing CI.
+- Reproduced the workflow's per-commit plus endpoint added-line scan and full-tree baseline logic locally against the exact `b50b3d43..a5b9a164` range. It passed with no new secret or legacy-host carrier.
