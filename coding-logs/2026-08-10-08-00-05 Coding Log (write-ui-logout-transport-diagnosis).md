@@ -524,3 +524,85 @@ PR and hosted-check handling:
 - Both GitHub `Secret Scan (diff)` jobs completed with zero steps and the explicit annotation `The job was not started because your account is locked due to a billing issue.` Hosted CI is infrastructure-blocked, not passing.
 - Reproduced the workflow locally at the exact PR head: the per-commit plus endpoint added-line secret scan passed. The full-tree scan found one baseline mismatch in `services/scheduler/coding-logs/2026-07-18 Impl (pr-4-4a-2-runtime-readiness).md`; the same carrier already exists at predecessor `d07fde2e` and is already absent from the predecessor `.security/full-tree-baseline.txt`, so it is pre-existing and unrelated to this change.
 - GitHub reports `main` has no branch protection. A normal merge therefore requires no status bypass; the unrelated historical carrier was not changed or added to the baseline in this PR.
+
+## Exact-merge provisioning attempt and base-Python remediation (2026-08-10 19:39:22 +0700)
+
+Goal: qualify merged PR #175 at its exact SHA, replace the explicitly authorized second failed canonical guest only after bundle qualification, and stop truthfully if the new canonical bootstrap failed before acceptance.
+
+Exact inputs and preservation:
+
+- Backend `main == origin/main == b50b3d43745dca464387d383ebbc76147dfd958d`; frontend `main == origin/main == 067b3e22401854f8c6d6db42dc0c5c1872fca6f8` after fetch. The new isolated detached worktree was `/Users/subhajlimanond/dev/munbon2-backend-phase-d-b50b3d43`.
+- Independent read-only preflight reverified the second guest ID `01KZN1QSBSMMMSGYRF9BSAFW6P`, exact isolated Debian 12 ARM64 shape, absent owner/provision state/stage state, zero evidence files, inactive central auth, and unchanged raw npm-log digest `87b50fad0c3345ea64f557fb46f9c85f9b60dfc622fc24c07fb7ea7cd3cbbb82`.
+- Its preserved host failure bundle passed inner and outer checksum verification again. The older authoritative 7/9 archive also remained independently checksum-valid.
+- The diagnostic guest built and egress-validated the exact merged-SHA dependency archive `/Users/subhajlimanond/dev/munbon2-backend-external-evidence/2026-08-10-phase-d-b50b3d43-dependencies.tar.gz`; host SHA-256 is `20f72cfd59b398f61ee176857486efa8ade8fd22e8b8afc1122b4a9dda72e1ab`.
+
+Authorized replacement and failed bootstrap:
+
+- The first OrbStack deletion command used the exact machine ID but OrbStack panicked before deletion; inventory proved the guest was still present. Deletion by the exact name then succeeded, and inventory proved only `munbon-control-plan-local` was absent. External failure evidence remained intact; the diagnostic and Ubuntu guests were untouched.
+- Fresh canonical guest ID `01KZNTNB39DNZ9KNC3JQN7EWYT` was created with the required isolated Debian 12 ARM64, 8 GiB, 4 CPU, and 40 GiB shape. All source, frontend, dependency, harness, browser, auth, and verifier inputs transferred successfully and the dependency archive reverified at its exact host/guest digest.
+- Bootstrap then failed before writing its first durable state, and automatic failure collection consequently had no state or failure directory to collect. The fresh Debian base has no `python3`; `bootstrap-linux.sh` invoked `/usr/bin/python3 provisioning_contract.py state` before the verified offline Debian closure installed Python.
+- This is a pre-stage source/bootstrap defect. The owner marker, provisioning state, stage state, and evidence files are absent; no acceptance stage or RID week was consumed. The fresh failed guest remains running and unmodified after read-only diagnosis. A further deletion/replacement requires separate authorization.
+
+TDD work unit — install the verified offline base closure before Python contract state:
+
+- Files: `ops/control-plan-read-local/bootstrap-linux.sh`, `ops/control-plan-read-local/tests/test_local_artifacts.py`, and this Coding Log.
+- Auggie semantic retrieval was bounded to two seconds and timed out. Fallback inspection covered the bootstrap entry point, orchestration call/collector, provisioning contract, dependency builder/validator, artifact tests, and the live pristine guest's base-tool inventory.
+- Locked contract: validate the outer dependency digest and inner checksum index with base shell tools, install the already content-addressed offline Debian closure, and only then invoke the Python provisioning contract. This remains before Node/service staging, evidence archival, runtime quiescence, PostgreSQL recreation, Redis flush, or any acceptance stage.
+- RED: `python3 -m pytest -q ops/control-plan-read-local/tests/test_local_artifacts.py -k installs_offline_python` failed because the first Python contract invocation preceded `phase base_packages`.
+- GREEN: moved only the initial `created` transition after the offline Debian installation, recording the truthful `base_packages/offline-debian-packages` phase/substep. The same focused test passed, and `bash -n ops/control-plan-read-local/bootstrap-linux.sh` passed.
+- Wiring: `orchestrate.py provision` invokes the changed `bootstrap-linux.sh` inside the fresh canonical guest; the verified dependency archive contains the pinned Debian 12 ARM64 `python3` closure; later `dependency-staged`, `runtime-reset`, and `ready` transitions continue through the same `provisioning_contract.py` state machine.
+- Full local gate: `390 passed` Python operations tests, `41 passed` Node browser/harness tests, Black check, Bash syntax, Python byte compilation, and `git diff --check` all passed. The affected focused test then passed three consecutive identical runs. The existing `pytest-asyncio` loop-scope deprecation warning remains unrelated.
+
+QCHECK remediation follow-up:
+
+- Independent QCHECK rejected the initial happy-path-only change. P1: checksum, extraction, or offline package failure before Python remained uncollectable. P2: the first ordering test asserted the phase label rather than the actual `apt-get install` command.
+- Added `bootstrap-provisioning-state.sh`, a Bash-only initial/terminal state and failure publisher. It validates every interpolated field, atomically publishes mode-600 JSON and checksum indexes, emits only a controlled failure line rather than raw bootstrap output, and classifies dependency-archive failures as integrity failures.
+- `orchestrate.py provision` now transfers that helper, and `bootstrap-linux.sh` writes `created` state before archive handling. After offline Python installation, the existing Python contract accepts the shell-created state and owns all later transitions.
+- RED for the expanded contract: three focused tests failed because the helper, transfer wiring, and initial-state call did not exist. GREEN proved a pre-Python base-package failure produces terminal state plus inner checksums, the host finalizer writes the outer index, state/metadata binding passes, and the shell-created state transitions through the Python contract to `dependency-staged`.
+- Second independent QCHECK found one remaining P1: an executable but broken Python writer was selected and its failure suppressed without Bash fallback. RED: `test_failed_executable_contract_writer_falls_back_to_collectable_shell_bundle` failed because the dispatch function did not exist. GREEN: `write_bootstrap_failure` now prefers the Python publisher only when it returns success and otherwise invokes the Bash publisher. A separate success-path test proves the Python sanitizer remains preferred and redacts a secret-shaped raw line.
+- Final independent QCHECK: GO, no P0-P2 findings. It confirmed atomic publication, controlled sanitization, broken-writer fallback, state-machine compatibility, host binding, exact guest-transfer wiring, safe optional interrupt expansion, and unchanged archive/runtime-reset ordering.
+- Final primary gates: `395 passed` Python operations tests and `41 passed` Node browser/harness tests; Black, Bash syntax across all four provisioning shell programs, Python byte compilation, and `git diff --check` passed. Seven affected tests passed three consecutive identical runs.
+- Runtime boundary remains unchanged: guest `01KZNTNB39DNZ9KNC3JQN7EWYT` is frozen with no owner, state, stage state, or evidence files from the failed predecessor candidate. No acceptance stage ran. Deletion/replacement is not part of this source-remediation PR and requires separate authorization after exact merged-SHA dependency qualification.
+
+## Review (2026-08-10 19:55:51 +0700) - working-tree provisioning bootstrap failure contract
+
+### Reviewed
+
+- Repo: `/Users/subhajlimanond/dev/munbon2-backend-phase-d-b50b3d43`
+- Branch: `fix/provisioning-bootstrap-python-order`
+- Scope: working tree based on `b50b3d43745dca464387d383ebbc76147dfd958d`
+- Commands Run: bounded Auggie attempt with direct-inspection fallback; staged status/name/stat and targeted production/test diffs; `python3 -m pytest -q ops/control-plan-read-local/tests`; `node --test ops/control-plan-read-local/tests/*.js`; focused failure-writer/state/collector tests three times; Black; `bash -n`; `py_compile`; `git diff --check`; independent QCHECK with two remediation rounds.
+
+### Findings
+
+CRITICAL
+
+- No findings.
+
+HIGH
+
+- No findings.
+
+MEDIUM
+
+- No findings.
+
+LOW
+
+- No findings.
+
+### Open Questions / Assumptions
+
+- The first exact merged-SHA fresh-guest run is deliberately deferred: the currently retained failed guest belongs to predecessor `b50b3d43`, and repository policy requires a new exact merged-SHA dependency bundle plus separate replacement authorization.
+- The Bash-only failure log intentionally contains only a controlled phase code. Raw pre-Python output remains in the frozen guest and is not streamed because it cannot be safely sanitized without the verified Python contract.
+
+### Recommended Tests / Validation
+
+- After merge, rebuild and egress-validate the dependency bundle at the exact merge SHA, then prove on a newly authorized pristine Debian 12 ARM64 guest that shell state creation, offline Python installation, Python state handoff, and canonical readiness all pass.
+- Preserve any future failed guest and verify both inner and outer failure indexes before authorizing replacement; do not reuse a partial machine.
+
+### Rollout Notes
+
+- No acceptance stage, runtime activation, write enablement, deployment, or AWS action is part of this source review.
+- Runtime reset remains after `dependency-staged`; the new helper does not alter PostgreSQL, Redis, evidence, PM2, services, or flags.
+- Formal g-check disposition: no remaining CRITICAL/HIGH/MEDIUM/LOW findings; source is ready for the standard branch/PR lifecycle, subject to exact-SHA runtime requalification after merge.
