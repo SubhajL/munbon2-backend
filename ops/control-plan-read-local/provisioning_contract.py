@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
+import gzip
 import hashlib
 import json
 import os
@@ -40,6 +41,14 @@ NODE_ARCHIVE_NAMES = (
     "frontend",
     "dependency-roots",
 )
+
+DEBIAN_REPOSITORY_ARTIFACTS = {
+    "debian/Packages",
+    "debian/Packages.gz",
+    "debian/package-names.txt",
+    "debian/package-specs.txt",
+    "install-debian-closure-linux.sh",
+}
 
 
 def transition_provision_state(current: str, target: str) -> str:
@@ -128,6 +137,101 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _validate_debian_repository_artifacts(artifact_names: set[str]) -> None:
+    has_debian_package = any(
+        Path(name).parent == Path("debian") and Path(name).suffix == ".deb"
+        for name in artifact_names
+    )
+    if (
+        not DEBIAN_REPOSITORY_ARTIFACTS.issubset(artifact_names)
+        or not has_debian_package
+    ):
+        raise ProvisioningContractError("dependency_debian_repository_not_accepted")
+
+
+def _validate_debian_repository_contents(
+    bundle_root: Path, artifact_names: set[str]
+) -> None:
+    try:
+        packages_body = (bundle_root / "debian/Packages").read_bytes()
+        if (
+            gzip.decompress((bundle_root / "debian/Packages.gz").read_bytes())
+            != packages_body
+        ):
+            raise ValueError
+        package_names = (
+            (bundle_root / "debian/package-names.txt")
+            .read_text(encoding="utf-8")
+            .splitlines()
+        )
+        package_specs = (
+            (bundle_root / "debian/package-specs.txt")
+            .read_text(encoding="utf-8")
+            .splitlines()
+        )
+        packages_text = packages_body.decode("utf-8")
+    except (EOFError, OSError, UnicodeDecodeError, ValueError) as exc:
+        raise ProvisioningContractError(
+            "dependency_debian_repository_not_accepted"
+        ) from exc
+
+    indexed_names = []
+    indexed_specs = []
+    indexed_artifacts = set()
+    for paragraph in re.split(r"\n\s*\n", packages_text.strip()):
+        fields = {}
+        for line in paragraph.splitlines():
+            if line[:1].isspace():
+                continue
+            key, separator, value = line.partition(":")
+            if not separator or key in fields:
+                raise ProvisioningContractError(
+                    "dependency_debian_repository_not_accepted"
+                )
+            fields[key] = value.strip()
+        package_name = fields.get("Package", "")
+        package_version = fields.get("Version", "")
+        filename = fields.get("Filename", "")
+        size = fields.get("Size", "")
+        sha256 = fields.get("SHA256", "")
+        relative_filename = Path(filename.removeprefix("./"))
+        artifact_name = f"debian/{relative_filename.as_posix()}"
+        if (
+            not re.fullmatch(r"[a-z0-9][a-z0-9+.-]*", package_name)
+            or not package_version
+            or any(character.isspace() for character in package_version)
+            or not filename.startswith("./")
+            or relative_filename.is_absolute()
+            or ".." in relative_filename.parts
+            or relative_filename.parent != Path(".")
+            or relative_filename.suffix != ".deb"
+            or artifact_name not in artifact_names
+            or not size.isdigit()
+            or not re.fullmatch(r"[0-9a-f]{64}", sha256)
+        ):
+            raise ProvisioningContractError("dependency_debian_repository_not_accepted")
+        artifact = bundle_root / artifact_name
+        if artifact.stat().st_size != int(size) or _sha256_file(artifact) != sha256:
+            raise ProvisioningContractError("dependency_debian_repository_not_accepted")
+        indexed_names.append(package_name)
+        indexed_specs.append(f"{package_name}={package_version}")
+        indexed_artifacts.add(artifact_name)
+
+    debian_artifacts = {
+        name
+        for name in artifact_names
+        if Path(name).parent == Path("debian") and Path(name).suffix == ".deb"
+    }
+    if (
+        not indexed_names
+        or len(indexed_names) != len(set(indexed_names))
+        or package_names != sorted(indexed_names)
+        or package_specs != sorted(indexed_specs)
+        or indexed_artifacts != debian_artifacts
+    ):
+        raise ProvisioningContractError("dependency_debian_repository_not_accepted")
 
 
 def _write_json_atomic(path: Path, body: dict) -> None:
@@ -351,7 +455,7 @@ def validate_dependency_bundle(
     }
     if (
         not isinstance(manifest, dict)
-        or manifest.get("schema") != 1
+        or manifest.get("schema") != 2
         or manifest.get("platform") != expected_platform
         or manifest.get("release_sha") != release_sha
         or manifest.get("frontend_sha") != frontend_sha
@@ -360,6 +464,7 @@ def validate_dependency_bundle(
         or not manifest["artifacts"]
     ):
         raise ProvisioningContractError("dependency_manifest_not_accepted")
+    _validate_debian_repository_artifacts(set(manifest["artifacts"]))
     for relative_name, expected_sha in sorted(manifest["artifacts"].items()):
         if (
             not isinstance(relative_name, str)
@@ -373,6 +478,7 @@ def validate_dependency_bundle(
             raise ProvisioningContractError("dependency_artifact_missing")
         if _sha256_file(artifact) != expected_sha:
             raise ProvisioningContractError("dependency_artifact_checksum_mismatch")
+    _validate_debian_repository_contents(bundle_root, set(manifest["artifacts"]))
     actual_artifacts = {
         path.relative_to(bundle_root).as_posix()
         for path in bundle_root.rglob("*")
@@ -406,8 +512,10 @@ def create_dependency_manifest(
     }
     if not artifacts:
         raise ProvisioningContractError("dependency_artifact_inventory_empty")
+    _validate_debian_repository_artifacts(set(artifacts))
+    _validate_debian_repository_contents(bundle_root, set(artifacts))
     manifest = {
-        "schema": 1,
+        "schema": 2,
         "platform": {
             "architecture": "aarch64",
             "distribution": "debian",
