@@ -313,17 +313,28 @@ def test_python_closure_lock_content_addresses_all_arm64_wheel_sets():
     lock_path = LOCAL_DIR / "python-closures.lock"
     lines = lock_path.read_text(encoding="utf-8").splitlines()
 
-    assert [line.split()[0] for line in lines] == [
-        "flow-monitoring",
-        "scheduler",
-        "ros-gis-integration",
-        "bff-water-planning",
+    assert [tuple(line.split()) for line in lines] == [
+        (
+            "flow-monitoring",
+            "35fdd0d8750a5caa88ce1410b3aedd6df3be76e5c352a5747997440a927cfca1",
+            "84",
+        ),
+        (
+            "scheduler",
+            "e3a0b16589361a027e5dc6c8003b2e6b877233c9b746ee01c58e1dd0f99ecd29",
+            "96",
+        ),
+        (
+            "ros-gis-integration",
+            "16bc077f84400bc346ccb6f5e755fdb53a8545eb792c64cd79bd2bf2113fc9da",
+            "67",
+        ),
+        (
+            "bff-water-planning",
+            "1cad1542bfe30237e5515652e9bfabc59812de09d2a26c72e0ad789879cc4b4e",
+            "81",
+        ),
     ]
-    for line in lines:
-        service, digest, count = line.split()
-        assert service
-        assert re.fullmatch(r"[0-9a-f]{64}", digest)
-        assert int(count) > 0
 
 
 def test_bootstrap_validates_and_stages_dependencies_before_runtime_reset():

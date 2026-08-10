@@ -670,3 +670,47 @@ LOW
 ### Rollout Notes
 - No acceptance stage, deployment, write activation, AWS action, or canonical guest mutation is part of this source review.
 - Formal g-check disposition: no CRITICAL/HIGH/MEDIUM/LOW findings; proceed through the standard PR lifecycle, exact-SHA dependency build, and separately authorized canonical attempt.
+
+## ARM64 Python wheel-closure refresh (2026-08-10 21:34:55 +0700)
+
+Goal: clear the next fail-closed diagnostic bundle gate without weakening dependency reproducibility after PR #177 merged.
+
+- The exact `22f18cb3a9ee3ba6481b6e15bc5e981d6e83f972` diagnostic build stopped before Debian resolution at `FAIL dependency_bundle_python_closure`. This had no acceptance meaning and did not mutate the canonical guest.
+- A mode-600 replay log and an isolated ARM64 closure refresh in `munbon-control-plan-write-ui-diagnostic` independently computed all four wheel-set digests and counts. Flow Monitoring remained byte-identical at 84 wheels. Scheduler, ROS/GIS, and BFF retained counts 96, 67, and 81 but each replaced only `greenlet 3.5.4` with `greenlet 3.5.5`.
+- Auggie was bounded to two seconds and timed out. Fallback inspection covered the builder, `python-closures.lock`, the four requirements manifests, provisioning manifest inputs, tests, prior lifecycle evidence, and old-versus-new wheel filenames.
+- Files changed: `ops/control-plan-read-local/python-closures.lock`, `ops/control-plan-read-local/tests/test_local_artifacts.py`, and this Coding Log.
+- RED: `/Library/Frameworks/Python.framework/Versions/3.13/bin/python3 -m pytest -q ops/control-plan-read-local/tests/test_local_artifacts.py -k python_closure_lock_content_addresses_all_arm64_wheel_sets` failed because the three committed digests disagreed with the independently computed ARM64 closure.
+- GREEN: refreshed only the three changed digests and strengthened the test to compare the complete four-service digest/count structure against the precomputed expectations. The focused test passed, then passed three consecutive identical runs.
+- Full gates: `397 passed` Python operations tests, `41 passed` Node browser/harness tests, Black, Bash syntax, Python byte compilation, and `git diff --check` passed. The pre-existing `pytest-asyncio` warning remains unrelated.
+- QCHECK: no findings. The aggregate lock remains fail-closed if any public transitive artifact drifts after commit; exact wheel bytes and every requirements/lock input remain bound by the dependency manifest.
+
+## Review (2026-08-10 21:34:55 +0700) - working-tree ARM64 Python closure refresh
+
+### Reviewed
+- Repo: `/Users/subhajlimanond/dev/munbon2-backend-python-closure-refresh`
+- Branch: `fix/refresh-python-wheel-closure`
+- Scope: working tree based on `22f18cb3a9ee3ba6481b6e15bc5e981d6e83f972`
+- Commands Run: bounded Auggie attempt with direct fallback; exact staged diff; diagnostic ARM64 wheel derivation; old/new wheel-name comparison; focused RED/GREEN; full Python and Node suites; affected test three times; Black; Bash syntax; Python byte compilation; `git diff --check`
+
+### Findings
+CRITICAL
+- No findings.
+
+HIGH
+- No findings.
+
+MEDIUM
+- No findings.
+
+LOW
+- No findings.
+
+### Open Questions / Assumptions
+- The `greenlet 3.5.5` ARM64 wheel remains compatible with the existing SQLAlchemy consumers; the diagnostic validator's four isolated `pip install` plus `pip check` runs are the authoritative compatibility gate.
+
+### Recommended Tests / Validation
+- Rebuild the complete exact-merge dependency archive and require all four digest/count comparisons, offline wheel installation, four `pip check` runs, and the source-less Debian APT simulation to pass.
+
+### Rollout Notes
+- No canonical deletion, provisioning, acceptance stage, deployment, or activation is part of this review.
+- Formal g-check disposition: no CRITICAL/HIGH/MEDIUM/LOW findings; proceed through one standard PR and exact-merge bundle rebuild.
