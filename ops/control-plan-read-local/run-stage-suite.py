@@ -54,6 +54,7 @@ STAGE_ORDER = (
     "LOCAL-PERSIST-ONLY-1",
 )
 WRITE_UI_DIAGNOSTIC_STAGE = "LOCAL-WRITE-UI-DIAGNOSTIC"
+FAILURE_MANIFEST_EXIT_CODE = 70
 ACCEPTANCE_MACHINE_NAME = "munbon-control-plan-local"
 DEFAULT_ACCEPTANCE_EVIDENCE_ROOT = Path("/var/lib/munbon-local-acceptance/evidence")
 READINESS_URLS = {
@@ -5269,40 +5270,9 @@ def _verify_write_ui_diagnostic_isolation(context: StageContext) -> None:
         raise StageGateError("write_ui_diagnostic_evidence_not_isolated")
 
 
-def run_local_write_ui(context: StageContext, *, diagnostic: bool = False) -> dict:
-    if diagnostic:
-        _verify_write_ui_diagnostic_isolation(context)
-        _clear_checksum_artifact(
-            context.evidence_root,
-            f"{WRITE_UI_DIAGNOSTIC_STAGE}.json",
-        )
-        _clear_checksum_artifact(
-            context.evidence_root,
-            "LOCAL-WRITE-UI-1-browser-result.json",
-        )
-        _verify_source_checkouts(context)
-    else:
-        state = _load_state(context)
-        validate_stage_transition(tuple(state["completed"]), "LOCAL-WRITE-UI-1")
-        _clear_checksum_artifact(
-            context.evidence_root,
-            "LOCAL-WRITE-UI-1-browser-result.json",
-        )
-
-    _verify_frontend_source(context)
-
-    verifier = _load_harness_module(
-        context,
-        "verify_bearer.py",
-        "local_write_ui_bearer_verifier",
-    )
-    client = LocalHttpClient()
-    token, refresh_cookie, login_evidence = _login_operator(
-        context,
-        client,
-        verifier,
-    )
-
+def _run_local_write_ui_authenticated(
+    context: StageContext, client, token: str, login_evidence: dict
+) -> dict[str, Any]:
     week_date, week_key = _write_ui_rid_week(context.as_of_date)
     steps: dict[str, Any] = {
         "login": login_evidence,
@@ -5401,25 +5371,67 @@ def run_local_write_ui(context: StageContext, *, diagnostic: bool = False) -> di
         restored_dark_probe.headers,
     )
 
-    logout = client.request(
-        "POST",
-        "http://127.0.0.1:3005/api/v1/auth/logout",
-        payload={"refreshToken": refresh_cookie},
-    )
-    if logout.status not in {200, 204}:
-        raise StageGateError("write_ui_operator_logout_failed")
+    steps["aws_actions"] = False
+    return steps
 
+
+def run_local_write_ui(context: StageContext, *, diagnostic: bool = False) -> dict:
+    if diagnostic:
+        _verify_write_ui_diagnostic_isolation(context)
+        _clear_checksum_artifact(
+            context.evidence_root,
+            f"{WRITE_UI_DIAGNOSTIC_STAGE}.json",
+        )
+        _clear_checksum_artifact(
+            context.evidence_root,
+            "LOCAL-WRITE-UI-1-browser-result.json",
+        )
+        _verify_source_checkouts(context)
+    else:
+        state = _load_state(context)
+        validate_stage_transition(tuple(state["completed"]), "LOCAL-WRITE-UI-1")
+        _clear_checksum_artifact(
+            context.evidence_root,
+            "LOCAL-WRITE-UI-1-browser-result.json",
+        )
+
+    _verify_frontend_source(context)
+    verifier = _load_harness_module(
+        context,
+        "verify_bearer.py",
+        "local_write_ui_bearer_verifier",
+    )
+    client = LocalHttpClient()
+    token, refresh_cookie, login_evidence = _login_operator(
+        context,
+        client,
+        verifier,
+    )
+    try:
+        steps = _run_local_write_ui_authenticated(
+            context,
+            client,
+            token,
+            login_evidence,
+        )
+    except BaseException:
+        _operator_logout(
+            client,
+            refresh_cookie,
+            strict=False,
+            error_code="write_ui_operator_logout_failed",
+        )
+        raise
+    _operator_logout(
+        client,
+        refresh_cookie,
+        strict=True,
+        error_code="write_ui_operator_logout_failed",
+    )
     steps["refresh_revoked"] = _assert_operator_refresh_reuse_rejected(
         client, refresh_cookie
     )
-
-    steps["aws_actions"] = False
-
-    return _write_local_write_ui_manifest(
-        context,
-        steps,
-        diagnostic=diagnostic,
-    )
+    return _write_local_write_ui_manifest(context, steps, diagnostic=diagnostic)
 
 
 # --- LOCAL-PERSIST-ONLY-1 helpers ---
@@ -5826,25 +5838,32 @@ def validate_persist_only_rate_accounting(
     return {"operator_rate_key": operator_keys[0], "increment": expected_increment}
 
 
-def _persist_only_logout(client, refresh_cookie: str, *, strict: bool) -> None:
-    """Log the operator out.
-
-    On the failure path (strict=False) every error is swallowed so the primary
-    failure is never masked; on the success path (strict=True) a failed logout
-    fails the stage -- a PASS must never leave a live operator session behind.
-    """
+def _operator_logout(
+    client, refresh_cookie: str, *, strict: bool, error_code: str
+) -> None:
     try:
         logout = client.request(
             "POST",
             "http://127.0.0.1:3005/api/v1/auth/logout",
             payload={"refreshToken": refresh_cookie},
         )
-    except Exception:
-        if strict:
-            raise StageGateError("persist_only_operator_logout_failed")
-        return
+    except BaseException as exc:
+        if not strict:
+            return
+        if not isinstance(exc, Exception):
+            raise
+        raise StageGateError(error_code) from exc
     if strict and logout.status not in {200, 204}:
-        raise StageGateError("persist_only_operator_logout_failed")
+        raise StageGateError(error_code)
+
+
+def _persist_only_logout(client, refresh_cookie: str, *, strict: bool) -> None:
+    _operator_logout(
+        client,
+        refresh_cookie,
+        strict=strict,
+        error_code="persist_only_operator_logout_failed",
+    )
 
 
 def _persist_only_body(
@@ -6104,9 +6123,14 @@ def main(argv: list[str] | None = None) -> int:
         try:
             target = args.evidence_root / f"{stage}-failure.json"
             write_stage_manifest(target, failure)
+        except Exception:
+            print("FAIL failure_manifest_write_failed", file=sys.stderr)
+            return FAILURE_MANIFEST_EXIT_CODE
+        try:
             _checksum_manifest(target)
         except Exception:
-            pass
+            print("FAIL failure_manifest_checksum_failed", file=sys.stderr)
+            return FAILURE_MANIFEST_EXIT_CODE
         print(f"FAIL {stage}: {safe_error}")
         return 1
     return 0

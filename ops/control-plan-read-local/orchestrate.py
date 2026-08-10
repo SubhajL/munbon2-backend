@@ -38,6 +38,21 @@ STAGE_ORDER = (
     "LOCAL-WRITE-UI-1",
     "LOCAL-PERSIST-ONLY-1",
 )
+EVIDENCE_HARNESS_ARTIFACTS = (
+    "local-ac1.py",
+    "run-evidence-browser.js",
+    "run-go-read-browser.js",
+    "run-read-browser.js",
+    "run-ros-manual-producer.sh",
+    "run-stage-suite.py",
+    "run-write-browser.js",
+    "seed-approved-sources.py",
+    "seed-local-operators.js",
+    "provisioning_contract.py",
+    "validate-dependency-bundle-linux.sh",
+    "verify_bearer.py",
+)
+FAILURE_MANIFEST_EXIT_CODE = 70
 
 
 class OrchestrationError(RuntimeError):
@@ -826,11 +841,18 @@ def run_stage(
     ]
     if as_of_date is not None:
         stage_argv.extend(["--as-of-date", as_of_date])
-    _run_checked(
-        stage.lower().replace("-", "_"),
-        build_guest_command(stage_argv, workdir="/opt/munbon/repo"),
-        timeout=2400,
-    )
+    try:
+        _run_checked(
+            stage.lower().replace("-", "_"),
+            build_guest_command(stage_argv, workdir="/opt/munbon/repo"),
+            timeout=2400,
+        )
+    except CommandExecutionError as exc:
+        if exc.returncode == FAILURE_MANIFEST_EXIT_CODE:
+            raise OrchestrationError(
+                "stage_failure_manifest_publication_failed"
+            ) from exc
+        raise
 
 
 def run_all_stages(
@@ -838,6 +860,110 @@ def run_all_stages(
 ) -> None:
     for stage in STAGE_ORDER:
         run_stage(stage, release_sha, frontend_sha, as_of_date=as_of_date)
+
+
+def finalize_evidence_collection(destination: Path) -> dict:
+    stage_names = {f"{stage}.json" for stage in STAGE_ORDER}
+    inner_names = {
+        *stage_names,
+        "stage-state.json",
+        "LOCAL-WRITE-UI-1-browser-result.json",
+        "LOCAL-GO-READ-1-live.png",
+        "LOCAL-GO-READ-1-outage.png",
+        "SHA256SUMS",
+    }
+    outer_name = "OUTER-SHA256SUMS"
+    try:
+        artifacts = tuple(destination.iterdir())
+    except OSError as exc:
+        raise OrchestrationError("evidence_inventory_invalid") from exc
+    if any(path.is_symlink() or not path.is_file() for path in artifacts):
+        raise OrchestrationError("evidence_inventory_invalid")
+    artifact_names = {path.name for path in artifacts}
+    if artifact_names != inner_names and artifact_names != {
+        *inner_names,
+        outer_name,
+    }:
+        raise OrchestrationError("evidence_inventory_invalid")
+
+    try:
+        checksum_lines = (
+            (destination / "SHA256SUMS").read_text(encoding="utf-8").splitlines()
+        )
+    except OSError as exc:
+        raise OrchestrationError("evidence_checksum_index_invalid") from exc
+    expected_index_names = inner_names - {"SHA256SUMS"}
+    checksums: dict[str, str] = {}
+    for line in checksum_lines:
+        match = re.fullmatch(r"([0-9a-f]{64})  ([A-Za-z0-9_.-]+)", line)
+        if match is None or match.group(2) in checksums:
+            raise OrchestrationError("evidence_checksum_index_invalid")
+        digest, name = match.groups()
+        checksums[name] = digest
+    if set(checksums) != expected_index_names:
+        raise OrchestrationError("evidence_inventory_invalid")
+    for name, digest in checksums.items():
+        if _sha256_file(destination / name) != digest:
+            raise OrchestrationError("evidence_checksum_mismatch")
+
+    try:
+        state = json.loads(
+            (destination / "stage-state.json").read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError) as exc:
+        raise OrchestrationError("evidence_state_invalid") from exc
+    if (
+        not isinstance(state, dict)
+        or set(state) != {"release_sha", "frontend_sha", "harness_hashes", "completed"}
+        or not re.fullmatch(r"[0-9a-f]{40}", state.get("release_sha", ""))
+        or not re.fullmatch(r"[0-9a-f]{40}", state.get("frontend_sha", ""))
+        or state.get("completed") != list(STAGE_ORDER)
+        or not isinstance(state.get("harness_hashes"), dict)
+        or set(state["harness_hashes"]) != set(EVIDENCE_HARNESS_ARTIFACTS)
+        or not all(
+            isinstance(name, str)
+            and isinstance(digest, str)
+            and re.fullmatch(r"[0-9a-f]{64}", digest)
+            for name, digest in state["harness_hashes"].items()
+        )
+    ):
+        raise OrchestrationError("evidence_state_invalid")
+
+    for stage in STAGE_ORDER:
+        try:
+            manifest = json.loads(
+                (destination / f"{stage}.json").read_text(encoding="utf-8")
+            )
+        except (OSError, json.JSONDecodeError) as exc:
+            raise OrchestrationError("evidence_manifest_invalid") from exc
+        release_sha = (
+            manifest.get("release_sha", manifest.get("backend_sha"))
+            if isinstance(manifest, dict)
+            else None
+        )
+        frontend_sha = (
+            manifest.get("frontend_sha") if isinstance(manifest, dict) else None
+        )
+        if (
+            not isinstance(manifest, dict)
+            or manifest.get("stage") != stage
+            or manifest.get("verdict") != "PASS"
+            or release_sha != state["release_sha"]
+            or (frontend_sha is not None and frontend_sha != state["frontend_sha"])
+        ):
+            raise OrchestrationError("evidence_manifest_invalid")
+
+    outer_path = destination / outer_name
+    outer_path.write_text(
+        "".join(
+            f"{_sha256_file(path)}  {path.name}\n"
+            for path in sorted(destination.iterdir())
+            if path.name != outer_name
+        ),
+        encoding="utf-8",
+    )
+    outer_path.chmod(0o600)
+    return state
 
 
 def collect_evidence(destination: Path) -> None:
@@ -874,6 +1000,7 @@ def collect_evidence(destination: Path) -> None:
         timeout=120,
     )
     archive.unlink()
+    finalize_evidence_collection(destination)
 
 
 def collect_bootstrap_failure(destination: Path) -> dict:

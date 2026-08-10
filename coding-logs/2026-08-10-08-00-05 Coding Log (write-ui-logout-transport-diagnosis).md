@@ -714,3 +714,48 @@ LOW
 ### Rollout Notes
 - No canonical deletion, provisioning, acceptance stage, deployment, or activation is part of this review.
 - Formal g-check disposition: no CRITICAL/HIGH/MEDIUM/LOW findings; proceed through one standard PR and exact-merge bundle rebuild.
+
+## Canonical bootstrap and evidence-integrity remediation (2026-08-10 22:08:22 +0700)
+
+Goal: remove the pristine-guest offline APT failure and close the remaining stage 8/9 session and evidence-publication gaps before another canonical attempt.
+
+- The single fresh canonical guest `01KZP2DG7VJSRQZBBMN9ZV0T9X` failed before stage 1 at `base_packages/offline-debian-packages` with exit 100. The automatic failure state and both inner and outer host checksums passed; no owner, stage state, or acceptance artifact exists.
+- Read-only diagnosis on the preserved failed guest proved that configured package sources caused APT to prefer repository URIs despite every exact package being present locally. The same real-status simulation passed when the source list was disabled and every candidate was reported as `local-deb`.
+- TDD remediation makes bootstrap create an empty source-parts directory and disables the source list for the canonical `--no-download` install. It also gives WRITE-UI a best-effort post-login cleanup boundary, surfaces manifest write/checksum publication failures through exit 70 and a safe host classification, and validates the exact checksum-bound 9/9 evidence inventory before writing a mode-600 outer checksum index.
+- Primary QCHECK caught and fixed two integration gaps before formal review: collection initially finalized while its transport archive was still present, and the host accepted a partial harness-hash identity. A real tar stream/extract/finalize test now covers the former, while exact harness inventory and interrupt-class best-effort cleanup tests cover the latter and ensure cleanup cannot mask the primary failure.
+- Files changed: `ops/control-plan-read-local/bootstrap-linux.sh`, `ops/control-plan-read-local/orchestrate.py`, `ops/control-plan-read-local/run-stage-suite.py`, their three focused Python test modules, and this Coding Log.
+- RED was confirmed independently for source-enabled bootstrap, missing WRITE-UI failure logout, silent failure-manifest publication, absent host evidence finalization/classification, partial harness identity, and interrupt-class cleanup masking.
+- GREEN: `407 passed` Python operations tests and `41 passed` Node harness/browser tests. The 10 affected contracts passed three consecutive runs. Black, Bash syntax, Python byte compilation, and `git diff --check` passed. The pre-existing `pytest-asyncio` warning remains unrelated.
+
+## Review (2026-08-10 22:08:22 +0700) - working-tree canonical bootstrap and stage evidence integrity
+
+### Reviewed
+- Repo: `/Users/subhajlimanond/dev/munbon2-backend-canonical-stage-integrity`
+- Branch: `fix/canonical-stage-evidence-integrity`
+- Scope: working tree based on `f99c1f4f253cd5e70cf832a53e8ea2a735850bf8`
+- Commands Run: direct entry-point and invariant inspection after bounded Auggie fallback; working-tree name/stat and targeted diffs; preserved-guest APT source-enabled/source-less simulations; focused RED/GREEN; full Python and Node suites; affected tests three times; Black; Bash syntax; Python byte compilation; `git diff --check`
+
+### Findings
+CRITICAL
+- No findings.
+
+HIGH
+- No findings.
+
+MEDIUM
+- No findings.
+
+LOW
+- No findings.
+
+### Open Questions / Assumptions
+- The source-less real-status simulation is strong behavioral evidence for the bootstrap fix, but an actual pristine ARM64 install remains a post-merge exact-SHA gate.
+- Canonical collection intentionally accepts only the exact successful nine-stage inventory; failed-stage evidence remains on the guest and is not misrepresented as a successful collection.
+
+### Recommended Tests / Validation
+- Merge through one ordinary PR, rebuild the complete dependency archive at the exact merged backend SHA, and require the diagnostic builder's source-less validator to pass.
+- On a separately authorized pristine canonical guest, require offline package installation, all nine stages with one pinned `--as-of-date`, exact stage state, service/dark-flag restoration, host checksum validation, and outer checksum creation.
+
+### Rollout Notes
+- The failed guest and immutable failure archive remain preserved. No stage, deployment, activation, AWS action, or retry occurred during this source review.
+- Formal g-check disposition: no CRITICAL/HIGH/MEDIUM/LOW findings; proceed through the ordinary PR lifecycle, exact-SHA bundle rebuild, and separately authorized canonical replacement.

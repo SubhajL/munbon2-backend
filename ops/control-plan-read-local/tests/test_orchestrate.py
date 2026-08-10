@@ -385,6 +385,138 @@ def test_finalize_bootstrap_failure_bundle_verifies_inner_and_writes_outer_index
         orchestrate.finalize_bootstrap_failure_bundle(destination)
 
 
+def _write_complete_acceptance_evidence(destination: Path) -> dict:
+    release_sha = "a" * 40
+    frontend_sha = "b" * 40
+    state = {
+        "release_sha": release_sha,
+        "frontend_sha": frontend_sha,
+        "harness_hashes": {
+            name: "c" * 64 for name in orchestrate.EVIDENCE_HARNESS_ARTIFACTS
+        },
+        "completed": list(orchestrate.STAGE_ORDER),
+    }
+    artifacts = {
+        "stage-state.json": json.dumps(state, sort_keys=True).encode() + b"\n",
+        "LOCAL-WRITE-UI-1-browser-result.json": b'{"browser":"accepted"}\n',
+        "LOCAL-GO-READ-1-live.png": b"live-png",
+        "LOCAL-GO-READ-1-outage.png": b"outage-png",
+    }
+    artifacts.update(
+        {
+            f"{stage}.json": (
+                json.dumps(
+                    {
+                        "stage": stage,
+                        "verdict": "PASS",
+                        "release_sha": release_sha,
+                        "frontend_sha": frontend_sha,
+                    },
+                    sort_keys=True,
+                ).encode()
+                + b"\n"
+            )
+            for stage in orchestrate.STAGE_ORDER
+        }
+    )
+    destination.mkdir(parents=True)
+    for name, body in artifacts.items():
+        (destination / name).write_bytes(body)
+    _write_acceptance_checksums(destination)
+    return state
+
+
+def _write_acceptance_checksums(destination: Path) -> None:
+    artifacts = {
+        path.name: path.read_bytes()
+        for path in destination.iterdir()
+        if path.name not in {"SHA256SUMS", "OUTER-SHA256SUMS"}
+    }
+    (destination / "SHA256SUMS").write_text(
+        "".join(
+            f"{hashlib.sha256(body).hexdigest()}  {name}\n"
+            for name, body in sorted(artifacts.items())
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_finalize_evidence_collection_requires_complete_checksum_bound_9_of_9(
+    tmp_path,
+):
+    destination = tmp_path / "evidence"
+    state = _write_complete_acceptance_evidence(destination)
+
+    assert orchestrate.finalize_evidence_collection(destination) == state
+    outer = (destination / "OUTER-SHA256SUMS").read_text().splitlines()
+    assert outer == [
+        f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}"
+        for path in sorted(destination.iterdir())
+        if path.name != "OUTER-SHA256SUMS"
+    ]
+
+    (destination / "LOCAL-WRITE-UI-1.json").write_text("tampered\n")
+    with pytest.raises(
+        orchestrate.OrchestrationError, match="evidence_checksum_mismatch"
+    ):
+        orchestrate.finalize_evidence_collection(destination)
+
+
+def test_finalize_evidence_collection_rejects_unindexed_artifacts(tmp_path):
+    destination = tmp_path / "evidence"
+    _write_complete_acceptance_evidence(destination)
+    (destination / "untrusted.log").write_text("not indexed\n")
+
+    with pytest.raises(
+        orchestrate.OrchestrationError, match="evidence_inventory_invalid"
+    ):
+        orchestrate.finalize_evidence_collection(destination)
+
+
+def test_finalize_evidence_collection_rejects_partial_harness_identity(tmp_path):
+    destination = tmp_path / "evidence"
+    state = _write_complete_acceptance_evidence(destination)
+    state["harness_hashes"].pop(next(iter(state["harness_hashes"])))
+    (destination / "stage-state.json").write_text(
+        json.dumps(state, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    _write_acceptance_checksums(destination)
+
+    with pytest.raises(orchestrate.OrchestrationError, match="evidence_state_invalid"):
+        orchestrate.finalize_evidence_collection(destination)
+
+
+def test_collect_evidence_extracts_then_validates_exact_inventory(
+    tmp_path, monkeypatch
+):
+    destination = tmp_path / "evidence"
+    source = tmp_path / "guest-evidence"
+    expected_state = _write_complete_acceptance_evidence(source)
+    streamed_archive = tmp_path / "streamed-evidence.tar.gz"
+    with tarfile.open(streamed_archive, "w:gz") as bundle:
+        for path in sorted(source.iterdir()):
+            bundle.add(path, arcname=path.name)
+
+    def stream_archive(_argv, *, stdout, **_kwargs):
+        stdout.write(streamed_archive.read_bytes())
+        return subprocess.CompletedProcess(_argv, 0, b"", b"")
+
+    def extract_archive(code, argv, **_kwargs):
+        assert code == "evidence_extract"
+        with tarfile.open(argv[2], "r:gz") as bundle:
+            bundle.extractall(argv[4], filter="data")
+        return ""
+
+    monkeypatch.setattr(orchestrate.subprocess, "run", stream_archive)
+    monkeypatch.setattr(orchestrate, "_run_checked", extract_archive)
+
+    orchestrate.collect_evidence(destination)
+
+    assert not (destination / "local-acceptance-evidence.tar.gz").exists()
+    assert json.loads((destination / "stage-state.json").read_text()) == expected_state
+    assert (destination / "OUTER-SHA256SUMS").is_file()
+
+
 def test_host_accepts_pre_python_failure_bundle_and_state(tmp_path):
     local_dir = Path(__file__).resolve().parents[1]
     helper = local_dir / "bootstrap-provisioning-state.sh"
@@ -764,6 +896,26 @@ def test_run_stage_omits_as_of_date_when_not_pinned(monkeypatch):
     orchestrate.run_stage("LOCAL-PERSIST-ONLY-1", "a" * 40, "b" * 40)
 
     assert "--as-of-date" not in captured["argv"]
+
+
+def test_run_stage_surfaces_failure_manifest_publication_exit(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(orchestrate, "_machine_state", lambda: "ready")
+
+    def fail_stage_publication(code, argv, **kwargs):
+        if code in {"stage_provision_state", "stage_machine_owner"}:
+            return _capture_ready_stage_command(code, argv, captured)
+        raise orchestrate.CommandExecutionError(
+            code, orchestrate.FAILURE_MANIFEST_EXIT_CODE
+        )
+
+    monkeypatch.setattr(orchestrate, "_run_checked", fail_stage_publication)
+
+    with pytest.raises(
+        orchestrate.OrchestrationError,
+        match="stage_failure_manifest_publication_failed",
+    ):
+        orchestrate.run_stage("LOCAL-WRITE-UI-1", "a" * 40, "b" * 40)
 
 
 def test_run_all_forwards_as_of_date_to_every_stage(monkeypatch):

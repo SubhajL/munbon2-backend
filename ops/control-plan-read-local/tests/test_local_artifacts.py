@@ -369,6 +369,19 @@ def test_bootstrap_records_state_before_dependencies_and_installs_python_before_
     ).read_text(encoding="utf-8")
 
 
+def test_bootstrap_forces_offline_debian_install_to_use_only_local_debs():
+    body = (LOCAL_DIR / "bootstrap-linux.sh").read_text(encoding="utf-8")
+
+    install_start = body.index(
+        "apt-get install -y -qq --no-download --no-install-recommends"
+    )
+    install_end = body.index("systemctl disable", install_start)
+    install_command = body[install_start:install_end]
+
+    assert "-o Dir::Etc::sourcelist=/dev/null" in install_command
+    assert '-o "Dir::Etc::sourceparts=${APT_SOURCEPARTS}"' in install_command
+
+
 def test_pre_python_failure_writer_emits_collectable_checksum_bound_state(tmp_path):
     helper = LOCAL_DIR / "bootstrap-provisioning-state.sh"
     state_root = tmp_path / "provisioning"

@@ -3652,6 +3652,53 @@ def test_write_ui_failure_manifest_is_checksummed_with_predicate_codes(
     }
 
 
+@pytest.mark.parametrize(
+    ("failed_operation", "expected_code"),
+    [
+        ("write", "failure_manifest_write_failed"),
+        ("checksum", "failure_manifest_checksum_failed"),
+    ],
+)
+def test_main_surfaces_failure_manifest_publication_errors(
+    tmp_path, monkeypatch, capsys, failed_operation, expected_code
+):
+    evidence_root = tmp_path / "evidence"
+    evidence_root.mkdir()
+    args = stage_suite.argparse.Namespace(
+        stage="LOCAL-WRITE-UI-1",
+        release_sha="8" * 40,
+        frontend_sha="9" * 40,
+        repo_root=tmp_path / "repo",
+        frontend_root=tmp_path / "frontend",
+        harness_root=tmp_path / "harness",
+        evidence_root=evidence_root,
+        runtime_env_dir=tmp_path / "runtime",
+        as_of_date=stage_suite.date(2026, 8, 9),
+        diagnostic=False,
+    )
+
+    def primary_failure(_context):
+        raise stage_suite.StageGateError("injected_primary_failure")
+
+    monkeypatch.setattr(stage_suite, "_parse_args", lambda _argv: args)
+    monkeypatch.setattr(stage_suite, "run_local_write_ui", primary_failure)
+    if failed_operation == "write":
+        monkeypatch.setattr(
+            stage_suite,
+            "write_stage_manifest",
+            lambda *_args: (_ for _ in ()).throw(OSError("write failed")),
+        )
+    else:
+        monkeypatch.setattr(
+            stage_suite,
+            "_checksum_manifest",
+            lambda *_args: (_ for _ in ()).throw(OSError("checksum failed")),
+        )
+
+    assert stage_suite.main([]) == stage_suite.FAILURE_MANIFEST_EXIT_CODE
+    assert capsys.readouterr().err.splitlines() == [f"FAIL {expected_code}"]
+
+
 def test_parse_args_rejects_diagnostic_mode_for_acceptance_evidence_root():
     with pytest.raises(SystemExit):
         stage_suite._parse_args(
@@ -5351,6 +5398,19 @@ def test_persist_only_logout_best_effort_swallows_errors():
     assert client.logout_calls == [{"refreshToken": "rc"}]
 
 
+def test_operator_logout_best_effort_swallows_interrupt_class_cleanup_errors():
+    class InterruptingLogoutClient:
+        def request(self, *_args, **_kwargs):
+            raise KeyboardInterrupt
+
+    stage_suite._operator_logout(
+        InterruptingLogoutClient(),
+        "rc",
+        strict=False,
+        error_code="write_ui_operator_logout_failed",
+    )
+
+
 def test_persist_only_logout_strict_raises_on_bad_status():
     client = _RecordingLogoutClient(status=500)
     with pytest.raises(
@@ -5407,6 +5467,50 @@ def test_run_persist_only_logs_out_when_body_fails(monkeypatch, tmp_path):
         stage_suite.run_local_persist_only(_persist_only_context(tmp_path))
 
     # the primary error propagated AND the session was still torn down once
+    assert client.logout_calls == [{"refreshToken": "refresh-cookie"}]
+
+
+def test_run_write_ui_logs_out_when_post_login_body_fails(monkeypatch, tmp_path):
+    class FailingWriteUiClient(_RecordingLogoutClient):
+        def request(self, method, url, *, payload=None, bearer=None):
+            if url.endswith("/auth/logout"):
+                return super().request(method, url, payload=payload, bearer=bearer)
+            raise stage_suite.StageGateError("injected_post_login_failure")
+
+    client = FailingWriteUiClient(status=200)
+    context = stage_suite.StageContext(
+        release_sha="8" * 40,
+        frontend_sha="9" * 40,
+        repo_root=tmp_path / "repo",
+        frontend_root=tmp_path / "frontend",
+        harness_root=tmp_path / "harness",
+        evidence_root=tmp_path / "evidence",
+        runtime_env_dir=tmp_path / "runtime",
+        as_of_date=stage_suite.date(2026, 8, 9),
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_load_state",
+        lambda _context: {"completed": list(stage_suite.STAGE_ORDER[:7])},
+    )
+    monkeypatch.setattr(stage_suite, "validate_stage_transition", lambda *a: None)
+    monkeypatch.setattr(stage_suite, "_verify_frontend_source", lambda _context: None)
+    monkeypatch.setattr(stage_suite, "_load_harness_module", lambda *a: object())
+    monkeypatch.setattr(stage_suite, "LocalHttpClient", lambda: client)
+    monkeypatch.setattr(
+        stage_suite,
+        "_login_operator",
+        lambda *a: ("token", "refresh-cookie", {"login": "ok"}),
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_load_env_file",
+        lambda _path: {"PLANNING_DEPTH_WRITES_ENABLED": "false"},
+    )
+
+    with pytest.raises(stage_suite.StageGateError, match="injected_post_login_failure"):
+        stage_suite.run_local_write_ui(context)
+
     assert client.logout_calls == [{"refreshToken": "refresh-cookie"}]
 
 
