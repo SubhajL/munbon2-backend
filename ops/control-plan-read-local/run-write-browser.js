@@ -333,9 +333,28 @@ async function submitProbe(page, token, { weekKey, weekDate, submitPath }) {
   return response.status;
 }
 
-async function logoutContext(context, frontendUrl) {
-  const response = await context.request.post(`${frontendUrl}/api/auth/logout`);
+async function logoutContext(context, frontendUrl, accessToken = null) {
+  const options = accessToken
+    ? { headers: authorizedRequestInit(accessToken).headers }
+    : undefined;
+  const response = await context.request.post(
+    `${frontendUrl}/api/auth/logout`,
+    options,
+  );
   return response.status();
+}
+
+async function pageOriginLogout(page, accessToken) {
+  return page.evaluate(
+    async (init) => {
+      const response = await fetch("/api/auth/logout", init);
+      return response.status;
+    },
+    authorizedRequestInit(accessToken, {
+      method: "POST",
+      credentials: "same-origin",
+    }),
+  );
 }
 
 // The frontend re-wraps the central refreshToken VALUE into its own hardened
@@ -377,6 +396,19 @@ async function contextRefreshCookie(context) {
   return assertRefreshShaped(matches[0].value);
 }
 
+async function projectRefreshSessionMetadata(context) {
+  const sessions = (await context.cookies())
+    .filter((candidate) => candidate.name === REFRESH_COOKIE_NAME)
+    .map((candidate) => ({
+      name: candidate.name,
+      domain: candidate.domain,
+      path: candidate.path,
+      secure: candidate.secure,
+      same_site: candidate.sameSite,
+    }));
+  return { session_count: sessions.length, sessions };
+}
+
 /** Reuse the captured credential against central auth AFTER logout; only the
  * integer status is ever recorded (the sanitizer forbids token material).
  * express.json() only parses with the explicit JSON content type. */
@@ -405,17 +437,20 @@ async function proveBothOperatorLogouts(
   frontendUrl,
   deps = {},
 ) {
-  const { prove = proveContextLogout } = deps;
+  const {
+    primaryProve = proveContextLogout,
+    secondProve = proveContextLogout,
+  } = deps;
   let primaryProof = null;
   let secondProof = null;
   let firstError = null;
   try {
-    primaryProof = await prove(primaryContext, frontendUrl);
+    primaryProof = await primaryProve(primaryContext, frontendUrl);
   } catch (error) {
     firstError = error;
   }
   try {
-    secondProof = await prove(secondContext, frontendUrl);
+    secondProof = await secondProve(secondContext, frontendUrl);
   } catch (error) {
     firstError = firstError || error;
   }
@@ -462,6 +497,29 @@ async function proveContextLogout(context, frontendUrl, deps = {}) {
   if (captureError) throw captureError;
   const reuseStatus = await probe(refreshValue);
   return { logout_status: logoutStatus, refresh_reuse_status: reuseStatus };
+}
+
+async function proveRequestContextLogout(
+  context,
+  frontendUrl,
+  accessToken,
+  deps = {},
+) {
+  const {
+    diagnostic = false,
+    prove = proveContextLogout,
+    logout = logoutContext,
+  } = deps;
+  return prove(
+    context,
+    frontendUrl,
+    diagnostic
+      ? {
+          logout: (logoutContextValue, logoutUrl) =>
+            logout(logoutContextValue, logoutUrl, accessToken),
+        }
+      : {},
+  );
 }
 
 /** Navigate to a protected page and report where the browser ACTUALLY ended up.
@@ -648,7 +706,11 @@ module.exports = {
   recordPlanningRead,
   makePlanningFetchWrapper,
   proveContextLogout,
+  proveRequestContextLogout,
   proveBothOperatorLogouts,
+  logoutContext,
+  pageOriginLogout,
+  projectRefreshSessionMetadata,
   browserFailureCode,
   assertRefreshShaped,
   contextRefreshCookie,
@@ -684,6 +746,7 @@ if (require.main === module) {
       ".write-ui-outage-release",
       evidenceRoot,
     );
+    const diagnostic = process.env.LOCAL_WRITE_UI_DIAGNOSTIC === "1";
 
     const inventory = {
       phase: "healthy",
@@ -846,9 +909,11 @@ if (require.main === module) {
         weekDate,
         submitPath: SUBMIT_PATH,
       });
-      const fieldLogoutProof = await proveContextLogout(
+      const fieldLogoutProof = await proveRequestContextLogout(
         fieldTeamContext,
         frontendUrl,
+        fieldToken,
+        { diagnostic },
       );
       result.field_team_result = {
         roster_status: fieldReads.roster_status,
@@ -899,10 +964,28 @@ if (require.main === module) {
       checkpoint = "logout";
       // Both operator sessions must be revoked; a proof failure on one context
       // must not skip the other's logout POST.
+      const [primarySessionMetadata, secondSessionMetadata] = diagnostic
+        ? await Promise.all([
+            projectRefreshSessionMetadata(primaryContext),
+            projectRefreshSessionMetadata(secondContext),
+          ])
+        : [null, null];
       const { primaryProof, secondProof } = await proveBothOperatorLogouts(
         primaryContext,
         secondContext,
         frontendUrl,
+        diagnostic
+          ? {
+              primaryProve: (context, url) =>
+                proveContextLogout(context, url, {
+                  logout: () => pageOriginLogout(page, token),
+                }),
+              secondProve: (context, url) =>
+                proveRequestContextLogout(context, url, token2, {
+                  diagnostic: true,
+                }),
+            }
+          : {},
       );
       result.logout_result = {
         status: primaryProof.logout_status,
@@ -911,6 +994,20 @@ if (require.main === module) {
         second_context_refresh_reuse_status: secondProof.refresh_reuse_status,
         redirect_url: (await landingPathAfter(page, frontendUrl)).landing,
       };
+      if (diagnostic) {
+        result.logout_transport_diagnostic = {
+          page_origin_fetch: {
+            transport: "page_origin_fetch",
+            ...primarySessionMetadata,
+            ...primaryProof,
+          },
+          context_request: {
+            transport: "context_request",
+            ...secondSessionMetadata,
+            ...secondProof,
+          },
+        };
+      }
 
       checkpoint = "reload-after-logout";
       const reloadOutcome = await landingPathAfter(page, frontendUrl, {

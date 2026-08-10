@@ -4250,6 +4250,50 @@ def test_write_browser_environment_binds_coordination_to_the_resolved_evidence_r
     )
 
 
+def test_write_browser_environment_enables_transport_comparison_only_for_diagnostic(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("LOCAL_WRITE_UI_DIAGNOSTIC", "1")
+    context = _write_ui_context(tmp_path)
+    kwargs = {
+        "week_key": "2027-R01",
+        "week_date": "2026-11-02",
+        "ready_path": context.evidence_root / ".write-ui-ready",
+        "release_path": context.evidence_root / ".write-ui-outage-release",
+    }
+
+    acceptance = stage_suite._write_browser_environment(context, **kwargs)
+    diagnostic = stage_suite._write_browser_environment(
+        context, diagnostic=True, **kwargs
+    )
+
+    assert acceptance.get("LOCAL_WRITE_UI_DIAGNOSTIC") is None
+    assert diagnostic["LOCAL_WRITE_UI_DIAGNOSTIC"] == "1"
+
+
+def test_run_write_browser_threads_diagnostic_mode_to_the_launcher_environment(
+    tmp_path, monkeypatch
+):
+    context = _write_ui_context(tmp_path)
+    observed = {}
+
+    def capture_environment(_context, *, diagnostic, **_kwargs):
+        observed["diagnostic"] = diagnostic
+        raise stage_suite.StageGateError("captured_diagnostic_mode")
+
+    monkeypatch.setattr(stage_suite, "_write_browser_environment", capture_environment)
+
+    with pytest.raises(stage_suite.StageGateError, match="^captured_diagnostic_mode$"):
+        stage_suite._run_write_browser(
+            context,
+            week_key="2027-R01",
+            week_date="2026-11-02",
+            diagnostic=True,
+        )
+
+    assert observed == {"diagnostic": True}
+
+
 def test_run_write_browser_resolves_a_symlinked_evidence_root(tmp_path, monkeypatch):
     context = _write_ui_context(tmp_path)
     resolved_root = tmp_path / "resolved-evidence"
