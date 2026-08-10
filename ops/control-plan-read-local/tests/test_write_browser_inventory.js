@@ -9,7 +9,11 @@ const {
   recordPlanningRead,
   makePlanningFetchWrapper,
   proveContextLogout,
+  proveRequestContextLogout,
   proveBothOperatorLogouts,
+  logoutContext,
+  pageOriginLogout,
+  projectRefreshSessionMetadata,
   browserFailureCode,
   assertRefreshShaped,
   contextRefreshCookie,
@@ -391,24 +395,184 @@ test("proveContextLogout captures BEFORE logout and probes THAT value after", as
   assert.deepEqual(proof, { logout_status: 204, refresh_reuse_status: 401 });
 });
 
+test("pageOriginLogout uses a relative same-origin credentialed POST", async () => {
+  const requests = [];
+  const accessToken = "primary-access-token";
+  const page = {
+    evaluate: async (callback, argument) => {
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = async (url, init) => {
+        requests.push({ url, init });
+        return { status: 204 };
+      };
+      try {
+        return await callback(argument);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    },
+  };
+
+  assert.equal(await pageOriginLogout(page, accessToken), 204);
+  assert.deepEqual(requests, [
+    {
+      url: "/api/auth/logout",
+      init: {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { Authorization: `Bearer ${accessToken}` },
+      },
+    },
+  ]);
+});
+
+test("logoutContext sends the same bearer semantics through request context", async () => {
+  const calls = [];
+  const accessToken = "second-access-token";
+  const context = {
+    request: {
+      post: async (url, options) => {
+        calls.push({ url, options });
+        return { status: () => 204 };
+      },
+    },
+  };
+
+  assert.equal(await logoutContext(context, ORIGIN, accessToken), 204);
+  assert.deepEqual(calls, [
+    {
+      url: `${ORIGIN}/api/auth/logout`,
+      options: { headers: { Authorization: `Bearer ${accessToken}` } },
+    },
+  ]);
+});
+
+test("proveRequestContextLogout adds the bearer only for diagnostic mode", async () => {
+  const accessToken = "field-team-access-token";
+  const events = [];
+  const context = { label: "field-team" };
+  const logout = async (receivedContext, frontendUrl, receivedToken) => {
+    events.push({
+      event: "logout",
+      context: receivedContext.label,
+      frontendUrl,
+      accessToken: receivedToken,
+    });
+    return 204;
+  };
+  const prove = async (receivedContext, frontendUrl, deps) => {
+    events.push({ event: "prove", dependency_count: Object.keys(deps).length });
+    if (deps.logout) await deps.logout(receivedContext, frontendUrl);
+    return { logout_status: 204, refresh_reuse_status: 401 };
+  };
+
+  await proveRequestContextLogout(context, ORIGIN, accessToken, {
+    diagnostic: false,
+    prove,
+    logout,
+  });
+  await proveRequestContextLogout(context, ORIGIN, accessToken, {
+    diagnostic: true,
+    prove,
+    logout,
+  });
+
+  assert.deepEqual(events, [
+    { event: "prove", dependency_count: 0 },
+    { event: "prove", dependency_count: 1 },
+    {
+      event: "logout",
+      context: "field-team",
+      frontendUrl: ORIGIN,
+      accessToken,
+    },
+  ]);
+});
+
+test("projectRefreshSessionMetadata retains attributes but never values", async () => {
+  const context = {
+    cookies: async () => [
+      {
+        name: "smart_cms_refresh",
+        value: "sensitive-refresh-value",
+        domain: "127.0.0.1",
+        path: "/",
+        secure: true,
+        sameSite: "Lax",
+        httpOnly: true,
+        expires: 1234567890,
+      },
+      {
+        name: "unrelated",
+        value: "also-sensitive",
+        domain: "127.0.0.1",
+        path: "/",
+        secure: false,
+        sameSite: "Lax",
+      },
+    ],
+  };
+
+  const metadata = await projectRefreshSessionMetadata(context);
+
+  assert.deepEqual(metadata, {
+    session_count: 1,
+    sessions: [
+      {
+        name: "smart_cms_refresh",
+        domain: "127.0.0.1",
+        path: "/",
+        secure: true,
+        same_site: "Lax",
+      },
+    ],
+  });
+  assert.equal(JSON.stringify(metadata).includes("sensitive"), false);
+  assert.equal(
+    Object.keys(metadata).some((key) => key.includes("cookie")),
+    false,
+  );
+});
+
 test("proveBothOperatorLogouts logs BOTH contexts out even when the first proof throws", async () => {
   const loggedOut = [];
-  const prove = async (context) => {
+  const primaryProve = async (context) => {
     loggedOut.push(context.label);
-    if (context.label === "primary") throw new Error("refresh_cookie_ambiguous");
+    throw new Error("refresh_cookie_ambiguous");
+  };
+  const secondProve = async (context) => {
+    loggedOut.push(context.label);
     return { logout_status: 204, refresh_reuse_status: 401 };
   };
   await assert.rejects(
     () =>
-      proveBothOperatorLogouts(
-        { label: "primary" },
-        { label: "second" },
-        "http://127.0.0.1:9999",
-        { prove },
-      ),
+      proveBothOperatorLogouts({ label: "primary" }, { label: "second" }, "http://127.0.0.1:9999", {
+        primaryProve,
+        secondProve,
+      }),
     /refresh_cookie_ambiguous/,
   );
   assert.deepEqual(loggedOut, ["primary", "second"]);
+});
+
+test("proveBothOperatorLogouts can compare distinct primary and second transports", async () => {
+  const transports = [];
+  const proof = await proveBothOperatorLogouts({ label: "primary" }, { label: "second" }, "http://127.0.0.1:9999", {
+    primaryProve: async (context) => {
+      transports.push(`page:${context.label}`);
+      return { logout_status: 200, refresh_reuse_status: 401 };
+    },
+    secondProve: async (context) => {
+      transports.push(`request:${context.label}`);
+      return { logout_status: 401, refresh_reuse_status: 200 };
+    },
+  });
+
+  assert.deepEqual(transports, ["page:primary", "request:second"]);
+  assert.deepEqual(proof, {
+    primaryProof: { logout_status: 200, refresh_reuse_status: 401 },
+    secondProof: { logout_status: 401, refresh_reuse_status: 200 },
+  });
 });
 
 test("browserFailureCode surfaces a code-shaped message and sanitizes hyphenated checkpoints", () => {

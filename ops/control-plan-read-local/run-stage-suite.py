@@ -4908,6 +4908,7 @@ def _write_browser_environment(
     week_date: str,
     ready_path: Path,
     release_path: Path,
+    diagnostic: bool = False,
 ) -> dict[str, str]:
     """Build the browser launcher env, failing closed on any missing credential.
 
@@ -4940,7 +4941,7 @@ def _write_browser_environment(
     base_env = {
         name: value
         for name, value in os.environ.items()
-        if name not in _NODE_PRELOAD_ENV_VARS
+        if name not in _NODE_PRELOAD_ENV_VARS and name != "LOCAL_WRITE_UI_DIAGNOSTIC"
     }
     return {
         **base_env,
@@ -4954,6 +4955,7 @@ def _write_browser_environment(
         "LOCAL_WRITE_UI_EVIDENCE_ROOT": str(context.evidence_root.resolve()),
         "LOCAL_WRITE_UI_READY_FILE": str(ready_path),
         "LOCAL_WRITE_UI_OUTAGE_RELEASE_FILE": str(release_path),
+        **({"LOCAL_WRITE_UI_DIAGNOSTIC": "1"} if diagnostic else {}),
     }
 
 
@@ -5125,6 +5127,7 @@ def _run_write_browser(
     *,
     week_key: str,
     week_date: str,
+    diagnostic: bool = False,
 ) -> dict:
     coordination_root = context.evidence_root.resolve()
     ready_path = coordination_root / ".write-ui-ready"
@@ -5139,6 +5142,7 @@ def _run_write_browser(
         week_date=week_date,
         ready_path=ready_path,
         release_path=release_path,
+        diagnostic=diagnostic,
     )
     state = {"scheduler_stopped": False}
     try:
@@ -5327,6 +5331,7 @@ def run_local_write_ui(context: StageContext, *, diagnostic: bool = False) -> di
                 context,
                 week_key=week_key,
                 week_date=week_date,
+                diagnostic=diagnostic,
             )
     finally:
         try:

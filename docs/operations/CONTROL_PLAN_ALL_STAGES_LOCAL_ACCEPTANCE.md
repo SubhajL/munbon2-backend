@@ -306,6 +306,18 @@ the same explicit label. Neither path advances acceptance stage state. Always
 verify the backend write flag is false, all four backend services are ready,
 and no listener remains on port 9999 after the run.
 
+Diagnostic mode also compares two existing operator sessions while holding
+bearer semantics constant: the primary session logs out with page-origin
+`fetch` using `credentials: "same-origin"`, while the second uses Playwright's
+request context. `logout_transport_diagnostic` retains only the transport,
+session count, refresh-session name/domain/path/Secure/SameSite metadata,
+logout status, and refresh-reuse status. It never retains credential values,
+headers, bodies, or raw stderr. Interpret page-origin success plus reuse 401
+against request-context 401/200 as a harness transport defect; page-origin 401
+implicates the local frontend cookie/proxy path; logout success plus reuse 200
+implicates central-auth revocation. These classifications remain diagnostic,
+not stage acceptance.
+
 The 2026-07-23 rehearsal preserved its first otherwise-successful attempt as
 `evidence-with-wildcard` after listener inspection found package-started
 Prometheus services on ports 9090 and 9100. Those services were disabled, the
