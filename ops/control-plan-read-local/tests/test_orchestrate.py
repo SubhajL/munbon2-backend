@@ -3,6 +3,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -382,6 +383,121 @@ def test_finalize_bootstrap_failure_bundle_verifies_inner_and_writes_outer_index
         match="bootstrap_failure_inner_index_invalid",
     ):
         orchestrate.finalize_bootstrap_failure_bundle(destination)
+
+
+def test_host_accepts_pre_python_failure_bundle_and_state(tmp_path):
+    local_dir = Path(__file__).resolve().parents[1]
+    helper = local_dir / "bootstrap-provisioning-state.sh"
+    state_root = tmp_path / "guest-provisioning"
+    destination = tmp_path / "host-failure"
+    release_sha = "a" * 40
+    frontend_sha = "b" * 40
+    dependency_sha = "c" * 64
+
+    subprocess.run(
+        [
+            "bash",
+            "-c",
+            'source "$1"; '
+            'write_bootstrap_state "$2" created "$3" "$4" "$5" bootstrap arguments; '
+            'write_pre_python_failure "$2" "$3" "$4" "$5" '
+            "base_packages offline-debian-packages 1 false",
+            "bootstrap-state-test",
+            str(helper),
+            str(state_root),
+            release_sha,
+            frontend_sha,
+            dependency_sha,
+        ],
+        check=True,
+    )
+    shutil.copytree(state_root / "failure", destination / "bundle")
+
+    state = json.loads((state_root / "state.json").read_text(encoding="utf-8"))
+    metadata = orchestrate.finalize_bootstrap_failure_bundle(destination)
+
+    assert metadata["classification"] == "nonretryable-bootstrap"
+    assert orchestrate.validate_failure_state_matches_metadata(state, metadata) is None
+
+
+def test_failed_executable_contract_writer_falls_back_to_collectable_shell_bundle(
+    tmp_path,
+):
+    local_dir = Path(__file__).resolve().parents[1]
+    helper = local_dir / "bootstrap-provisioning-state.sh"
+    state_root = tmp_path / "guest-provisioning"
+    destination = tmp_path / "host-failure"
+    log_path = tmp_path / "bootstrap.log"
+    release_sha = "a" * 40
+    frontend_sha = "b" * 40
+    dependency_sha = "c" * 64
+    log_path.write_text("untrusted raw output\n", encoding="utf-8")
+
+    subprocess.run(
+        [
+            "bash",
+            "-c",
+            'source "$1"; '
+            'write_bootstrap_state "$2" created "$3" "$4" "$5" bootstrap arguments; '
+            'write_bootstrap_failure "$2" "$3" "$4" "$5" '
+            'base_packages offline-debian-packages 1 false "$6" /usr/bin/false "$1" /usr',
+            "bootstrap-state-test",
+            str(helper),
+            str(state_root),
+            release_sha,
+            frontend_sha,
+            dependency_sha,
+            str(log_path),
+        ],
+        check=True,
+    )
+    shutil.copytree(state_root / "failure", destination / "bundle")
+
+    state = json.loads((state_root / "state.json").read_text(encoding="utf-8"))
+    metadata = orchestrate.finalize_bootstrap_failure_bundle(destination)
+
+    assert (state["state"], metadata["state"]) == ("failed", "failed")
+    assert (destination / "bundle" / "bootstrap-sanitized.log").read_text() == (
+        "FAIL bootstrap_base_packages\n"
+    )
+    assert orchestrate.validate_failure_state_matches_metadata(state, metadata) is None
+
+
+def test_working_contract_writer_is_preferred_and_sanitizes_raw_log(tmp_path):
+    local_dir = Path(__file__).resolve().parents[1]
+    helper = local_dir / "bootstrap-provisioning-state.sh"
+    contract = local_dir / "provisioning_contract.py"
+    state_root = tmp_path / "guest-provisioning"
+    log_path = tmp_path / "bootstrap.log"
+    release_sha = "a" * 40
+    frontend_sha = "b" * 40
+    dependency_sha = "c" * 64
+    log_path.write_text("password=must-not-survive\n", encoding="utf-8")
+
+    subprocess.run(
+        [
+            "bash",
+            "-c",
+            'source "$1"; '
+            'write_bootstrap_state "$2" created "$3" "$4" "$5" bootstrap arguments; '
+            'write_bootstrap_failure "$2" "$3" "$4" "$5" '
+            'node_runtime node-archive 1 false "$6" "$7" "$8" /usr',
+            "bootstrap-state-test",
+            str(helper),
+            str(state_root),
+            release_sha,
+            frontend_sha,
+            dependency_sha,
+            str(log_path),
+            sys.executable,
+            str(contract),
+        ],
+        check=True,
+    )
+
+    assert (state_root / "failure" / "bootstrap-sanitized.log").read_text() == (
+        "[REDACTED SECRET-SHAPED LOG LINE]\n"
+    )
 
 
 def test_validate_failure_state_matches_preserved_metadata():

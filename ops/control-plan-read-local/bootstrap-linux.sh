@@ -8,6 +8,8 @@ fi
 
 cd /
 
+source /opt/munbon/input/bootstrap-provisioning-state.sh
+
 BOOTSTRAP_PHASE=arguments
 BOOTSTRAP_SUBSTEP=validate-arguments
 INFLUX_KEY=
@@ -22,26 +24,19 @@ on_exit() {
   [[ -z "${NODE_TEMP}" ]] || rm -rf "${NODE_TEMP}"
   [[ -z "${OWNER_TEMP}" ]] || rm -f "${OWNER_TEMP}"
   if [[ "${status}" != "0" ]]; then
-    local interrupted=()
+    local was_interrupted=false
     if [[ "${status}" == "130" || "${status}" == "143" ]]; then
-      interrupted=(--interrupted)
+      was_interrupted=true
     fi
-    if [[ -x /usr/bin/python3 && -f /opt/munbon/input/provisioning_contract.py ]]; then
-      /usr/bin/python3 /opt/munbon/input/provisioning_contract.py failure \
-        --state-root "${PROVISION_ROOT}" \
-        --release-sha "${RELEASE_SHA:-0000000000000000000000000000000000000000}" \
-        --frontend-sha "${FRONTEND_SHA:-0000000000000000000000000000000000000000}" \
-        --dependency-sha256 "${DEPENDENCY_ARCHIVE_SHA256:-0000000000000000000000000000000000000000000000000000000000000000}" \
-        --phase "${BOOTSTRAP_PHASE}" \
-        --substep "${BOOTSTRAP_SUBSTEP}" \
-        --exit-code "${status}" \
-        --log "${BOOTSTRAP_LOG}" \
-        --tool-version "bash=${BASH_VERSION%%\(*}" \
-        --tool-version "node=$("${NODE_ROOT:-/usr}"/bin/node --version 2>/dev/null || printf unknown)" \
-        --tool-version "npm=$("${NODE_ROOT:-/usr}"/bin/npm --version 2>/dev/null || printf unknown)" \
-        --tool-version "python=$(/usr/bin/python3 --version 2>/dev/null | awk '{print $2}' || printf unknown)" \
-        "${interrupted[@]}" >/dev/null 2>&1 || true
-    fi
+    write_bootstrap_failure \
+      "${PROVISION_ROOT}" \
+      "${RELEASE_SHA:-0000000000000000000000000000000000000000}" \
+      "${FRONTEND_SHA:-0000000000000000000000000000000000000000}" \
+      "${DEPENDENCY_ARCHIVE_SHA256:-0000000000000000000000000000000000000000000000000000000000000000}" \
+      "${BOOTSTRAP_PHASE}" "${BOOTSTRAP_SUBSTEP}" "${status}" \
+      "${was_interrupted}" "${BOOTSTRAP_LOG}" /usr/bin/python3 \
+      /opt/munbon/input/provisioning_contract.py "${NODE_ROOT:-/usr}" \
+      >/dev/null 2>&1 || true
     echo "FAIL bootstrap_${BOOTSTRAP_PHASE}" >&2
   fi
   exit "${status}"
@@ -91,14 +86,9 @@ if [[ -e "${PROVISION_ROOT}/state.json" ]]; then
   echo "FAIL bootstrap_existing_provision_state" >&2
   exit 1
 fi
-/usr/bin/python3 /opt/munbon/input/provisioning_contract.py state \
-  --state-root "${PROVISION_ROOT}" \
-  --state created \
-  --release-sha "${RELEASE_SHA}" \
-  --frontend-sha "${FRONTEND_SHA}" \
-  --dependency-sha256 "${DEPENDENCY_ARCHIVE_SHA256}" \
-  --phase bootstrap \
-  --substep arguments
+write_bootstrap_state \
+  "${PROVISION_ROOT}" created "${RELEASE_SHA}" "${FRONTEND_SHA}" \
+  "${DEPENDENCY_ARCHIVE_SHA256}" bootstrap arguments
 : > "${BOOTSTRAP_LOG}"
 chmod 600 "${BOOTSTRAP_LOG}"
 exec > >(tee -a "${BOOTSTRAP_LOG}") 2>&1

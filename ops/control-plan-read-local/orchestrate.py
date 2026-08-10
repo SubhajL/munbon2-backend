@@ -724,6 +724,7 @@ def provision(
     runtime_verifier = repo / "ops/control-plan-read-runtime/verify_bearer.py"
     sources = [
         local_dir / "bootstrap-linux.sh",
+        local_dir / "bootstrap-provisioning-state.sh",
         local_dir / "provisioning_contract.py",
         local_dir / "validate-dependency-bundle-linux.sh",
         local_dir / "run-stage-suite.py",

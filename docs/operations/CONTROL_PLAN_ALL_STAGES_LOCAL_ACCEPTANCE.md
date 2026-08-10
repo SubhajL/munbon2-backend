@@ -106,7 +106,11 @@ On failure, the guest writes a mode-600 sanitized bundle containing only a
 stable classification, phase/substep, exit code, exact SHAs, tool versions, and
 redacted log. The host streams it without requiring an owner marker, verifies
 the inner checksums, and writes an outer checksum index before returning the
-safe error code. If automatic collection is interrupted, recover it explicitly
+safe error code. Before the offline closure installs Python, a Bash-only writer
+records the initial state and emits the same checksum-bound terminal contract
+with only a controlled failure line. Python takes over the state machine after
+installation; if an executable but unusable interpreter cannot publish a
+failure, the Bash writer remains the fallback. If automatic collection is interrupted, recover it explicitly
 without modifying the guest:
 
 ```bash

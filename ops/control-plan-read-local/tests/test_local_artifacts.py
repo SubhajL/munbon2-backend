@@ -1,6 +1,7 @@
 import json
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 LOCAL_DIR = Path(__file__).resolve().parents[1]
@@ -10,6 +11,10 @@ REPO_ROOT = LOCAL_DIR.parents[1]
 def test_bootstrap_is_valid_bash_and_provisions_only_isolated_manifests():
     path = LOCAL_DIR / "bootstrap-linux.sh"
     body = path.read_text(encoding="utf-8")
+    state_helper_body = (LOCAL_DIR / "bootstrap-provisioning-state.sh").read_text(
+        encoding="utf-8"
+    )
+    provisioning_body = body + state_helper_body
 
     subprocess.run(["bash", "-n", str(path)], check=True)
     assert "\ncd /\n" in body
@@ -56,7 +61,7 @@ def test_bootstrap_is_valid_bash_and_provisions_only_isolated_manifests():
         "redis-cli FLUSHALL",
         '"${BROWSER_ROOT}/node_modules/pm2/bin/pm2"',
     ):
-        assert required in body
+        assert required in provisioning_body
     assert "pip install --user" not in body
     assert "sudo pip" not in body
     assert "apt-get update" not in body
@@ -77,6 +82,7 @@ def test_orchestrator_provisions_every_local_ac_harness_artifact():
     body = (LOCAL_DIR / "orchestrate.py").read_text(encoding="utf-8")
 
     for required in (
+        "bootstrap-provisioning-state.sh",
         "local-ac1.py",
         "seed-approved-sources.py",
         "run-ros-manual-producer.sh",
@@ -308,6 +314,154 @@ def test_bootstrap_validates_and_stages_dependencies_before_runtime_reset():
     staged = body.index("phase dependency_staged")
     reset = body.index("phase postgres_redis")
     assert staged < reset
+
+
+def test_bootstrap_records_state_before_dependencies_and_installs_python_before_transition():
+    body = (LOCAL_DIR / "bootstrap-linux.sh").read_text(encoding="utf-8")
+
+    initial_state = body.index("write_bootstrap_state")
+    outer_checksum = body.index("phase dependency_archive")
+    inner_checksum = body.index("substep inner-checksum")
+    offline_packages = body.index(
+        "apt-get install -y -qq --no-download --no-install-recommends"
+    )
+    dependency_staged = body.index("phase dependency_staged")
+
+    assert (
+        initial_state
+        < outer_checksum
+        < inner_checksum
+        < offline_packages
+        < dependency_staged
+    )
+    assert "write_bootstrap_failure" in body
+    assert "write_pre_python_failure" in (
+        LOCAL_DIR / "bootstrap-provisioning-state.sh"
+    ).read_text(encoding="utf-8")
+
+
+def test_pre_python_failure_writer_emits_collectable_checksum_bound_state(tmp_path):
+    helper = LOCAL_DIR / "bootstrap-provisioning-state.sh"
+    state_root = tmp_path / "provisioning"
+    release_sha = "1" * 40
+    frontend_sha = "2" * 40
+    dependency_sha = "3" * 64
+
+    subprocess.run(
+        [
+            "bash",
+            "-c",
+            'source "$1"; '
+            'write_bootstrap_state "$2" created "$3" "$4" "$5" bootstrap arguments; '
+            'write_pre_python_failure "$2" "$3" "$4" "$5" '
+            "base_packages offline-debian-packages 1 false",
+            "bootstrap-state-test",
+            str(helper),
+            str(state_root),
+            release_sha,
+            frontend_sha,
+            dependency_sha,
+        ],
+        check=True,
+    )
+
+    state = json.loads((state_root / "state.json").read_text(encoding="utf-8"))
+    metadata = json.loads(
+        (state_root / "failure" / "metadata.json").read_text(encoding="utf-8")
+    )
+    assert state | {"recorded_at": "ignored"} == {
+        "dependency_sha256": dependency_sha,
+        "frontend_sha": frontend_sha,
+        "phase": "base_packages",
+        "recorded_at": "ignored",
+        "release_sha": release_sha,
+        "state": "failed",
+        "substep": "offline-debian-packages",
+    }
+    assert metadata | {"recorded_at": "ignored"} == {
+        "classification": "nonretryable-bootstrap",
+        "dependency_sha256": dependency_sha,
+        "exit_code": 1,
+        "frontend_sha": frontend_sha,
+        "phase": "base_packages",
+        "recorded_at": "ignored",
+        "release_sha": release_sha,
+        "state": "failed",
+        "substep": "offline-debian-packages",
+        "tool_versions": metadata["tool_versions"],
+    }
+    assert re.fullmatch(r"[0-9.]+", metadata["tool_versions"]["bash"])
+    checksum_result = subprocess.run(
+        ["sha256sum", "--check", "--strict", "SHA256SUMS"],
+        cwd=state_root / "failure",
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert checksum_result.stdout.splitlines() == [
+        "bootstrap-sanitized.log: OK",
+        "metadata.json: OK",
+    ]
+    assert (state_root / "failure" / "bootstrap-sanitized.log").read_text() == (
+        "FAIL bootstrap_base_packages\n"
+    )
+    helper_body = helper.read_text(encoding="utf-8")
+    assert "python3" not in helper_body
+    assert "/usr/bin/python" not in helper_body
+
+
+def test_shell_created_state_transitions_with_installed_python_contract(tmp_path):
+    helper = LOCAL_DIR / "bootstrap-provisioning-state.sh"
+    contract = LOCAL_DIR / "provisioning_contract.py"
+    state_root = tmp_path / "provisioning"
+    release_sha = "1" * 40
+    frontend_sha = "2" * 40
+    dependency_sha = "3" * 64
+
+    subprocess.run(
+        [
+            "bash",
+            "-c",
+            'source "$1"; '
+            'write_bootstrap_state "$2" created "$3" "$4" "$5" bootstrap arguments',
+            "bootstrap-state-test",
+            str(helper),
+            str(state_root),
+            release_sha,
+            frontend_sha,
+            dependency_sha,
+        ],
+        check=True,
+    )
+    subprocess.run(
+        [
+            sys.executable,
+            str(contract),
+            "state",
+            "--state-root",
+            str(state_root),
+            "--state",
+            "dependency-staged",
+            "--release-sha",
+            release_sha,
+            "--frontend-sha",
+            frontend_sha,
+            "--dependency-sha256",
+            dependency_sha,
+            "--phase",
+            "dependency-staged",
+            "--substep",
+            "complete",
+        ],
+        check=True,
+    )
+
+    state = json.loads((state_root / "state.json").read_text(encoding="utf-8"))
+    assert (state["state"], state["phase"], state["substep"]) == (
+        "dependency-staged",
+        "dependency-staged",
+        "complete",
+    )
 
 
 def test_stage_baseline_uses_nonsecret_owner_attestation_not_private_failure_state():
