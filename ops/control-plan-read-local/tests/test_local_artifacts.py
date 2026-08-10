@@ -1,3 +1,4 @@
+import json
 import re
 import subprocess
 from pathlib import Path
@@ -12,19 +13,21 @@ def test_bootstrap_is_valid_bash_and_provisions_only_isolated_manifests():
 
     subprocess.run(["bash", "-n", str(path)], check=True)
     assert "\ncd /\n" in body
-    assert 'cd "${FRONTEND_ROOT}"' in body
     for required in (
-        "influxdb2",
-        "coinor-cbc",
         "postgresql",
         "postgis",
-        "libgdal-dev",
         "redis-server",
         "prometheus",
         "python3 -m venv",
         "requirements.txt",
-        "npm --prefix",
-        "pm2@",
+        "--no-index",
+        "--find-links",
+        "DEPENDENCY_ROOT=/opt/munbon/dependencies",
+        "provisioning_contract.py",
+        '--tool-version "bash=',
+        '--tool-version "node=',
+        '--tool-version "npm=',
+        '--tool-version "python=',
         "127.0.0.1:8086",
         "Type=simple",
         "PIDFile=",
@@ -35,25 +38,37 @@ def test_bootstrap_is_valid_bash_and_provisions_only_isolated_manifests():
         "run-ros-manual-producer.sh",
         "NODE_VERSION=22.23.1",
         "linux-arm64",
-        "playwright@1.54.2",
-        "playwright install --with-deps chromium",
+        "playwright-browsers",
         "frontend.bundle",
+        '"frontend_sha":"${FRONTEND_SHA}"',
+        'mv -- "${OWNER_TEMP}" "${STATE_ROOT}/owner.json"',
         "run-read-browser.js",
         "run-evidence-browser.js",
         "run-go-read-browser.js",
         "services/scada-gate-control",
         "services/scada-gate-control-web",
-        "prisma generate",
+        "node-modules/${name}.tar.gz",
+        "validate-node-archive",
         "checkout --force --quiet",
         "evidence-archive",
         "pg_terminate_backend",
         "dropdb --if-exists munbon_local",
         "redis-cli FLUSHALL",
-        "pm2 delete all",
+        '"${BROWSER_ROOT}/node_modules/pm2/bin/pm2"',
     ):
         assert required in body
     assert "pip install --user" not in body
     assert "sudo pip" not in body
+    assert "apt-get update" not in body
+    assert "npm install --global" not in body
+    assert "npm_offline_ci" not in body
+    assert "prisma generate" not in body
+    assert "https://nodejs.org" not in body
+    assert "https://repos.influxdata.com" not in body
+    assert "--no-download --no-install-recommends" in body
+    assert body.index("--state ready") < body.index(
+        'mv -- "${OWNER_TEMP}" "${STATE_ROOT}/owner.json"'
+    )
     for match in re.finditer(r"postgres(?:ql)?://[^\s]+:[^\s]+@", body):
         assert "${" in match.group()
 
@@ -198,11 +213,145 @@ def test_auth_systemd_unit_is_loopback_local_and_uses_mode_600_env():
         "User=munbon",
         "EnvironmentFile=/etc/munbon/control-plan-read-runtime/auth.env",
         "WorkingDirectory=/opt/munbon/repo/services/auth",
-        "ExecStart=/usr/bin/node src/index.js",
+        "ExecStart=/opt/node-v22.23.1-linux-arm64/bin/node src/index.js",
         "NoNewPrivileges=true",
     ):
         assert required in body
     assert "password" not in body.lower()
+
+
+def test_dependency_roots_lock_exact_pm2_and_playwright_versions():
+    root = LOCAL_DIR / "dependency-roots"
+    package = json.loads((root / "package.json").read_text(encoding="utf-8"))
+    lock = json.loads((root / "package-lock.json").read_text(encoding="utf-8"))
+
+    assert package["dependencies"] == {"playwright": "1.54.2", "pm2": "5.4.3"}
+    assert lock["packages"][""]["dependencies"] == package["dependencies"]
+    assert lock["packages"]["node_modules/playwright"]["version"] == "1.54.2"
+    assert lock["packages"]["node_modules/pm2"]["version"] == "5.4.3"
+
+
+def test_dependency_builder_produces_content_addressed_arm64_closure():
+    path = LOCAL_DIR / "build-dependency-bundle-linux.sh"
+    body = path.read_text(encoding="utf-8")
+
+    subprocess.run(["bash", "-n", str(path)], check=True)
+    for required in (
+        "aarch64",
+        "debian",
+        "22.23.1",
+        "10.9.8",
+        "pip wheel",
+        "node-modules",
+        "package-lock.json",
+        "requirements.txt",
+        "python-closures.lock",
+        "dependency_bundle_python_closure",
+        "prisma generate",
+        "VALIDATOR_SCRIPT",
+        "validate-node-archive",
+        "unshare -n",
+        "playwright-browsers",
+        "apt-cache depends --recurse",
+        "sha256sum",
+        "manifest.json",
+        "SHA256SUMS",
+    ):
+        assert required in body
+    assert "--no-recommends" in body
+
+
+def test_dependency_validator_exercises_every_closure_without_network():
+    path = LOCAL_DIR / "validate-dependency-bundle-linux.sh"
+    body = path.read_text(encoding="utf-8")
+
+    subprocess.run(["bash", "-n", str(path)], check=True)
+    for required in (
+        "npm_config_offline=true",
+        "--no-index",
+        "--find-links",
+        "python",
+        "playwright-browsers",
+        "dpkg-deb --info",
+        "pip check",
+        'NODE_ROOT="${SCRATCH_ROOT}/node"',
+        " ls --all",
+        "node-modules",
+        "validate-node-archive",
+        "require('bcrypt')",
+        "require('@prisma/client')",
+    ):
+        assert required in body
+    assert '"${NODE_ROOT}/bin/npm" --prefix "${target_root}" ci' not in body
+
+
+def test_python_closure_lock_content_addresses_all_arm64_wheel_sets():
+    lock_path = LOCAL_DIR / "python-closures.lock"
+    lines = lock_path.read_text(encoding="utf-8").splitlines()
+
+    assert [line.split()[0] for line in lines] == [
+        "flow-monitoring",
+        "scheduler",
+        "ros-gis-integration",
+        "bff-water-planning",
+    ]
+    for line in lines:
+        service, digest, count = line.split()
+        assert service
+        assert re.fullmatch(r"[0-9a-f]{64}", digest)
+        assert int(count) > 0
+
+
+def test_bootstrap_validates_and_stages_dependencies_before_runtime_reset():
+    body = (LOCAL_DIR / "bootstrap-linux.sh").read_text(encoding="utf-8")
+
+    staged = body.index("phase dependency_staged")
+    reset = body.index("phase postgres_redis")
+    assert staged < reset
+
+
+def test_stage_baseline_uses_nonsecret_owner_attestation_not_private_failure_state():
+    body = (LOCAL_DIR / "run-stage-suite.py").read_text(encoding="utf-8")
+
+    assert 'Path("/var/lib/munbon-local-acceptance/owner.json")' in body
+    assert (
+        'Path("/var/lib/munbon-local-acceptance/provisioning/state.json")' not in body
+    )
+    assert 'owner.get("state") != "ready"' in body
+    assert "--no-index" in body
+    assert "--find-links" in body
+    assert "npm install --global" not in body
+    assert "/usr/bin/node" not in body
+    assert "playwright install --with-deps chromium" not in body
+
+
+def test_stage_suite_revalidates_manifests_offline_with_pinned_node():
+    body = (LOCAL_DIR / "run-stage-suite.py").read_text(encoding="utf-8")
+
+    install_start = body.index("def _install_manifests")
+    install_end = body.index("\ndef _apply_migrations", install_start)
+    install_body = body[install_start:install_end]
+    preflight_start = body.index("def _monitoring_preflight")
+    preflight_end = body.index("\ndef _actual_gate_environment", preflight_start)
+    preflight_body = body[preflight_start:preflight_end]
+    assert "--no-index" in install_body
+    assert "--find-links" in install_body
+    assert 'str(NODE_ROOT / "bin/npm")' in preflight_body
+    assert 'str(NODE_ROOT / "bin/node")' in preflight_body
+    assert '["npm"' not in preflight_body
+    assert '["node"' not in preflight_body
+
+
+def test_local_base_binds_ready_state_and_dependency_environment_digest():
+    body = (LOCAL_DIR / "run-stage-suite.py").read_text(encoding="utf-8")
+    start = body.index("def run_local_base")
+    end = body.index("\ndef _install_manifests", start)
+    base_body = body[start:end]
+
+    assert "/var/lib/munbon-local-acceptance/owner.json" in base_body
+    assert 'owner.get("state") != "ready"' in base_body
+    assert 'owner.get("dependency_sha256", "")' in base_body
+    assert '"dependency_bundle_sha256"' in base_body
 
 
 def test_manual_ros_wrapper_enables_only_manual_production_on_loopback():
@@ -310,7 +459,7 @@ def test_all_stages_runbook_locks_local_before_aws_and_documents_current_command
     body = (
         REPO_ROOT / "docs/operations/CONTROL_PLAN_ALL_STAGES_LOCAL_ACCEPTANCE.md"
     ).read_text(encoding="utf-8")
-    documented_candidate_commands = 11
+    documented_candidate_commands = 12
 
     for required in (
         "LOCAL-BASE-0",
@@ -319,6 +468,8 @@ def test_all_stages_runbook_locks_local_before_aws_and_documents_current_command
         "native `arm64`",
         "No AWS action",
         "orchestrate.py provision",
+        "orchestrate.py build-dependencies",
+        "orchestrate.py collect-bootstrap-failure",
         "orchestrate.py run-stage --stage LOCAL-BASE-0",
         "orchestrate.py run-stage --stage LOCAL-RTA-1",
         "orchestrate.py run-stage --stage LOCAL-AC-1",

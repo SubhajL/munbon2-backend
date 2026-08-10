@@ -3305,7 +3305,7 @@ def test_verify_scheduler_restoration_checks_state_and_readiness_without_restart
     events = []
 
     def recording_run_checked(label, argv, **_kwargs):
-        assert argv == ["pm2", "jlist"]
+        assert argv == stage_suite._pm2_command("jlist")
         events.append("pm2_jlist")
         return _scheduler_jlist("online")
 
@@ -4437,10 +4437,10 @@ def _install_write_browser_fakes(monkeypatch, tmp_path, events, payload=None):
         return _FakeWriteBrowserProcess(ready_path, events, body, kwargs.get("stdout"))
 
     def fake_run_checked(label, argv, **_kwargs):
-        if argv[:2] == ["pm2", "jlist"]:
+        if argv == stage_suite._pm2_command("jlist"):
             events.append("jlist:scheduler")
             return _scheduler_jlist("online")
-        events.append(f"{argv[1]}:{argv[2]}")
+        events.append(f"{argv[2]}:{argv[3]}")
         return ""
 
     def fake_write_coordination_file(path, value):
@@ -4489,11 +4489,11 @@ def test_run_write_browser_fails_closed_when_scheduler_restore_fails(
     _install_write_browser_fakes(monkeypatch, tmp_path, events)
 
     def failing_run_checked(label, argv, **_kwargs):
-        if argv[:2] == ["pm2", "jlist"]:
+        if argv == stage_suite._pm2_command("jlist"):
             # The restart genuinely never took: pm2 still reports it stopped.
             return _scheduler_jlist("stopped")
-        events.append(f"{argv[1]}:{argv[2]}")
-        if argv[1] == "restart":
+        events.append(f"{argv[2]}:{argv[3]}")
+        if argv[2] == "restart":
             raise stage_suite.StageGateError("pm2_restart_failed")
         return ""
 
@@ -4518,10 +4518,10 @@ def test_run_write_browser_restores_scheduler_when_the_stop_itself_times_out(
     _install_write_browser_fakes(monkeypatch, tmp_path, events)
 
     def stop_times_out(label, argv, **_kwargs):
-        if argv[:2] == ["pm2", "jlist"]:
+        if argv == stage_suite._pm2_command("jlist"):
             return _scheduler_jlist("online")
-        events.append(f"{argv[1]}:{argv[2]}")
-        if argv[1] == "stop":
+        events.append(f"{argv[2]}:{argv[3]}")
+        if argv[2] == "stop":
             raise stage_suite.StageGateError("write_ui_scheduler_stop_failed")
         return ""
 
@@ -4548,11 +4548,11 @@ def test_run_write_browser_keeps_the_primary_diagnosis_when_restore_also_fails(
     _install_write_browser_fakes(monkeypatch, tmp_path, events, payload=untruthful)
 
     def restart_fails(label, argv, **_kwargs):
-        if argv[:2] == ["pm2", "jlist"]:
+        if argv == stage_suite._pm2_command("jlist"):
             # Dead for real: the primary diagnosis must still lead the code.
             return _scheduler_jlist("stopped")
-        events.append(f"{argv[1]}:{argv[2]}")
-        if argv[1] == "restart":
+        events.append(f"{argv[2]}:{argv[3]}")
+        if argv[2] == "restart":
             raise stage_suite.StageGateError("pm2_restart_failed")
         return ""
 

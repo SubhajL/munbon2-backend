@@ -1,8 +1,11 @@
 import importlib.util
+import hashlib
 import json
 from pathlib import Path
 import re
+import subprocess
 import sys
+import tarfile
 
 import pytest
 
@@ -109,6 +112,23 @@ def test_build_guest_command_uses_fixed_machine_user_and_argument_array():
     ]
 
 
+def test_build_diagnostic_command_cannot_target_the_canonical_guest():
+    assert orchestrate.build_diagnostic_command(["uname", "-m"]) == [
+        "orb",
+        "-m",
+        "munbon-control-plan-write-ui-diagnostic",
+        "-u",
+        "root",
+        "uname",
+        "-m",
+    ]
+
+    with pytest.raises(
+        orchestrate.OrchestrationError, match="diagnostic_command_invalid"
+    ):
+        orchestrate.build_diagnostic_command([], user="munbonlocal")
+
+
 def test_classify_machine_inventory_accepts_only_exact_owned_shape():
     machine = {
         "name": "munbon-control-plan-local",
@@ -126,6 +146,33 @@ def test_classify_machine_inventory_accepts_only_exact_owned_shape():
 
     assert orchestrate.classify_machine_inventory("[]") == "missing"
     assert orchestrate.classify_machine_inventory(json.dumps([machine])) == "ready"
+
+    machine["name"] = "munbon-control-plan-write-ui-diagnostic"
+    assert (
+        orchestrate.classify_diagnostic_machine_inventory(json.dumps([machine]))
+        == "ready"
+    )
+
+
+def test_diagnostic_build_requires_explicit_confirmation_and_exact_owner_marker():
+    with pytest.raises(
+        orchestrate.OrchestrationError, match="diagnostic_build_not_authorized"
+    ):
+        orchestrate._prepare_diagnostic_machine(confirmed=False)
+
+    marker = json.dumps(
+        {
+            "architecture": "arm64",
+            "canonical": False,
+            "machine": "munbon-control-plan-write-ui-diagnostic",
+            "purpose": "dependency-build",
+        }
+    )
+    assert orchestrate.validate_diagnostic_owner(marker) is None
+    with pytest.raises(
+        orchestrate.OrchestrationError, match="diagnostic_owner_not_accepted"
+    ):
+        orchestrate.validate_diagnostic_owner(marker.replace("false", "true"))
 
 
 @pytest.mark.parametrize(
@@ -179,7 +226,10 @@ def test_validate_machine_owner_accepts_only_harness_marker():
             {
                 "machine": "munbon-control-plan-local",
                 "architecture": "arm64",
+                "state": "ready",
                 "release_sha": orchestrate.ACCEPTED_BASE_SHA,
+                "frontend_sha": "b" * 40,
+                "dependency_sha256": "c" * 64,
             }
         )
     )
@@ -199,6 +249,292 @@ def test_validate_machine_owner_accepts_only_harness_marker():
             orchestrate.OrchestrationError, match="machine_owner_not_accepted"
         ):
             orchestrate.validate_machine_owner(marker)
+
+
+def test_validate_existing_guest_allows_only_ready_state_with_matching_owner():
+    release_sha = orchestrate.ACCEPTED_BASE_SHA
+    frontend_sha = "b" * 40
+    state = json.dumps(
+        {
+            "state": "ready",
+            "dependency_sha256": "c" * 64,
+            "release_sha": release_sha,
+            "frontend_sha": frontend_sha,
+            "phase": "ownership",
+            "recorded_at": "2026-08-10T10:00:00Z",
+            "substep": "owner-marker",
+        }
+    )
+    owner = json.dumps(
+        {
+            "machine": "munbon-control-plan-local",
+            "architecture": "arm64",
+            "state": "ready",
+            "dependency_sha256": "c" * 64,
+            "frontend_sha": frontend_sha,
+            "release_sha": release_sha,
+        }
+    )
+
+    assert orchestrate.validate_existing_guest(state, owner) is None
+
+    mismatched_owner = json.loads(owner)
+    mismatched_owner["frontend_sha"] = "d" * 40
+    with pytest.raises(
+        orchestrate.OrchestrationError, match="machine_owner_state_mismatch"
+    ):
+        orchestrate.validate_existing_guest(state, json.dumps(mismatched_owner))
+
+    terminal_state = json.loads(state)
+    terminal_state["state"] = "failed"
+    with pytest.raises(
+        orchestrate.OrchestrationError, match="machine_failed_evidence_only"
+    ):
+        orchestrate.validate_stage_guest(
+            json.dumps(terminal_state), owner, release_sha, frontend_sha
+        )
+
+
+@pytest.mark.parametrize("terminal_state", ["failed", "interrupted"])
+def test_validate_existing_guest_keeps_terminal_guest_evidence_only(terminal_state):
+    state = json.dumps(
+        {
+            "state": terminal_state,
+            "dependency_sha256": "c" * 64,
+            "release_sha": "a" * 40,
+            "frontend_sha": "b" * 40,
+            "phase": "dependency-staging",
+            "recorded_at": "2026-08-10T10:00:00Z",
+            "substep": "auth-npm-ci",
+        }
+    )
+
+    with pytest.raises(
+        orchestrate.OrchestrationError, match="machine_failed_evidence_only"
+    ):
+        orchestrate.validate_existing_guest(state, "")
+
+
+def test_validate_existing_guest_rejects_owner_without_provision_state():
+    owner = json.dumps(
+        {
+            "machine": "munbon-control-plan-local",
+            "architecture": "arm64",
+            "dependency_sha256": "c" * 64,
+            "release_sha": "a" * 40,
+        }
+    )
+
+    with pytest.raises(
+        orchestrate.OrchestrationError, match="machine_provision_state_missing"
+    ):
+        orchestrate.validate_existing_guest("", owner)
+
+
+def test_finalize_bootstrap_failure_bundle_verifies_inner_and_writes_outer_index(
+    tmp_path,
+):
+    destination = tmp_path / "failure"
+    bundle = destination / "bundle"
+    bundle.mkdir(parents=True)
+    log_body = "npm error code ERR_SOCKET_TIMEOUT\n"
+    metadata = {
+        "classification": "retryable-transport",
+        "dependency_sha256": "c" * 64,
+        "exit_code": 1,
+        "frontend_sha": "b" * 40,
+        "phase": "dependency-staging",
+        "recorded_at": "2026-08-10T10:00:00Z",
+        "release_sha": "a" * 40,
+        "state": "failed",
+        "substep": "auth-npm-ci",
+        "tool_versions": {"node": "v22.23.1", "npm": "10.9.8"},
+    }
+    (bundle / "bootstrap-sanitized.log").write_text(log_body)
+    (bundle / "metadata.json").write_text(json.dumps(metadata, sort_keys=True) + "\n")
+    (bundle / "SHA256SUMS").write_text(
+        "".join(
+            f"{hashlib.sha256((bundle / name).read_bytes()).hexdigest()}  {name}\n"
+            for name in ("bootstrap-sanitized.log", "metadata.json")
+        )
+    )
+
+    assert orchestrate.finalize_bootstrap_failure_bundle(destination) == metadata
+    assert (destination / "OUTER-SHA256SUMS").read_text().splitlines() == [
+        f"{hashlib.sha256(path.read_bytes()).hexdigest()}  bundle/{path.name}"
+        for path in sorted(bundle.iterdir())
+    ]
+
+    (bundle / "bootstrap-sanitized.log").write_text("tampered\n")
+    with pytest.raises(
+        orchestrate.OrchestrationError,
+        match="bootstrap_failure_inner_checksum_mismatch",
+    ):
+        orchestrate.finalize_bootstrap_failure_bundle(destination)
+
+    (bundle / "bootstrap-sanitized.log").write_text(log_body)
+    (bundle / "SHA256SUMS").write_text(
+        (bundle / "SHA256SUMS").read_text()
+        + f"{hashlib.sha256(log_body.encode()).hexdigest()}  bootstrap-sanitized.log\n"
+    )
+    with pytest.raises(
+        orchestrate.OrchestrationError,
+        match="bootstrap_failure_inner_index_invalid",
+    ):
+        orchestrate.finalize_bootstrap_failure_bundle(destination)
+
+
+def test_validate_failure_state_matches_preserved_metadata():
+    recorded_at = "2026-08-10T10:00:00Z"
+    state = {
+        "state": "failed",
+        "dependency_sha256": "c" * 64,
+        "release_sha": "a" * 40,
+        "frontend_sha": "b" * 40,
+        "phase": "dependency-staging",
+        "recorded_at": recorded_at,
+        "substep": "auth-npm-ci",
+    }
+    metadata = {
+        **state,
+        "classification": "retryable-transport",
+        "exit_code": 1,
+        "tool_versions": {"node": "v22.23.1", "npm": "10.9.8"},
+    }
+
+    assert orchestrate.validate_failure_state_matches_metadata(state, metadata) is None
+
+    metadata["release_sha"] = "d" * 40
+    with pytest.raises(
+        orchestrate.OrchestrationError,
+        match="bootstrap_failure_state_metadata_mismatch",
+    ):
+        orchestrate.validate_failure_state_matches_metadata(state, metadata)
+
+
+def test_validate_dependency_archive_accepts_only_exact_content_bound_archive(
+    tmp_path,
+):
+    repo = tmp_path / "repo"
+    frontend = tmp_path / "frontend"
+    bundle_root = tmp_path / "payload" / "bundle"
+    bundle_root.mkdir(parents=True)
+    provisioning = sys.modules["provisioning_contract"]
+    for relative_name in provisioning.BACKEND_DEPENDENCY_INPUTS:
+        path = repo / relative_name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(relative_name)
+    frontend.mkdir()
+    (frontend / "package-lock.json").write_text("frontend-lock")
+    (bundle_root / "artifact").write_bytes(b"content")
+    release_sha = "a" * 40
+    frontend_sha = "b" * 40
+    provisioning.create_dependency_manifest(
+        bundle_root,
+        repo_root=repo,
+        frontend_root=frontend,
+        release_sha=release_sha,
+        frontend_sha=frontend_sha,
+    )
+    archive = tmp_path / "dependencies.tar.gz"
+    with tarfile.open(archive, "w:gz") as stream:
+        stream.add(bundle_root, arcname="bundle")
+    archive_sha256 = hashlib.sha256(archive.read_bytes()).hexdigest()
+
+    assert (
+        orchestrate.validate_dependency_archive(
+            archive,
+            archive_sha256,
+            repo=repo,
+            release_sha=release_sha,
+            frontend_repo=frontend,
+            frontend_sha=frontend_sha,
+        )
+        is None
+    )
+
+    with pytest.raises(
+        orchestrate.OrchestrationError,
+        match="dependency_archive_checksum_mismatch",
+    ):
+        orchestrate.validate_dependency_archive(
+            archive,
+            "0" * 64,
+            repo=repo,
+            release_sha=release_sha,
+            frontend_repo=frontend,
+            frontend_sha=frontend_sha,
+        )
+
+
+def test_provision_collects_failure_bundle_and_returns_only_safe_classification(
+    tmp_path, monkeypatch
+):
+    repo = tmp_path / "repo"
+    frontend = tmp_path / "frontend"
+    dependency_archive = tmp_path / "dependencies.tar.gz"
+    failure_directory = tmp_path / "failure"
+    verifier = repo / "ops/control-plan-read-runtime/verify_bearer.py"
+    verifier.parent.mkdir(parents=True)
+    verifier.write_text("pass\n")
+    dependency_archive.write_bytes(b"bundle")
+    machine_states = iter(("missing", "ready"))
+    collected = []
+
+    monkeypatch.setattr(orchestrate, "_validate_commit", lambda *_a: None)
+    monkeypatch.setattr(
+        orchestrate, "validate_dependency_archive", lambda *_a, **_k: None
+    )
+    monkeypatch.setattr(orchestrate, "_machine_state", lambda: next(machine_states))
+
+    def fake_run_checked(code, _argv, **_kwargs):
+        if code == "bootstrap_linux":
+            raise orchestrate.CommandExecutionError(code, 1)
+        return ""
+
+    def fake_create_bundle(_repo, _sha, target):
+        target.write_bytes(b"git-bundle")
+
+    monkeypatch.setattr(orchestrate, "_run_checked", fake_run_checked)
+    monkeypatch.setattr(orchestrate, "_create_bundle", fake_create_bundle)
+    monkeypatch.setattr(orchestrate, "_push_isolated_file", lambda *_a: None)
+    monkeypatch.setattr(
+        orchestrate,
+        "collect_bootstrap_failure",
+        lambda destination: collected.append(destination)
+        or {"classification": "retryable-transport"},
+    )
+
+    with pytest.raises(
+        orchestrate.OrchestrationError,
+        match="^bootstrap_linux_failed_retryable_transport$",
+    ):
+        orchestrate.provision(
+            repo,
+            "a" * 40,
+            frontend,
+            "b" * 40,
+            dependency_archive,
+            "c" * 64,
+            failure_directory,
+        )
+
+    assert collected == [failure_directory]
+
+
+def test_run_checked_classifies_host_timeout_for_failure_collection(monkeypatch):
+    def raise_timeout(*_args, **_kwargs):
+        raise subprocess.TimeoutExpired(["orb"], 3600)
+
+    monkeypatch.setattr(orchestrate.subprocess, "run", raise_timeout)
+
+    with pytest.raises(orchestrate.CommandExecutionError) as failure:
+        orchestrate._run_checked("bootstrap_linux", ["orb"], timeout=3600)
+
+    assert (failure.value.code, failure.value.returncode) == (
+        "bootstrap_linux",
+        124,
+    )
 
 
 def test_build_isolated_write_command_targets_only_fixed_guest_directory():
@@ -254,13 +590,41 @@ def test_run_all_executes_every_progressive_stage(monkeypatch):
     assert calls == [(stage, "a" * 40, "b" * 40) for stage in orchestrate.STAGE_ORDER]
 
 
+def _capture_ready_stage_command(code, argv, captured):
+    if code == "stage_provision_state":
+        return json.dumps(
+            {
+                "dependency_sha256": "c" * 64,
+                "frontend_sha": "b" * 40,
+                "phase": "complete",
+                "recorded_at": "2026-08-10T10:00:00Z",
+                "release_sha": "a" * 40,
+                "state": "ready",
+                "substep": "ready-state",
+            }
+        )
+    if code == "stage_machine_owner":
+        return json.dumps(
+            {
+                "architecture": "arm64",
+                "dependency_sha256": "c" * 64,
+                "frontend_sha": "b" * 40,
+                "machine": "munbon-control-plan-local",
+                "release_sha": "a" * 40,
+                "state": "ready",
+            }
+        )
+    captured["argv"] = argv
+    return ""
+
+
 def test_run_stage_forwards_as_of_date_to_the_guest_cli(monkeypatch):
     captured = {}
     monkeypatch.setattr(orchestrate, "_machine_state", lambda: "ready")
     monkeypatch.setattr(
         orchestrate,
         "_run_checked",
-        lambda code, argv, **kwargs: captured.setdefault("argv", argv) or "",
+        lambda code, argv, **kwargs: _capture_ready_stage_command(code, argv, captured),
     )
 
     orchestrate.run_stage(
@@ -278,7 +642,7 @@ def test_run_stage_omits_as_of_date_when_not_pinned(monkeypatch):
     monkeypatch.setattr(
         orchestrate,
         "_run_checked",
-        lambda code, argv, **kwargs: captured.setdefault("argv", argv) or "",
+        lambda code, argv, **kwargs: _capture_ready_stage_command(code, argv, captured),
     )
 
     orchestrate.run_stage("LOCAL-PERSIST-ONLY-1", "a" * 40, "b" * 40)
@@ -341,7 +705,7 @@ def test_orchestrator_stage_order_matches_suite_stage_order():
     suite_path = Path(__file__).resolve().parents[1] / "run-stage-suite.py"
     suite_source = suite_path.read_text(encoding="utf-8")
     match = re.search(
-        r'^STAGE_ORDER\s*=\s*\((.*?)\)',
+        r"^STAGE_ORDER\s*=\s*\((.*?)\)",
         suite_source,
         re.MULTILINE | re.DOTALL,
     )
@@ -387,6 +751,8 @@ def test_documented_candidate_commands_validate_the_same_exact_shas(
     backend_repo = tmp_path / "backend"
     frontend_repo = tmp_path / "frontend"
     evidence_dir = tmp_path / "evidence"
+    dependency_bundle = tmp_path / "dependencies.tar.gz"
+    failure_dir = tmp_path / "bootstrap-failure"
     backend_sha = "a" * 40
     frontend_sha = "b" * 40
     calls = []
@@ -398,8 +764,17 @@ def test_documented_candidate_commands_validate_the_same_exact_shas(
     monkeypatch.setattr(
         orchestrate,
         "provision",
-        lambda repo, release_sha, frontend, accepted_frontend_sha: calls.append(
-            ("provision", repo, release_sha, frontend, accepted_frontend_sha)
+        lambda repo, release_sha, frontend, accepted_frontend_sha, bundle, bundle_sha256, bootstrap_failure_dir: calls.append(
+            (
+                "provision",
+                repo,
+                release_sha,
+                frontend,
+                accepted_frontend_sha,
+                bundle,
+                bundle_sha256,
+                bootstrap_failure_dir,
+            )
         ),
     )
     monkeypatch.setattr(
@@ -426,7 +801,15 @@ def test_documented_candidate_commands_validate_the_same_exact_shas(
         "--accept-later-origin-main",
     ]
     commands = (
-        ["provision"],
+        [
+            "provision",
+            "--dependency-bundle",
+            str(dependency_bundle),
+            "--dependency-bundle-sha256",
+            "c" * 64,
+            "--bootstrap-failure-dir",
+            str(failure_dir),
+        ],
         *(["run-stage", "--stage", stage] for stage in orchestrate.STAGE_ORDER),
         ["collect", "--evidence-dir", str(evidence_dir)],
     )
@@ -435,7 +818,46 @@ def test_documented_candidate_commands_validate_the_same_exact_shas(
         commands
     )
     assert calls == [
-        ("provision", backend_repo, backend_sha, frontend_repo, frontend_sha),
+        (
+            "provision",
+            backend_repo,
+            backend_sha,
+            frontend_repo,
+            frontend_sha,
+            dependency_bundle,
+            "c" * 64,
+            failure_dir,
+        ),
         *((stage, backend_sha, frontend_sha) for stage in orchestrate.STAGE_ORDER),
         ("collect", evidence_dir),
     ]
+
+
+def test_failure_collection_does_not_depend_on_current_origin_main(
+    tmp_path, monkeypatch
+):
+    destination = tmp_path / "bootstrap-failure"
+    collected = []
+
+    monkeypatch.setattr(
+        orchestrate,
+        "_origin_main_sha",
+        lambda _path: (_ for _ in ()).throw(AssertionError("origin must not be read")),
+    )
+    monkeypatch.setattr(
+        orchestrate,
+        "collect_bootstrap_failure",
+        lambda target: collected.append(target),
+    )
+
+    assert (
+        orchestrate.main(
+            [
+                "collect-bootstrap-failure",
+                "--bootstrap-failure-dir",
+                str(destination),
+            ]
+        )
+        == 0
+    )
+    assert collected == [destination]

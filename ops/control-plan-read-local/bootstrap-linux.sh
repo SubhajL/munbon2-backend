@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ "$(id -u)" != "0" || "$#" != "4" ]]; then
+if [[ "$(id -u)" != "0" || "$#" != "6" ]]; then
   echo "FAIL bootstrap_arguments" >&2
   exit 2
 fi
@@ -9,27 +9,60 @@ fi
 cd /
 
 BOOTSTRAP_PHASE=arguments
+BOOTSTRAP_SUBSTEP=validate-arguments
 INFLUX_KEY=
 NODE_TEMP=
+OWNER_TEMP=
+STATE_ROOT=/var/lib/munbon-local-acceptance
+PROVISION_ROOT="${STATE_ROOT}/provisioning"
+BOOTSTRAP_LOG=/run/munbon-bootstrap.log
 on_exit() {
   local status=$?
   [[ -z "${INFLUX_KEY}" ]] || rm -f "${INFLUX_KEY}"
   [[ -z "${NODE_TEMP}" ]] || rm -rf "${NODE_TEMP}"
+  [[ -z "${OWNER_TEMP}" ]] || rm -f "${OWNER_TEMP}"
   if [[ "${status}" != "0" ]]; then
+    local interrupted=()
+    if [[ "${status}" == "130" || "${status}" == "143" ]]; then
+      interrupted=(--interrupted)
+    fi
+    if [[ -x /usr/bin/python3 && -f /opt/munbon/input/provisioning_contract.py ]]; then
+      /usr/bin/python3 /opt/munbon/input/provisioning_contract.py failure \
+        --state-root "${PROVISION_ROOT}" \
+        --release-sha "${RELEASE_SHA:-0000000000000000000000000000000000000000}" \
+        --frontend-sha "${FRONTEND_SHA:-0000000000000000000000000000000000000000}" \
+        --dependency-sha256 "${DEPENDENCY_ARCHIVE_SHA256:-0000000000000000000000000000000000000000000000000000000000000000}" \
+        --phase "${BOOTSTRAP_PHASE}" \
+        --substep "${BOOTSTRAP_SUBSTEP}" \
+        --exit-code "${status}" \
+        --log "${BOOTSTRAP_LOG}" \
+        --tool-version "bash=${BASH_VERSION%%\(*}" \
+        --tool-version "node=$("${NODE_ROOT:-/usr}"/bin/node --version 2>/dev/null || printf unknown)" \
+        --tool-version "npm=$("${NODE_ROOT:-/usr}"/bin/npm --version 2>/dev/null || printf unknown)" \
+        --tool-version "python=$(/usr/bin/python3 --version 2>/dev/null | awk '{print $2}' || printf unknown)" \
+        "${interrupted[@]}" >/dev/null 2>&1 || true
+    fi
     echo "FAIL bootstrap_${BOOTSTRAP_PHASE}" >&2
   fi
   exit "${status}"
 }
 trap on_exit EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 phase() {
   BOOTSTRAP_PHASE="$1"
   echo "${BOOTSTRAP_PHASE}" > /run/munbon-bootstrap-phase
+}
+substep() {
+  BOOTSTRAP_SUBSTEP="$1"
 }
 
 SOURCE_BUNDLE="$1"
 RELEASE_SHA="$2"
 FRONTEND_BUNDLE="$3"
 FRONTEND_SHA="$4"
+DEPENDENCY_ARCHIVE="$5"
+DEPENDENCY_ARCHIVE_SHA256="$6"
 INPUT_DIR="$(cd -- "$(dirname -- "${SOURCE_BUNDLE}")" && pwd)"
 REPO_ROOT=/opt/munbon/repo
 FRONTEND_ROOT=/opt/munbon/frontend
@@ -37,71 +70,74 @@ HARNESS_ROOT=/opt/munbon/harness
 BROWSER_ROOT=/opt/munbon/browser
 PLAYWRIGHT_BROWSERS_PATH=/opt/munbon/playwright-browsers
 RUNTIME_ENV_DIR=/etc/munbon/control-plan-read-runtime
-STATE_ROOT=/var/lib/munbon-local-acceptance
 EVIDENCE_ROOT="${STATE_ROOT}/evidence"
 EVIDENCE_ARCHIVE_ROOT="${STATE_ROOT}/evidence-archive"
-INFLUX_FINGERPRINT=24C975CBA61A024EE1B631787C3D57159FC2F927
-PM2_VERSION=5.4.3
 NODE_VERSION=22.23.1
 NODE_ROOT="/opt/node-v${NODE_VERSION}-linux-arm64"
+DEPENDENCY_ROOT=/opt/munbon/dependencies
 
 if [[ \
   "$(uname -m)" != "aarch64" \
   || ! "${RELEASE_SHA}" =~ ^[0-9a-f]{40}$ \
   || ! "${FRONTEND_SHA}" =~ ^[0-9a-f]{40}$ \
+  || ! "${DEPENDENCY_ARCHIVE_SHA256}" =~ ^[0-9a-f]{64}$ \
 ]]; then
   echo "FAIL bootstrap_platform_or_sha" >&2
   exit 1
 fi
 
+install -d -m 0700 "${PROVISION_ROOT}"
+if [[ -e "${PROVISION_ROOT}/state.json" ]]; then
+  echo "FAIL bootstrap_existing_provision_state" >&2
+  exit 1
+fi
+/usr/bin/python3 /opt/munbon/input/provisioning_contract.py state \
+  --state-root "${PROVISION_ROOT}" \
+  --state created \
+  --release-sha "${RELEASE_SHA}" \
+  --frontend-sha "${FRONTEND_SHA}" \
+  --dependency-sha256 "${DEPENDENCY_ARCHIVE_SHA256}" \
+  --phase bootstrap \
+  --substep arguments
+: > "${BOOTSTRAP_LOG}"
+chmod 600 "${BOOTSTRAP_LOG}"
+exec > >(tee -a "${BOOTSTRAP_LOG}") 2>&1
+
+phase dependency_archive
+substep outer-checksum
+if [[ "$(sha256sum "${DEPENDENCY_ARCHIVE}" | awk '{print $1}')" != "${DEPENDENCY_ARCHIVE_SHA256}" ]]; then
+  echo "FAIL dependency_archive_checksum" >&2
+  exit 1
+fi
+rm -rf "${DEPENDENCY_ROOT}"
+install -d -m 0755 "${DEPENDENCY_ROOT}"
+tar -xzf "${DEPENDENCY_ARCHIVE}" --strip-components=1 --directory="${DEPENDENCY_ROOT}"
+substep inner-checksum
+(
+  cd "${DEPENDENCY_ROOT}"
+  sha256sum --check --strict SHA256SUMS
+)
+
 phase base_packages
+substep offline-debian-packages
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq
-apt-get install -y -qq \
-  build-essential ca-certificates coinor-cbc curl gdal-bin git gnupg jq \
-  libgdal-dev libgeos-dev \
-  libpq-dev nodejs npm openssl \
-  postgresql postgresql-contrib postgis prometheus python3 python3-dev python3-venv \
-  redis-server rsync xz-utils
+apt-get install -y -qq --no-download --no-install-recommends \
+  "${DEPENDENCY_ROOT}"/debian/*.deb
 systemctl disable --now prometheus prometheus-node-exporter >/dev/null 2>&1 || true
 
 phase node_runtime
-NODE_TEMP="$(mktemp -d)"
+substep node-archive
 NODE_ARCHIVE="node-v${NODE_VERSION}-linux-arm64.tar.xz"
-curl --fail --silent --show-error --location \
-  "https://nodejs.org/dist/v${NODE_VERSION}/${NODE_ARCHIVE}" \
-  --output "${NODE_TEMP}/${NODE_ARCHIVE}"
-curl --fail --silent --show-error --location \
-  "https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt" \
-  --output "${NODE_TEMP}/SHASUMS256.txt"
-(
-  cd "${NODE_TEMP}"
-  grep " ${NODE_ARCHIVE}$" SHASUMS256.txt | sha256sum --check --status
-)
 install -d -m 0755 "${NODE_ROOT}"
-tar -xJf "${NODE_TEMP}/${NODE_ARCHIVE}" \
+tar -xJf "${DEPENDENCY_ROOT}/${NODE_ARCHIVE}" \
   --strip-components=1 --directory="${NODE_ROOT}"
-if [[ "$("${NODE_ROOT}/bin/node" --version)" != "v${NODE_VERSION}" ]]; then
+if [[ \
+  "$("${NODE_ROOT}/bin/node" --version)" != "v${NODE_VERSION}" \
+  || "$("${NODE_ROOT}/bin/npm" --version)" != "10.9.8" \
+]]; then
   echo "FAIL node_runtime_version" >&2
   exit 1
 fi
-
-install -d -m 0755 /etc/apt/keyrings
-INFLUX_KEY="$(mktemp)"
-phase influx_packages
-curl --fail --silent --show-error --location \
-  https://repos.influxdata.com/influxdata-archive.key --output "${INFLUX_KEY}"
-if ! gpg --show-keys --with-fingerprint --with-colons "${INFLUX_KEY}" 2>/dev/null \
-  | grep -q "^fpr:::::::::${INFLUX_FINGERPRINT}:$"; then
-  echo "FAIL influx_signing_key" >&2
-  exit 1
-fi
-gpg --dearmor --yes --output /etc/apt/keyrings/influxdata-archive.gpg "${INFLUX_KEY}"
-echo 'deb [signed-by=/etc/apt/keyrings/influxdata-archive.gpg] https://repos.influxdata.com/debian stable main' \
-  > /etc/apt/sources.list.d/influxdata.list
-apt-get update -qq
-apt-get install -y -qq influxdb2
-npm install --global --silent "pm2@${PM2_VERSION}"
 
 phase filesystem
 if ! id munbon >/dev/null 2>&1; then
@@ -124,32 +160,11 @@ for artifact in \
   run-go-read-browser.js \
   run-write-browser.js \
   seed-local-operators.js \
+  provisioning_contract.py \
+  validate-dependency-bundle-linux.sh \
   verify_bearer.py; do
   install -o munbon -g munbon -m 0750 "${INPUT_DIR}/${artifact}" "${HARNESS_ROOT}/${artifact}"
 done
-
-phase evidence_archive
-if [[ \
-  -d "${EVIDENCE_ROOT}" \
-  && -n "$(find "${EVIDENCE_ROOT}" -mindepth 1 -maxdepth 1 -print -quit)" \
-]]; then
-  PREVIOUS_RELEASE=unknown
-  if [[ -f "${STATE_ROOT}/owner.json" ]]; then
-    CANDIDATE_RELEASE="$(jq -r '.release_sha // empty' "${STATE_ROOT}/owner.json")"
-    if [[ "${CANDIDATE_RELEASE}" =~ ^[0-9a-f]{40}$ ]]; then
-      PREVIOUS_RELEASE="${CANDIDATE_RELEASE}"
-    fi
-  fi
-  ARCHIVE_STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-  mv -- "${EVIDENCE_ROOT}" \
-    "${EVIDENCE_ARCHIVE_ROOT}/${PREVIOUS_RELEASE}-${ARCHIVE_STAMP}-$$"
-fi
-install -d -o munbon -g munbon -m 0700 "${EVIDENCE_ROOT}"
-
-phase runtime_quiesce
-systemctl stop munbon-local-auth >/dev/null 2>&1 || true
-runuser -u munbon -- pm2 delete all >/dev/null 2>&1 || true
-
 phase source_checkout
 if [[ ! -d "${REPO_ROOT}/.git" ]]; then
   runuser -u munbon -- git clone --quiet /opt/munbon/source.bundle "${REPO_ROOT}"
@@ -176,6 +191,101 @@ if [[ "$(runuser -u munbon -- git -C "${FRONTEND_ROOT}" rev-parse HEAD)" != "${F
   echo "FAIL frontend_checkout_sha" >&2
   exit 1
 fi
+
+phase dependency_validation
+substep content-manifest
+python3 "${HARNESS_ROOT}/provisioning_contract.py" validate-bundle \
+  --bundle-root "${DEPENDENCY_ROOT}" \
+  --repo-root "${REPO_ROOT}" \
+  --frontend-root "${FRONTEND_ROOT}" \
+  --release-sha "${RELEASE_SHA}" \
+  --frontend-sha "${FRONTEND_SHA}"
+
+phase service_manifests
+for service in flow-monitoring scheduler ros-gis-integration bff-water-planning; do
+  substep "${service}-pip"
+  SERVICE_ROOT="${REPO_ROOT}/services/${service}"
+  runuser -u munbon -- python3 -m venv "${SERVICE_ROOT}/.venv"
+  runuser -u munbon -- "${SERVICE_ROOT}/.venv/bin/pip" install \
+    --disable-pip-version-check --quiet --no-index \
+    --find-links "${DEPENDENCY_ROOT}/python/${service}" \
+    --requirement "${SERVICE_ROOT}/requirements.txt"
+  runuser -u munbon -- "${SERVICE_ROOT}/.venv/bin/python" -m pip check >/dev/null
+done
+ln -sfn .venv "${REPO_ROOT}/services/flow-monitoring/venv"
+ln -sfn .venv "${REPO_ROOT}/services/scheduler/venv"
+chown -h munbon:munbon "${REPO_ROOT}/services/flow-monitoring/venv" \
+  "${REPO_ROOT}/services/scheduler/venv"
+
+install_node_modules() {
+  local name="$1"
+  local root="$2"
+  rm -rf "${root}/node_modules"
+  python3 "${HARNESS_ROOT}/provisioning_contract.py" validate-node-archive \
+    --name "${name}" \
+    --archive "${DEPENDENCY_ROOT}/node-modules/${name}.tar.gz"
+  tar -xzf "${DEPENDENCY_ROOT}/node-modules/${name}.tar.gz" \
+    --directory "${root}"
+  chown -R munbon:munbon "${root}/node_modules"
+}
+
+substep auth-node-modules
+install_node_modules auth "${REPO_ROOT}/services/auth"
+substep pm2-infra-node-modules
+install_node_modules pm2 "${REPO_ROOT}/infra/pm2"
+substep scada-node-modules
+install_node_modules scada "${REPO_ROOT}/services/scada-gate-control"
+substep gate-web-node-modules
+install_node_modules gate-web "${REPO_ROOT}/services/scada-gate-control-web"
+substep frontend-node-modules
+install_node_modules frontend "${FRONTEND_ROOT}"
+substep dependency-roots-node-modules
+cp "${REPO_ROOT}/ops/control-plan-read-local/dependency-roots/package.json" \
+  "${BROWSER_ROOT}/package.json"
+cp "${REPO_ROOT}/ops/control-plan-read-local/dependency-roots/package-lock.json" \
+  "${BROWSER_ROOT}/package-lock.json"
+chown munbon:munbon "${BROWSER_ROOT}/package.json" "${BROWSER_ROOT}/package-lock.json"
+install_node_modules dependency-roots "${BROWSER_ROOT}"
+rm -rf "${PLAYWRIGHT_BROWSERS_PATH}"
+cp -a "${DEPENDENCY_ROOT}/playwright-browsers" "${PLAYWRIGHT_BROWSERS_PATH}"
+chown -R munbon:munbon "${BROWSER_ROOT}" "${PLAYWRIGHT_BROWSERS_PATH}"
+
+phase dependency_staged
+substep state-transition
+python3 "${HARNESS_ROOT}/provisioning_contract.py" state \
+  --state-root "${PROVISION_ROOT}" \
+  --state dependency-staged \
+  --release-sha "${RELEASE_SHA}" \
+  --frontend-sha "${FRONTEND_SHA}" \
+  --dependency-sha256 "${DEPENDENCY_ARCHIVE_SHA256}" \
+  --phase dependency-staged \
+  --substep complete
+
+phase evidence_archive
+substep archive-prior-evidence
+if [[ \
+  -d "${EVIDENCE_ROOT}" \
+  && -n "$(find "${EVIDENCE_ROOT}" -mindepth 1 -maxdepth 1 -print -quit)" \
+]]; then
+  PREVIOUS_RELEASE=unknown
+  if [[ -f "${STATE_ROOT}/owner.json" ]]; then
+    CANDIDATE_RELEASE="$(jq -r '.release_sha // empty' "${STATE_ROOT}/owner.json")"
+    if [[ "${CANDIDATE_RELEASE}" =~ ^[0-9a-f]{40}$ ]]; then
+      PREVIOUS_RELEASE="${CANDIDATE_RELEASE}"
+    fi
+  fi
+  ARCHIVE_STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+  mv -- "${EVIDENCE_ROOT}" \
+    "${EVIDENCE_ARCHIVE_ROOT}/${PREVIOUS_RELEASE}-${ARCHIVE_STAMP}-$$"
+fi
+install -d -o munbon -g munbon -m 0700 "${EVIDENCE_ROOT}"
+
+phase runtime_quiesce
+substep stop-runtime
+systemctl stop munbon-local-auth >/dev/null 2>&1 || true
+runuser -u munbon -- env PATH="${NODE_ROOT}/bin:/usr/bin:/bin" \
+  "${NODE_ROOT}/bin/node" "${BROWSER_ROOT}/node_modules/pm2/bin/pm2" \
+  delete all >/dev/null 2>&1 || true
 
 phase secrets
 SECRETS_FILE="${RUNTIME_ENV_DIR}/local-secrets.env"
@@ -348,54 +458,21 @@ EOF
 chown munbon:munbon "${RUNTIME_ENV_DIR}"/*.env
 chmod 600 "${RUNTIME_ENV_DIR}"/*.env
 
-phase service_manifests
-for service in flow-monitoring scheduler ros-gis-integration bff-water-planning; do
-  SERVICE_ROOT="${REPO_ROOT}/services/${service}"
-  if [[ ! -x "${SERVICE_ROOT}/.venv/bin/python" ]]; then
-    runuser -u munbon -- python3 -m venv "${SERVICE_ROOT}/.venv"
-  fi
-  runuser -u munbon -- "${SERVICE_ROOT}/.venv/bin/pip" install \
-    --disable-pip-version-check --quiet --requirement "${SERVICE_ROOT}/requirements.txt"
-  runuser -u munbon -- "${SERVICE_ROOT}/.venv/bin/pip" check >/dev/null
-done
-ln -sfn .venv "${REPO_ROOT}/services/flow-monitoring/venv"
-ln -sfn .venv "${REPO_ROOT}/services/scheduler/venv"
-chown -h munbon:munbon "${REPO_ROOT}/services/flow-monitoring/venv" \
-  "${REPO_ROOT}/services/scheduler/venv"
-runuser -u munbon -- npm --prefix "${REPO_ROOT}/services/auth" ci --omit=dev --silent
-runuser -u munbon -- npm --prefix "${REPO_ROOT}/infra/pm2" ci --silent
-runuser -u munbon -- env \
-  PATH="${NODE_ROOT}/bin:/usr/bin:/bin" \
-  "${NODE_ROOT}/bin/npm" --prefix \
-  "${REPO_ROOT}/services/scada-gate-control" ci --silent
-runuser -u munbon -- env \
-  PATH="${NODE_ROOT}/bin:/usr/bin:/bin" \
-  "${NODE_ROOT}/bin/npm" --prefix \
-  "${REPO_ROOT}/services/scada-gate-control-web" ci --silent
-runuser -u munbon -- env \
-  PATH="${NODE_ROOT}/bin:/usr/bin:/bin" \
-  "${NODE_ROOT}/bin/npm" --prefix "${FRONTEND_ROOT}" ci --silent
-(
-  cd "${FRONTEND_ROOT}"
-  runuser -u munbon -- env \
-    PATH="${NODE_ROOT}/bin:/usr/bin:/bin" \
-    "${NODE_ROOT}/bin/npm" exec prisma generate
-)
-runuser -u munbon -- env \
-  PATH="${NODE_ROOT}/bin:/usr/bin:/bin" \
-  "${NODE_ROOT}/bin/npm" --prefix "${BROWSER_ROOT}" install --silent \
-  "playwright@1.54.2"
-(
-  cd "${BROWSER_ROOT}"
-  PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH}" \
-    PATH="${NODE_ROOT}/bin:/usr/bin:/bin" \
-    "${NODE_ROOT}/bin/npx" playwright install --with-deps chromium
-)
-chown -R munbon:munbon "${BROWSER_ROOT}" "${PLAYWRIGHT_BROWSERS_PATH}"
+phase runtime_reset
+substep state-transition
+python3 "${HARNESS_ROOT}/provisioning_contract.py" state \
+  --state-root "${PROVISION_ROOT}" \
+  --state runtime-reset \
+  --release-sha "${RELEASE_SHA}" \
+  --frontend-sha "${FRONTEND_SHA}" \
+  --dependency-sha256 "${DEPENDENCY_ARCHIVE_SHA256}" \
+  --phase runtime-reset \
+  --substep complete
 
 phase auth
-runuser -u munbon -- bash -c \
-  'set -a; source /etc/munbon/control-plan-read-runtime/auth.env; source /etc/munbon/control-plan-read-runtime/operator.env; source /etc/munbon/control-plan-read-runtime/field-team.env; set +a; export MUNBON_REPO_ROOT=/opt/munbon/repo; node /opt/munbon/harness/seed-local-operators.js'
+substep seed-local-operators
+runuser -u munbon -- env NODE_ROOT="${NODE_ROOT}" bash -c \
+  'set -a; source /etc/munbon/control-plan-read-runtime/auth.env; source /etc/munbon/control-plan-read-runtime/operator.env; source /etc/munbon/control-plan-read-runtime/field-team.env; set +a; export MUNBON_REPO_ROOT=/opt/munbon/repo; "${NODE_ROOT}/bin/node" /opt/munbon/harness/seed-local-operators.js'
 install -o root -g root -m 0644 "${INPUT_DIR}/munbon-local-auth.service" \
   /etc/systemd/system/munbon-local-auth.service
 systemctl daemon-reload
@@ -426,18 +503,36 @@ cat > /etc/prometheus/control-plane-readiness-targets.json <<'EOF'
 EOF
 
 phase ownership
+substep pm2-daemon
 for _attempt in $(seq 1 10); do
-  runuser -u munbon -- pm2 ping >/dev/null 2>&1 && break
+  runuser -u munbon -- env PATH="${NODE_ROOT}/bin:/usr/bin:/bin" \
+    "${NODE_ROOT}/bin/node" "${BROWSER_ROOT}/node_modules/pm2/bin/pm2" \
+    ping >/dev/null 2>&1 && break
   sleep 1
 done
-if ! runuser -u munbon -- pm2 ping >/dev/null 2>&1; then
+if ! runuser -u munbon -- env PATH="${NODE_ROOT}/bin:/usr/bin:/bin" \
+  "${NODE_ROOT}/bin/node" "${BROWSER_ROOT}/node_modules/pm2/bin/pm2" \
+  ping >/dev/null 2>&1; then
   echo "FAIL pm2_daemon" >&2
   exit 1
 fi
-cat > "${STATE_ROOT}/owner.json" <<EOF
-{"machine":"munbon-control-plan-local","architecture":"arm64","release_sha":"${RELEASE_SHA}"}
-EOF
-chown munbon:munbon "${STATE_ROOT}/owner.json"
-chmod 600 "${STATE_ROOT}/owner.json"
+substep ready-state
+python3 "${HARNESS_ROOT}/provisioning_contract.py" state \
+  --state-root "${PROVISION_ROOT}" \
+  --state ready \
+  --release-sha "${RELEASE_SHA}" \
+  --frontend-sha "${FRONTEND_SHA}" \
+  --dependency-sha256 "${DEPENDENCY_ARCHIVE_SHA256}" \
+  --phase ownership \
+  --substep ready-state
 phase complete
+substep owner-marker
+OWNER_TEMP="${STATE_ROOT}/.owner.json.$$"
+cat > "${OWNER_TEMP}" <<EOF
+{"machine":"munbon-control-plan-local","architecture":"arm64","state":"ready","release_sha":"${RELEASE_SHA}","frontend_sha":"${FRONTEND_SHA}","dependency_sha256":"${DEPENDENCY_ARCHIVE_SHA256}"}
+EOF
+chown munbon:munbon "${OWNER_TEMP}"
+chmod 600 "${OWNER_TEMP}"
+mv -- "${OWNER_TEMP}" "${STATE_ROOT}/owner.json"
+OWNER_TEMP=
 echo "PASS bootstrap_linux"
