@@ -201,7 +201,7 @@ read -r -a PLAYWRIGHT_PACKAGES <<< "${PLAYWRIGHT_DEPENDENCIES}"
 APT_ROOTS=(
   build-essential ca-certificates coinor-cbc curl gdal-bin git gnupg jq
   libgdal-dev libgeos-dev libpq-dev openssl postgresql postgresql-contrib
-  postgis prometheus python3 python3-dev python3-venv redis-server rsync
+  postgresql-15-postgis-3 prometheus python3 python3-dev python3-venv redis-server rsync
   xz-utils influxdb2 "${PLAYWRIGHT_PACKAGES[@]}"
 )
 APT_STATUS="${BUILD_ROOT}/apt-status"

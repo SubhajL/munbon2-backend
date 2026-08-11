@@ -312,6 +312,16 @@ def test_dependency_builder_uses_apt_resolver_for_pristine_debian_closure():
     assert "apt-cache depends --recurse" not in body
 
 
+def test_dependency_builder_requests_postgresql_15_postgis_extension_package():
+    body = (LOCAL_DIR / "build-dependency-bundle-linux.sh").read_text(encoding="utf-8")
+    apt_roots = re.search(r"APT_ROOTS=\(\n(?P<roots>.*?)\n\)", body, re.DOTALL)
+
+    assert apt_roots is not None
+    root_packages = apt_roots.group("roots").split()
+    assert "postgresql-15-postgis-3" in root_packages
+    assert "postgis" not in root_packages
+
+
 def test_dependency_validator_exercises_every_closure_without_network():
     path = LOCAL_DIR / "validate-dependency-bundle-linux.sh"
     body = path.read_text(encoding="utf-8")
@@ -542,6 +552,34 @@ def test_bootstrap_delegates_offline_debian_install_to_bundle_installer():
     )
     assert '"${DEPENDENCY_ROOT}"/debian/*.deb' not in body
     assert "--no-download" not in body
+
+
+@pytest.mark.parametrize(
+    ("sql_statement", "expected_substep"),
+    (
+        (
+            "ALTER ROLE munbon_local PASSWORD :'database_password';",
+            "substep postgres-role",
+        ),
+        (
+            "CREATE EXTENSION IF NOT EXISTS postgis;",
+            "substep postgis-extension",
+        ),
+    ),
+)
+def test_bootstrap_postgres_setup_fails_closed_on_sql_errors(
+    sql_statement, expected_substep
+):
+    body = (LOCAL_DIR / "bootstrap-linux.sh").read_text(encoding="utf-8")
+    statement_offset = body.index(sql_statement)
+    invocation_offset = body.rfind("runuser -u postgres -- psql", 0, statement_offset)
+    assert invocation_offset != -1
+
+    invocation = body[invocation_offset : body.index("<<'SQL'", invocation_offset)]
+    substep_offset = body.rfind(expected_substep, 0, invocation_offset)
+    assert substep_offset != -1
+    assert body.rfind("substep ", substep_offset, invocation_offset) == substep_offset
+    assert "--set=ON_ERROR_STOP=1" in invocation
 
 
 def test_orchestrator_embeds_offline_debian_installer_in_dependency_bundle():
