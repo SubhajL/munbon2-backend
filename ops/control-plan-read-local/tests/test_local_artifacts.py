@@ -5,6 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 LOCAL_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = LOCAL_DIR.parents[1]
 
@@ -266,6 +268,36 @@ def test_dependency_builder_produces_content_addressed_arm64_closure():
     ):
         assert required in body
     assert "--no-install-recommends" in body
+
+
+@pytest.mark.parametrize(
+    "script_name",
+    (
+        "build-dependency-bundle-linux.sh",
+        "validate-dependency-bundle-linux.sh",
+        "bootstrap-linux.sh",
+    ),
+)
+def test_node_runtime_version_checks_resolve_bundled_npm_without_ambient_node(
+    script_name,
+):
+    body = (LOCAL_DIR / script_name).read_text(encoding="utf-8")
+
+    assert re.search(
+        r'env PATH="\$\{NODE_ROOT\}/bin:/usr/bin:/bin" \\\n'
+        r'\s+"\$\{NODE_ROOT\}/bin/npm" --version',
+        body,
+    )
+
+
+def test_bootstrap_failure_metadata_resolves_bundled_npm_without_ambient_node():
+    body = (LOCAL_DIR / "bootstrap-provisioning-state.sh").read_text(encoding="utf-8")
+
+    assert re.search(
+        r'--tool-version "npm=\$\(env PATH="\$\{node_root\}/bin:/usr/bin:/bin" \\\n'
+        r'\s+"\$\{node_root\}/bin/npm" --version',
+        body,
+    )
 
 
 def test_dependency_builder_uses_apt_resolver_for_pristine_debian_closure():

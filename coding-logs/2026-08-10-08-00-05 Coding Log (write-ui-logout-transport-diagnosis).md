@@ -874,3 +874,87 @@ LOW
 ### Rollout Notes
 - No guest creation, canonical mutation, acceptance stage, deployment, activation, or AWS action occurred during this refresh.
 - Formal g-check disposition: no remaining CRITICAL/HIGH/MEDIUM/LOW findings; proceed through the standard sequential PR lifecycle.
+## Exact-merge bundle and qualification infrastructure boundary (2026-08-11)
+
+- PR #181 merged as `22f6731ca93198269f330ddab6fc6a7c270d3469`; backend `HEAD`, local `main`, and `origin/main` were synchronized exactly. Frontend `HEAD`, local `main`, and `origin/main` remained `067b3e22401854f8c6d6db42dc0c5c1872fca6f8`.
+- The complete schema-2 dependency bundle passed diagnostic construction, manifest validation, network-isolated validation, host validation, and cleanup. The mode-600 archive is `/Users/subhajlimanond/dev/munbon2-backend-external-evidence/2026-08-11-phase-d-22f6731c-dependencies.tar.gz`, size `1608904861`, SHA-256 `fe004f0d1328edc2444940210b145afe4117feaa756bbfe64843a0dd195b4b45`, with 963 indexed artifacts including 470 Debian artifacts.
+- Immediately before qualification creation, the predecessor failure archive passed both inner and outer checksum verification. Canonical guest `munbon-control-plan-local` still mapped uniquely to `01KZPVAFAXG3ZNQ649ZBFSYMHJ`; no canonical mutation occurred.
+- Two attempts to create the authorized disposable guest `munbon-control-plan-apt-qualification` failed before a guest existed with `make rootfs: download rootfs: stream to file: unexpected EOF`. Inventory after both failures contained only the preserved canonical guest, diagnostic guest, and pre-existing Ubuntu guest.
+- Between attempts, OrbStack 2.2.1 reported running, `orbctl doctor` passed, host storage had 135 GiB available, its own HTTPS endpoint transferred successfully, and the live network path reported viable/good. A direct Debian cloud-image transfer reset, while system and environment proxy settings were empty.
+- The second identical infrastructure failure ended retrying. `orbctl update --check` reports a signed stable 2.2.2 update, but installing a host virtualization-runtime update can interrupt all existing guests and is outside the guest-specific mutation authorization. Qualification, canonical deletion, fresh canonical provisioning, and the pinned nine-stage run remain pending that narrow infrastructure decision.
+
+## APT real-install qualification and canonical Node-runtime failure (2026-08-11)
+
+Goal: after explicit authorization, repair the OrbStack image-download boundary, prove the schema-2 APT closure through one disposable non-authoritative real dpkg transaction, and only on qualification success replace the exact failed canonical guest and perform the single authorized provisioning attempt.
+
+- The user explicitly authorized installing the stable OrbStack update offered by `orbctl`, including required guest pauses/restarts. The bundled signed Sparkle updater installed OrbStack `2.2.2 (2020200)` from `2.2.1`; all three pre-existing guests returned running with unchanged identities. `orbctl doctor` passed after relaunch.
+- A replacement create then succeeded for isolated Debian 12 ARM64 qualification guest `munbon-control-plan-apt-qualification` (`01KZR32KE37W0PSTQ4F8X8EZKB`, 8 GiB, 4 CPU, 40 GiB). OrbStack 2.2.2 `push`/`pull` remained broken for isolated homes, so the exact bundle was transferred through stdin after a five-byte mode-600 probe; guest size and SHA-256 matched `1608904861` and `fe004f0d1328edc2444940210b145afe4117feaa756bbfe64843a0dd195b4b45`.
+- Qualification passed: all 963 inner bundle entries verified; the shared installer completed a real APT/dpkg mutation with exit 0; 372 packages were unpacked and configured; every one of 466 exact `Package=Version` specs matched `dpkg-query`; `dpkg --audit` was empty; `apt-get check` passed. Owner, provisioning stage state, acceptance evidence, and evidence-stage state were absent.
+- Qualification remained explicitly non-authoritative (`authoritative=false`, `acceptance_evidence=false`). Its mode-600 host archive is `/Users/subhajlimanond/dev/munbon2-backend-external-evidence/2026-08-11-apt-real-install-qualification-22f6731c.tar.gz`, SHA-256 `1448ebb44ecbe99700ec8fc2222c106f04a613fa14ab6f406d3b4f2fc4a8689f`. Because native pull was broken, a recoverable mode-600 base64 carrier was retained with SHA-256 `f0d99339afca52e22b7def5afec29c498a99a50b847515656b9313dae62afac9`; decoded bytes match the guest archive. The outer index SHA-256 is `25daf5992af148b5e76f61c50c855c9b0c32731be82e9906a27aa4dd6ee20f1e`; every inner and outer entry passed. The disposable guest was then deleted by its uniquely mapped name.
+- After qualification passed, backend `HEAD == main == origin/main == 22f6731ca93198269f330ddab6fc6a7c270d3469`, frontend `HEAD == main == origin/main == 067b3e22401854f8c6d6db42dc0c5c1872fca6f8`, the mode-600 bundle digest, both predecessor failure-archive checksum layers, exact failed canonical mapping `munbon-control-plan-local == 01KZPVAFAXG3ZNQ649ZBFSYMHJ`, absent owner/stage state, and zero acceptance files were reverified. Only that authorized guest was permanently deleted; its predecessor failure archive remains preserved.
+- The orchestrator created fresh canonical guest `munbon-control-plan-local` (`01KZR3P6V5XA1NYDDH9N68TTXD`) with the prescribed Debian 12 ARM64 isolated shape and transferred all exact inputs. Canonical APT installation completed, proving the original direct-`.deb` parity defect is remediated.
+- Provisioning then failed fail-closed before readiness at `phase=node_runtime`, `substep=node-archive`, exit 1, classification `nonretryable-bootstrap`. The sanitized log ends with `/usr/bin/env: ‘node’: No such file or directory` and `FAIL node_runtime_version`. No acceptance stage was started.
+- Read-only diagnosis proves a distinct Node-runtime PATH parity defect. `/opt/node-v22.23.1-linux-arm64/bin/node` exists and reports `v22.23.1`; no system `node` exists on the pristine guest PATH; direct execution of the bundled npm launcher exits 127 because its `/usr/bin/env node` shebang cannot resolve Node; the same launcher reports `10.9.8` when `PATH=/opt/node-v22.23.1-linux-arm64/bin:/usr/bin:/bin`. `bootstrap-linux.sh` checks npm without that PATH, while the reused diagnostic builder/validator environment had a system Node and therefore masked this pristine-bootstrap boundary.
+- The new guest remains running and evidence-only with failed provisioning state bound to backend `22f6731c...`, frontend `067b3e22...`, and dependency `fe004f0d...`; owner is absent and the acceptance evidence directory contains zero files. The automatically collected mode-600 failure archive is `/Users/subhajlimanond/dev/munbon2-backend-external-evidence/2026-08-11-phase-d-22f6731c-bootstrap-failure-canonical-attempt-1`; inner and outer checks pass. Its outer-index SHA-256 is `0d4b6061f6da9f02441843c96ff7ecc2531602408479a9e13574e7ca7ff242f4`, and sanitized-log SHA-256 is `e2085dd87a1a2159dd89854f46f8f50d0a0cfc0fff187d5a63e89134324a21f5`.
+- Stop condition: the single authorized canonical provisioning attempt is consumed. No repair, retry, stage, deployment, activation, or AWS action occurred after failure. A new TDD/PR lifecycle for the distinct Node PATH parity defect and any later canonical replacement require explicit authorization.
+
+## Node-runtime PATH parity remediation (2026-08-11)
+
+Goal: make dependency build, offline validation, canonical bootstrap, and failure metadata resolve the checksum-bound npm launcher through its sibling bundled Node binary even when pristine Debian exposes no ambient `node` command.
+
+- Work is isolated in `/Users/subhajlimanond/dev/munbon2-backend-node-runtime-path-parity` on `fix/node-runtime-path-parity`, based exactly on `origin/main@22f6731ca93198269f330ddab6fc6a7c270d3469`. The dirty primary Coding Log and two pre-existing untracked pointer backups remain untouched.
+- Auggie semantic retrieval was bounded to two seconds and timed out. Targeted fallback inspection covered the Node archive extraction/version checks in `build-dependency-bundle-linux.sh`, `validate-dependency-bundle-linux.sh`, and `bootstrap-linux.sh`, plus failure tool-version capture in `bootstrap-provisioning-state.sh` and the existing artifact tests.
+- Locked contract: every bundled npm version probe must be command-scoped to `PATH=${NODE_ROOT}/bin:/usr/bin:/bin` (or lowercase helper equivalent). A global PATH export, system Node installation, symlink, or architecture/public-interface change is out of scope.
+- RED 1: `python3 -m pytest -q ops/control-plan-read-local/tests/test_local_artifacts.py::test_node_runtime_version_checks_resolve_bundled_npm_without_ambient_node` failed all three parameters because builder, validator, and bootstrap invoked the npm launcher without a bundled Node PATH.
+- GREEN 1: the same parameterized test passed `3 passed`; all three scripts now provide only the command-scoped bundled-first PATH to npm's `/usr/bin/env node` shebang.
+- Independent read-only Terra analysis found one evidence-provenance gap: `bootstrap-provisioning-state.sh` captured `npm=unknown` for the same reason. RED 2: `python3 -m pytest -q ops/control-plan-read-local/tests/test_local_artifacts.py::test_bootstrap_failure_metadata_resolves_bundled_npm_without_ambient_node` failed because the helper was unbound.
+- GREEN 2: the helper now applies the same command-scoped PATH and the combined focused selection passed `4 passed, 29 deselected`. Bash syntax passed for all four affected shell scripts.
+- Files changed: the four shell scripts above, `ops/control-plan-read-local/tests/test_local_artifacts.py`, and this Coding Log. Runtime/public interfaces, dependency versions, archive schema, service configuration, and acceptance contracts are unchanged.
+- Focused parity selection passed three consecutive identical runs (`4 passed, 29 deselected` each). The affected provisioning/artifact/orchestration modules passed `116 passed`; the complete operations Python suite passed `425 passed`; and the complete Node operations suite passed `41 passed`.
+- Formatting and static gates passed: Black check for the edited Python test, Python byte compilation, Bash syntax for all four edited shell scripts, and `git diff --check`.
+- A read-only probe on preserved failed guest `01KZR3P6V5XA1NYDDH9N68TTXD` reproduced the executable contract without mutating it: bundled Node reports `v22.23.1`; npm with ambient `/usr/bin:/bin` exits 127; the identical launcher with bundled-Node-first PATH reports `10.9.8`.
+- The root `make test` target returned zero while printing `npm error Missing script: "test"` for `services/sensor-data/vercel-deployment`; because the target does not propagate that service failure, it is recorded as a non-authoritative legacy target rather than passing evidence.
+
+Wiring verification:
+
+| Component | Non-test call site | Runtime registration | Contract evidence |
+| --- | --- | --- | --- |
+| Bundle construction | `build-dependency-bundle-linux.sh` Node archive version gate | Invoked by the diagnostic bundle build lane | Bundled npm resolves only the just-extracted sibling Node |
+| Offline validation | `validate-dependency-bundle-linux.sh` Node archive version gate | Invoked under network isolation during bundle validation | Same fixed Node/npm versions and bundled-first command PATH |
+| Canonical provisioning | `bootstrap-linux.sh` `node_runtime/node-archive` gate | Transferred and invoked by `orchestrate.py` | Pristine Debian no longer depends on ambient system Node |
+| Failure provenance | `bootstrap-provisioning-state.sh` tool-version capture | Called by bootstrap failure handling | npm version remains observable instead of degrading to `unknown` |
+
+- Primary QCHECK found no implementation or test-contract defect. The change is minimal, command-scoped, preserves existing domain vocabulary, and does not introduce a global PATH or unbound dependency.
+- Independent read-only QCHECK returned GO for source delivery with no P0-P2 findings. It recorded one non-blocking P3 test boundary: source assertions prove the four production call sites are wired, while one fresh ARM64 qualification must prove the real npm shebang path before any canonical deletion.
+
+## Review (2026-08-11 22:51:52 +0700) - staged Node-runtime PATH parity remediation
+
+### Reviewed
+- Repo: `/Users/subhajlimanond/dev/munbon2-backend-node-runtime-path-parity`
+- Branch: `fix/node-runtime-path-parity`
+- Scope: six staged files based on `22f6731ca93198269f330ddab6fc6a7c270d3469`
+- Commands Run: bounded Auggie attempt with targeted fallback; complete production/test diff; focused RED/GREEN cycles; affected contracts three times; touched-module and complete Python suites; complete Node operations suite; Black; Bash syntax; Python byte compilation; `git diff --check`; non-enforcing legacy `make test`; preserved-guest read-only executable probe; independent QCHECK
+
+### Findings
+CRITICAL
+- No findings.
+
+HIGH
+- No findings.
+
+MEDIUM
+- No findings.
+
+LOW
+- No findings.
+
+### Open Questions / Assumptions
+- The source assertions establish exact production wiring but are not authoritative ARM64 execution evidence. The authorized disposable pristine qualification guest must clear the bundled npm check with no ambient Node before canonical guest `01KZR3P6V5XA1NYDDH9N68TTXD` may be deleted.
+
+### Recommended Tests / Validation
+- Merge through one ordinary PR, rebuild and validate the complete dependency archive at the exact merge SHA, then run one disposable non-authoritative Debian 12 ARM64 qualification using the exact archive.
+- Only after qualification passes, reverify the preserved failure evidence and exact guest identity, delete the authorized failed canonical guest, provision one fresh canonical guest, and run all nine stages once at one pinned `--as-of-date`.
+
+### Rollout Notes
+- Source review did not mutate any guest, acceptance stage, deployment, activation, or AWS resource.
+- Formal g-check disposition: no remaining CRITICAL/HIGH/MEDIUM/LOW findings; source is ready for the standard commit/PR/merge lifecycle and exact-merge qualification gate.

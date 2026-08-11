@@ -73,7 +73,8 @@ tar -xJf "${BUNDLE_ROOT}/${NODE_ARCHIVE}" \
   --strip-components=1 --directory="${NODE_ROOT}"
 if [[ \
   "$("${NODE_ROOT}/bin/node" --version)" != "v${NODE_VERSION}" \
-  || "$("${NODE_ROOT}/bin/npm" --version)" != "${NPM_VERSION}" \
+  || "$(env PATH="${NODE_ROOT}/bin:/usr/bin:/bin" \
+    "${NODE_ROOT}/bin/npm" --version)" != "${NPM_VERSION}" \
 ]]; then
   printf '%s\n' "FAIL dependency_bundle_node_version" >&2
   exit 1

@@ -152,7 +152,8 @@ write_bootstrap_failure() {
       --log "${log_path}" \
       --tool-version "bash=${BASH_VERSION%%\(*}" \
       --tool-version "node=$("${node_root}/bin/node" --version 2>/dev/null || printf unknown)" \
-      --tool-version "npm=$("${node_root}/bin/npm" --version 2>/dev/null || printf unknown)" \
+      --tool-version "npm=$(env PATH="${node_root}/bin:/usr/bin:/bin" \
+        "${node_root}/bin/npm" --version 2>/dev/null || printf unknown)" \
       --tool-version "python=$("${contract_writer}" --version 2>&1 | awk '{print $2}' || printf unknown)" \
       ${interrupted_option:+"${interrupted_option}"} >/dev/null 2>&1; then
     return 0
