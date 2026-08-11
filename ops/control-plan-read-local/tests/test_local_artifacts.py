@@ -82,6 +82,28 @@ def test_bootstrap_is_valid_bash_and_provisions_only_isolated_manifests():
         assert "${" in match.group()
 
 
+def test_bootstrap_keeps_secrets_private_and_prometheus_targets_readable():
+    body = (LOCAL_DIR / "bootstrap-linux.sh").read_text(encoding="utf-8")
+    target_paths = {
+        "/etc/prometheus/control-plane-central-targets.json",
+        "/etc/prometheus/control-plane-field-targets.json",
+        "/etc/prometheus/control-plane-readiness-targets.json",
+    }
+    readable_mode = re.search(
+        r"chmod 0644 \\\n(?P<paths>(?:  /etc/prometheus/control-plane-[^\n]+\\?\n?)+)",
+        body,
+    )
+
+    assert 'chmod 600 "${SECRETS_FILE}"' in body
+    assert 'chmod 600 "${RUNTIME_ENV_DIR}"/*.env' in body
+    assert readable_mode is not None
+    assert set(readable_mode.group("paths").replace("\\", "").split()) == target_paths
+    assert (
+        max(body.index(f"cat > {path}") for path in target_paths)
+        < readable_mode.start()
+    )
+
+
 def test_orchestrator_provisions_every_local_ac_harness_artifact():
     body = (LOCAL_DIR / "orchestrate.py").read_text(encoding="utf-8")
 
