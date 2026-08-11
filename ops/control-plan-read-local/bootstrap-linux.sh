@@ -324,14 +324,18 @@ if ! runuser -u postgres -- psql -Atqc "SELECT 1 FROM pg_roles WHERE rolname='mu
   | grep -qx 1; then
   runuser -u postgres -- createuser --no-superuser --no-createdb --no-createrole munbon_local
 fi
-runuser -u postgres -- psql --set=database_password="${DB_PASSWORD}" <<'SQL' >/dev/null
+substep postgres-role
+runuser -u postgres -- psql --set=ON_ERROR_STOP=1 \
+  --set=database_password="${DB_PASSWORD}" <<'SQL' >/dev/null
 ALTER ROLE munbon_local PASSWORD :'database_password';
 SQL
 if ! runuser -u postgres -- psql -Atqc "SELECT 1 FROM pg_database WHERE datname='munbon_local'" \
   | grep -qx 1; then
   runuser -u postgres -- createdb --owner=munbon_local munbon_local
 fi
-runuser -u postgres -- psql --dbname=munbon_local <<'SQL' >/dev/null
+substep postgis-extension
+runuser -u postgres -- psql --set=ON_ERROR_STOP=1 \
+  --dbname=munbon_local <<'SQL' >/dev/null
 CREATE EXTENSION IF NOT EXISTS postgis;
 CREATE SCHEMA IF NOT EXISTS auth AUTHORIZATION munbon_local;
 ALTER SCHEMA auth OWNER TO munbon_local;

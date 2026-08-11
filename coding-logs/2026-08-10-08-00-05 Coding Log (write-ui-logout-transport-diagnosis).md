@@ -958,3 +958,80 @@ LOW
 ### Rollout Notes
 - Source review did not mutate any guest, acceptance stage, deployment, activation, or AWS resource.
 - Formal g-check disposition: no remaining CRITICAL/HIGH/MEDIUM/LOW findings; source is ready for the standard commit/PR/merge lifecycle and exact-merge qualification gate.
+
+## Node-runtime exact-merge qualification and canonical acceptance verdict (2026-08-12)
+
+- PR #182 merged normally as `fd88b9fbadc77e3b1230b359bd08c5264a12b6db`; backend `HEAD == main == origin/main` and frontend `HEAD == main == origin/main == 067b3e22401854f8c6d6db42dc0c5c1872fca6f8`. The two hosted secret-scan jobs contained zero steps and failed at the infrastructure boundary; local gates and formal g-check had no severity findings.
+- The first exact-merge dependency build stalled after entering offline validation when the owned diagnostic guest stopped accepting Orb/SSH command sessions. No archive reached the host. After read-only process/control-plane diagnosis, only diagnostic guest `01KZKJMR2PG4Z4X7DYHDYTEX0C` was restarted; its disk, owner marker, and prior evidence remained intact. A bounded rebuild then passed guest construction, network-isolated validation, host validation, and cleanup.
+- Exact bundle: `/Users/subhajlimanond/dev/munbon2-backend-external-evidence/2026-08-12-phase-d-fd88b9fb-dependencies.tar.gz`, size `1608905739`, mode 600, SHA-256 `44e9774b43918a4ab373493f8905b9734af929528d8b7029643128ccbaa49c3d`.
+- Disposable non-authoritative qualification guest `munbon-control-plan-node-qualification` (`01KZSB67RWZJC11Q9DDRTQWF83`) matched the Debian 12 ARM64 isolated 8 GiB/4 CPU/40 GiB shape. It verified all 963 inner artifacts, performed the real local APT/dpkg installation, matched all 466 exact package specs, returned empty `dpkg --audit`, and passed `apt-get check`.
+- The qualification proved the exact defect boundary: ambient Node was absent; the checksum-bound npm launcher exited 127 when restricted to `/usr/bin:/bin`; the merged bundled-first command PATH returned Node `v22.23.1` and npm `10.9.8`. Owner, provisioning state, and acceptance stage state remained absent. Host archive `/Users/subhajlimanond/dev/munbon2-backend-external-evidence/2026-08-12-node-runtime-qualification-fd88b9fb.tar.gz` is mode 600 with SHA-256 `218fa7c8613a85e5c2e05268a6c3ac0ccf5511fe27d904fb9b494fb5d66d76b7`; inner and outer checks pass. The disposable guest was deleted only after host verification.
+- After qualification passed, the exact old failure archive reverified at both checksum layers with outer-index SHA-256 `0d4b6061f6da9f02441843c96ff7ecc2531602408479a9e13574e7ca7ff242f4`. Failed canonical guest `01KZR3P6V5XA1NYDDH9N68TTXD` still mapped uniquely, remained failed at `node_runtime/node-archive`, had no owner, zero acceptance files, and no stage state. Only then was that authorized guest deleted; its failure archive remains preserved.
+- Fresh canonical guest `munbon-control-plan-local` (`01KZSBJAXZGWE9EF60KCR2CWMK`) was created once at the prescribed shape. Provisioning passed, including the remediated Node/npm boundary, and reached ready with exact backend/frontend/dependency bindings, empty evidence, Node `v22.23.1`, npm `10.9.8`, and ready central auth. No bootstrap-failure directory was created.
+- The single pinned run used `--as-of-date 2026-08-12`, mapping independently to foundation `2026-W33`, WRITE-UI `2026-R41`, and persist-only `2026-R42`. `LOCAL-BASE-0` passed. `LOCAL-RTA-1` then failed at `ros_0001_dataset_version_parent_failed`; the orchestrated sequence stopped immediately, so stages 3-9 did not run and no write week was consumed.
+- Read-only diagnosis found the precise PostgreSQL error: extension control file `/usr/share/postgresql/15/extension/postgis.control` is absent. The dependency root requested and installed only `postgis=3.3.2+dfsg-1+b1`; the exact archive contains no `postgresql-15-postgis-3` package. Bootstrap had already logged the same `CREATE EXTENSION postgis` error but its heredoc lacked `ON_ERROR_STOP`, allowing provisioning to report ready. The RTA ROS migration correctly failed and rolled back its transaction; scheduler migrations reached all 13 entries.
+- Failure cleanup left PM2 application processes empty, central auth and infrastructure listeners loopback-only, port 9999 absent, and planning-depth writes dark. Guest evidence contains exactly `LOCAL-BASE-0.json`, `LOCAL-RTA-1-failure.json`, `stage-state.json`, and `SHA256SUMS`; every guest checksum passes and stage state lists only `LOCAL-BASE-0`.
+- The standard collector streamed and extracted the files but its finalizer rejects any inventory that is not all nine PASS. The preserved partial failure archive is `/Users/subhajlimanond/dev/munbon2-backend-external-evidence/2026-08-12-nine-stage-orbstack-fd88b9fb.tar.gz`, mode 600, SHA-256 `686e766ca5a5960b4e601430312778c12f2f8715fca328223ab43e766a196868`; guest-inner and host-outer checksum layers pass, and the outer-index SHA-256 is `d4e87bc597814a83e20d8f31ab39bf06d7d5f4b58e1d1b30c236c908b4731324`.
+- Stop condition: the authorized pinned canonical run is consumed and truthfully **1/9 PASS**. The fresh canonical guest is preserved without repair, restart, migration replay, or reprovision. Remediating the newly discovered PostGIS closure plus bootstrap SQL fail-open defect, and any later canonical replacement/run, requires a separate TDD/PR/qualification/deletion authorization.
+
+## PostGIS closure and bootstrap fail-closed remediation authorization (2026-08-12)
+
+- The user granted standing campaign authorization until 9/9 passes or three additional canonical attempts are consumed. It covers TDD remediation and ordinary PR/merge/local-main lifecycle for newly discovered provisioning or acceptance-harness defects; disposable non-authoritative qualification guests; and, only after qualification plus failure-archive verification, deletion and replacement of the uniquely mapped campaign-owned canonical guest followed by one pinned run per attempt.
+- Stop boundaries remain production/AWS actions, secrets or credential changes, host software updates, mutations outside campaign-owned guests, public-contract or architectural changes, or exhaustion of the three-attempt ceiling. Every failed guest's evidence must be preserved before deletion.
+- Attempt accounting begins from preserved canonical guest `munbon-control-plan-local` (`01KZSBJAXZGWE9EF60KCR2CWMK`) and truthful `1/9 PASS`; zero of three additional canonical attempts have been consumed.
+- Auggie semantic retrieval was bounded to two seconds and timed out. Targeted fallback inspection covered the dependency roots/resolver, local-repository installer and schema validation, bootstrap PostgreSQL heredocs, ROS migration failure evidence, and existing artifact tests.
+
+## PostGIS closure and bootstrap fail-closed TDD (2026-08-12 05:24:07 +0700)
+
+- Goal: ensure the checksum-bound Debian 12/PostgreSQL 15 dependency closure installs the PostGIS server extension, and ensure PostgreSQL bootstrap SQL errors cannot advance provisioning to ready with stale failure provenance.
+- Worktree ledger: `/Users/subhajlimanond/dev/munbon2-backend-postgis-bootstrap-fail-closed`, branch `fix/postgis-bootstrap-fail-closed`, based on refreshed `origin/main@fd88b9fbadc77e3b1230b359bd08c5264a12b6db`; intended disposition is ordinary PR merge followed by verified removal. The dirty primary Coding Log and all pre-existing worktrees remain preserved.
+- Read-only Debian Bookworm ARM64 metadata confirmed `postgis` contains userland tools and merely recommends the omitted server extension, while `postgresql-15-postgis-3` provides the PostgreSQL 15 extension and depends on its scripts package. Repository search found no production consumer of the removed standalone PostGIS CLI tools.
+- RED contract: `python3 -m pytest -q ops/control-plan-read-local/tests/test_local_artifacts.py -k 'requests_postgresql_15_postgis_extension_package or postgres_setup_fails_closed_on_sql_errors'` failed three assertions for the expected reasons: the APT roots lacked `postgresql-15-postgis-3`, both SQL heredocs lacked `ON_ERROR_STOP`, and neither had a precise SQL failure substep.
+- GREEN implementation: `build-dependency-bundle-linux.sh` replaces the misleading generic `postgis` root with the platform-contract package `postgresql-15-postgis-3`. `bootstrap-linux.sh` adds `postgres-role` and `postgis-extension` substeps and invokes both SQL heredocs with `--set=ON_ERROR_STOP=1`; top-level `set -e` and the existing exit trap therefore write failed provisioning state instead of reporting ready.
+- GREEN command: the identical focused selection passed `3 passed, 33 deselected`. The affected selection then passed three consecutive identical runs.
+- Files changed: `ops/control-plan-read-local/build-dependency-bundle-linux.sh`, `ops/control-plan-read-local/bootstrap-linux.sh`, `ops/control-plan-read-local/tests/test_local_artifacts.py`, and this Coding Log. No migration, orchestrator, dependency schema, stage suite, public interface, architecture, guest, deployment, activation, secret, or AWS state changed.
+- Full gates passed: `428` Python operations tests, `41` Node harness/browser tests, Black check, Bash syntax across the four provisioning/dependency shell programs, Python byte compilation, and `git diff --check`. The existing `pytest-asyncio` loop-scope deprecation warning remains unrelated.
+
+Wiring verification:
+
+| Component | Non-test call site | Registration/config load | Schema/contract match |
+| --- | --- | --- | --- |
+| Offline Debian closure | `build-dependency-bundle-linux.sh` `APT_ROOTS` passed to empty-status `apt-get --download-only` | Diagnostic bundle builder invoked by `orchestrate.py` | Debian 12/PostgreSQL 15 contract now resolves `postgresql-15-postgis-3` and its exact transitive scripts package into checksum-bound specs |
+| Canonical bootstrap SQL | `bootstrap-linux.sh` `postgres_redis` phase | Transferred and invoked by canonical provisioning in `orchestrate.py` | PostgreSQL role and PostGIS/schema heredocs use `ON_ERROR_STOP`; SQL failure triggers the existing fail-closed provisioning-state trap with precise substep |
+| ROS migration consumer | `services/ros-gis-integration/migrations/0001_dataset_version_parent.up.sql` | Existing RTA migration runner | Existing `CREATE EXTENSION postgis` consumer remains unchanged and now receives the extension from bootstrap |
+
+- Primary QCHECK: no remaining correctness, security, test, integration, or wiring finding. The exact versioned package intentionally binds to the existing Debian 12/PostgreSQL 15 platform contract; any major-platform upgrade remains a separately reviewed contract change.
+- Independent Terra QCHECK originally identified two P1 defects matching RED and one observability gap; all are closed by the production changes and locked tests. Its P2 residual is runtime evidence: source/simulation cannot prove the control file, so exact-merge pristine qualification must assert the package spec, control file, successful extension creation, and fail-closed state before canonical deletion.
+
+## Review (2026-08-12 05:25:03 +0700) - staged PostGIS closure and bootstrap fail-closed remediation
+
+### Reviewed
+- Repo: `/Users/subhajlimanond/dev/munbon2-backend-postgis-bootstrap-fail-closed`
+- Branch: `fix/postgis-bootstrap-fail-closed`
+- Scope: staged working tree based on `fd88b9fbadc77e3b1230b359bd08c5264a12b6db`
+- Commands Run: bounded Auggie attempt with targeted fallback; staged name/stat and targeted production/test diffs; Debian package metadata probe; focused RED/GREEN selection; three consecutive affected runs; complete Python and Node operations suites; Black; Bash syntax; Python byte compilation; `git diff --check`; independent Terra QCHECK; wiring trace
+
+### Findings
+CRITICAL
+- No findings.
+
+HIGH
+- No findings.
+
+MEDIUM
+- No findings.
+
+LOW
+- No findings.
+
+### Open Questions / Assumptions
+- `postgresql-15-postgis-3` is intentionally bound to the current Debian 12/PostgreSQL 15 platform contract. The exact-merge bundle build must resolve it and its scripts dependency from the same Bookworm ARM64 repository state.
+
+### Recommended Tests / Validation
+- After merge, rebuild and validate the checksum-bound dependency archive at the exact merge SHA.
+- On one disposable pristine Debian 12 ARM64 qualification guest, prove the exact package spec exists, `/usr/share/postgresql/15/extension/postgis.control` exists, `CREATE EXTENSION postgis` succeeds, and no owner or acceptance state is created.
+- Only after qualification and predecessor failure-archive verification, replace the uniquely mapped canonical guest and run all nine stages once at a pinned date under campaign attempt 1 of 3.
+
+### Rollout Notes
+- Formal g-check disposition: no remaining CRITICAL/HIGH/MEDIUM/LOW findings. No migration, stage-suite, public-contract, architecture, secret, host-runtime, deployment, activation, or AWS change is included.
+- Source validation is not authoritative acceptance; the preserved canonical guest remains unchanged at truthful `1/9 PASS` pending exact-merge qualification.
