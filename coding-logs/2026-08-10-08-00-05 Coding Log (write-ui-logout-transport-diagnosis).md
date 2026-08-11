@@ -1108,3 +1108,70 @@ LOW
 ### Rollout Notes
 - Formal g-check disposition: no remaining CRITICAL/HIGH/MEDIUM/LOW source finding. The independent P2 validation boundary is accepted as a mandatory runtime qualification gate and must not be represented as authoritative acceptance.
 - No public contract, architecture, secret value/mode, stage logic, deployment, production/AWS resource, or host software change is included.
+
+## Prometheus qualification, canonical attempt 2, and PM2 path diagnosis (2026-08-12)
+
+- PR #184 merged through the documented infrastructure exception as `d07290e39ae213114005f5712c392d6206a8bc35`; both hosted secret-scan jobs failed in two seconds with zero steps. Local `main == origin/main`, and exact-SHA post-merge gates passed `429` Python and `41` Node tests plus changed-file Black, Bash syntax, Python byte compilation, and `git diff --check`.
+- Exact dependency bundle `/Users/subhajlimanond/dev/munbon2-backend-external-evidence/2026-08-12-phase-d-d07290e3-dependencies.tar.gz` is size `1616148761`, mode 600, SHA-256 `54e5c4a4db64a673b593a252f1b95e4f30557282ba2b499a1fc830cc81fc8357`; diagnostic construction, network-isolated validation, host validation, and cleanup passed.
+- Disposable non-authoritative qualification guest `munbon-control-plan-prometheus-qualification` (`01KZSH0GRE0J3YZRZ7AY6TZ97G`) matched the isolated Debian 12 ARM64 8 GiB/4 CPU/40 GiB shape. It verified 968 checksum-bound bundle artifacts, installed 471 exact package specs, and bound the merged bootstrap plus checked-in Prometheus config/rules by hash. The exact three file-SD targets were `root:root` mode 0644, secret/runtime env fixtures remained mode 0600, and `promtool check config` passed as `munbon` with all ten rules. No owner/provisioning/acceptance state was created.
+- Qualification evidence archive `/Users/subhajlimanond/dev/munbon2-backend-external-evidence/2026-08-12-prometheus-qualification-d07290e3.tar.gz` is size `25145`, mode 600, SHA-256 `c5a9c1b77ca6da645e713e36915c2c7ba7b521808ecc67e5065b85843de480de`; every inner and outer checksum passed. The disposable guest was deleted only after host verification.
+- The attempt-1 failure archive reverified at both checksum layers with archive SHA-256 `526375909c79af34e5e404dc84497bd609b6ed97093761d5ec1ea20a7944bf90` and outer-index SHA-256 `5c5878b01f9fed52484a8b09f0a37d195bdb794cdde7e1085b75eb13d49dbd75`. Exact failed canonical guest `01KZSFRFVGHBQA90S6ZPRV1X0R` still mapped uniquely with the archived bindings and `1/9 PASS`, then only that guest was deleted.
+- Fresh canonical guest `munbon-control-plan-local` (`01KZSHCD73ZJ83NXA3K4A9VBKV`) provisioned ready with exact backend/frontend/dependency bindings, zero evidence files, PostGIS 3.3.2, target modes 0644, runtime env modes 0600, and successful non-root `promtool`. No bootstrap-failure directory was created.
+- The pinned `--as-of-date 2026-08-12` attempt 2 passed `LOCAL-BASE-0` and failed `LOCAL-RTA-1` at `restart_baseline_failed`; stages 3-9 did not run. Attempt 2 of 3 is consumed and the campaign remains truthfully `1/9 PASS`.
+- Failure evidence archive `/Users/subhajlimanond/dev/munbon2-backend-external-evidence/2026-08-12-nine-stage-orbstack-d07290e3-attempt-2.tar.gz` is size `3465`, mode 600, SHA-256 `a430de7bf84063caefe9c000f9affcc4aaf8e8de285f5b104743c4abc80bbb4f`; guest-inner and host-outer checks passed, and outer-index SHA-256 is `ccb94f68808b95fa79153807b99570a31d7ab5fb1613ce7aab3efd29488a4809`.
+- Read-only diagnosis reproduced the exact boundary: the stage starts PM2 through pinned bundled Node plus PM2 CLI, then `runtime_gate.py snapshot` invokes ambient `pm2`. The pristine guest PATH contains no `pm2`, so it returns `pm2_unavailable`; the checksum-bound pinned command returns zero. All four PM2 apps were stopped by failure cleanup, and the guest was preserved without repair or replay.
+
+## Hermetic runtime-gate PM2 path TDD (2026-08-12)
+
+- Worktree ledger: `/Users/subhajlimanond/dev/munbon2-backend-runtime-gate-pm2-path`, branch `fix/runtime-gate-pm2-path`, based on refreshed `origin/main@d07290e39ae213114005f5712c392d6206a8bc35`; intended disposition is ordinary PR merge followed by verified removal.
+- Auggie semantic retrieval was bounded to two seconds and timed out. Targeted fallback inspected the pinned `_pm2_command`, `run_local_rta` environment wiring, `runtime_gate.py` snapshot/stability subprocesses, the bundled PM2 shim shebang, tests, and preserved guest behavior.
+- Locked contract: the RTA runtime environment must expose only the checksum-bound PM2 CLI directory, bundled Node directory, `/usr/bin`, and `/bin`, while retaining the runtime-env directory. No inherited PATH, ambient PM2 install, host update, symlink, runtime-gate CLI change, public interface, or service configuration change is permitted.
+- RED: `test_rta_runtime_environment_resolves_checksum_bound_pm2_without_ambient_cli` failed because the scaffolded environment contained only `/usr/bin:/bin`; `run_local_rta` also remained on its inline environment.
+- GREEN: `_pm2_runtime_environment` sets the exact PATH `/opt/munbon/browser/node_modules/pm2/bin:/opt/node-v22.23.1-linux-arm64/bin:/usr/bin:/bin`, and `run_local_rta` uses the helper for process start, snapshot, and stability. The focused test passed, and a read-only guest probe changed the exact runtime-gate snapshot from `pm2_unavailable` to the four-process restart map.
+- The focused regression passed three consecutive pre-format runs and passed again after Black formatting. The complete operations suites passed `430` Python tests and `41` Node harness/browser tests; Black for both edited Python files, Python byte compilation, and `git diff --check` passed. The existing `pytest-asyncio` loop-scope warning remains unrelated.
+- Files changed: `ops/control-plan-read-local/run-stage-suite.py`, `ops/control-plan-read-local/tests/test_stage_suite.py`, and this Coding Log. No runtime-gate interface, service, dependency, provisioning, secret, public contract, architecture, production/AWS resource, or host software changed.
+
+Wiring verification:
+
+| Component | Non-test call site | Registration/config load | Contract match |
+| --- | --- | --- | --- |
+| PM2 runtime environment | `run_local_rta` calls `_pm2_runtime_environment(context)` | Passed unchanged to pinned PM2 start, `runtime_gate.py snapshot`, and `runtime_gate.py stability` | Bare `pm2` resolves directly to the checksum-bound CLI; its `/usr/bin/env node` shebang resolves bundled Node first; inherited PATH is excluded |
+| PM2 process control | Existing `_pm2_command` | Uses absolute bundled Node and PM2 CLI paths | Start/stop/save/jlist behavior remains pinned and unchanged |
+| Runtime gate | Existing `run_pm2_jlist` calls `pm2 jlist` | Resolves through the stage-owned PATH only during RTA | Snapshot and stability share the same local PM2 daemon without a new CLI/env contract |
+
+- Primary QCHECK: no remaining correctness, security, test-strength, integration, or wiring finding. The helper is justified because it provides one testable environment contract reused by process start, snapshot, and stability; the exact PATH prevents ambient PM2/Node resolution while retaining only required system Python/shell directories.
+- Independent Terra risk analysis rejected a bundled-Node-only PATH and runtime-gate API/hardcoding alternatives. Its recommendation to use `PM2_CLI.parent`, bundled Node, and an exact non-inherited `/usr/bin:/bin` tail is fully incorporated; the live read-only probe proves the direct PM2 directory and shebang chain.
+
+## Review (2026-08-12) - staged hermetic runtime-gate PM2 path remediation
+
+### Reviewed
+- Repo: `/Users/subhajlimanond/dev/munbon2-backend-runtime-gate-pm2-path`
+- Branch: `fix/runtime-gate-pm2-path`
+- Scope: staged working tree based on `d07290e39ae213114005f5712c392d6206a8bc35`
+- Commands Run: bounded Auggie attempt with targeted fallback; preserved-guest read-only PATH/PM2/import probes; focused RED/GREEN and three consecutive final repeats; complete Python and Node operations suites; Black; Python byte compilation; `git diff --check`; staged name/stat and targeted diff review; primary QCHECK; independent Terra risk analysis; wiring trace
+
+### Findings
+CRITICAL
+- No findings.
+
+HIGH
+- No findings.
+
+MEDIUM
+- No findings.
+
+LOW
+- No findings.
+
+### Open Questions / Assumptions
+- The canonical local runtime layout remains `/opt/munbon/browser/node_modules/pm2/bin/pm2` plus bundled Node `/opt/node-v22.23.1-linux-arm64/bin/node`; both are checksum-bound provisioning artifacts and were verified on the preserved guest.
+- `activate.sh` is a separate host-PM2 workflow and is intentionally unchanged; the defect and remediation are scoped to the canonical pinned stage runner.
+
+### Recommended Tests / Validation
+- After merge, build and validate the dependency archive at the exact merge SHA because the stage harness is bundle-bound even though dependency bytes are unchanged.
+- On one disposable pristine guest, prove ambient PM2 is absent, the exact merged `_pm2_runtime_environment` value resolves pinned PM2/Node, `runtime_gate.py snapshot` succeeds, and a bounded stability invocation reads the same daemon without creating campaign owner or acceptance state.
+- Reverify the preserved attempt-2 archive at guest-inner and host-outer layers before replacing only canonical guest `01KZSHCD73ZJ83NXA3K4A9VBKV` for attempt 3 of 3.
+
+### Rollout Notes
+- Formal g-check disposition: no remaining CRITICAL/HIGH/MEDIUM/LOW finding. Source tests and read-only failed-guest probes are not authoritative acceptance.
+- No service, dependency version, runtime-gate interface, secret, host software, public contract, architecture, production/AWS resource, or non-campaign guest change is included.
