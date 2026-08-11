@@ -828,3 +828,49 @@ LOW
 ### Rollout Notes
 - No canonical guest mutation, acceptance stage, deployment, activation, or AWS action occurred during source remediation and review.
 - Formal g-check disposition: no remaining CRITICAL/HIGH/MEDIUM/LOW findings; source is ready for the standard commit/PR/merge lifecycle and exact-merge qualification gates.
+
+## Exact-merge ARM64 Python closure refresh after PR #180 (2026-08-11)
+
+Goal: clear the exact-merge dependency build's fail-closed Python closure gate without weakening reproducibility, before any qualification or canonical guest action.
+
+- PR #180 merged as `a71bd1edba7935962e207a4e08a6f983539f9fdb`; backend local `main` and `origin/main` were synchronized exactly, with frontend `067b3e22401854f8c6d6db42dc0c5c1872fca6f8` unchanged.
+- The first exact-merge dependency build and one observability-only replay both failed before Debian resolution at `FAIL dependency_bundle_python_closure`; no archive was created. The replay log is mode 600 at `/opt/munbon/dependency-build/a71bd1edba79-067b3e224018-44712/build-replay.log` in the owned diagnostic guest.
+- A dedicated mode-700 diagnostic derivation at `/opt/munbon/dependency-build/a71bd1edba79-067b3e224018-44712/python-closure-refresh-1` computed all four ARM64 wheel-set digests and counts from the exact source bundle. Its mode-600 summary records counts 84, 96, 67, and 81, unchanged from the committed contract.
+- Complete filename comparison against the prior accepted derivation found only: Flow Monitoring `platformdirs 4.11.1 -> 4.11.2` and `virtualenv 21.7.3 -> 21.7.4`; Scheduler and BFF `platformdirs 4.11.1 -> 4.11.2`; ROS/GIS is byte-identical.
+- Auggie semantic retrieval was bounded to two seconds and timed out. Targeted fallback inspection covered `python-closures.lock`, the builder's digest/count enforcement, the full-structure test, and manifest input binding.
+- Files changed: `ops/control-plan-read-local/python-closures.lock`, `ops/control-plan-read-local/tests/test_local_artifacts.py`, and this Coding Log.
+- RED: `python3 -m pytest -q ops/control-plan-read-local/tests/test_local_artifacts.py -k python_closure_lock_content_addresses_all_arm64_wheel_sets` failed because the test's independently derived three new digests disagreed with the stale committed lock, while counts and ROS/GIS remained unchanged.
+- GREEN: refreshed only the three changed digests. The focused full-structure test passed, then passed three consecutive identical runs; the unchanged counts and ROS/GIS digest remain explicit assertions.
+- Full gates: `421 passed` Python operations tests, `41 passed` Node harness/browser tests, Black, builder Bash syntax, Python byte compilation, and `git diff --check` passed. The pre-existing `pytest-asyncio` warning remains unrelated.
+- Primary QCHECK: no findings. The test oracle is the independent ARM64 derivation, not the production lock; requirements, service order, counts, builder logic, and manifest wiring are unchanged. The next exact-merge bundle build remains the fail-closed integration gate.
+
+## Review (2026-08-11 12:04:52 +0700) - working-tree exact-merge ARM64 Python closure refresh
+
+### Reviewed
+- Repo: `/Users/subhajlimanond/dev/munbon2-backend-python-closure-refresh-a71`
+- Branch: `fix/refresh-python-wheel-closure-a71`
+- Scope: working tree based on `a71bd1edba7935962e207a4e08a6f983539f9fdb`
+- Commands Run: bounded Auggie attempt with targeted fallback; exact old/new wheel filename comparison; focused RED/GREEN; full Python and Node operations suites; focused contract three times; Black; builder Bash syntax; Python byte compilation; staged name/stat and targeted diff; `git diff --check`
+
+### Findings
+CRITICAL
+- No findings.
+
+HIGH
+- No findings.
+
+MEDIUM
+- No findings.
+
+LOW
+- No findings.
+
+### Open Questions / Assumptions
+- Public registry candidates can drift again before a later build; the aggregate digest gate intentionally fails closed and requires a new reviewed lock rather than silently accepting different bytes.
+
+### Recommended Tests / Validation
+- Merge through one ordinary PR, rebuild the complete dependency archive at the exact new merge SHA, and require schema 2 plus all offline dependency validators to pass before qualification.
+
+### Rollout Notes
+- No guest creation, canonical mutation, acceptance stage, deployment, activation, or AWS action occurred during this refresh.
+- Formal g-check disposition: no remaining CRITICAL/HIGH/MEDIUM/LOW findings; proceed through the standard sequential PR lifecycle.
