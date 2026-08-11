@@ -1035,3 +1035,76 @@ LOW
 ### Rollout Notes
 - Formal g-check disposition: no remaining CRITICAL/HIGH/MEDIUM/LOW findings. No migration, stage-suite, public-contract, architecture, secret, host-runtime, deployment, activation, or AWS change is included.
 - Source validation is not authoritative acceptance; the preserved canonical guest remains unchanged at truthful `1/9 PASS` pending exact-merge qualification.
+
+## PostGIS exact-merge qualification and canonical attempt 1 of 3 (2026-08-12)
+
+- PR #183 merged through the documented infrastructure exception as `84bb52471fc146437c56dac034b6ebaf80410850`; both hosted secret-scan jobs failed in one second with zero steps. Local `main == origin/main`, exact-SHA post-merge gates passed `428` Python and `41` Node tests plus Black, Bash syntax, and Python byte compilation.
+- Exact dependency bundle `/Users/subhajlimanond/dev/munbon2-backend-external-evidence/2026-08-12-phase-d-84bb5247-dependencies.tar.gz` is size `1616147842`, mode 600, SHA-256 `7e38bffd2be38ffbcca96f89f0efd5b0c0456b5b1daef3ab179cd85aeb6abc8c`; diagnostic construction, network-isolated validation, host validation, and cleanup passed.
+- Disposable qualification guest `munbon-control-plan-postgis-qualification` (`01KZSFDAG9HRQ9366CDYANRCZ6`) matched the isolated Debian 12 ARM64 8 GiB/4 CPU/40 GiB shape. It verified `968` bundle artifacts and `471` exact package specs, installed `postgresql-15-postgis-3=3.3.2+dfsg-1+b1` plus scripts, found the PostgreSQL 15 control file, created extension version `3.3.2`, proved forced `ON_ERROR_STOP` failure exits nonzero, returned empty `dpkg --audit`, and passed `apt-get check`. No owner/provisioning/acceptance state was created.
+- Qualification evidence archive `/Users/subhajlimanond/dev/munbon2-backend-external-evidence/2026-08-12-postgis-qualification-84bb5247.tar.gz` is mode 600 with SHA-256 `81ccd4a9d9b72e84790286cfe4c242c968cd7abea2b2006324e4ad596cd444f2`; inner and outer checks passed. The disposable guest was deleted only after host verification.
+- The predecessor canonical archive reverified at guest-inner and host-outer layers with archive SHA-256 `686e766ca5a5960b4e601430312778c12f2f8715fca328223ab43e766a196868` and outer-index SHA-256 `d4e87bc597814a83e20d8f31ab39bf06d7d5f4b58e1d1b30c236c908b4731324`. Exact failed guest `01KZSBJAXZGWE9EF60KCR2CWMK` was then deleted by its uniquely mapped name; its archive remains preserved.
+- Fresh canonical guest `munbon-control-plan-local` (`01KZSFRFVGHBQA90S6ZPRV1X0R`) provisioned ready with exact backend/frontend/dependency bindings, zero evidence files, no bootstrap-failure artifact, exact PostGIS packages, and extension version `3.3.2` in `munbon_local`.
+- The pinned `--as-of-date 2026-08-12` run passed `LOCAL-BASE-0` and failed `LOCAL-RTA-1` at `prometheus_config_failed`; stages 3–9 did not run. Attempt 1 of 3 is consumed and remains truthfully `1/9 PASS`.
+- Failure evidence archive `/Users/subhajlimanond/dev/munbon2-backend-external-evidence/2026-08-12-nine-stage-orbstack-84bb5247-attempt-1.tar.gz` is size `3240`, mode 600, SHA-256 `526375909c79af34e5e404dc84497bd609b6ed97093761d5ec1ea20a7944bf90`; guest-inner and host-outer checks passed, and outer-index SHA-256 is `5c5878b01f9fed52484a8b09f0a37d195bdb794cdde7e1085b75eb13d49dbd75`.
+- Read-only diagnosis proved the secrets block's `umask 077` persists into monitoring setup. All three `/etc/prometheus/control-plane-*-targets.json` files are root-owned mode 600; `promtool check config` succeeds as root but fails as the actual `munbon` stage user with permission denied. PM2 apps were empty after cleanup, port 9999 was absent, infrastructure listeners remained loopback-only, and no write-stage evidence exists. The canonical guest is preserved without repair or replay.
+- The PR #183 helper worktree was clean, its commit reachable from `origin/main`, and its Coding Log byte-identical to the retained main copy; it was removed and worktree metadata pruned. All baseline worktrees, older stashes, and two untracked primary pointer backups remain untouched.
+
+## Prometheus file_sd mode remediation authorization and context (2026-08-12)
+
+- Standing campaign authorization continues with attempt accounting at 1 of 3 consumed. This TDD/PR/qualification/canonical-replacement lifecycle is within scope; production/AWS, secrets changes, host updates, external resources, public contracts, and architecture remain excluded.
+- Worktree ledger: `/Users/subhajlimanond/dev/munbon2-backend-prometheus-file-sd-modes`, branch `fix/prometheus-file-sd-modes`, based on refreshed `origin/main@84bb52471fc146437c56dac034b6ebaf80410850`; intended disposition is merge then verified removal.
+- Auggie semantic retrieval timed out at the two-second bound. Targeted fallback inspected secret creation and permissions, monitoring file generation, actual stage execution user, `_monitoring_preflight`, failure publication, artifact tests, guest modes, and the exact non-root `promtool` error.
+
+## Prometheus file_sd mode remediation TDD and gates (2026-08-12)
+
+- Root cause: `bootstrap-linux.sh` intentionally enters `umask 077` while creating credentials and never relaxes it. That correctly protects the secrets file and runtime environment, but the later non-secret Prometheus file-SD JSON targets inherited mode 600 and were unreadable by the `munbon` acceptance-stage user.
+- RED contract: `test_bootstrap_keeps_secrets_private_and_prometheus_targets_readable` requires the existing secrets and runtime-environment `chmod 600` contracts, requires one exact `chmod 0644` block containing only the central, field, and readiness target JSON paths, and requires that block to occur after all three files are written. It failed because no readable target mode existed.
+- GREEN implementation: after writing the three non-secret file-SD targets, bootstrap explicitly sets only those exact paths to mode 0644. It does not restore the global umask or broaden any credential permissions, so secrets remain mode 600 throughout creation and use.
+- The focused regression passed after formatting and then passed three consecutive identical repeat runs. The complete operations suites passed `429` Python tests and `41` Node harness/browser tests; changed-file Black, Python byte compilation, Bash syntax, and `git diff --check` passed.
+- A broader Black check also reported the unchanged pre-existing `seed-approved-sources.py` would be reformatted. This remediation does not alter that unrelated file; the changed Python test passes Black exactly.
+- Files changed: `ops/control-plan-read-local/bootstrap-linux.sh`, `ops/control-plan-read-local/tests/test_local_artifacts.py`, and this Coding Log. No public contract, architecture, credential value, secret mode, orchestrator, stage logic, guest, production/AWS resource, or host software changed.
+
+Wiring verification:
+
+| Component | Non-test call site | Registration/config load | Schema/contract match |
+| --- | --- | --- | --- |
+| Prometheus file-SD targets | `bootstrap-linux.sh` monitoring phase writes the three JSON files | Existing `infra/monitoring/control-plane-prometheus.yml` file-SD jobs load those exact paths; the acceptance preflight runs `promtool` as `munbon` | Only non-secret target descriptors become world-readable; secret/runtime files remain owner-readable mode 600 |
+| Canonical provisioning | `orchestrate.py` transfers and invokes `bootstrap-linux.sh` | Existing ready-state provisioning contract | The change occurs before ownership completion and preserves fail-closed bootstrap behavior |
+| Runtime acceptance | Existing LOCAL-RTA-1 monitoring preflight | Existing stage runner defaults to the `munbon` guest user | Non-root `promtool check config` can read the configured target files without gaining access to credentials |
+
+- Primary QCHECK: no remaining correctness, security, test-strength, integration, or wiring finding. Runtime qualification must still prove exact-merge target modes, retained secret mode 600, and successful non-root `promtool` before deleting the preserved canonical failure guest.
+- Independent Terra QCHECK: no P0/P1 source finding and GO for source delivery. Its P2 observation is that the repository test is structural rather than a live privilege/mode test; disposition is an explicit required qualification predicate, not an additional source change: prove all three targets are `root:root` mode 0644, runtime env files remain mode 0600, and `runuser -u munbon -- promtool check config ...` exits zero on a disposable exact-merge guest.
+
+## Review (2026-08-12) - staged Prometheus file-SD target mode remediation
+
+### Reviewed
+- Repo: `/Users/subhajlimanond/dev/munbon2-backend-prometheus-file-sd-modes`
+- Branch: `fix/prometheus-file-sd-modes`
+- Scope: staged working tree based on `84bb52471fc146437c56dac034b6ebaf80410850`
+- Commands Run: bounded Auggie attempt with targeted fallback; exact guest failure inspection; focused RED/GREEN and three repeats; complete Python and Node operations suites; changed-file Black; Bash syntax; Python byte compilation; `git diff --check`; staged name/stat and targeted diff review; primary and independent QCHECK; wiring trace
+
+### Findings
+CRITICAL
+- No findings.
+
+HIGH
+- No findings.
+
+MEDIUM
+- No source finding. Runtime qualification remains required because the source regression is structural: exact-merge evidence must prove the three target modes, retained secret modes, and non-root `promtool` success before canonical deletion.
+
+LOW
+- No findings.
+
+### Open Questions / Assumptions
+- The three Prometheus file-SD target descriptors are non-secret static loopback endpoints. This is consistent with the checked-in monitoring configuration and the failed guest contents.
+- The unchanged pre-existing `seed-approved-sources.py` Black drift is outside this remediation; all changed Python passes Black.
+
+### Recommended Tests / Validation
+- Build the dependency archive from the exact merge SHA and validate its checksum and restrictive host mode.
+- On one disposable pristine guest, prove the exact three files are `root:root` 0644, runtime env files remain 0600, and `promtool check config` succeeds as `munbon`, without creating owner/provisioning/acceptance state.
+- Verify the preserved attempt-1 archive at guest-inner and host-outer layers before replacing only the uniquely mapped campaign canonical guest for attempt 2 of 3.
+
+### Rollout Notes
+- Formal g-check disposition: no remaining CRITICAL/HIGH/MEDIUM/LOW source finding. The independent P2 validation boundary is accepted as a mandatory runtime qualification gate and must not be represented as authoritative acceptance.
+- No public contract, architecture, secret value/mode, stage logic, deployment, production/AWS resource, or host software change is included.

@@ -495,6 +495,10 @@ EOF
 cat > /etc/prometheus/control-plane-readiness-targets.json <<'EOF'
 [{"targets":["http://127.0.0.1:3021/ready"]}]
 EOF
+chmod 0644 \
+  /etc/prometheus/control-plane-central-targets.json \
+  /etc/prometheus/control-plane-field-targets.json \
+  /etc/prometheus/control-plane-readiness-targets.json
 
 phase ownership
 substep pm2-daemon
