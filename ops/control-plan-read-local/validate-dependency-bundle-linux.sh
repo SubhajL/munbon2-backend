@@ -30,7 +30,8 @@ tar -xJf "${BUNDLE_ROOT}/node-v22.23.1-linux-arm64.tar.xz" \
 NODE_ROOT="${SCRATCH_ROOT}/node"
 if [[ \
   "$("${SCRATCH_ROOT}/node/bin/node" --version)" != "v22.23.1" \
-  || "$("${SCRATCH_ROOT}/node/bin/npm" --version)" != "10.9.8" \
+  || "$(env PATH="${NODE_ROOT}/bin:/usr/bin:/bin" \
+    "${NODE_ROOT}/bin/npm" --version)" != "10.9.8" \
 ]]; then
   printf '%s\n' "FAIL dependency_validation_node" >&2
   exit 1

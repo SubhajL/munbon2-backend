@@ -122,7 +122,8 @@ tar -xJf "${DEPENDENCY_ROOT}/${NODE_ARCHIVE}" \
   --strip-components=1 --directory="${NODE_ROOT}"
 if [[ \
   "$("${NODE_ROOT}/bin/node" --version)" != "v${NODE_VERSION}" \
-  || "$("${NODE_ROOT}/bin/npm" --version)" != "10.9.8" \
+  || "$(env PATH="${NODE_ROOT}/bin:/usr/bin:/bin" \
+    "${NODE_ROOT}/bin/npm" --version)" != "10.9.8" \
 ]]; then
   echo "FAIL node_runtime_version" >&2
   exit 1
