@@ -1572,6 +1572,16 @@ def _pm2_command(*arguments: str) -> list[str]:
     return [str(NODE_ROOT / "bin/node"), str(PM2_CLI), *arguments]
 
 
+def _pm2_runtime_environment(context: StageContext) -> dict[str, str]:
+    return {
+        **os.environ,
+        "MUNBON_RUNTIME_ENV_DIR": str(context.runtime_env_dir),
+        "PATH": os.pathsep.join(
+            (str(PM2_CLI.parent), str(NODE_ROOT / "bin"), "/usr/bin", "/bin")
+        ),
+    }
+
+
 def _pm2_json() -> str:
     return _run_checked("pm2_snapshot", _pm2_command("jlist"), timeout=30)
 
@@ -2131,7 +2141,7 @@ def run_local_rta(context: StageContext) -> dict:
     steps["install_manifests"] = _install_manifests(context)
     steps["migration_parity"] = _apply_migrations(context)
     steps["monitoring_preflight"] = _monitoring_preflight(context)
-    runtime_env = {**os.environ, "MUNBON_RUNTIME_ENV_DIR": str(context.runtime_env_dir)}
+    runtime_env = _pm2_runtime_environment(context)
     _run_checked(
         "start_four_processes",
         _pm2_command("start", "ecosystem.config.cjs", "--update-env"),

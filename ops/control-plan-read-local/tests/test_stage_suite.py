@@ -208,6 +208,33 @@ def test_rta_order_saves_pm2_only_after_stability_and_bearer():
     assert order.index("pm2_save_and_evidence") > order.index("bearer_lifecycle")
 
 
+def test_rta_runtime_environment_resolves_checksum_bound_pm2_without_ambient_cli(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("PATH", "/untrusted/bin")
+    context = stage_suite.StageContext(
+        release_sha="8" * 40,
+        frontend_sha="9" * 40,
+        repo_root=tmp_path / "repo",
+        harness_root=tmp_path / "harness",
+        evidence_root=tmp_path / "evidence",
+        runtime_env_dir=tmp_path / "runtime",
+    )
+
+    environment = stage_suite._pm2_runtime_environment(context)
+
+    assert environment["MUNBON_RUNTIME_ENV_DIR"] == str(context.runtime_env_dir)
+    assert environment["PATH"].split(os.pathsep) == [
+        str(stage_suite.PM2_CLI.parent),
+        str(stage_suite.NODE_ROOT / "bin"),
+        "/usr/bin",
+        "/bin",
+    ]
+    assert "runtime_env = _pm2_runtime_environment(context)" in inspect.getsource(
+        stage_suite.run_local_rta
+    )
+
+
 def test_read_activation_build_sequence_is_false_true_false():
     assert stage_suite.read_activation_flag_sequence() == (False, True, False)
 
