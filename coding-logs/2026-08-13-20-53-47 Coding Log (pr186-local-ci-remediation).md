@@ -307,6 +307,14 @@ LOW
 - Hosted zero-step jobs remain infrastructure-blocked, never passing; local evidence is reported separately.
 - Formal g-check disposition: no remaining CRITICAL/HIGH/MEDIUM/LOW findings.
 
+## Candidate-SHA secret-scan evidence (2026-08-13 21:21 +07)
+
+- Candidate source commit: `2c7cb5f8` (`fix(ci): restore control-plane local gates`).
+- `full-tree-baseline`: PASS using the tracked `.github/workflows/secret-scan.yml` logic against the candidate working tree. No leaked-password carrier, unlisted legacy-IP carrier, or stale baseline notice was emitted.
+- The first `scan-diff` reproduction was rejected as invalid evidence: zsh did not split the workflow's Bash `DIFF_FLAGS` scalar, `git diff` printed usage, and an empty downstream file would have produced a false PASS.
+- Corrected exact-range reproduction explicitly expanded every tracked flag, required both endpoint and per-commit patch commands to succeed, required non-empty added-line input, and scanned base `2e5597c46cfb7a2fcad32a14aca99fdc6402c7f9` through candidate `2c7cb5f8`: PASS.
+- These are local exact-candidate source checks. Hosted jobs remain separate zero-step infrastructure-blocked evidence until GitHub billing is restored.
+
 ### Repeated focused and quality evidence
 
 - Four artifact contracts plus the BFF parity test passed three consecutive runs: each run was 4 passed plus 1 passed.
