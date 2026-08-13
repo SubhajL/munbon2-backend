@@ -108,6 +108,7 @@ jobs:
       - name: Bare pytest (the gate); integration suites skip without a DB
         env:
           PYTHONPATH: src
+          POSTGRES_URL: postgresql://ci-dummy:ci-dummy@ci-dummy:5432/ci_dummy
           REDIS_URL: redis://ci-dummy:6379/0
           ROS_SERVICE_URL: http://ci-dummy:3000
           GIS_SERVICE_URL: http://ci-dummy:3000
@@ -315,6 +316,13 @@ jobs:
           POSTGRES_URL: postgresql://postgres:postgres@127.0.0.1:5432/scheduler_test
         run: |
           python migrations/migrate.py apply-all
+          python migrations/migrate.py rollback 0013_operator_approved_execution
+          python migrations/migrate.py rollback 0012_authority_grants
+          python migrations/migrate.py rollback 0011_gate_readback_observations
+          python migrations/migrate.py rollback 0010_shadow_dispatch_receipts
+          python migrations/migrate.py rollback 0009_open_loop_execution
+          python migrations/migrate.py rollback 0008_control_plan_active_supersede
+          python migrations/migrate.py rollback 0007_control_plan_shadow_activation
           python migrations/migrate.py rollback 0006_control_plan_campaign_identity
           python migrations/migrate.py rollback 0005_control_plan_provenance_v2
           python migrations/migrate.py rollback 0004_control_plan_list_indexes
@@ -331,6 +339,7 @@ jobs:
         env:
           PYTHONPATH: src
           # A DISPOSABLE loopback DB — the integration guard rejects non-loopback.
+          POSTGRES_URL: postgresql://postgres:postgres@127.0.0.1:5432/scheduler_test
           SCHEDULER_TEST_POSTGRES_URL: postgresql://postgres:postgres@127.0.0.1:5432/scheduler_test
           REDIS_URL: redis://ci-dummy:6379/0
           ROS_SERVICE_URL: http://ci-dummy:3000

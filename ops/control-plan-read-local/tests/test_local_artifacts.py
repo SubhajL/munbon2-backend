@@ -11,6 +11,121 @@ LOCAL_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = LOCAL_DIR.parents[1]
 
 
+def _workflow_job(workflow: str, job_name: str, next_job_name: str) -> str:
+    return workflow.split(f"  {job_name}:\n", 1)[1].split(f"\n  {next_job_name}:\n", 1)[
+        0
+    ]
+
+
+def _workflow_step(job: str, step_name: str) -> str:
+    return job.split(f"      - name: {step_name}\n", 1)[1].split("\n      - name: ", 1)[
+        0
+    ]
+
+
+def _workflow_step_env(step: str) -> dict[str, str]:
+    env_block = step.split("        env:\n", 1)[1].split("\n        run:", 1)[0]
+    return {
+        key: value
+        for line in env_block.splitlines()
+        if (match := re.fullmatch(r"          ([A-Z][A-Z0-9_]*): (.+)", line))
+        for key, value in [match.groups()]
+    }
+
+
+def _workflow_rollback_ids(step: str) -> list[str]:
+    return re.findall(
+        r"^          python migrations/migrate\.py rollback ([a-z0-9_]+)$",
+        step,
+        flags=re.MULTILINE,
+    )
+
+
+def test_scheduler_bare_pytest_job_provides_required_postgres_url():
+    workflow = (
+        REPO_ROOT / ".github/workflows/control-plane-hardening-tests.yml"
+    ).read_text(encoding="utf-8")
+    scheduler_job = _workflow_job(workflow, "scheduler-tests", "bff-tests")
+    pytest_step = _workflow_step(
+        scheduler_job, "Bare pytest (the gate); integration suites skip without a DB"
+    )
+
+    assert _workflow_step_env(pytest_step)["POSTGRES_URL"] == (
+        "postgresql://ci-dummy:ci-dummy@ci-dummy:5432/ci_dummy"
+    )
+
+
+def test_scheduler_postgres_integration_provides_runtime_postgres_url():
+    workflow = (
+        REPO_ROOT / ".github/workflows/control-plane-hardening-tests.yml"
+    ).read_text(encoding="utf-8")
+    scheduler_job = _workflow_job(
+        workflow, "scheduler-postgres-integration", "scada-gate-control-tests"
+    )
+    integration_step = _workflow_step(
+        scheduler_job, "Env-gated control-plan integration suites (real Postgres)"
+    )
+
+    assert _workflow_step_env(integration_step)["POSTGRES_URL"] == (
+        "postgresql://postgres:postgres@127.0.0.1:5432/scheduler_test"
+    )
+
+
+def test_scheduler_postgres_workflow_rolls_back_every_migration_in_reverse_order():
+    workflow = (
+        REPO_ROOT / ".github/workflows/control-plane-hardening-tests.yml"
+    ).read_text(encoding="utf-8")
+    scheduler_job = _workflow_job(
+        workflow, "scheduler-postgres-integration", "scada-gate-control-tests"
+    )
+    migration_round_trip = scheduler_job.split(
+        "python migrations/migrate.py apply-all", 1
+    )[1].split("python migrations/migrate.py apply-all", 1)[0]
+    rollback_ids = _workflow_rollback_ids(migration_round_trip)
+    migration_ids = [
+        path.name.removesuffix(".up.sql")
+        for path in sorted(
+            (REPO_ROOT / "services/scheduler/migrations").glob("*.up.sql")
+        )
+    ]
+
+    assert rollback_ids == list(reversed(migration_ids))
+
+
+def test_workflow_contract_ignores_commented_or_mis_scoped_values():
+    assert _workflow_step_env(
+        "        env:\n"
+        "          # POSTGRES_URL: postgresql://comment-only\n"
+        "          SCHEDULER_TEST_POSTGRES_URL: postgresql://test-only\n"
+        "        run: python -m pytest -q\n"
+    ) == {"SCHEDULER_TEST_POSTGRES_URL": "postgresql://test-only"}
+    assert (
+        _workflow_rollback_ids(
+            "          # python migrations/migrate.py rollback 0013_comment_only\n"
+            "        python migrations/migrate.py rollback 0012_wrong_indent\n"
+        )
+        == []
+    )
+
+
+def test_full_tree_baseline_lists_scheduler_legacy_ip_carrier():
+    legacy_ip = "43.208." "201.191"
+    carrier_path = (
+        "services/scheduler/coding-logs/"
+        "2026-07-18 Impl (pr-4-4a-2-runtime-readiness).md"
+    )
+    baseline = {
+        line
+        for line in (REPO_ROOT / ".security/full-tree-baseline.txt")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line and not line.startswith("#")
+    }
+
+    if legacy_ip in (REPO_ROOT / carrier_path).read_text(encoding="utf-8"):
+        assert carrier_path in baseline
+
+
 def test_bootstrap_is_valid_bash_and_provisions_only_isolated_manifests():
     path = LOCAL_DIR / "bootstrap-linux.sh"
     body = path.read_text(encoding="utf-8")

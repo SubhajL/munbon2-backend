@@ -2,11 +2,11 @@
 # Files known to carry the legacy production IP (43.208[.]201[.]191 — bracketed here so the diff gate never matches this header) from before the
 # remediation. The full-tree scan FAILS on any file NOT in this list. Shrink this
 # list as files are cleaned; it must reach zero after the E2 history purge and the
-# infra move off the leaked host. NEVER add new entries to silence a failure —
-# fix the file instead.
+# infra move off the leaked host. NEVER add a newly introduced carrier to silence
+# a failure — fix the file instead. A proven pre-baseline omission may be listed
+# only with explicit approval and source-history evidence; then clean it normally.
 .env.example
 .github/workflows/deploy-ec2-fixed.yml
-.github/workflows/deploy-flow-monitoring.yml
 .github/workflows/deploy-simple-ssh.yml
 .github/workflows/deploy-with-proper-decode.yml
 .github/workflows/test-secrets.yml
@@ -180,6 +180,7 @@ services/ros/scripts/migrate-ros-simple.sh
 services/ros/scripts/migrate-ros-to-ec2-direct.sh
 services/ros/scripts/migrate-ros-to-ec2-psql.sh
 services/ros/scripts/migrate-ros-to-ec2.sh
+services/scheduler/coding-logs/2026-07-18 Impl (pr-4-4a-2-runtime-readiness).md
 services/scheduler/scripts/setup-ec2-schema.sh
 services/sensor-data/analyze-moisture-patterns.sh
 services/sensor-data/analyze-specific-moisture-data.sh
