@@ -12,6 +12,7 @@ def build_flow_demand_records(records: Sequence[Mapping]) -> list[dict]:
         window_end = row["delivery_window_end"]
         input_versions = dict(row["input_versions"])
         input_versions["local_requirement_id"] = str(row["requirement_id"])
+        input_versions["requirement_method"] = row["requirement_method_version"]
         result.append(
             {
                 "area_type": "section",

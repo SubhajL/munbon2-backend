@@ -5,15 +5,17 @@
 # real gate today. It is written to be CORRECT so that restoring Actions billing
 # (and making this a required check) needs no rework.
 #
-# Nine jobs:
+# Ten jobs:
 #   - scheduler-tests: the scheduler bare-pytest gate (integration suites skip
 #     without SCHEDULER_TEST_POSTGRES_URL). Also covers the PR 6.0 Python half of
 #     the machine-boundary v1 contract (jsonschema + pydantic).
 #   - bff-tests: the bff-water-planning bare-pytest gate.
-#   - ros-roster-tests: the ROS authoritative roster source-loader and shared
-#     planning-depth-roster contract gate.
+#   - ros-tests: the complete ROS-GIS source suite (DB contracts skip without
+#     their explicit disposable-database URLs).
 #   - ros-postgis-integration: the authoritative source-loader activation and
 #     immutable requirement publication gate against disposable PostGIS.
+#   - control-plan-local-harness-tests: the host orchestrator, exact stage
+#     contracts, partial-failure collector, and campaign-ledger validation.
 #   - bff-postgres-integration: the planning-depth migration, immutable
 #     submission ledger, replay/conflict, concurrency, and rollback gate against
 #     an ephemeral loopback Postgres.
@@ -38,6 +40,9 @@ on:
       - "services/scheduler/**"
       - "services/bff-water-planning/**"
       - "services/ros-gis-integration/**"
+      - "ops/control-plan-read-local/**"
+      - "docs/operations/control-plan-campaign-ledger.jsonl"
+      - "docs/operations/CONTROL_PLAN_ALL_STAGES_LOCAL_ACCEPTANCE.md"
       - "services/scada-gate-control/**"
       - "services/scada-gate-control-web/**"
       - "contracts/control-plans/**"
@@ -57,6 +62,9 @@ on:
       - "services/scheduler/**"
       - "services/bff-water-planning/**"
       - "services/ros-gis-integration/**"
+      - "ops/control-plan-read-local/**"
+      - "docs/operations/control-plan-campaign-ledger.jsonl"
+      - "docs/operations/CONTROL_PLAN_ALL_STAGES_LOCAL_ACCEPTANCE.md"
       - "services/scada-gate-control/**"
       - "services/scada-gate-control-web/**"
       - "contracts/control-plans/**"
@@ -135,7 +143,7 @@ jobs:
           CORS_ORIGINS: http://localhost:3000
         run: python -m pytest -q
 
-  ros-roster-tests:
+  ros-tests:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -149,13 +157,46 @@ jobs:
           cache-dependency-path: services/ros-gis-integration/requirements.txt
       - name: Install pinned dependencies
         run: pip install -r requirements.txt
-      - name: ROS-GIS unit suites (source-loader, roster contract, dataset-version immutability, dataset-version schema + migration runner)
+      - name: ROS-GIS complete source suite (DB contracts skip without their explicit URLs)
+        run: python -m pytest -q
+
+  control-plan-local-harness-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: services/ros-gis-integration/requirements.txt
+      - name: Install pinned ROS-GIS dependencies
+        run: pip install -r services/ros-gis-integration/requirements.txt
+      - name: Local acceptance harness contracts
         run: >-
           python -m pytest -q
-          tests/unit/test_requirement_source_loader.py
-          tests/unit/test_planning_depth_roster_contract.py
-          tests/unit/test_dataset_version_immutability.py
-          tests/unit/test_dataset_version_schema.py
+          ops/control-plan-read-local/tests/test_stage_suite.py
+          ops/control-plan-read-local/tests/test_orchestrate.py
+          ops/control-plan-read-local/tests/test_seed_approved_sources.py
+          ops/control-plan-read-local/tests/test_local_artifacts.py
+      - name: Campaign ledger is valid and append-only
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          base_ledger="$RUNNER_TEMP/control-plan-campaign-ledger.base.jsonl"
+          if ! git cat-file -e "${BASE_SHA}^{commit}"; then
+            echo "campaign_ledger_base_commit_unavailable" >&2
+            exit 1
+          fi
+          if git cat-file -e "$BASE_SHA:docs/operations/control-plan-campaign-ledger.jsonl"; then
+            git show "$BASE_SHA:docs/operations/control-plan-campaign-ledger.jsonl" > "$base_ledger"
+          else
+            : > "$base_ledger"
+          fi
+          python ops/control-plan-read-local/orchestrate.py validate-campaign-ledger \
+            --campaign-ledger docs/operations/control-plan-campaign-ledger.jsonl \
+            --base-campaign-ledger "$base_ledger"
 
   ros-postgis-integration:
     runs-on: ubuntu-latest
@@ -192,6 +233,7 @@ jobs:
           python migrations/migrate.py apply 0001_dataset_version_parent
           python migrations/migrate.py apply 0002_water_requirement_publication
           python migrations/migrate.py apply 0003_daily_requirement_producer
+          python migrations/migrate.py apply 0004_dataset_version_identity_immutable
       - name: Authoritative roster activation and publication suites (real PostGIS)
         env:
           WATER_REQUIREMENT_TEST_POSTGRES_URL: postgresql://postgres:postgres@127.0.0.1:5432/ros_gis_roster_test

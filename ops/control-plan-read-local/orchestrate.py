@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 import hashlib
 import json
 import os
@@ -74,6 +74,196 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def validate_campaign_ledger(path: Path) -> list[dict]:
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        raise OrchestrationError("campaign_ledger_invalid") from exc
+    if not lines or any(not line for line in lines):
+        raise OrchestrationError("campaign_ledger_invalid")
+
+    entries: list[dict] = []
+    previous_entry_sha256: str | None = None
+    campaign_ids: set[str] = set()
+    for line in lines:
+        try:
+            entry = json.loads(line, object_pairs_hook=_strict_ledger_object)
+        except json.JSONDecodeError as exc:
+            raise OrchestrationError("campaign_ledger_invalid") from exc
+        if not isinstance(entry, dict) or set(entry) != {
+            "schema_version",
+            "campaign_id",
+            "recorded_at",
+            "candidate",
+            "guest",
+            "evidence",
+            "outcome",
+            "authorization",
+            "previous_entry_sha256",
+            "entry_sha256",
+        }:
+            raise OrchestrationError("campaign_ledger_schema_invalid")
+
+        candidate = entry["candidate"]
+        guest = entry["guest"]
+        evidence = entry["evidence"]
+        outcome = entry["outcome"]
+        authorization = entry["authorization"]
+        if (
+            type(entry["schema_version"]) is not int
+            or entry["schema_version"] != 1
+            or not isinstance(entry["campaign_id"], str)
+            or not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,127}", entry["campaign_id"])
+            or entry["campaign_id"] in campaign_ids
+            or not isinstance(entry["recorded_at"], str)
+            or not re.fullmatch(
+                r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", entry["recorded_at"]
+            )
+            or not _is_canonical_utc_timestamp(entry["recorded_at"])
+            or not isinstance(candidate, dict)
+            or set(candidate)
+            != {
+                "backend_sha",
+                "frontend_sha",
+                "dependency_sha256",
+                "harness_hashes",
+            }
+            or not isinstance(candidate.get("backend_sha"), str)
+            or not re.fullmatch(r"[0-9a-f]{40}", candidate["backend_sha"])
+            or not isinstance(candidate.get("frontend_sha"), str)
+            or not re.fullmatch(r"[0-9a-f]{40}", candidate["frontend_sha"])
+            or (
+                candidate.get("dependency_sha256") is not None
+                and (
+                    not isinstance(candidate["dependency_sha256"], str)
+                    or not re.fullmatch(r"[0-9a-f]{64}", candidate["dependency_sha256"])
+                )
+            )
+            or not isinstance(candidate.get("harness_hashes"), dict)
+            or not candidate["harness_hashes"]
+            or not all(
+                isinstance(name, str)
+                and re.fullmatch(r"[A-Za-z0-9_.-]+", name)
+                and isinstance(digest, str)
+                and re.fullmatch(r"[0-9a-f]{64}", digest)
+                for name, digest in candidate["harness_hashes"].items()
+            )
+            or not isinstance(guest, dict)
+            or set(guest) != {"name", "id", "architecture"}
+            or guest.get("name") != MACHINE_NAME
+            or guest.get("architecture") != "arm64"
+            or (
+                guest.get("id") is not None
+                and (
+                    not isinstance(guest["id"], str)
+                    or not re.fullmatch(r"[0-9A-HJKMNP-TV-Z]{26}", guest["id"])
+                )
+            )
+            or not isinstance(evidence, dict)
+            or set(evidence) != {"ref", "index_name", "index_sha256"}
+            or not isinstance(evidence.get("ref"), str)
+            or not evidence["ref"]
+            or evidence.get("index_name")
+            not in {"SHA256SUMS", "OUTER-SHA256SUMS", "PARTIAL-OUTER-SHA256SUMS"}
+            or not isinstance(evidence.get("index_sha256"), str)
+            or not re.fullmatch(r"[0-9a-f]{64}", evidence["index_sha256"])
+            or not isinstance(outcome, dict)
+            or set(outcome) != {"acceptance", "passed", "failed", "unreached"}
+            or outcome.get("acceptance") is not False
+            or not all(
+                isinstance(outcome.get(name), list)
+                for name in ("passed", "failed", "unreached")
+            )
+            or len(outcome["failed"]) != 1
+            or [*outcome["passed"], *outcome["failed"], *outcome["unreached"]]
+            != list(STAGE_ORDER)
+            or not isinstance(authorization, dict)
+            or set(authorization) != {"state", "attempt", "ceiling"}
+            or authorization.get("state") not in {"historical_closed", "exhausted"}
+            or (
+                authorization.get("state") == "historical_closed"
+                and (
+                    authorization.get("attempt") is not None
+                    or authorization.get("ceiling") is not None
+                )
+            )
+            or (
+                authorization.get("state") == "exhausted"
+                and (
+                    authorization.get("attempt") is None
+                    or authorization.get("ceiling") is None
+                )
+            )
+            or (
+                (authorization.get("attempt") is None)
+                != (authorization.get("ceiling") is None)
+            )
+            or (
+                authorization.get("attempt") is not None
+                and (
+                    type(authorization["attempt"]) is not int
+                    or type(authorization["ceiling"]) is not int
+                    or not 0 < authorization["attempt"] <= authorization["ceiling"]
+                    or (
+                        authorization["state"] == "exhausted"
+                        and authorization["attempt"] != authorization["ceiling"]
+                    )
+                )
+            )
+        ):
+            raise OrchestrationError("campaign_ledger_schema_invalid")
+        if entry["previous_entry_sha256"] != previous_entry_sha256:
+            raise OrchestrationError("campaign_ledger_chain_invalid")
+
+        claimed_entry_sha256 = entry["entry_sha256"]
+        canonical_entry = {
+            key: value for key, value in entry.items() if key != "entry_sha256"
+        }
+        actual_entry_sha256 = hashlib.sha256(
+            json.dumps(canonical_entry, sort_keys=True, separators=(",", ":")).encode(
+                "utf-8"
+            )
+        ).hexdigest()
+        if claimed_entry_sha256 != actual_entry_sha256:
+            raise OrchestrationError("campaign_ledger_entry_hash_invalid")
+        campaign_ids.add(entry["campaign_id"])
+        previous_entry_sha256 = claimed_entry_sha256
+        entries.append(entry)
+    return entries
+
+
+def _is_canonical_utc_timestamp(value: str) -> bool:
+    try:
+        parsed = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        return False
+    return parsed.strftime("%Y-%m-%dT%H:%M:%SZ") == value
+
+
+def _strict_ledger_object(pairs: list[tuple[str, object]]) -> dict:
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise OrchestrationError("campaign_ledger_schema_invalid")
+        result[key] = value
+    return result
+
+
+def validate_campaign_ledger_append_only(base_path: Path, path: Path) -> list[dict]:
+    entries = validate_campaign_ledger(path)
+    try:
+        base = base_path.read_bytes()
+        current = path.read_bytes()
+    except OSError as exc:
+        raise OrchestrationError("campaign_ledger_invalid") from exc
+    if not base:
+        return entries
+    validate_campaign_ledger(base_path)
+    if not base.endswith(b"\n") or not current.startswith(base):
+        raise OrchestrationError("campaign_ledger_history_rewritten")
+    return entries
 
 
 @dataclass(frozen=True)
@@ -956,7 +1146,7 @@ def finalize_evidence_collection(destination: Path) -> dict:
             or manifest.get("stage") != stage
             or manifest.get("verdict") != "PASS"
             or release_sha != state["release_sha"]
-            or (frontend_sha is not None and frontend_sha != state["frontend_sha"])
+            or frontend_sha != state["frontend_sha"]
         ):
             raise OrchestrationError("evidence_manifest_invalid")
 
@@ -971,6 +1161,164 @@ def finalize_evidence_collection(destination: Path) -> dict:
     )
     outer_path.chmod(0o600)
     return state
+
+
+def finalize_partial_failure_collection(destination: Path) -> dict:
+    outer_name = "PARTIAL-OUTER-SHA256SUMS"
+    summary_name = "PARTIAL-SUMMARY.json"
+    try:
+        artifacts = tuple(destination.iterdir())
+    except OSError as exc:
+        raise OrchestrationError("partial_evidence_inventory_invalid") from exc
+    if any(path.is_symlink() or not path.is_file() for path in artifacts):
+        raise OrchestrationError("partial_evidence_inventory_invalid")
+    artifact_names = {path.name for path in artifacts}
+    if (
+        "SHA256SUMS" not in artifact_names
+        or "stage-state.json" not in artifact_names
+        or outer_name in artifact_names
+        or summary_name in artifact_names
+    ):
+        raise OrchestrationError("partial_evidence_inventory_invalid")
+
+    try:
+        checksum_lines = (
+            (destination / "SHA256SUMS").read_text(encoding="utf-8").splitlines()
+        )
+    except OSError as exc:
+        raise OrchestrationError("partial_evidence_checksum_index_invalid") from exc
+    checksums: dict[str, str] = {}
+    for line in checksum_lines:
+        match = re.fullmatch(r"([0-9a-f]{64})  ([A-Za-z0-9_.-]+)", line)
+        if match is None or match.group(2) in checksums:
+            raise OrchestrationError("partial_evidence_checksum_index_invalid")
+        digest, name = match.groups()
+        checksums[name] = digest
+    expected_index_names = artifact_names - {"SHA256SUMS", outer_name}
+    if set(checksums) != expected_index_names:
+        raise OrchestrationError("partial_evidence_inventory_invalid")
+    for name, digest in checksums.items():
+        if _sha256_file(destination / name) != digest:
+            raise OrchestrationError("partial_evidence_checksum_mismatch")
+
+    try:
+        state = json.loads(
+            (destination / "stage-state.json").read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError) as exc:
+        raise OrchestrationError("partial_evidence_state_invalid") from exc
+    if (
+        not isinstance(state, dict)
+        or set(state) != {"release_sha", "frontend_sha", "harness_hashes", "completed"}
+        or not re.fullmatch(r"[0-9a-f]{40}", state.get("release_sha", ""))
+        or not re.fullmatch(r"[0-9a-f]{40}", state.get("frontend_sha", ""))
+        or not isinstance(state.get("completed"), list)
+        or len(state["completed"]) >= len(STAGE_ORDER)
+        or state["completed"] != list(STAGE_ORDER[: len(state["completed"])])
+        or not isinstance(state.get("harness_hashes"), dict)
+        or set(state["harness_hashes"]) != set(EVIDENCE_HARNESS_ARTIFACTS)
+        or not all(
+            isinstance(name, str)
+            and isinstance(digest, str)
+            and re.fullmatch(r"[0-9a-f]{64}", digest)
+            for name, digest in state["harness_hashes"].items()
+        )
+    ):
+        raise OrchestrationError("partial_evidence_state_invalid")
+
+    completed = state["completed"]
+    failed_stage = STAGE_ORDER[len(completed)]
+    unreached_stages = STAGE_ORDER[len(completed) + 1 :]
+    if any(
+        name == f"{stage}.json" or name.startswith(f"{stage}-")
+        for name in artifact_names
+        for stage in unreached_stages
+    ):
+        raise OrchestrationError("partial_evidence_stage_sequence_invalid")
+    expected_manifests = {
+        *(f"{stage}.json" for stage in completed),
+        f"{failed_stage}-failure.json",
+    }
+    actual_manifests = {
+        name
+        for name in artifact_names
+        if any(
+            name in {f"{stage}.json", f"{stage}-failure.json"} for stage in STAGE_ORDER
+        )
+    }
+    if actual_manifests != expected_manifests:
+        raise OrchestrationError("partial_evidence_stage_sequence_invalid")
+
+    for stage in completed:
+        try:
+            manifest = json.loads(
+                (destination / f"{stage}.json").read_text(encoding="utf-8")
+            )
+        except (OSError, json.JSONDecodeError) as exc:
+            raise OrchestrationError("partial_evidence_manifest_invalid") from exc
+        release_sha = (
+            manifest.get("release_sha", manifest.get("backend_sha"))
+            if isinstance(manifest, dict)
+            else None
+        )
+        frontend_sha = (
+            manifest.get("frontend_sha") if isinstance(manifest, dict) else None
+        )
+        if (
+            not isinstance(manifest, dict)
+            or manifest.get("stage") != stage
+            or manifest.get("verdict") != "PASS"
+            or release_sha != state["release_sha"]
+            or frontend_sha != state["frontend_sha"]
+        ):
+            raise OrchestrationError("partial_evidence_manifest_invalid")
+
+    try:
+        failure = json.loads(
+            (destination / f"{failed_stage}-failure.json").read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError) as exc:
+        raise OrchestrationError("partial_evidence_manifest_invalid") from exc
+    if (
+        not isinstance(failure, dict)
+        or failure.get("stage") != failed_stage
+        or failure.get("verdict") != "FAIL"
+        or failure.get("release_sha") != state["release_sha"]
+        or failure.get("frontend_sha") != state["frontend_sha"]
+        or not isinstance(failure.get("failed_gate"), str)
+        or not failure["failed_gate"]
+    ):
+        raise OrchestrationError("partial_evidence_manifest_invalid")
+
+    summary = {
+        "acceptance_evidence": False,
+        "release_sha": state["release_sha"],
+        "frontend_sha": state["frontend_sha"],
+        "harness_hashes": state["harness_hashes"],
+        "completed": completed,
+        "failed_stage": failed_stage,
+        "failed_gate": failure["failed_gate"],
+        "passed": len(completed),
+        "failed": 1,
+        "unreached": len(STAGE_ORDER) - len(completed) - 1,
+    }
+    summary_path = destination / summary_name
+    summary_path.write_text(
+        json.dumps(summary, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+    summary_path.chmod(0o600)
+    outer_path = destination / outer_name
+    outer_path.write_text(
+        "".join(
+            f"{_sha256_file(path)}  {path.name}\n"
+            for path in sorted(destination.iterdir())
+            if path.name != outer_name
+        ),
+        encoding="utf-8",
+    )
+    outer_path.chmod(0o600)
+    return summary
 
 
 def collect_evidence(destination: Path) -> None:
@@ -1008,6 +1356,43 @@ def collect_evidence(destination: Path) -> None:
     )
     archive.unlink()
     finalize_evidence_collection(destination)
+
+
+def collect_partial_failure(destination: Path) -> dict:
+    destination.mkdir(mode=0o700, parents=True, exist_ok=True)
+    archive_name = "local-partial-failure-evidence.tar.gz"
+    archive = destination / archive_name
+    try:
+        with archive.open("wb") as stream:
+            result = subprocess.run(
+                build_guest_command(
+                    [
+                        "tar",
+                        "-C",
+                        "/var/lib/munbon-local-acceptance/evidence",
+                        "-czf",
+                        "-",
+                        ".",
+                    ],
+                    user="root",
+                ),
+                stdout=stream,
+                stderr=subprocess.PIPE,
+                check=False,
+                timeout=120,
+            )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise OrchestrationError("partial_evidence_stream_failed") from exc
+    if result.returncode != 0:
+        raise OrchestrationError("partial_evidence_stream_failed")
+    print("PASS partial_evidence_stream")
+    _run_checked(
+        "partial_evidence_extract",
+        ["tar", "-xzf", str(archive), "-C", str(destination)],
+        timeout=120,
+    )
+    archive.unlink()
+    return finalize_partial_failure_collection(destination)
 
 
 def collect_bootstrap_failure(destination: Path) -> dict:
@@ -1093,7 +1478,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "run-stage",
             "run-all",
             "collect",
+            "collect-partial-failure",
             "collect-bootstrap-failure",
+            "validate-campaign-ledger",
         ),
     )
     parser.add_argument("--repo", type=Path, default=Path.cwd())
@@ -1112,6 +1499,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--dependency-bundle", type=Path)
     parser.add_argument("--dependency-bundle-sha256")
     parser.add_argument("--bootstrap-failure-dir", type=Path)
+    parser.add_argument("--campaign-ledger", type=Path)
+    parser.add_argument("--base-campaign-ledger", type=Path)
     parser.add_argument("--as-of-date", default=None)
     parser.add_argument("--confirm-diagnostic-build", action="store_true")
     return parser.parse_args(argv)
@@ -1124,6 +1513,17 @@ def main(argv: list[str] | None = None) -> int:
             if args.bootstrap_failure_dir is None:
                 raise OrchestrationError("bootstrap_failure_dir_required")
             collect_bootstrap_failure(args.bootstrap_failure_dir)
+            return 0
+        if args.action == "validate-campaign-ledger":
+            if args.campaign_ledger is None:
+                raise OrchestrationError("campaign_ledger_path_required")
+            if args.base_campaign_ledger is None:
+                validate_campaign_ledger(args.campaign_ledger)
+            else:
+                validate_campaign_ledger_append_only(
+                    args.base_campaign_ledger, args.campaign_ledger
+                )
+            print("PASS campaign_ledger")
             return 0
         origin_main = _origin_main_sha(args.repo)
         frontend_origin_main = _origin_main_sha(args.frontend_repo)
@@ -1196,6 +1596,12 @@ def main(argv: list[str] | None = None) -> int:
             if args.evidence_dir is None:
                 raise OrchestrationError("evidence_dir_required")
             collect_evidence(args.evidence_dir)
+        elif args.action == "collect-partial-failure":
+            if args.evidence_dir is None:
+                raise OrchestrationError("evidence_dir_required")
+            print(
+                json.dumps(collect_partial_failure(args.evidence_dir), sort_keys=True)
+            )
         else:
             raise OrchestrationError("action_not_accepted")
     except OrchestrationError as exc:

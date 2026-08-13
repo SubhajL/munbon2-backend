@@ -383,7 +383,34 @@ gate was strengthened, and Stage 0/1 were rerun from a new evidence directory.
 
 ## Current local result
 
-The latest candidate result is acceptance-truthfully **7/9 PASS**:
+The latest canonical attempt is acceptance-truthfully **2 passed / 1 failed /
+6 unreached**, not 2/9 completed:
+
+- Backend: `5cfdb2a05b4ea4c2742250845ae55a76816700bd`
+- Frontend: `067b3e22401854f8c6d6db42dc0c5c1872fca6f8`
+- Dependency archive: `65b08e348b19a6467e44d6778aaa9d7734bfd34c4f87e8b1e8a4051e6561b4c4`
+- Guest ID: `01KZSKQ6FY4EVCCY94XGWZ9NDS`
+- `LOCAL-BASE-0`, `LOCAL-RTA-1`: PASS
+- `LOCAL-AC-1`: FAIL at `manual_requirement_run_not_accepted`
+- stages 4–9: unreached
+- authorization: attempt 3 of 3 consumed; no retry is authorized
+- external frozen archive:
+  `../munbon2-backend-external-evidence/2026-08-12-nine-stage-orbstack-5cfdb2a0-attempt-3/`
+- outer index SHA-256:
+  `34b952b660ec230ab2d9049b60f6dd8496561ce6e2860b377124c8ae48947ecd`
+
+The strict `collect` action remains 9/9-only. Use
+`collect-partial-failure` only to preserve an ordered-prefix failure bundle;
+its checksum-bound `PARTIAL-SUMMARY.json` and CLI output are explicitly
+`acceptance_evidence=false`, and it writes `PARTIAL-OUTER-SHA256SUMS`. The
+append-only campaign history is
+`docs/operations/control-plan-campaign-ledger.jsonl` and must pass
+`validate_campaign_ledger` before it is extended.
+
+### Historical seven-stage result
+
+The prior candidate result was acceptance-truthfully **7 passed / 1 failed /
+1 unreached**:
 
 - Backend: `0228f495b7708b92cc7526f201687eb5b1441565`
 - Frontend: `067b3e22401854f8c6d6db42dc0c5c1872fca6f8`

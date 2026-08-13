@@ -25,6 +25,7 @@ def _record():
         "delivery_window_end": datetime(2026, 7, 16, 19, tzinfo=UTC),
         "quality": "estimated",
         "input_versions": {"crop_register": "crop-v1"},
+        "requirement_method_version": "daily-requirement-v2",
         "computed_at": datetime(2026, 7, 15, 19, tzinfo=UTC),
         "downstream_version": 2,
     }
@@ -49,6 +50,7 @@ def test_build_flow_demand_records_preserves_immutable_section_lineage():
             "input_versions": {
                 "crop_register": "crop-v1",
                 "local_requirement_id": str(REQUIREMENT_ID),
+                "requirement_method": "daily-requirement-v2",
             },
             "method": "ros_daily_requirement_v1",
             "source_service": "ros-gis-integration",

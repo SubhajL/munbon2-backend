@@ -239,11 +239,22 @@ def validate_ros_lifecycle(payload: Any, *, manual_enabled: bool) -> dict:
 
 def validate_manual_requirement_run(status: int, body: Any, *, as_of_date: str) -> dict:
     try:
-        run_id = str(UUID(str(body["runId"])))
+        if type(body) is not dict or set(body) != {
+            "status",
+            "runId",
+            "asOfDate",
+            "requirementCount",
+        }:
+            raise ValueError
+        if type(body["runId"]) is not str:
+            raise ValueError
+        run_id = str(UUID(body["runId"]))
         if (
             status != 200
-            or body["status"] != "published"
+            or body["runId"] != run_id
+            or body["status"] not in {"published", "deduplicated"}
             or body["asOfDate"] != as_of_date
+            or type(body["requirementCount"]) is not int
             or body["requirementCount"] != 287
         ):
             raise ValueError
@@ -255,6 +266,59 @@ def validate_manual_requirement_run(status: int, body: Any, *, as_of_date: str) 
         }
     except (KeyError, TypeError, ValueError) as exc:
         raise StageGateError("manual_requirement_run_not_accepted") from exc
+
+
+def validate_manual_requirement_failure(
+    status: int, body: Any, *, as_of_date: str
+) -> None:
+    gates = {
+        "requirement_source_invalid": (
+            "failed_incomplete_source",
+            {"status", "reason", "asOfDate"},
+            "manual_requirement_source_invalid",
+        ),
+        "requirement_inputs_incomplete": (
+            "failed_incomplete_source",
+            {"status", "reason", "asOfDate"},
+            "manual_requirement_inputs_incomplete",
+        ),
+        "superseded_lineage": (
+            "rejected",
+            {"status", "reason", "asOfDate"},
+            "manual_requirement_superseded_lineage",
+        ),
+        "operational_date_mismatch": (
+            "rejected",
+            {"status", "reason", "asOfDate", "expectedAsOfDate"},
+            "manual_requirement_operational_date_mismatch",
+        ),
+    }
+    try:
+        if type(body) is not dict or set(body) != {"detail"}:
+            raise ValueError
+        detail = body["detail"]
+        if type(detail) is not dict:
+            raise ValueError
+        reason = detail["reason"]
+        expected_status, expected_keys, gate = gates[reason]
+        if (
+            status != 409
+            or set(detail) != expected_keys
+            or detail["status"] != expected_status
+            or detail["asOfDate"] != as_of_date
+            or (
+                reason == "operational_date_mismatch"
+                and (
+                    type(detail["expectedAsOfDate"]) is not str
+                    or date.fromisoformat(detail["expectedAsOfDate"]).isoformat()
+                    != detail["expectedAsOfDate"]
+                )
+            )
+        ):
+            raise ValueError
+    except (KeyError, TypeError, ValueError) as exc:
+        raise StageGateError("manual_requirement_run_not_accepted") from exc
+    raise StageGateError(gate)
 
 
 def validate_requirement_run_lineage(
@@ -2231,6 +2295,7 @@ def run_local_rta(context: StageContext) -> dict:
         "stage": "LOCAL-RTA-1",
         "verdict": "PASS",
         "release_sha": context.release_sha,
+        "frontend_sha": context.frontend_sha,
         "completed_at": _utc_timestamp(),
         "step_order": list(rta_step_order()),
         "steps": steps,
@@ -2356,7 +2421,7 @@ def _seed_approved_sources(context: StageContext) -> tuple[dict, dict[str, str]]
     try:
         evidence = json.loads(output)
         if (
-            evidence["scenario_version"] != "local-ac-1-v5"
+            evidence["scenario_version"] != "local-ac-1-v6"
             or evidence["section_count"] != 41
             or evidence["total_area_rai"] != "45204"
         ):
@@ -2507,6 +2572,12 @@ def run_local_ac(context: StageContext) -> dict:
             internal_trigger=manual_trigger,
             timeout=120,
         )
+        if run.status == 409:
+            validate_manual_requirement_failure(
+                run.status,
+                run.body,
+                as_of_date=as_of_date,
+            )
         run_evidence = validate_manual_requirement_run(
             run.status,
             run.body,
@@ -6110,6 +6181,7 @@ def main(argv: list[str] | None = None) -> int:
             "stage": stage,
             "verdict": "FAIL",
             "release_sha": args.release_sha,
+            "frontend_sha": args.frontend_sha,
             "failed_gate": str(safe_error),
             "failed_at": _utc_timestamp(),
         }

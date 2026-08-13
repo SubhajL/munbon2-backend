@@ -1,16 +1,25 @@
+import asyncio
 from contextlib import asynccontextmanager
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 import hashlib
 from pathlib import Path
 import re
+from uuid import uuid4
 from xml.etree import ElementTree
 from zipfile import ZipFile
 
 import pytest
+from fastapi import HTTPException
 
+from api.routes.water_requirements import (
+    ManualRequirementRunRequest,
+    trigger_daily_requirement_run,
+)
+from services.daily_requirement_job import DailyRequirementJob, operational_date
 from services.requirement_source_loader import (
     AuthoritativeRequirementSourceLoader,
+    RequirementConfigurationError,
     RequirementSourceError,
     _effective_section_master,
     _section_dataset_hash,
@@ -67,6 +76,13 @@ GIS_TAIL_AREAS = {
     43: 618,
 }
 XLSX_NAMESPACE = {"x": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+
+
+def test_load_requirement_source_manifest_classifies_unreadable_manifest_as_configuration_error(
+    tmp_path,
+):
+    with pytest.raises(RequirementConfigurationError):
+        load_requirement_source_manifest(tmp_path / "missing.json")
 
 
 class _RecordLike:
@@ -191,10 +207,37 @@ def _build(**overrides):
         "manifest": manifest,
         "section_dataset_version_id": 11,
         "gate_mapping_dataset_version_id": 12,
+        "source_effective_date": date(2026, 7, 16),
         "input_cutoff_at": CUTOFF,
     }
     values.update(overrides)
     return build_requirement_snapshot(**values)
+
+
+@pytest.mark.parametrize(
+    "input_cutoff_at",
+    [
+        datetime(2026, 8, 11, 16, 59, 59, tzinfo=UTC),
+        datetime(2026, 8, 11, 17, 0, tzinfo=UTC),
+        datetime(2026, 8, 11, 23, 59, 16, tzinfo=UTC),
+        datetime(2026, 8, 12, 0, 0, tzinfo=UTC),
+    ],
+)
+def test_build_requirement_snapshot_keeps_operational_date_separate_from_utc_cutoff(
+    input_cutoff_at,
+):
+    source_effective_date = date(2026, 8, 12)
+
+    snapshot = _build(
+        source_effective_date=source_effective_date,
+        input_cutoff_at=input_cutoff_at,
+    )
+
+    assert (
+        snapshot.source_effective_date,
+        snapshot.input_cutoff_at,
+        {section.as_of_date for section in snapshot.sections},
+    ) == (source_effective_date, input_cutoff_at, {source_effective_date})
 
 
 def test_approved_manifest_pins_d1_d3_d4_and_explicit_tail_crosswalk():
@@ -500,9 +543,7 @@ def test_effective_section_master_rejects_shifted_gis_tail_areas():
             "area_rai": (
                 Decimal("995")
                 if row["code"].endswith("-35")
-                else Decimal("358")
-                if row["code"].endswith("-36")
-                else row["area_rai"]
+                else Decimal("358") if row["code"].endswith("-36") else row["area_rai"]
             ),
         }
         for row in rows
@@ -570,12 +611,14 @@ def test_section_dataset_hash_binds_raw_gis_effective_rows_and_excel_authority()
         "section_master": {
             **manifest["section_master"],
             "section_memberships": [
-                {
-                    **row,
-                    "zone_number": 2,
-                }
-                if row["section_number"] == 3
-                else row
+                (
+                    {
+                        **row,
+                        "zone_number": 2,
+                    }
+                    if row["section_number"] == 3
+                    else row
+                )
                 for row in manifest["section_master"]["section_memberships"]
             ],
         },
@@ -595,14 +638,15 @@ class _Transaction:
 
 
 class _SourceConnection:
-    def __init__(self, planting_dates=None):
+    def __init__(self, planting_dates=None, gis_sections=None):
         self.queries = []
         self.planting_dates = planting_dates or _planting_dates()
+        self.gis_sections = gis_sections or _gis_sections()
 
     async def fetch(self, sql, *args):
         self.queries.append((sql, args))
         if "FROM gis.zone" in sql:
-            return _gis_sections()
+            return self.gis_sections
         if "FROM water_planning.zone_planting_dates" in sql:
             return self.planting_dates
         raise AssertionError(f"unexpected source query: {sql}")
@@ -663,6 +707,149 @@ class _LocalConnection:
         return _Transaction()
 
 
+class _ComposedRunStore:
+    def __init__(self, connection):
+        self.connection = connection
+        self.lock = asyncio.Lock()
+        self.started = []
+        self.batches = {}
+
+    @asynccontextmanager
+    async def locked_connection(self):
+        async with self.lock:
+            yield self.connection
+
+    async def find_matching_run(self, conn, as_of_date, content_hash):
+        return None
+
+    async def start(self, conn, snapshot, as_of_date, horizon_end, content_hash, now):
+        run = {
+            "run_id": uuid4(),
+            "as_of_date": as_of_date,
+            "content_hash": content_hash,
+        }
+        self.started.append(run)
+        return run
+
+    async def publish(self, conn, run, batch, now):
+        self.batches[run["run_id"]] = batch
+
+    async def fail(self, conn, run_id, reason):
+        raise AssertionError(f"unexpected run failure: {reason}")
+
+    async def flow_records(self, conn, run_id):
+        return list(self.batches[run_id].requirements)
+
+
+class _ComposedPublisher:
+    def __init__(self):
+        self.calls = []
+
+    async def publish(self, records):
+        self.calls.append(records)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("now", "expected_date"),
+    [
+        (datetime(2026, 8, 11, 16, 59, 59, tzinfo=UTC), date(2026, 8, 11)),
+        (datetime(2026, 8, 11, 17, 0, tzinfo=UTC), date(2026, 8, 11)),
+        (datetime(2026, 8, 11, 23, 59, 16, tzinfo=UTC), date(2026, 8, 12)),
+        (datetime(2026, 8, 12, 0, 0, tzinfo=UTC), date(2026, 8, 12)),
+    ],
+)
+async def test_manual_route_composes_job_loader_and_producer_across_bangkok_boundary(
+    now,
+    expected_date,
+):
+    source = _SourceConnection(
+        [
+            {
+                **row,
+                "planting_date": expected_date - timedelta(days=60),
+                "updated_at": now,
+            }
+            for row in _planting_dates()
+        ],
+        gis_sections=[
+            {**row, "crop_type": "rice", "create_date": now} for row in _gis_sections()
+        ],
+    )
+    local = _LocalConnection()
+
+    async def local_fetch(sql, *args):
+        local.queries.append((sql, args))
+        if "section_crop_settings" in sql:
+            return []
+        if "ros.eto_monthly" in sql:
+            return [{"month": 8, "eto_value": Decimal("93"), "updated_at": now}]
+        if "ros.kc_weekly" in sql:
+            return [
+                {
+                    "crop_type": "rice",
+                    "crop_week": week,
+                    "kc_value": Decimal("1.2"),
+                    "updated_at": now,
+                }
+                for week in range(1, 21)
+            ]
+        if "ros.effective_rainfall_monthly" in sql:
+            return [
+                {
+                    "crop_type": "rice",
+                    "month": 8,
+                    "effective_rainfall_mm": Decimal("31"),
+                    "updated_at": now,
+                }
+            ]
+        raise AssertionError(f"unexpected local query: {sql}")
+
+    local.fetch = local_fetch
+
+    @asynccontextmanager
+    async def source_connection():
+        yield source
+
+    store = _ComposedRunStore(local)
+    publisher = _ComposedPublisher()
+    job = DailyRequirementJob(
+        run_store=store,
+        source_loader=AuthoritativeRequirementSourceLoader(source_connection),
+        publisher=publisher,
+        cron="0 2 * * *",
+        timezone_name="Asia/Bangkok",
+        horizon_days=7,
+    )
+
+    accepted = await trigger_daily_requirement_run(
+        ManualRequirementRunRequest(asOfDate=expected_date), job=job, now=now
+    )
+
+    assert (
+        accepted.asOfDate,
+        accepted.requirementCount,
+        len(store.started),
+        len(publisher.calls),
+    ) == (expected_date, 287, 1, 1)
+    assert operational_date(now, job.cron, job.timezone_name) == expected_date
+    assert all(
+        args[-1] == now
+        for sql, args in [*source.queries, *local.queries]
+        if "updated_at <=" in sql or "create_date <=" in sql or "created_at <=" in sql
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await trigger_daily_requirement_run(
+            ManualRequirementRunRequest(asOfDate=expected_date + timedelta(days=1)),
+            job=job,
+            now=now,
+        )
+
+    assert exc_info.value.status_code == 409
+    assert (len(store.started), len(publisher.calls)) == (1, 1)
+
+
 @pytest.mark.asyncio
 async def test_authoritative_loader_reads_exact_sources_and_activates_immutable_datasets():
     source = _SourceConnection()
@@ -673,7 +860,9 @@ async def test_authoritative_loader_reads_exact_sources_and_activates_immutable_
         yield source
 
     snapshot = await AuthoritativeRequirementSourceLoader(source_connection).load(
-        local, date(2026, 7, 16), CUTOFF
+        local,
+        source_effective_date=date(2026, 7, 16),
+        input_cutoff_at=CUTOFF,
     )
 
     assert (
@@ -689,6 +878,22 @@ async def test_authoritative_loader_reads_exact_sources_and_activates_immutable_
         "FROM water_planning.zone_planting_dates" in sql for sql, _ in source.queries
     )
     assert any("ros.eto_monthly" in sql for sql, _ in local.queries)
+    expected_query_contracts = {
+        "FROM gis.zone": (CUTOFF,),
+        "FROM water_planning.zone_planting_dates": ("mun-bon", CUTOFF),
+        "FROM ros_gis.section_crop_settings": (date(2026, 7, 16), CUTOFF),
+        "FROM ros.eto_monthly": (CUTOFF,),
+        "FROM ros.kc_weekly": (CUTOFF,),
+        "FROM ros.effective_rainfall_monthly": (CUTOFF,),
+    }
+    for source_name, expected_args in expected_query_contracts.items():
+        query, args = next(
+            (sql, args)
+            for sql, args in [*source.queries, *local.queries]
+            if source_name in sql
+        )
+        assert "<= $" in query
+        assert args == expected_args
     assert len(local.batches) == 2
     assert "section_master_history" in local.batches[0][0]
     assert len(local.batches[0][1]) == 41
@@ -727,4 +932,8 @@ async def test_authoritative_loader_rejects_stale_operator_crop_inputs():
     )
 
     with pytest.raises(RequirementSourceError, match="older than 24 hours"):
-        await loader.load(_LocalConnection(), date(2026, 7, 16), CUTOFF)
+        await loader.load(
+            _LocalConnection(),
+            source_effective_date=date(2026, 7, 16),
+            input_cutoff_at=CUTOFF,
+        )

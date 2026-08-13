@@ -12,6 +12,9 @@ from db.water_requirement_repository import (
     get_daily_requirements,
     get_section_requirement_history,
 )
+from db.daily_requirement_run_store import SupersededRequirementRunError
+from services.daily_requirement_producer import RequirementInputError
+from services.daily_requirement_job import operational_date
 from services.requirement_source_loader import RequirementSourceError
 
 DataStatus = Literal["no_publication", "stale", "published", "superseded"]
@@ -64,25 +67,50 @@ class SectionWaterRequirementResponse(BaseModel):
     requirements: list[WaterRequirementItem]
 
 
-class ManualRequirementRunRequest(BaseModel):
+class ExactManualModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class ManualRequirementRunRequest(ExactManualModel):
     asOfDate: date
 
 
-class ManualRequirementRunResponse(BaseModel):
+class ManualRequirementRunResponse(ExactManualModel):
     status: Literal["published", "deduplicated"]
     runId: UUID
     asOfDate: date
     requirementCount: int
 
 
-class IncompleteSourceDetail(BaseModel):
+class IncompleteSourceDetail(ExactManualModel):
     status: Literal["failed_incomplete_source"]
-    reason: str
+    reason: Literal["requirement_source_invalid", "requirement_inputs_incomplete"]
     asOfDate: date
 
 
-class IncompleteSourceResponse(BaseModel):
+class IncompleteSourceResponse(ExactManualModel):
     detail: IncompleteSourceDetail
+
+
+class OperationalDateMismatchDetail(ExactManualModel):
+    status: Literal["rejected"]
+    reason: Literal["operational_date_mismatch"]
+    asOfDate: date
+    expectedAsOfDate: date
+
+
+class OperationalDateMismatchResponse(ExactManualModel):
+    detail: OperationalDateMismatchDetail
+
+
+class SupersededLineageDetail(ExactManualModel):
+    status: Literal["rejected"]
+    reason: Literal["superseded_lineage"]
+    asOfDate: date
+
+
+class SupersededLineageResponse(ExactManualModel):
+    detail: SupersededLineageDetail
 
 
 class SectionCropSettingRequest(BaseModel):
@@ -139,10 +167,15 @@ def get_current_time() -> datetime:
     response_model=ManualRequirementRunResponse,
     responses={
         409: {
-            "model": IncompleteSourceResponse,
+            "model": (
+                IncompleteSourceResponse
+                | OperationalDateMismatchResponse
+                | SupersededLineageResponse
+            ),
             "description": (
-                "Authoritative source inputs are incomplete for the requested "
-                "operational date; nothing was published."
+                "The request conflicts with the current operational date, "
+                "superseded lineage, or incomplete authoritative inputs; "
+                "nothing was published."
             ),
         }
     },
@@ -151,15 +184,41 @@ async def trigger_daily_requirement_run(
     request: ManualRequirementRunRequest,
     _manual_trigger=Depends(require_manual_requirement_token),
     job=Depends(get_daily_requirement_job),
+    now: datetime = Depends(get_current_time),
 ) -> ManualRequirementRunResponse:
+    expected_as_of_date = operational_date(now, job.cron, job.timezone_name)
+    if request.asOfDate != expected_as_of_date:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "status": "rejected",
+                "reason": "operational_date_mismatch",
+                "asOfDate": request.asOfDate.isoformat(),
+                "expectedAsOfDate": expected_as_of_date.isoformat(),
+            },
+        )
     try:
-        result = await job.run_once(request.asOfDate)
-    except RequirementSourceError as exc:
+        result = await job.run_once(request.asOfDate, now)
+    except SupersededRequirementRunError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "status": "rejected",
+                "reason": "superseded_lineage",
+                "asOfDate": exc.as_of_date.isoformat(),
+            },
+        ) from exc
+    except (RequirementSourceError, RequirementInputError) as exc:
+        reason = (
+            "requirement_source_invalid"
+            if isinstance(exc, RequirementSourceError)
+            else "requirement_inputs_incomplete"
+        )
         raise HTTPException(
             status_code=409,
             detail={
                 "status": "failed_incomplete_source",
-                "reason": str(exc),
+                "reason": reason,
                 "asOfDate": request.asOfDate.isoformat(),
             },
         ) from exc

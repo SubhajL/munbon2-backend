@@ -73,6 +73,10 @@ sections 03–34 and GIS sections 35–43. Flow-monitoring hydraulic configurati
 remains pinned to V3 because V5 contains text-typed `q_max` cells that the
 fail-closed generator rejects; do not describe V5 sill/FSL/calibration as active.
 
+`0004_dataset_version_identity_immutable` makes dataset-version identity and
+activated lineage append-only. Apply migrations in numeric order through `0004`;
+the disposable PostGIS gate must exercise the complete set.
+
 The BFF planning-depth roster reads `ros_gis.sections_current`, so its
 `POSTGRES_URL` must resolve to the same database as this service's local
 `POSTGRES_URL`, not the separate `REQUIREMENT_SOURCE_POSTGRES_URL`. Before a
@@ -88,14 +92,18 @@ reported as stale after the next 02:00 Bangkok publication boundary. Missing row
 `dataStatus=no_publication` with an empty requirement list, never a zero demand.
 `POST /api/v1/water-requirements/crop-settings/{section_id}` appends an FE/operator
 crop configuration after checking planted area against the active D1/D3 section.
-`POST /api/v1/water-requirements/runs` manually invokes the same advisory-locked,
-idempotent path used by the scheduled job.
+`POST /api/v1/water-requirements/runs` invokes the same advisory-locked,
+idempotent path used by the scheduled job, but only for the current Bangkok
+operational date. A different date returns the exact
+`operational_date_mismatch` 409 contract. Published runs may deduplicate;
+superseded lineage returns the exact `superseded_lineage` 409 contract and is
+never republished. Configuration and programming errors remain 500-class.
 
 ## Config / Ports / Env
 - Port: settings default 3022 but `.env`/`start.sh` force **3047** (effective). Endpoints: `/graphql`, process-only `/health`, dependency-backed `/ready`, `/metrics`, `/api/v1/*` (sections/zones/sync trigger), `/api/v1/admin/*`.
 - `POSTGRES_URL` (`.env` → remote `43.208.201.191:5432/munbon_dev`), `REDIS_URL`, `USE_MOCK_SERVER`, `DEMAND_COMBINATION_STRATEGY=aquacrop_priority`, service URLs (`FLOW_MONITORING_URL`, `SCHEDULER_URL`, `ROS_SERVICE_URL`, `GIS_SERVICE_URL`).
 - Canonical producer: `DAILY_REQUIREMENT_ENABLED=false`, `DAILY_REQUIREMENT_CRON="0 2 * * *"`, `DAILY_REQUIREMENT_TIMEZONE=Asia/Bangkok`, `DAILY_REQUIREMENT_HORIZON_DAYS=7`, `DAILY_REQUIREMENT_INPUT_MAX_AGE_HOURS=4320`. Enabling it requires `REQUIREMENT_SOURCE_POSTGRES_URL` to point at the database containing `gis.zone` and `water_planning.zone_planting_dates`.
-- Lifecycle split (PR 0.3a): `DAILY_REQUIREMENT_ENABLED=true` alone is **manual-only** (job constructed in lifespan, `POST /api/v1/water-requirements/runs` available; no startup calculation, no 02:00 loop). Startup catch-up needs `DAILY_REQUIREMENT_STARTUP_CATCHUP_ENABLED=true`; the recurring loop needs `DAILY_REQUIREMENT_SCHEDULE_ENABLED=true` (both default false; pinned `'false'` in both tracked PM2 surfaces). `GET /api/v1/status` reports the actual `daily_requirement` lifecycle state (flags, cron, timezone, `schedule_running`). A manual run against incomplete authoritative sources returns HTTP 409 `{"detail": {"status": "failed_incomplete_source", "reason": ..., "asOfDate": ...}}` (declared in OpenAPI) instead of an opaque 500.
+- Lifecycle split (PR 0.3a): `DAILY_REQUIREMENT_ENABLED=true` alone is **manual-only** (job constructed in lifespan, `POST /api/v1/water-requirements/runs` available; no startup calculation, no 02:00 loop). Startup catch-up needs `DAILY_REQUIREMENT_STARTUP_CATCHUP_ENABLED=true`; the recurring loop needs `DAILY_REQUIREMENT_SCHEDULE_ENABLED=true` (both default false; pinned `'false'` in both tracked PM2 surfaces). `GET /api/v1/status` reports the actual `daily_requirement` lifecycle state (flags, cron, timezone, `schedule_running`). A manual run against incomplete authoritative sources returns HTTP 409 `{"detail": {"status": "failed_incomplete_source", "reason": ..., "asOfDate": ...}}` (declared in OpenAPI) instead of an opaque 500. Source selection uses `source_effective_date` for civil-date meaning and an inclusive aware-UTC `input_cutoff_at` bound on every timestamped authoritative source.
 - Schemas: `ros_gis` (`aquacrop_results`, `sections`, `plots`, `daily_demands`, `gate_mappings`).
 
 ## Integration

@@ -11,7 +11,7 @@ from uuid import UUID, uuid5
 from zoneinfo import ZoneInfo
 
 BANGKOK = ZoneInfo("Asia/Bangkok")
-METHOD_VERSION = "daily-requirement-v1"
+METHOD_VERSION = "daily-requirement-v2"
 PERCOLATION_MM_PER_DAY = Decimal("2")
 RAI_MM_TO_M3 = Decimal("1.6")
 VOLUME_QUANTUM = Decimal("0.000001")
@@ -42,6 +42,7 @@ class RequirementSnapshot:
     crop_register_version: str
     weather_version: str
     annual_plan_version: str
+    source_effective_date: date
     input_cutoff_at: datetime
 
 
@@ -82,17 +83,21 @@ class RequirementInputError(ValueError):
     """One or more authoritative inputs are incomplete or inconsistent."""
 
 
+class RequirementConfigurationError(ValueError):
+    """The producer or its immutable configuration is invalid."""
+
+
 def requirement_run_content_hash(
     snapshot: RequirementSnapshot,
     as_of_date: date,
     horizon_days: int,
 ) -> str:
     if not isinstance(as_of_date, date) or isinstance(as_of_date, datetime):
-        raise RequirementInputError("as_of_date must be a date")
+        raise RequirementConfigurationError("as_of_date must be a date")
     if not isinstance(horizon_days, int) or isinstance(horizon_days, bool):
-        raise RequirementInputError("horizon_days must be an integer")
+        raise RequirementConfigurationError("horizon_days must be an integer")
     if not 1 <= horizon_days <= 31:
-        raise RequirementInputError("horizon_days must be between 1 and 31")
+        raise RequirementConfigurationError("horizon_days must be between 1 and 31")
     payload = {
         "annual_plan_version": snapshot.annual_plan_version,
         "as_of_date": as_of_date.isoformat(),
@@ -110,6 +115,9 @@ def requirement_run_content_hash(
             for (crop, week), value in snapshot.kc_weekly.items()
         ),
         "method_version": METHOD_VERSION,
+        "section_dataset_version_id": snapshot.section_dataset_version_id,
+        "gate_mapping_dataset_version_id": snapshot.gate_mapping_dataset_version_id,
+        "source_effective_date": snapshot.source_effective_date.isoformat(),
         "sections": sorted(
             (
                 item.section_id,
@@ -171,9 +179,9 @@ def _input_errors(snapshot: RequirementSnapshot) -> list[str]:
             )
         if not section.area_rai.is_finite() or section.area_rai <= 0:
             errors.append(f"section {section.section_id} has invalid planted area")
-        if section.as_of_date > snapshot.input_cutoff_at.date():
+        if section.as_of_date > snapshot.source_effective_date:
             errors.append(
-                f"section {section.section_id} is newer than the input cutoff"
+                f"section {section.section_id} is newer than the source effective date"
             )
     return errors
 
