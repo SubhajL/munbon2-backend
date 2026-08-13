@@ -9,7 +9,11 @@ from pathlib import Path
 import re
 from typing import Mapping, Sequence
 
-from services.daily_requirement_producer import RequirementSnapshot, SectionCropInput
+from services.daily_requirement_producer import (
+    RequirementConfigurationError,
+    RequirementSnapshot,
+    SectionCropInput,
+)
 
 SOURCE_MANIFEST_PATH = (
     Path(__file__).resolve().parents[2] / "data" / "requirement_sources.json"
@@ -30,12 +34,15 @@ class AuthoritativeRequirementSourceLoader:
     async def load(
         self,
         local_conn,
-        as_of_date: date,
-        now: datetime,
+        *,
+        source_effective_date: date,
+        input_cutoff_at: datetime,
     ) -> RequirementSnapshot:
-        if now.tzinfo is None or now.utcoffset() is None:
-            raise RequirementSourceError("source load time must be timezone-aware")
-        cutoff = now.astimezone(timezone.utc)
+        if input_cutoff_at.tzinfo is None or input_cutoff_at.utcoffset() is None:
+            raise RequirementConfigurationError(
+                "source load time must be timezone-aware"
+            )
+        cutoff = input_cutoff_at.astimezone(timezone.utc)
         manifest = load_requirement_source_manifest()
         async with self.source_connection() as source_conn:
             gis_sections = await source_conn.fetch(
@@ -48,17 +55,21 @@ class AuthoritativeRequirementSourceLoader:
                        ST_AsEWKB(ST_Multi(geom)) AS geometry_wkb,
                        create_date
                 FROM gis.zone
+                WHERE create_date <= $1
                 ORDER BY code
-                """
+                """,
+                cutoff,
             )
             planting_dates = await source_conn.fetch(
                 """
                 SELECT project_key, zone_number, planting_date, updated_by, updated_at
                 FROM water_planning.zone_planting_dates
                 WHERE project_key = $1
+                  AND updated_at <= $2
                 ORDER BY zone_number
                 """,
                 manifest["project_key"],
+                cutoff,
             )
         crop_settings = await local_conn.fetch(
             """
@@ -67,30 +78,38 @@ class AuthoritativeRequirementSourceLoader:
                    source, as_of_date
             FROM ros_gis.section_crop_settings
             WHERE as_of_date <= $1
+              AND created_at <= $2
             ORDER BY section_id, as_of_date DESC, created_at DESC, setting_id DESC
             """,
-            as_of_date,
+            source_effective_date,
+            cutoff,
         )
         eto_rows = await local_conn.fetch(
             """
             SELECT month, eto_value, updated_at
             FROM ros.eto_monthly
+            WHERE updated_at <= $1
             ORDER BY month
-            """
+            """,
+            cutoff,
         )
         kc_rows = await local_conn.fetch(
             """
             SELECT crop_type, crop_week, kc_value, updated_at
             FROM ros.kc_weekly
+            WHERE updated_at <= $1
             ORDER BY crop_type, crop_week
-            """
+            """,
+            cutoff,
         )
         rainfall_rows = await local_conn.fetch(
             """
             SELECT crop_type, month, effective_rainfall_mm, updated_at
             FROM ros.effective_rainfall_monthly
+            WHERE updated_at <= $1
             ORDER BY crop_type, month
-            """
+            """,
+            cutoff,
         )
         oldest_allowed = cutoff - timedelta(hours=self.max_input_age_hours)
         stale_zones = [
@@ -115,6 +134,7 @@ class AuthoritativeRequirementSourceLoader:
             manifest=manifest,
             section_dataset_version_id=1,
             gate_mapping_dataset_version_id=1,
+            source_effective_date=source_effective_date,
             input_cutoff_at=cutoff,
         )
         section_hash = _section_dataset_hash(
@@ -150,12 +170,12 @@ def load_requirement_source_manifest(path: Path = SOURCE_MANIFEST_PATH) -> dict:
     try:
         manifest = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise RequirementSourceError(
+        raise RequirementConfigurationError(
             f"approved requirement source manifest cannot be loaded: {exc}"
         ) from exc
     required = {"project_key", "section_master", "scada", "annual_plan", "crosswalk"}
     if set(manifest) != required:
-        raise RequirementSourceError(
+        raise RequirementConfigurationError(
             "approved requirement source manifest has invalid keys"
         )
     return manifest
@@ -605,7 +625,7 @@ def _section_crop_inputs(
     planting_by_zone: Mapping[int, Mapping],
     setting_by_section: Mapping[str, Mapping],
     crop_duration_weeks: Mapping[str, int],
-    input_cutoff_at: datetime,
+    source_effective_date: date,
 ) -> tuple[list[SectionCropInput], list[dict]]:
     sections: list[SectionCropInput] = []
     crop_lineage: list[dict] = []
@@ -648,7 +668,7 @@ def _section_crop_inputs(
             else f"{default_area_source}+water_planning.zone_planting_dates"
         )
         as_of_date = (
-            setting["as_of_date"] if setting is not None else input_cutoff_at.date()
+            setting["as_of_date"] if setting is not None else source_effective_date
         )
         mapping = crosswalk[section_number]
         sections.append(
@@ -710,10 +730,11 @@ def build_requirement_snapshot(
     manifest: Mapping,
     section_dataset_version_id: int,
     gate_mapping_dataset_version_id: int,
+    source_effective_date: date,
     input_cutoff_at: datetime,
 ) -> RequirementSnapshot:
     if input_cutoff_at.tzinfo is None or input_cutoff_at.utcoffset() is None:
-        raise RequirementSourceError("input_cutoff_at must be timezone-aware")
+        raise RequirementConfigurationError("input_cutoff_at must be timezone-aware")
     crosswalk, planting_by_zone, setting_by_section = _validated_section_sources(
         gis_sections, planting_dates, crop_settings, manifest
     )
@@ -724,7 +745,7 @@ def build_requirement_snapshot(
         planting_by_zone,
         setting_by_section,
         crop_duration_weeks,
-        input_cutoff_at,
+        source_effective_date,
     )
     effective_rainfall = _effective_rainfall_schedule(
         rainfall_rows, list(crop_duration_weeks)
@@ -753,6 +774,7 @@ def build_requirement_snapshot(
             f"sheet:{manifest['annual_plan']['sheet']};"
             f"rate_unit:{manifest['annual_plan']['rate_unit']}"
         ),
+        source_effective_date=source_effective_date,
         input_cutoff_at=input_cutoff_at,
     )
 

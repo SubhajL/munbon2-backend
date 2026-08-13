@@ -64,9 +64,9 @@ def _client(conn: _ReadConnection, now: datetime = NOW) -> TestClient:
     async def connection_override():
         yield conn
 
-    app.dependency_overrides[
-        water_requirements.get_requirement_connection
-    ] = connection_override
+    app.dependency_overrides[water_requirements.get_requirement_connection] = (
+        connection_override
+    )
     app.dependency_overrides[water_requirements.get_current_time] = lambda: now
     return TestClient(app)
 
@@ -226,9 +226,11 @@ def test_section_endpoint_rejects_reverse_date_range():
 class _ManualJob:
     def __init__(self):
         self.calls = []
+        self.cron = "0 2 * * *"
+        self.timezone_name = "Asia/Bangkok"
 
-    async def run_once(self, as_of_date):
-        self.calls.append(as_of_date)
+    async def run_once(self, as_of_date, now):
+        self.calls.append((as_of_date, now))
         return type(
             "Result",
             (),
@@ -244,8 +246,10 @@ class _ManualJob:
 class _FailingJob:
     def __init__(self, error: Exception):
         self.error = error
+        self.cron = "0 2 * * *"
+        self.timezone_name = "Asia/Bangkok"
 
-    async def run_once(self, as_of_date):
+    async def run_once(self, as_of_date, now):
         raise self.error
 
 
@@ -254,6 +258,7 @@ def _manual_run_client(job) -> TestClient:
     app.state.daily_requirement_manual_token = MANUAL_RUN_TOKEN
     app.include_router(water_requirements.router)
     app.dependency_overrides[water_requirements.get_daily_requirement_job] = lambda: job
+    app.dependency_overrides[water_requirements.get_current_time] = lambda: NOW
     return TestClient(app, raise_server_exceptions=False)
 
 
@@ -279,6 +284,43 @@ def test_manual_run_rejects_missing_or_invalid_internal_trigger_token():
     assert job.calls == []
 
 
+def test_manual_run_rejects_extra_request_fields_and_documents_closed_envelopes():
+    job = _ManualJob()
+    client = _manual_run_client(job)
+
+    response = client.post(
+        "/api/v1/water-requirements/runs",
+        json={"asOfDate": "2026-07-16", "unexpected": True},
+        headers={"X-Munbon-Internal-Token": MANUAL_RUN_TOKEN},
+    )
+    schemas = client.app.openapi()["components"]["schemas"]
+
+    assert response.status_code == 422
+    assert job.calls == []
+    assert {
+        name: schemas[name].get("additionalProperties")
+        for name in (
+            "ManualRequirementRunRequest",
+            "ManualRequirementRunResponse",
+            "IncompleteSourceDetail",
+            "IncompleteSourceResponse",
+            "OperationalDateMismatchDetail",
+            "OperationalDateMismatchResponse",
+            "SupersededLineageDetail",
+            "SupersededLineageResponse",
+        )
+    } == {
+        "ManualRequirementRunRequest": False,
+        "ManualRequirementRunResponse": False,
+        "IncompleteSourceDetail": False,
+        "IncompleteSourceResponse": False,
+        "OperationalDateMismatchDetail": False,
+        "OperationalDateMismatchResponse": False,
+        "SupersededLineageDetail": False,
+        "SupersededLineageResponse": False,
+    }
+
+
 def test_manual_run_returns_explicit_incomplete_input_response():
     from services.requirement_source_loader import RequirementSourceError
 
@@ -291,7 +333,7 @@ def test_manual_run_returns_explicit_incomplete_input_response():
     assert response.json() == {
         "detail": {
             "status": "failed_incomplete_source",
-            "reason": reason,
+            "reason": "requirement_source_invalid",
             "asOfDate": "2026-07-16",
         }
     }
@@ -325,10 +367,11 @@ def test_manual_run_endpoint_calls_the_registered_daily_requirement_job():
     async def connection_override():
         yield conn
 
-    app.dependency_overrides[
-        water_requirements.get_requirement_connection
-    ] = connection_override
+    app.dependency_overrides[water_requirements.get_requirement_connection] = (
+        connection_override
+    )
     app.dependency_overrides[water_requirements.get_daily_requirement_job] = lambda: job
+    app.dependency_overrides[water_requirements.get_current_time] = lambda: NOW
 
     app.state.daily_requirement_manual_token = MANUAL_RUN_TOKEN
     response = _post_manual_run(TestClient(app))
@@ -340,7 +383,7 @@ def test_manual_run_endpoint_calls_the_registered_daily_requirement_job():
         "asOfDate": "2026-07-16",
         "requirementCount": 287,
     }
-    assert job.calls == [SERVICE_DATE]
+    assert job.calls == [(SERVICE_DATE, NOW)]
 
 
 class _CropSettingConnection:
@@ -373,9 +416,9 @@ def _crop_client(conn):
     async def connection_override():
         yield conn
 
-    app.dependency_overrides[
-        water_requirements.get_requirement_connection
-    ] = connection_override
+    app.dependency_overrides[water_requirements.get_requirement_connection] = (
+        connection_override
+    )
     return TestClient(app)
 
 

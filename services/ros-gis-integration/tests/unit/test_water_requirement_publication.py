@@ -313,6 +313,7 @@ class TestWaterRequirementRepository:
                         "requirement_id": uuid4(),
                         "run_id": run_id,
                         "input_versions": '{"crop":"v1"}',
+                        "requirement_method_version": "daily-requirement-v2",
                         "downstream_version": 2,
                     }
                 ]
@@ -322,10 +323,12 @@ class TestWaterRequirementRepository:
         records = await get_flow_records_for_run(conn, run_id)
 
         assert records[0]["input_versions"] == {"crop": "v1"}
+        assert records[0]["requirement_method_version"] == "daily-requirement-v2"
         sql, args = conn.call
         assert "PARTITION BY requirement.service_date, requirement.section_id" in sql
         assert "ROW_NUMBER() OVER" in sql
         assert "run.status IN ('published', 'superseded')" in sql
+        assert "run.method_version AS requirement_method_version" in sql
         assert args == (run_id,)
 
     @pytest.mark.asyncio

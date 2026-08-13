@@ -5,7 +5,10 @@ from uuid import uuid4
 
 import pytest
 
-from db.daily_requirement_run_store import PostgresDailyRequirementRunStore
+from db.daily_requirement_run_store import (
+    PostgresDailyRequirementRunStore,
+    SupersededRequirementRunError,
+)
 from services.daily_requirement_producer import (
     CalculatedRequirement,
     RequirementBatch,
@@ -88,6 +91,7 @@ async def test_store_adapts_calculated_dataclasses_to_publication_repository(
         crop_register_version="crop-v1",
         weather_version="weather-v1",
         annual_plan_version="annual-v1",
+        source_effective_date=date(2026, 7, 16),
         input_cutoff_at=NOW,
     )
     requirement = CalculatedRequirement(
@@ -134,7 +138,7 @@ async def test_store_adapts_calculated_dataclasses_to_publication_repository(
         "gate_mapping_dataset_version_id": 12,
         "crop_register_version": "crop-v1",
         "weather_version": "weather-v1",
-        "method_version": "daily-requirement-v1",
+        "method_version": "daily-requirement-v2",
         "content_hash": "c" * 64,
         "computed_at": NOW,
     }
@@ -143,7 +147,7 @@ async def test_store_adapts_calculated_dataclasses_to_publication_repository(
 
 
 @pytest.mark.asyncio
-async def test_find_published_fails_abandoned_calculation_before_retry(monkeypatch):
+async def test_find_matching_run_fails_abandoned_calculation_before_retry(monkeypatch):
     failed = []
     run_id = uuid4()
 
@@ -168,7 +172,7 @@ async def test_find_published_fails_abandoned_calculation_before_retry(monkeypat
     )
 
     conn = _LookupConnection()
-    result = await PostgresDailyRequirementRunStore(None).find_published(
+    result = await PostgresDailyRequirementRunStore(None).find_matching_run(
         conn, date(2026, 7, 16), "a" * 64
     )
 
@@ -177,7 +181,7 @@ async def test_find_published_fails_abandoned_calculation_before_retry(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_find_published_reuses_superseded_run_for_historical_transport_retry():
+async def test_find_matching_run_rejects_superseded_lineage_before_transport_retry():
     run_id = uuid4()
 
     class _LookupConnection:
@@ -194,14 +198,10 @@ async def test_find_published_reuses_superseded_run_for_historical_transport_ret
             }
 
     conn = _LookupConnection()
-    result = await PostgresDailyRequirementRunStore(None).find_published(
-        conn, date(2026, 7, 16), "a" * 64
-    )
+    with pytest.raises(SupersededRequirementRunError) as exc_info:
+        await PostgresDailyRequirementRunStore(None).find_matching_run(
+            conn, date(2026, 7, 16), "a" * 64
+        )
 
-    assert result == {
-        "run_id": run_id,
-        "as_of_date": date(2026, 7, 16),
-        "content_hash": "a" * 64,
-        "status": "superseded",
-    }
+    assert exc_info.value.as_of_date == date(2026, 7, 16)
     assert "'superseded'" in conn.call[0]

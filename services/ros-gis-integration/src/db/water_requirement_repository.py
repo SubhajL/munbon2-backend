@@ -151,6 +151,7 @@ WITH versioned_requirements AS (
 )
 SELECT requirement.*,
        run.computed_at,
+       run.method_version AS requirement_method_version,
        versioned.downstream_version
 FROM ros_gis.daily_water_requirements AS requirement
 JOIN ros_gis.water_requirement_runs AS run USING (run_id)

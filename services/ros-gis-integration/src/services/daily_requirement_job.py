@@ -9,6 +9,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from services.daily_requirement_producer import (
+    RequirementConfigurationError,
     calculate_daily_water_requirements,
     requirement_run_content_hash,
 )
@@ -53,11 +54,20 @@ class DailyRequirementJob:
         if computed_at.tzinfo is None or computed_at.utcoffset() is None:
             raise ValueError("daily requirement job time must be timezone-aware")
         async with self.run_store.locked_connection() as conn:
-            snapshot = await self.source_loader.load(conn, as_of_date, computed_at)
+            snapshot = await self.source_loader.load(
+                conn,
+                source_effective_date=as_of_date,
+                input_cutoff_at=computed_at,
+            )
+            if snapshot.source_effective_date != as_of_date:
+                raise RequirementConfigurationError(
+                    "requirement snapshot source effective date does not match "
+                    "the requested operational date"
+                )
             content_hash = requirement_run_content_hash(
                 snapshot, as_of_date, self.horizon_days
             )
-            existing = await self.run_store.find_published(
+            existing = await self.run_store.find_matching_run(
                 conn, as_of_date, content_hash
             )
             if existing is not None:

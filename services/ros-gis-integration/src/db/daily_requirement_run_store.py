@@ -9,12 +9,19 @@ from db.water_requirement_repository import (
     publish_requirement_run,
     start_requirement_run,
 )
+from services.daily_requirement_producer import METHOD_VERSION
 
 DAILY_REQUIREMENT_LOCK_ID = int.from_bytes(
     hashlib.sha256(b"ros_gis.daily_requirement_job").digest()[:8],
     "big",
     signed=True,
 )
+
+
+class SupersededRequirementRunError(ValueError):
+    def __init__(self, as_of_date):
+        self.as_of_date = as_of_date
+        super().__init__(f"requirement lineage for {as_of_date} is superseded")
 
 
 class PostgresDailyRequirementRunStore:
@@ -32,7 +39,7 @@ class PostgresDailyRequirementRunStore:
                     "SELECT pg_advisory_unlock($1)", DAILY_REQUIREMENT_LOCK_ID
                 )
 
-    async def find_published(self, conn, as_of_date, content_hash):
+    async def find_matching_run(self, conn, as_of_date, content_hash):
         row = await conn.fetchrow(
             """
             SELECT run_id, as_of_date, content_hash, status
@@ -56,6 +63,8 @@ class PostgresDailyRequirementRunStore:
                 "recovered abandoned daily requirement calculation",
             )
             return None
+        if row["status"] == "superseded":
+            raise SupersededRequirementRunError(row["as_of_date"])
         return dict(row)
 
     async def start(
@@ -77,7 +86,7 @@ class PostgresDailyRequirementRunStore:
             gate_mapping_dataset_version_id=snapshot.gate_mapping_dataset_version_id,
             crop_register_version=snapshot.crop_register_version,
             weather_version=snapshot.weather_version,
-            method_version="daily-requirement-v1",
+            method_version=METHOD_VERSION,
             content_hash=content_hash,
             computed_at=now,
         )

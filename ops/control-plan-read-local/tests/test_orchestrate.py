@@ -561,6 +561,542 @@ def test_collect_evidence_extracts_then_validates_exact_inventory(
     assert (destination / "OUTER-SHA256SUMS").is_file()
 
 
+def _write_partial_failure_evidence(destination: Path) -> dict:
+    release_sha = "a" * 40
+    frontend_sha = "b" * 40
+    completed = list(orchestrate.STAGE_ORDER[:2])
+    failed_stage = orchestrate.STAGE_ORDER[2]
+    state = {
+        "release_sha": release_sha,
+        "frontend_sha": frontend_sha,
+        "harness_hashes": {
+            name: "c" * 64 for name in orchestrate.EVIDENCE_HARNESS_ARTIFACTS
+        },
+        "completed": completed,
+    }
+    artifacts = {
+        "stage-state.json": json.dumps(state, sort_keys=True).encode() + b"\n",
+        f"{failed_stage}-failure.json": (
+            json.dumps(
+                {
+                    "stage": failed_stage,
+                    "verdict": "FAIL",
+                    "release_sha": release_sha,
+                    "frontend_sha": frontend_sha,
+                    "failed_gate": "manual_requirement_run_not_accepted",
+                    "failed_at": "2026-08-12T00:00:00Z",
+                },
+                sort_keys=True,
+            ).encode()
+            + b"\n"
+        ),
+    }
+    artifacts.update(
+        {
+            f"{stage}.json": (
+                json.dumps(
+                    {
+                        "stage": stage,
+                        "verdict": "PASS",
+                        "release_sha": release_sha,
+                        "frontend_sha": frontend_sha,
+                    },
+                    sort_keys=True,
+                ).encode()
+                + b"\n"
+            )
+            for stage in completed
+        }
+    )
+    destination.mkdir(parents=True)
+    for name, body in artifacts.items():
+        (destination / name).write_bytes(body)
+    _write_acceptance_checksums(destination)
+    return state
+
+
+def test_finalize_partial_failure_collection_requires_ordered_prefix_and_identity(
+    tmp_path,
+):
+    destination = tmp_path / "partial-evidence"
+    state = _write_partial_failure_evidence(destination)
+
+    assert orchestrate.finalize_partial_failure_collection(destination) == {
+        "acceptance_evidence": False,
+        "release_sha": state["release_sha"],
+        "frontend_sha": state["frontend_sha"],
+        "harness_hashes": state["harness_hashes"],
+        "completed": list(orchestrate.STAGE_ORDER[:2]),
+        "failed_stage": "LOCAL-AC-1",
+        "failed_gate": "manual_requirement_run_not_accepted",
+        "passed": 2,
+        "failed": 1,
+        "unreached": 6,
+    }
+    outer = (destination / "PARTIAL-OUTER-SHA256SUMS").read_text().splitlines()
+    summary = json.loads((destination / "PARTIAL-SUMMARY.json").read_text())
+    assert summary["acceptance_evidence"] is False
+    assert summary["failed_stage"] == "LOCAL-AC-1"
+    assert outer == [
+        f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}"
+        for path in sorted(destination.iterdir())
+        if path.name != "PARTIAL-OUTER-SHA256SUMS"
+    ]
+    assert any(line.endswith("  PARTIAL-SUMMARY.json") for line in outer)
+
+    with pytest.raises(
+        orchestrate.OrchestrationError, match="evidence_inventory_invalid"
+    ):
+        orchestrate.finalize_evidence_collection(destination)
+
+
+@pytest.mark.parametrize(
+    ("mutation", "error"),
+    [
+        ("gap", "partial_evidence_stage_sequence_invalid"),
+        ("identity", "partial_evidence_manifest_invalid"),
+        ("missing_frontend", "partial_evidence_manifest_invalid"),
+        ("missing_pass_frontend", "partial_evidence_manifest_invalid"),
+        ("indexed_later_stage", "partial_evidence_stage_sequence_invalid"),
+        ("unindexed", "partial_evidence_inventory_invalid"),
+    ],
+)
+def test_finalize_partial_failure_collection_rejects_invalid_evidence(
+    tmp_path, mutation, error
+):
+    destination = tmp_path / mutation
+    _write_partial_failure_evidence(destination)
+    if mutation == "gap":
+        source = destination / "LOCAL-AC-1-failure.json"
+        manifest = json.loads(source.read_text())
+        manifest["stage"] = "LOCAL-READ-ACT-1"
+        source.unlink()
+        (destination / "LOCAL-READ-ACT-1-failure.json").write_text(
+            json.dumps(manifest, sort_keys=True) + "\n"
+        )
+        _write_acceptance_checksums(destination)
+    elif mutation in {"identity", "missing_frontend"}:
+        path = destination / "LOCAL-AC-1-failure.json"
+        manifest = json.loads(path.read_text())
+        if mutation == "identity":
+            manifest["frontend_sha"] = "d" * 40
+        else:
+            del manifest["frontend_sha"]
+        path.write_text(json.dumps(manifest, sort_keys=True) + "\n")
+        _write_acceptance_checksums(destination)
+    elif mutation == "missing_pass_frontend":
+        path = destination / "LOCAL-RTA-1.json"
+        manifest = json.loads(path.read_text())
+        del manifest["frontend_sha"]
+        path.write_text(json.dumps(manifest, sort_keys=True) + "\n")
+        _write_acceptance_checksums(destination)
+    elif mutation == "indexed_later_stage":
+        (destination / "LOCAL-WRITE-UI-1-browser-result.json").write_text(
+            '{"browser":"unreached"}\n'
+        )
+        _write_acceptance_checksums(destination)
+    else:
+        (destination / "untrusted.log").write_text("not indexed\n")
+
+    with pytest.raises(orchestrate.OrchestrationError, match=error):
+        orchestrate.finalize_partial_failure_collection(destination)
+
+
+def test_collect_partial_failure_extracts_then_validates(tmp_path, monkeypatch):
+    destination = tmp_path / "partial-evidence"
+    source = tmp_path / "guest-partial-evidence"
+    expected_state = _write_partial_failure_evidence(source)
+    streamed_archive = tmp_path / "streamed-partial-evidence.tar.gz"
+    with tarfile.open(streamed_archive, "w:gz") as bundle:
+        for path in sorted(source.iterdir()):
+            bundle.add(path, arcname=path.name)
+
+    def stream_archive(_argv, *, stdout, **_kwargs):
+        stdout.write(streamed_archive.read_bytes())
+        return subprocess.CompletedProcess(_argv, 0, b"", b"")
+
+    def extract_archive(code, argv, **_kwargs):
+        assert code == "partial_evidence_extract"
+        with tarfile.open(argv[2], "r:gz") as bundle:
+            bundle.extractall(argv[4], filter="data")
+        return ""
+
+    monkeypatch.setattr(orchestrate.subprocess, "run", stream_archive)
+    monkeypatch.setattr(orchestrate, "_run_checked", extract_archive)
+
+    summary = orchestrate.collect_partial_failure(destination)
+
+    assert summary["release_sha"] == expected_state["release_sha"]
+    assert not (destination / "local-partial-failure-evidence.tar.gz").exists()
+    assert (destination / "PARTIAL-OUTER-SHA256SUMS").is_file()
+
+
+def test_parser_accepts_partial_failure_collection_action():
+    args = orchestrate._parse_args(
+        ["collect-partial-failure", "--evidence-dir", "/tmp/partial-evidence"]
+    )
+
+    assert args.action == "collect-partial-failure"
+
+
+def test_partial_failure_cli_prints_machine_readable_non_acceptance_summary(
+    tmp_path, monkeypatch, capsys
+):
+    backend_sha = orchestrate.ACCEPTED_BASE_SHA
+    frontend_sha = "fbd4ce4df0bb0476b7cd402ac1a4e180a91a7792"
+    origin_shas = iter((backend_sha, frontend_sha))
+    summary = {
+        "acceptance_evidence": False,
+        "failed_stage": "LOCAL-AC-1",
+        "passed": 2,
+        "failed": 1,
+        "unreached": 6,
+    }
+    monkeypatch.setattr(
+        orchestrate, "_origin_main_sha", lambda _path: next(origin_shas)
+    )
+    monkeypatch.setattr(
+        orchestrate, "collect_partial_failure", lambda _destination: summary
+    )
+
+    assert (
+        orchestrate.main(
+            [
+                "collect-partial-failure",
+                "--repo",
+                str(tmp_path / "backend"),
+                "--frontend-repo",
+                str(tmp_path / "frontend"),
+                "--evidence-dir",
+                str(tmp_path / "evidence"),
+            ]
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out) == summary
+
+
+def _campaign_ledger_entry(
+    campaign_id: str, *, previous_entry_sha256: str | None
+) -> dict:
+    entry = {
+        "schema_version": 1,
+        "campaign_id": campaign_id,
+        "recorded_at": "2026-08-12T00:00:00Z",
+        "candidate": {
+            "backend_sha": "a" * 40,
+            "frontend_sha": "b" * 40,
+            "dependency_sha256": "c" * 64,
+            "harness_hashes": {
+                name: "d" * 64 for name in orchestrate.EVIDENCE_HARNESS_ARTIFACTS
+            },
+        },
+        "guest": {
+            "name": "munbon-control-plan-local",
+            "id": "01KZSKQ6FY4EVCCY94XGWZ9NDS",
+            "architecture": "arm64",
+        },
+        "evidence": {
+            "ref": "external-evidence/campaign",
+            "index_name": "OUTER-SHA256SUMS",
+            "index_sha256": "e" * 64,
+        },
+        "outcome": {
+            "acceptance": False,
+            "passed": list(orchestrate.STAGE_ORDER[:2]),
+            "failed": [orchestrate.STAGE_ORDER[2]],
+            "unreached": list(orchestrate.STAGE_ORDER[3:]),
+        },
+        "authorization": {
+            "state": "exhausted",
+            "attempt": 3,
+            "ceiling": 3,
+        },
+        "previous_entry_sha256": previous_entry_sha256,
+    }
+    canonical = json.dumps(entry, sort_keys=True, separators=(",", ":")).encode()
+    return {
+        **entry,
+        "entry_sha256": hashlib.sha256(canonical).hexdigest(),
+    }
+
+
+def test_validate_campaign_ledger_requires_canonical_hash_chain_and_stage_partition(
+    tmp_path,
+):
+    first = _campaign_ledger_entry("campaign-1", previous_entry_sha256=None)
+    second = _campaign_ledger_entry(
+        "campaign-2", previous_entry_sha256=first["entry_sha256"]
+    )
+    path = tmp_path / "campaign-ledger.jsonl"
+    path.write_text(
+        "".join(json.dumps(entry, sort_keys=True) + "\n" for entry in (first, second))
+    )
+
+    assert orchestrate.validate_campaign_ledger(path) == [first, second]
+
+    second["evidence"]["ref"] = "external-evidence/tampered"
+    path.write_text(
+        "".join(json.dumps(entry, sort_keys=True) + "\n" for entry in (first, second))
+    )
+    with pytest.raises(
+        orchestrate.OrchestrationError, match="campaign_ledger_entry_hash_invalid"
+    ):
+        orchestrate.validate_campaign_ledger(path)
+
+    invalid_partition = _campaign_ledger_entry(
+        "campaign-2", previous_entry_sha256=first["entry_sha256"]
+    )
+    invalid_partition["outcome"]["passed"] = list(orchestrate.STAGE_ORDER[:3])
+    canonical = {
+        key: value for key, value in invalid_partition.items() if key != "entry_sha256"
+    }
+    invalid_partition["entry_sha256"] = hashlib.sha256(
+        json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    path.write_text(
+        "".join(
+            json.dumps(entry, sort_keys=True) + "\n"
+            for entry in (first, invalid_partition)
+        )
+    )
+    with pytest.raises(
+        orchestrate.OrchestrationError, match="campaign_ledger_schema_invalid"
+    ):
+        orchestrate.validate_campaign_ledger(path)
+
+
+def test_validate_campaign_ledger_rejects_broken_previous_hash(tmp_path):
+    first = _campaign_ledger_entry("campaign-1", previous_entry_sha256=None)
+    second = _campaign_ledger_entry("campaign-2", previous_entry_sha256="f" * 64)
+    path = tmp_path / "campaign-ledger.jsonl"
+    path.write_text(
+        "".join(json.dumps(entry, sort_keys=True) + "\n" for entry in (first, second))
+    )
+
+    with pytest.raises(
+        orchestrate.OrchestrationError, match="campaign_ledger_chain_invalid"
+    ):
+        orchestrate.validate_campaign_ledger(path)
+
+
+@pytest.mark.parametrize(
+    ("container", "field"),
+    [
+        ("candidate", "backend_sha"),
+        ("candidate", "frontend_sha"),
+        ("candidate", "dependency_sha256"),
+        ("evidence", "index_sha256"),
+    ],
+)
+def test_validate_campaign_ledger_bounds_malformed_identity_types(
+    tmp_path, container, field
+):
+    entry = _campaign_ledger_entry("campaign-1", previous_entry_sha256=None)
+    entry[container][field] = 123
+    canonical = {key: value for key, value in entry.items() if key != "entry_sha256"}
+    entry["entry_sha256"] = hashlib.sha256(
+        json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    path = tmp_path / "campaign-ledger.jsonl"
+    path.write_text(json.dumps(entry, sort_keys=True) + "\n")
+
+    with pytest.raises(
+        orchestrate.OrchestrationError, match="campaign_ledger_schema_invalid"
+    ):
+        orchestrate.validate_campaign_ledger(path)
+
+
+def test_validate_campaign_ledger_rejects_boolean_schema_version(tmp_path):
+    entry = _campaign_ledger_entry("campaign-1", previous_entry_sha256=None)
+    entry["schema_version"] = True
+    canonical = {key: value for key, value in entry.items() if key != "entry_sha256"}
+    entry["entry_sha256"] = hashlib.sha256(
+        json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    path = tmp_path / "campaign-ledger.jsonl"
+    path.write_text(json.dumps(entry, sort_keys=True) + "\n")
+
+    with pytest.raises(
+        orchestrate.OrchestrationError, match="campaign_ledger_schema_invalid"
+    ):
+        orchestrate.validate_campaign_ledger(path)
+
+
+@pytest.mark.parametrize("duplicate_key", ["campaign_id", "backend_sha"])
+def test_validate_campaign_ledger_rejects_duplicate_keys_recursively(
+    tmp_path, duplicate_key
+):
+    entry = _campaign_ledger_entry("campaign-1", previous_entry_sha256=None)
+    line = json.dumps(entry, sort_keys=True)
+    value = (
+        entry[duplicate_key]
+        if duplicate_key in entry
+        else entry["candidate"][duplicate_key]
+    )
+    fragment = f"{json.dumps(duplicate_key)}: {json.dumps(value)}"
+    line = line.replace(fragment, f"{fragment}, {fragment}", 1)
+    path = tmp_path / "campaign-ledger.jsonl"
+    path.write_text(line + "\n")
+
+    with pytest.raises(
+        orchestrate.OrchestrationError, match="campaign_ledger_schema_invalid"
+    ):
+        orchestrate.validate_campaign_ledger(path)
+
+
+@pytest.mark.parametrize(
+    "recorded_at",
+    [
+        "2026-99-12T00:00:00Z",
+        "2026-08-99T00:00:00Z",
+        "2026-08-12T24:00:00Z",
+        "2026-08-12T00:00:60Z",
+    ],
+)
+def test_validate_campaign_ledger_rejects_impossible_utc_timestamp(
+    tmp_path, recorded_at
+):
+    entry = _campaign_ledger_entry("campaign-1", previous_entry_sha256=None)
+    entry["recorded_at"] = recorded_at
+    canonical = {key: value for key, value in entry.items() if key != "entry_sha256"}
+    entry["entry_sha256"] = hashlib.sha256(
+        json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    path = tmp_path / "campaign-ledger.jsonl"
+    path.write_text(json.dumps(entry, sort_keys=True) + "\n")
+
+    with pytest.raises(
+        orchestrate.OrchestrationError, match="campaign_ledger_schema_invalid"
+    ):
+        orchestrate.validate_campaign_ledger(path)
+
+
+def test_validate_campaign_ledger_append_only_requires_byte_prefix(tmp_path):
+    first = _campaign_ledger_entry("campaign-1", previous_entry_sha256=None)
+    second = _campaign_ledger_entry(
+        "campaign-2", previous_entry_sha256=first["entry_sha256"]
+    )
+    base = tmp_path / "base.jsonl"
+    current = tmp_path / "current.jsonl"
+    first_line = json.dumps(first, sort_keys=True) + "\n"
+    base.write_text(first_line)
+    current.write_text(first_line + json.dumps(second, sort_keys=True) + "\n")
+
+    assert orchestrate.validate_campaign_ledger_append_only(base, current) == [
+        first,
+        second,
+    ]
+
+    rewritten = {**first, "recorded_at": "2026-08-12T00:00:01Z"}
+    canonical = {
+        key: value for key, value in rewritten.items() if key != "entry_sha256"
+    }
+    rewritten["entry_sha256"] = hashlib.sha256(
+        json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    current.write_text(json.dumps(rewritten, sort_keys=True) + "\n")
+    with pytest.raises(
+        orchestrate.OrchestrationError, match="campaign_ledger_history_rewritten"
+    ):
+        orchestrate.validate_campaign_ledger_append_only(base, current)
+
+
+@pytest.mark.parametrize(
+    ("state", "attempt", "ceiling"),
+    [("exhausted", None, None), ("historical_closed", 1, 1)],
+)
+def test_validate_campaign_ledger_rejects_contradictory_authorization(
+    tmp_path, state, attempt, ceiling
+):
+    entry = _campaign_ledger_entry("campaign-1", previous_entry_sha256=None)
+    entry["authorization"] = {
+        "state": state,
+        "attempt": attempt,
+        "ceiling": ceiling,
+    }
+    canonical = {key: value for key, value in entry.items() if key != "entry_sha256"}
+    entry["entry_sha256"] = hashlib.sha256(
+        json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    path = tmp_path / "campaign-ledger.jsonl"
+    path.write_text(json.dumps(entry, sort_keys=True) + "\n")
+
+    with pytest.raises(
+        orchestrate.OrchestrationError, match="campaign_ledger_schema_invalid"
+    ):
+        orchestrate.validate_campaign_ledger(path)
+
+
+def test_checked_in_campaign_ledger_is_valid():
+    ledger = (
+        MODULE_PATH.parents[2] / "docs/operations/control-plan-campaign-ledger.jsonl"
+    )
+
+    entries = orchestrate.validate_campaign_ledger(ledger)
+
+    assert [
+        {
+            "campaign_id": entry["campaign_id"],
+            "candidate_sha256": hashlib.sha256(
+                json.dumps(
+                    entry["candidate"], sort_keys=True, separators=(",", ":")
+                ).encode()
+            ).hexdigest(),
+            "guest": entry["guest"],
+            "evidence": entry["evidence"],
+            "entry_sha256": entry["entry_sha256"],
+        }
+        for entry in entries
+    ] == [
+        {
+            "campaign_id": "2026-08-09-nine-stage-orbstack-0228f495",
+            "candidate_sha256": "a061dcf5a9568d0779648a98f35746ed02e1399ed4d2289307f5e686ffd8a424",
+            "guest": {
+                "architecture": "arm64",
+                "id": None,
+                "name": "munbon-control-plan-local",
+            },
+            "evidence": {
+                "index_name": "SHA256SUMS",
+                "index_sha256": "25924dd828c416a1199cc178a3d31e28a2032b18216eb87a74f9ca3b59892632",
+                "ref": "coding-logs/evidence/2026-08-09-nine-stage-orbstack-0228f495",
+            },
+            "entry_sha256": "1ebd77862cc20fedec0c3e8e381e5915541ceae06a495514b8a2e753724293b2",
+        },
+        {
+            "campaign_id": "2026-08-12-nine-stage-orbstack-5cfdb2a0-attempt-3",
+            "candidate_sha256": "88854daa52e4786125f36ae96d037681447014b3fa71ec39a92c178bae57cbdc",
+            "guest": {
+                "architecture": "arm64",
+                "id": "01KZSKQ6FY4EVCCY94XGWZ9NDS",
+                "name": "munbon-control-plan-local",
+            },
+            "evidence": {
+                "index_name": "OUTER-SHA256SUMS",
+                "index_sha256": "34b952b660ec230ab2d9049b60f6dd8496561ce6e2860b377124c8ae48947ecd",
+                "ref": "../munbon2-backend-external-evidence/2026-08-12-nine-stage-orbstack-5cfdb2a0-attempt-3",
+            },
+            "entry_sha256": "fe2cb916578a1c6ded0c4087f99be832639b3f72af74fcf35ae5f98c9b03f810",
+        },
+    ]
+
+    assert [entry["outcome"] for entry in entries] == [
+        {
+            "acceptance": False,
+            "passed": list(orchestrate.STAGE_ORDER[:7]),
+            "failed": [orchestrate.STAGE_ORDER[7]],
+            "unreached": [orchestrate.STAGE_ORDER[8]],
+        },
+        {
+            "acceptance": False,
+            "passed": list(orchestrate.STAGE_ORDER[:2]),
+            "failed": [orchestrate.STAGE_ORDER[2]],
+            "unreached": list(orchestrate.STAGE_ORDER[3:]),
+        },
+    ]
+
+
 def test_host_accepts_pre_python_failure_bundle_and_state(tmp_path):
     local_dir = Path(__file__).resolve().parents[1]
     helper = local_dir / "bootstrap-provisioning-state.sh"

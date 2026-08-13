@@ -992,6 +992,7 @@ def test_go_read_failure_manifest_preserves_primary_gate_and_restoration_proof(
         "stage": "LOCAL-GO-READ-1",
         "verdict": "FAIL",
         "release_sha": "8" * 40,
+        "frontend_sha": "9" * 40,
         "failed_gate": "browser_failed",
         "restoration": {
             "verified": True,
@@ -1133,37 +1134,189 @@ def test_validate_ros_lifecycle_accepts_manual_only_and_restored_dark_states():
     }
 
 
-def test_validate_manual_requirement_run_requires_exact_complete_publication():
+@pytest.mark.parametrize("status", ["published", "deduplicated"])
+def test_validate_manual_requirement_run_accepts_exact_complete_success(status):
     run_id = str(uuid4())
 
     assert stage_suite.validate_manual_requirement_run(
         200,
         {
-            "status": "published",
+            "status": status,
             "runId": run_id,
             "asOfDate": "2026-07-23",
             "requirementCount": 287,
         },
         as_of_date="2026-07-23",
     ) == {
-        "status": "published",
+        "status": status,
         "run_id": run_id,
         "as_of_date": "2026-07-23",
         "requirement_count": 287,
     }
+
+
+@pytest.mark.parametrize(
+    ("http_status", "run_status", "run_id", "as_of_date", "count"),
+    [
+        (500, "published", str(uuid4()), "2026-07-23", 287),
+        (200, "unknown", str(uuid4()), "2026-07-23", 287),
+        (200, "published", "invalid", "2026-07-23", 287),
+        (200, "published", str(uuid4()), "2026-07-22", 287),
+        (200, "published", str(uuid4()), "2026-07-23", 286),
+    ],
+)
+def test_validate_manual_requirement_run_rejects_inexact_success(
+    http_status, run_status, run_id, as_of_date, count
+):
     with pytest.raises(
-        stage_suite.StageGateError,
-        match="manual_requirement_run_not_accepted",
+        stage_suite.StageGateError, match="manual_requirement_run_not_accepted"
     ):
         stage_suite.validate_manual_requirement_run(
-            200,
+            http_status,
             {
-                "status": "deduplicated",
+                "status": run_status,
                 "runId": run_id,
-                "asOfDate": "2026-07-23",
-                "requirementCount": 287,
+                "asOfDate": as_of_date,
+                "requirementCount": count,
             },
             as_of_date="2026-07-23",
+        )
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {
+            "status": "published",
+            "runId": str(uuid4()),
+            "asOfDate": "2026-07-23",
+            "requirementCount": 287,
+            "extra": True,
+        },
+        {
+            "status": "published",
+            "runId": str(uuid4()),
+            "asOfDate": "2026-07-23",
+            "requirementCount": 287.0,
+        },
+        {
+            "status": "published",
+            "runId": str(uuid4()),
+            "asOfDate": "2026-07-23",
+            "requirementCount": True,
+        },
+        {
+            "status": "published",
+            "runId": 12345678123456781234567812345678,
+            "asOfDate": "2026-07-23",
+            "requirementCount": 287,
+        },
+        {
+            "status": "published",
+            "runId": str(uuid4()).upper(),
+            "asOfDate": "2026-07-23",
+            "requirementCount": 287,
+        },
+    ],
+)
+def test_validate_manual_requirement_run_rejects_extra_keys_and_non_integer_count(
+    body,
+):
+    with pytest.raises(
+        stage_suite.StageGateError, match="manual_requirement_run_not_accepted"
+    ):
+        stage_suite.validate_manual_requirement_run(200, body, as_of_date="2026-07-23")
+
+
+@pytest.mark.parametrize(
+    ("status", "body"),
+    [
+        (
+            500,
+            {
+                "detail": {
+                    "status": "failed_incomplete_source",
+                    "reason": "requirement_inputs_incomplete",
+                    "asOfDate": "2026-08-12",
+                }
+            },
+        ),
+        (
+            409,
+            {
+                "detail": {
+                    "status": "failed_incomplete_source",
+                    "reason": "unknown",
+                    "asOfDate": "2026-08-12",
+                }
+            },
+        ),
+        (
+            409,
+            {
+                "detail": {
+                    "status": "failed_incomplete_source",
+                    "reason": "requirement_inputs_incomplete",
+                    "asOfDate": "2026-08-11",
+                }
+            },
+        ),
+    ],
+)
+def test_validate_manual_requirement_failure_rejects_unbounded_response(status, body):
+    with pytest.raises(
+        stage_suite.StageGateError, match="manual_requirement_run_not_accepted"
+    ):
+        stage_suite.validate_manual_requirement_failure(
+            status, body, as_of_date="2026-08-12"
+        )
+
+
+@pytest.mark.parametrize(
+    ("reason", "expected_gate"),
+    [
+        ("requirement_source_invalid", "manual_requirement_source_invalid"),
+        ("requirement_inputs_incomplete", "manual_requirement_inputs_incomplete"),
+        ("superseded_lineage", "manual_requirement_superseded_lineage"),
+    ],
+)
+def test_validate_manual_requirement_failure_preserves_sanitized_classification(
+    reason, expected_gate
+):
+    with pytest.raises(stage_suite.StageGateError, match=expected_gate):
+        status = (
+            "failed_incomplete_source"
+            if reason.startswith("requirement_")
+            else "rejected"
+        )
+        stage_suite.validate_manual_requirement_failure(
+            409,
+            {
+                "detail": {
+                    "status": status,
+                    "reason": reason,
+                    "asOfDate": "2026-08-12",
+                }
+            },
+            as_of_date="2026-08-12",
+        )
+
+
+def test_validate_manual_requirement_failure_preserves_operational_date_mismatch():
+    with pytest.raises(
+        stage_suite.StageGateError, match="manual_requirement_operational_date_mismatch"
+    ):
+        stage_suite.validate_manual_requirement_failure(
+            409,
+            {
+                "detail": {
+                    "status": "rejected",
+                    "reason": "operational_date_mismatch",
+                    "asOfDate": "2026-08-13",
+                    "expectedAsOfDate": "2026-08-12",
+                }
+            },
+            as_of_date="2026-08-13",
         )
 
 
@@ -3633,6 +3786,7 @@ def test_write_ui_failure_manifest_preserves_restoration_for_unexpected_errors(
         "stage": "LOCAL-WRITE-UI-1",
         "verdict": "FAIL",
         "release_sha": "8" * 40,
+        "frontend_sha": "9" * 40,
         "failed_gate": "unexpected_RuntimeError",
         "restoration": {"attempts": 2, "restored": True, "failed_gate": None},
     }

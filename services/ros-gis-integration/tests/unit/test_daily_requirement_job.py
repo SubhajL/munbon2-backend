@@ -7,7 +7,11 @@ from uuid import uuid4
 import pytest
 
 from services.daily_requirement_job import DailyRequirementJob, operational_date
-from services.daily_requirement_producer import RequirementSnapshot, SectionCropInput
+from services.daily_requirement_producer import (
+    RequirementConfigurationError,
+    RequirementSnapshot,
+    SectionCropInput,
+)
 
 UTC = timezone.utc
 AS_OF = date(2026, 7, 16)
@@ -40,6 +44,7 @@ def _snapshot(crop_type="rice") -> RequirementSnapshot:
         crop_register_version="crop-v1",
         weather_version="weather-v1",
         annual_plan_version="annual-plan-v1",
+        source_effective_date=AS_OF,
         input_cutoff_at=datetime(2026, 7, 16, 1, tzinfo=UTC),
     )
 
@@ -49,8 +54,10 @@ class _SourceLoader:
         self.snapshot = snapshot
         self.calls = []
 
-    async def load(self, conn, as_of_date, now):
-        self.calls.append((conn, as_of_date, now))
+    async def load(
+        self, conn, *, source_effective_date: date, input_cutoff_at: datetime
+    ):
+        self.calls.append((conn, source_effective_date, input_cutoff_at))
         return self.snapshot
 
 
@@ -68,7 +75,7 @@ class _RunStore:
         async with self.lock:
             yield self.connection
 
-    async def find_published(self, conn, as_of_date, content_hash):
+    async def find_matching_run(self, conn, as_of_date, content_hash):
         return self.published_by_key.get((as_of_date, content_hash))
 
     async def start(self, conn, snapshot, as_of_date, horizon_end, content_hash, now):
@@ -171,6 +178,25 @@ async def test_dependency_failure_marks_run_failed_and_never_publishes_zero_requ
     assert len(store.failed) == 1
     assert store.published_by_key == {}
     assert "downstream-post" not in store.events
+
+
+@pytest.mark.asyncio
+async def test_job_rejects_snapshot_for_another_effective_date_before_starting_run():
+    store = _RunStore()
+    snapshot = _snapshot()
+    snapshot = RequirementSnapshot(
+        **{
+            **snapshot.__dict__,
+            "source_effective_date": date(2026, 7, 15),
+        }
+    )
+    job = _job(store=store, snapshot=snapshot)
+
+    with pytest.raises(RequirementConfigurationError, match="source effective date"):
+        await job.run_once(AS_OF, NOW)
+
+    assert store.runs == {}
+    assert store.events == []
 
 
 @pytest.mark.asyncio

@@ -122,6 +122,20 @@ def test_orchestrator_provisions_every_local_ac_harness_artifact():
         assert required in body
 
 
+def test_campaign_ledger_ci_fetches_and_requires_the_base_commit():
+    workflow = (
+        REPO_ROOT / ".github/workflows/control-plane-hardening-tests.yml"
+    ).read_text(encoding="utf-8")
+    harness_job = workflow.split("  control-plan-local-harness-tests:", 1)[1].split(
+        "\n  ros-postgis-integration:", 1
+    )[0]
+
+    assert "fetch-depth: 0" in harness_job
+    assert 'git cat-file -e "${BASE_SHA}^{commit}"' in harness_job
+    assert "campaign_ledger_base_commit_unavailable" in harness_job
+    assert "ops/control-plan-read-local/tests/test_local_artifacts.py" in harness_job
+
+
 def test_every_completed_stage_is_added_to_the_checksum_index():
     body = (LOCAL_DIR / "run-stage-suite.py").read_text(encoding="utf-8")
 

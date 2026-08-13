@@ -4,6 +4,7 @@ from decimal import Decimal
 import pytest
 
 from services.daily_requirement_producer import (
+    RequirementConfigurationError,
     RequirementInputError,
     RequirementSnapshot,
     SectionCropInput,
@@ -43,6 +44,7 @@ def _snapshot(**overrides) -> RequirementSnapshot:
         "crop_register_version": "crop-v1",
         "weather_version": "weather-v1",
         "annual_plan_version": "annual-plan-v1",
+        "source_effective_date": AS_OF,
         "input_cutoff_at": CUTOFF,
     }
     values.update(overrides)
@@ -69,6 +71,41 @@ def test_calculate_daily_water_requirements_publishes_section_level_d_through_d_
     assert batch.contributions[0].area_id == "01-01-01-03"
     assert batch.contributions[0].crop_stage == "seedling"
     assert batch.contributions[0].net_volume_m3 == Decimal("73.600000")
+
+
+def test_calculate_daily_water_requirements_accepts_setting_effective_on_operational_date_before_utc_date_boundary():
+    operational_date = date(2026, 8, 12)
+    snapshot = _snapshot(
+        sections=(_section(as_of_date=operational_date),),
+        eto_monthly_mm={8: Decimal("93")},
+        kc_weekly={("rice", 5): Decimal("1.2")},
+        effective_rainfall_monthly_mm={("rice", 8): Decimal("31")},
+        source_effective_date=operational_date,
+        input_cutoff_at=datetime(2026, 8, 11, 23, 59, 16, tzinfo=UTC),
+    )
+
+    batch = calculate_daily_water_requirements(
+        snapshot, operational_date, horizon_days=1
+    )
+
+    assert [item.service_date for item in batch.requirements] == [operational_date]
+
+
+def test_calculate_daily_water_requirements_rejects_setting_newer_than_operational_date():
+    operational_date = date(2026, 8, 12)
+    snapshot = _snapshot(
+        sections=(_section(as_of_date=date(2026, 8, 13)),),
+        source_effective_date=operational_date,
+        input_cutoff_at=datetime(2026, 8, 13, 1, tzinfo=UTC),
+    )
+
+    with pytest.raises(RequirementInputError) as exc_info:
+        calculate_daily_water_requirements(snapshot, operational_date, horizon_days=1)
+
+    assert str(exc_info.value).splitlines() == [
+        "authoritative requirement inputs are incomplete:",
+        "- section 01-01-01-03 is newer than the source effective date",
+    ]
 
 
 def test_calculate_daily_water_requirements_aggregates_missing_authoritative_inputs():
@@ -133,3 +170,28 @@ def test_requirement_run_content_hash_is_order_independent_and_input_sensitive()
     assert requirement_run_content_hash(left, AS_OF, 7) != requirement_run_content_hash(
         _snapshot(sections=(first, second), weather_version="weather-v2"), AS_OF, 7
     )
+
+
+def test_requirement_run_content_hash_locks_v2_golden_and_effective_date_identity():
+    baseline = requirement_run_content_hash(_snapshot(), AS_OF, 7)
+
+    assert (
+        baseline == "b36c5c568b54bb67065d4765d081e5485e1029c3a60d4167845a80f0e562ecf7"
+    )
+    assert baseline != requirement_run_content_hash(
+        _snapshot(source_effective_date=date(2026, 7, 15)), AS_OF, 7
+    )
+    assert baseline != requirement_run_content_hash(
+        _snapshot(section_dataset_version_id=2), AS_OF, 7
+    )
+    assert baseline != requirement_run_content_hash(
+        _snapshot(gate_mapping_dataset_version_id=2), AS_OF, 7
+    )
+
+
+@pytest.mark.parametrize("horizon_days", [True, 0, 32])
+def test_requirement_run_content_hash_classifies_invalid_horizon_as_configuration_error(
+    horizon_days,
+):
+    with pytest.raises(RequirementConfigurationError):
+        requirement_run_content_hash(_snapshot(), AS_OF, horizon_days)

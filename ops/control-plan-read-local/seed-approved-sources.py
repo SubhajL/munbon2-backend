@@ -14,8 +14,9 @@ from pathlib import Path
 import re
 from urllib.parse import unquote, urlsplit
 from uuid import NAMESPACE_URL, UUID, uuid5
+from zoneinfo import ZoneInfo
 
-SCENARIO_VERSION = "local-ac-1-v5"
+SCENARIO_VERSION = "local-ac-1-v6"
 SOURCE_TABLES = (
     "gis.zone",
     "water_planning.zone_planting_dates",
@@ -147,9 +148,11 @@ def build_approved_source_scenario(manifest: dict, as_of_date: date) -> dict:
         for source in ("excel_overrides", "gis_expected_areas")
         for row in manifest["section_master"][source]
     }
-    captured_at = datetime.combine(
-        as_of_date, time(hour=0), tzinfo=timezone.utc
-    ).isoformat()
+    captured_at = (
+        datetime.combine(as_of_date, time.min, tzinfo=ZoneInfo("Asia/Bangkok"))
+        .astimezone(timezone.utc)
+        .isoformat()
+    )
     planting_date = as_of_date - timedelta(days=14)
     harvest_date = as_of_date + timedelta(days=98)
     sections = []
@@ -192,6 +195,7 @@ def build_approved_source_scenario(manifest: dict, as_of_date: date) -> dict:
                 "source": SCENARIO_VERSION,
                 "as_of_date": as_of_date.isoformat(),
                 "updated_by": "local-acceptance-operator",
+                "created_at": captured_at,
             }
         )
     tables = {
@@ -256,8 +260,7 @@ def validate_local_postgres_url(postgres_url: str) -> str:
 
 
 async def _seed_connection(connection, scenario: dict) -> None:
-    await connection.execute(
-        """
+    await connection.execute("""
         CREATE SCHEMA IF NOT EXISTS gis;
         CREATE SCHEMA IF NOT EXISTS water_planning;
         CREATE SCHEMA IF NOT EXISTS ros;
@@ -295,9 +298,16 @@ async def _seed_connection(connection, scenario: dict) -> None:
             updated_at TIMESTAMPTZ NOT NULL,
             PRIMARY KEY (crop_type, month)
         );
-        """
-    )
+        """)
     tables = scenario["tables"]
+    await connection.execute("""
+        ALTER TABLE ros_gis.section_crop_settings
+            DISABLE TRIGGER section_crop_settings_are_append_only;
+        DELETE FROM ros_gis.section_crop_settings
+        WHERE source ~ '^local-ac-1-v[0-9]+$';
+        ALTER TABLE ros_gis.section_crop_settings
+            ENABLE TRIGGER section_crop_settings_are_append_only;
+        """)
     await connection.executemany(
         """
         INSERT INTO gis.zone (code, props, create_date)
@@ -339,8 +349,8 @@ async def _seed_connection(connection, scenario: dict) -> None:
         """
         INSERT INTO ros_gis.section_crop_settings (
             setting_id, section_id, crop_type, planted_area_rai,
-            expected_harvest_date, source, as_of_date, updated_by
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            expected_harvest_date, source, as_of_date, updated_by, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         ON CONFLICT (setting_id) DO NOTHING
         """,
         [
@@ -353,6 +363,7 @@ async def _seed_connection(connection, scenario: dict) -> None:
                 row["source"],
                 date.fromisoformat(row["as_of_date"]),
                 row["updated_by"],
+                datetime.fromisoformat(row["created_at"]),
             )
             for row in tables["ros_gis.section_crop_settings"]
         ],
