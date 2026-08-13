@@ -53,8 +53,8 @@ def test_runtime_migration_parity_requires_the_exact_bff_manifest():
     ) == {
         "scheduler_latest": "0013_operator_approved_execution",
         "scheduler_count": 13,
-        "ros_latest": "0003_daily_requirement_producer",
-        "ros_count": 3,
+        "ros_latest": "0004_dataset_version_identity_immutable",
+        "ros_count": 4,
         "bff_latest": "012_planning_depth_roster_provenance",
         "bff_count": 4,
     }
