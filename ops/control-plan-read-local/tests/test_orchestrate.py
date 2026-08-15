@@ -19,6 +19,17 @@ assert SPEC is not None and SPEC.loader is not None
 orchestrate = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = orchestrate
 SPEC.loader.exec_module(orchestrate)
+EXPECTED_SUCCESSFUL_STAGE_ORDER = (
+    "LOCAL-BASE-0",
+    "LOCAL-RTA-1",
+    "LOCAL-AC-1",
+    "LOCAL-READ-ACT-1",
+    "LOCAL-EVIDENCE-1",
+    "LOCAL-GO-READ-1",
+    "LOCAL-WRITE-FOUNDATION-1",
+    "LOCAL-WRITE-UI-1",
+    "LOCAL-PERSIST-ONLY-1",
+)
 
 
 def test_build_machine_command_uses_native_arm64_and_both_isolation_flags():
@@ -739,6 +750,25 @@ def test_parser_accepts_partial_failure_collection_action():
     assert args.action == "collect-partial-failure"
 
 
+@pytest.mark.parametrize(
+    "frontend_sha_args",
+    [[], ["--frontend-sha", "not-a-full-sha"]],
+)
+def test_main_requires_explicit_frontend_sha_before_repo_inspection(
+    frontend_sha_args, monkeypatch, capsys
+):
+    monkeypatch.setattr(
+        orchestrate,
+        "_origin_main_sha",
+        lambda _path: pytest.fail("repository inspection must not run"),
+    )
+
+    assert orchestrate.main(["plan", *frontend_sha_args]) == 1
+    assert capsys.readouterr().out == (
+        "FAIL orchestration: frontend_sha_not_accepted\n"
+    )
+
+
 def test_partial_failure_cli_prints_machine_readable_non_acceptance_summary(
     tmp_path, monkeypatch, capsys
 ):
@@ -767,6 +797,8 @@ def test_partial_failure_cli_prints_machine_readable_non_acceptance_summary(
                 str(tmp_path / "backend"),
                 "--frontend-repo",
                 str(tmp_path / "frontend"),
+                "--frontend-sha",
+                frontend_sha,
                 "--evidence-dir",
                 str(tmp_path / "evidence"),
             ]
@@ -777,7 +809,12 @@ def test_partial_failure_cli_prints_machine_readable_non_acceptance_summary(
 
 
 def _campaign_ledger_entry(
-    campaign_id: str, *, previous_entry_sha256: str | None
+    campaign_id: str,
+    *,
+    previous_entry_sha256: str | None,
+    outcome: dict | None = None,
+    authorization: dict | None = None,
+    evidence_index_name: str = "OUTER-SHA256SUMS",
 ) -> dict:
     entry = {
         "schema_version": 1,
@@ -798,20 +835,28 @@ def _campaign_ledger_entry(
         },
         "evidence": {
             "ref": "external-evidence/campaign",
-            "index_name": "OUTER-SHA256SUMS",
+            "index_name": evidence_index_name,
             "index_sha256": "e" * 64,
         },
-        "outcome": {
-            "acceptance": False,
-            "passed": list(orchestrate.STAGE_ORDER[:2]),
-            "failed": [orchestrate.STAGE_ORDER[2]],
-            "unreached": list(orchestrate.STAGE_ORDER[3:]),
-        },
-        "authorization": {
-            "state": "exhausted",
-            "attempt": 3,
-            "ceiling": 3,
-        },
+        "outcome": (
+            outcome
+            if outcome is not None
+            else {
+                "acceptance": False,
+                "passed": list(orchestrate.STAGE_ORDER[:2]),
+                "failed": [orchestrate.STAGE_ORDER[2]],
+                "unreached": list(orchestrate.STAGE_ORDER[3:]),
+            }
+        ),
+        "authorization": (
+            authorization
+            if authorization is not None
+            else {
+                "state": "exhausted",
+                "attempt": 3,
+                "ceiling": 3,
+            }
+        ),
         "previous_entry_sha256": previous_entry_sha256,
     }
     canonical = json.dumps(entry, sort_keys=True, separators=(",", ":")).encode()
@@ -819,6 +864,258 @@ def _campaign_ledger_entry(
         **entry,
         "entry_sha256": hashlib.sha256(canonical).hexdigest(),
     }
+
+
+def _successful_campaign_ledger_entry(
+    campaign_id: str, *, previous_entry_sha256: str | None
+) -> dict:
+    return _campaign_ledger_entry(
+        campaign_id,
+        previous_entry_sha256=previous_entry_sha256,
+        outcome={
+            "acceptance": True,
+            "passed": list(EXPECTED_SUCCESSFUL_STAGE_ORDER),
+            "failed": [],
+            "unreached": [],
+        },
+        authorization={
+            "state": "successful_closed",
+            "attempt": 1,
+            "ceiling": 3,
+        },
+    )
+
+
+def test_validate_campaign_ledger_accepts_complete_successful_closed_entry(tmp_path):
+    entry = _successful_campaign_ledger_entry(
+        "campaign-success", previous_entry_sha256=None
+    )
+    path = tmp_path / "campaign-ledger.jsonl"
+    path.write_text(json.dumps(entry, sort_keys=True) + "\n")
+
+    assert orchestrate.STAGE_ORDER == EXPECTED_SUCCESSFUL_STAGE_ORDER
+    assert orchestrate.validate_campaign_ledger(path) == [entry]
+
+
+@pytest.mark.parametrize(
+    ("outcome", "authorization", "evidence_index_name"),
+    [
+        (
+            {
+                "acceptance": False,
+                "passed": list(orchestrate.STAGE_ORDER),
+                "failed": [],
+                "unreached": [],
+            },
+            {"state": "successful_closed", "attempt": 1, "ceiling": 3},
+            "OUTER-SHA256SUMS",
+        ),
+        (
+            {
+                "acceptance": False,
+                "passed": list(orchestrate.STAGE_ORDER[:2]),
+                "failed": [orchestrate.STAGE_ORDER[2]],
+                "unreached": list(orchestrate.STAGE_ORDER[3:]),
+            },
+            {"state": "successful_closed", "attempt": 1, "ceiling": 3},
+            "OUTER-SHA256SUMS",
+        ),
+        (
+            {
+                "acceptance": True,
+                "passed": list(orchestrate.STAGE_ORDER[:-1]),
+                "failed": [],
+                "unreached": [orchestrate.STAGE_ORDER[-1]],
+            },
+            {"state": "successful_closed", "attempt": 1, "ceiling": 3},
+            "OUTER-SHA256SUMS",
+        ),
+        (
+            {
+                "acceptance": True,
+                "passed": list(orchestrate.STAGE_ORDER[:-1]),
+                "failed": [orchestrate.STAGE_ORDER[-1]],
+                "unreached": [],
+            },
+            {"state": "successful_closed", "attempt": 1, "ceiling": 3},
+            "OUTER-SHA256SUMS",
+        ),
+        (
+            {
+                "acceptance": True,
+                "passed": [
+                    orchestrate.STAGE_ORDER[1],
+                    orchestrate.STAGE_ORDER[0],
+                    *orchestrate.STAGE_ORDER[2:],
+                ],
+                "failed": [],
+                "unreached": [],
+            },
+            {"state": "successful_closed", "attempt": 1, "ceiling": 3},
+            "OUTER-SHA256SUMS",
+        ),
+        (
+            {
+                "acceptance": True,
+                "passed": [
+                    *orchestrate.STAGE_ORDER[:-1],
+                    orchestrate.STAGE_ORDER[-2],
+                ],
+                "failed": [],
+                "unreached": [],
+            },
+            {"state": "successful_closed", "attempt": 1, "ceiling": 3},
+            "OUTER-SHA256SUMS",
+        ),
+        (
+            {
+                "acceptance": True,
+                "passed": list(orchestrate.STAGE_ORDER),
+                "failed": [],
+                "unreached": [],
+            },
+            {"state": "exhausted", "attempt": 3, "ceiling": 3},
+            "OUTER-SHA256SUMS",
+        ),
+        (
+            {
+                "acceptance": True,
+                "passed": list(orchestrate.STAGE_ORDER),
+                "failed": [],
+                "unreached": [],
+            },
+            {"state": "successful_closed", "attempt": None, "ceiling": None},
+            "OUTER-SHA256SUMS",
+        ),
+        (
+            {
+                "acceptance": True,
+                "passed": list(orchestrate.STAGE_ORDER),
+                "failed": [],
+                "unreached": [],
+            },
+            {"state": "successful_closed", "attempt": True, "ceiling": 3},
+            "OUTER-SHA256SUMS",
+        ),
+        (
+            {
+                "acceptance": True,
+                "passed": list(orchestrate.STAGE_ORDER),
+                "failed": [],
+                "unreached": [],
+            },
+            {"state": "successful_closed", "attempt": 0, "ceiling": 3},
+            "OUTER-SHA256SUMS",
+        ),
+        (
+            {
+                "acceptance": True,
+                "passed": list(orchestrate.STAGE_ORDER),
+                "failed": [],
+                "unreached": [],
+            },
+            {"state": "successful_closed", "attempt": -1, "ceiling": 3},
+            "OUTER-SHA256SUMS",
+        ),
+        (
+            {
+                "acceptance": True,
+                "passed": list(orchestrate.STAGE_ORDER),
+                "failed": [],
+                "unreached": [],
+            },
+            {"state": "successful_closed", "attempt": 4, "ceiling": 3},
+            "OUTER-SHA256SUMS",
+        ),
+        (
+            {
+                "acceptance": True,
+                "passed": list(orchestrate.STAGE_ORDER),
+                "failed": [],
+                "unreached": [],
+            },
+            {"state": "successful_closed", "attempt": 1, "ceiling": 3},
+            "PARTIAL-OUTER-SHA256SUMS",
+        ),
+        (
+            {
+                "acceptance": True,
+                "passed": list(orchestrate.STAGE_ORDER),
+                "failed": [],
+                "unreached": [],
+            },
+            {"state": "successful_closed", "attempt": 1, "ceiling": 3},
+            "SHA256SUMS",
+        ),
+    ],
+)
+def test_validate_campaign_ledger_rejects_invalid_successful_closed_entry(
+    tmp_path, outcome, authorization, evidence_index_name
+):
+    entry = _campaign_ledger_entry(
+        "campaign-success",
+        previous_entry_sha256=None,
+        outcome=outcome,
+        authorization=authorization,
+        evidence_index_name=evidence_index_name,
+    )
+    path = tmp_path / "campaign-ledger.jsonl"
+    path.write_text(json.dumps(entry, sort_keys=True) + "\n")
+
+    with pytest.raises(
+        orchestrate.OrchestrationError, match="campaign_ledger_schema_invalid"
+    ):
+        orchestrate.validate_campaign_ledger(path)
+
+
+def test_validate_campaign_ledger_append_only_accepts_success_after_failure_history(
+    tmp_path,
+):
+    first = _campaign_ledger_entry("campaign-1", previous_entry_sha256=None)
+    second = _campaign_ledger_entry(
+        "campaign-2", previous_entry_sha256=first["entry_sha256"]
+    )
+    success = _successful_campaign_ledger_entry(
+        "campaign-success", previous_entry_sha256=second["entry_sha256"]
+    )
+    base = tmp_path / "base.jsonl"
+    current = tmp_path / "current.jsonl"
+    base_text = "".join(
+        json.dumps(entry, sort_keys=True) + "\n" for entry in (first, second)
+    )
+    base.write_text(base_text)
+    current.write_text(base_text + json.dumps(success, sort_keys=True) + "\n")
+
+    assert orchestrate.validate_campaign_ledger_append_only(base, current) == [
+        first,
+        second,
+        success,
+    ]
+
+
+def test_validate_campaign_ledger_cli_does_not_require_frontend_repo(
+    tmp_path, monkeypatch, capsys
+):
+    entry = _campaign_ledger_entry("campaign-1", previous_entry_sha256=None)
+    path = tmp_path / "campaign-ledger.jsonl"
+    path.write_text(json.dumps(entry, sort_keys=True) + "\n")
+    monkeypatch.setattr(
+        orchestrate,
+        "_origin_main_sha",
+        lambda _path: pytest.fail("repository inspection must not run"),
+    )
+
+    assert (
+        orchestrate.main(
+            [
+                "validate-campaign-ledger",
+                "--campaign-ledger",
+                str(path),
+            ]
+        )
+        == 0
+    )
+    assert capsys.readouterr().out == "PASS campaign_ledger\n"
 
 
 def test_validate_campaign_ledger_requires_canonical_hash_chain_and_stage_partition(
@@ -1033,6 +1330,10 @@ def test_checked_in_campaign_ledger_is_valid():
         MODULE_PATH.parents[2] / "docs/operations/control-plan-campaign-ledger.jsonl"
     )
 
+    assert hashlib.sha256(ledger.read_bytes()).hexdigest() == (
+        "45970d9a2240eb2090a7958d9add373fb5ec4ef6068b38d04ae4ac22ce4f4261"
+    )
+
     entries = orchestrate.validate_campaign_ledger(ledger)
 
     assert [
@@ -1094,6 +1395,10 @@ def test_checked_in_campaign_ledger_is_valid():
             "failed": [orchestrate.STAGE_ORDER[2]],
             "unreached": list(orchestrate.STAGE_ORDER[3:]),
         },
+    ]
+    assert [entry["authorization"] for entry in entries] == [
+        {"state": "historical_closed", "attempt": None, "ceiling": None},
+        {"state": "exhausted", "attempt": 3, "ceiling": 3},
     ]
 
 

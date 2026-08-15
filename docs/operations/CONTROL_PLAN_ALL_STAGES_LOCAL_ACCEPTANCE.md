@@ -49,7 +49,7 @@ non-authoritative diagnostic guest:
 
 ```bash
 accepted_backend_sha=REPLACE_WITH_ACCEPTED_40_CHARACTER_BACKEND_SHA
-accepted_frontend_sha=fbd4ce4df0bb0476b7cd402ac1a4e180a91a7792
+accepted_frontend_sha=REPLACE_WITH_ACCEPTED_40_CHARACTER_FRONTEND_SHA
 dependency_bundle=/absolute/external/evidence/dependencies-${accepted_backend_sha}.tar.gz
 
 python3 ops/control-plan-read-local/orchestrate.py build-dependencies \
@@ -59,6 +59,9 @@ python3 ops/control-plan-read-local/orchestrate.py build-dependencies \
   --confirm-diagnostic-build \
   --dependency-bundle "$dependency_bundle"
 ```
+
+The frontend value must be the explicitly reviewed full SHA at the clean Smart
+CMS `origin/main`. Historical frontend SHAs below are evidence identities, not reusable defaults.
 
 The builder cold-acquires and checksum-indexes the Debian/PostgreSQL/PostGIS,
 InfluxDB, Node 22.23.1/npm 10.9.8, PM2 5.4.3, four Python wheel closures, five
@@ -473,8 +476,14 @@ or runtime state.
 
 ## Next local work
 
-Complete the authoritative roster, RID-calendar identity, and frontend retry
-prerequisites before implementing `LOCAL-WRITE-UI-1`. Keep all write and
-authority gates dark by default. Rebuild disposable state and pass `LOCAL-RC-1`
-after every named local gate. Only that final pass allows a separately
-authorized AWS promotion turn to begin.
+All nine current local acceptance stages are implemented.
+No current candidate has genuine 9/9 acceptance evidence. Refresh the exact backend and frontend
+candidates only after this source preparation lands, and keep visibility,
+submit, write, and authority gates dark by default.
+
+A fresh exact-SHA rehearsal and canonical campaign require separate authorization.
+Guest replacement, deployment, and activation remain separately authorized actions.
+Every authorized campaign outcome, success or failure, must extend the campaign
+ledger with its appropriate checksum-bound evidence. Promotion still requires
+genuine 9/9 evidence from one pristine authorized guest, a separately authorized
+passing `LOCAL-RC-1`, and separate promotion and AWS authorization.

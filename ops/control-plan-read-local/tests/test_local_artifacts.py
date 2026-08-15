@@ -1048,4 +1048,22 @@ def test_all_stages_runbook_locks_local_before_aws_and_documents_current_command
         body.count('--frontend-sha "$accepted_frontend_sha"')
         == documented_candidate_commands
     )
+    for required in (
+        "accepted_frontend_sha=REPLACE_WITH_ACCEPTED_40_CHARACTER_FRONTEND_SHA",
+        "Historical frontend SHAs below are evidence identities, not reusable defaults.",
+        "All nine current local acceptance stages are implemented",
+        "No current candidate has genuine 9/9 acceptance evidence.",
+        "A fresh exact-SHA rehearsal and canonical campaign require separate authorization.",
+        "Guest replacement, deployment, and activation remain separately authorized actions.",
+        "Every authorized campaign outcome, success or failure, must extend the campaign",
+        "genuine 9/9 evidence from one pristine authorized guest, a separately authorized",
+        "passing `LOCAL-RC-1`, and separate promotion and AWS authorization.",
+    ):
+        assert required in body
+    assert "accepted_frontend_sha=fbd4ce4df0bb0476b7cd402ac1a4e180a91a7792" not in body
+    assert "before implementing `LOCAL-WRITE-UI-1`" not in body
+    assert (
+        "Only genuine 9/9 evidence from one pristine authorized guest may extend"
+        not in body
+    )
     assert "2ee640c5eed939b68035c7695a4c129570e9ca5a" not in body
