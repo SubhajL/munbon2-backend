@@ -111,6 +111,65 @@ def validate_campaign_ledger(path: Path) -> list[dict]:
         evidence = entry["evidence"]
         outcome = entry["outcome"]
         authorization = entry["authorization"]
+        outcome_lists_are_valid = (
+            isinstance(outcome, dict)
+            and set(outcome) == {"acceptance", "passed", "failed", "unreached"}
+            and all(
+                isinstance(outcome.get(name), list)
+                for name in ("passed", "failed", "unreached")
+            )
+        )
+        failure_outcome_is_valid = (
+            outcome_lists_are_valid
+            and outcome.get("acceptance") is False
+            and len(outcome["failed"]) == 1
+            and [*outcome["passed"], *outcome["failed"], *outcome["unreached"]]
+            == list(STAGE_ORDER)
+        )
+        successful_outcome_is_valid = (
+            outcome_lists_are_valid
+            and outcome.get("acceptance") is True
+            and outcome["passed"] == list(STAGE_ORDER)
+            and outcome["failed"] == []
+            and outcome["unreached"] == []
+            and isinstance(evidence, dict)
+            and evidence.get("index_name") == "OUTER-SHA256SUMS"
+        )
+        authorization_shape_is_valid = isinstance(authorization, dict) and set(
+            authorization
+        ) == {"state", "attempt", "ceiling"}
+        authorization_attempt = (
+            authorization.get("attempt") if authorization_shape_is_valid else None
+        )
+        authorization_ceiling = (
+            authorization.get("ceiling") if authorization_shape_is_valid else None
+        )
+        authorization_attempts_are_valid = (
+            type(authorization_attempt) is int
+            and type(authorization_ceiling) is int
+            and 0 < authorization_attempt <= authorization_ceiling
+        )
+        historical_authorization_is_valid = (
+            authorization_shape_is_valid
+            and authorization.get("state") == "historical_closed"
+            and authorization_attempt is None
+            and authorization_ceiling is None
+        )
+        exhausted_authorization_is_valid = (
+            authorization_shape_is_valid
+            and authorization.get("state") == "exhausted"
+            and authorization_attempts_are_valid
+            and authorization_attempt == authorization_ceiling
+        )
+        successful_authorization_is_valid = (
+            authorization_shape_is_valid
+            and authorization.get("state") == "successful_closed"
+            and authorization_attempts_are_valid
+        )
+        ledger_variant_is_valid = (
+            failure_outcome_is_valid
+            and (historical_authorization_is_valid or exhausted_authorization_is_valid)
+        ) or (successful_outcome_is_valid and successful_authorization_is_valid)
         if (
             type(entry["schema_version"]) is not int
             or entry["schema_version"] != 1
@@ -169,49 +228,7 @@ def validate_campaign_ledger(path: Path) -> list[dict]:
             not in {"SHA256SUMS", "OUTER-SHA256SUMS", "PARTIAL-OUTER-SHA256SUMS"}
             or not isinstance(evidence.get("index_sha256"), str)
             or not re.fullmatch(r"[0-9a-f]{64}", evidence["index_sha256"])
-            or not isinstance(outcome, dict)
-            or set(outcome) != {"acceptance", "passed", "failed", "unreached"}
-            or outcome.get("acceptance") is not False
-            or not all(
-                isinstance(outcome.get(name), list)
-                for name in ("passed", "failed", "unreached")
-            )
-            or len(outcome["failed"]) != 1
-            or [*outcome["passed"], *outcome["failed"], *outcome["unreached"]]
-            != list(STAGE_ORDER)
-            or not isinstance(authorization, dict)
-            or set(authorization) != {"state", "attempt", "ceiling"}
-            or authorization.get("state") not in {"historical_closed", "exhausted"}
-            or (
-                authorization.get("state") == "historical_closed"
-                and (
-                    authorization.get("attempt") is not None
-                    or authorization.get("ceiling") is not None
-                )
-            )
-            or (
-                authorization.get("state") == "exhausted"
-                and (
-                    authorization.get("attempt") is None
-                    or authorization.get("ceiling") is None
-                )
-            )
-            or (
-                (authorization.get("attempt") is None)
-                != (authorization.get("ceiling") is None)
-            )
-            or (
-                authorization.get("attempt") is not None
-                and (
-                    type(authorization["attempt"]) is not int
-                    or type(authorization["ceiling"]) is not int
-                    or not 0 < authorization["attempt"] <= authorization["ceiling"]
-                    or (
-                        authorization["state"] == "exhausted"
-                        and authorization["attempt"] != authorization["ceiling"]
-                    )
-                )
-            )
+            or not ledger_variant_is_valid
         ):
             raise OrchestrationError("campaign_ledger_schema_invalid")
         if entry["previous_entry_sha256"] != previous_entry_sha256:
@@ -1490,9 +1507,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=Path.cwd().parent / "smart-cms-app",
     )
     parser.add_argument("--release-sha", default=ACCEPTED_BASE_SHA)
-    parser.add_argument(
-        "--frontend-sha", default="fbd4ce4df0bb0476b7cd402ac1a4e180a91a7792"
-    )
+    parser.add_argument("--frontend-sha")
     parser.add_argument("--stage", choices=STAGE_ORDER)
     parser.add_argument("--accept-later-origin-main", action="store_true")
     parser.add_argument("--evidence-dir", type=Path)
@@ -1525,6 +1540,10 @@ def main(argv: list[str] | None = None) -> int:
                 )
             print("PASS campaign_ledger")
             return 0
+        if not isinstance(args.frontend_sha, str) or not re.fullmatch(
+            r"[0-9a-f]{40}", args.frontend_sha
+        ):
+            raise OrchestrationError("frontend_sha_not_accepted")
         origin_main = _origin_main_sha(args.repo)
         frontend_origin_main = _origin_main_sha(args.frontend_repo)
         release_sha = validate_release_sha(
@@ -1532,10 +1551,7 @@ def main(argv: list[str] | None = None) -> int:
             origin_main_sha=origin_main,
             accept_later_origin_main=args.accept_later_origin_main,
         )
-        if (
-            not re.fullmatch(r"[0-9a-f]{40}", args.frontend_sha)
-            or args.frontend_sha != frontend_origin_main
-        ):
+        if args.frontend_sha != frontend_origin_main:
             raise OrchestrationError("frontend_sha_not_accepted")
         if args.as_of_date is not None:
             try:
