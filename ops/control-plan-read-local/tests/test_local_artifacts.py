@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import re
@@ -640,30 +641,41 @@ def test_offline_debian_installer_allows_only_exact_local_downgrades(tmp_path):
 
 def test_python_closure_lock_content_addresses_all_arm64_wheel_sets():
     lock_path = LOCAL_DIR / "python-closures.lock"
-    lines = lock_path.read_text(encoding="utf-8").splitlines()
-
-    assert [tuple(line.split()) for line in lines] == [
-        (
-            "flow-monitoring",
-            "33a6d4d1e520e26cf657149177cdb2c830df040193c3746a8ca9a0767763dc2b",
-            "84",
-        ),
-        (
-            "scheduler",
-            "29e54face19047f495038f77f735bf9dc192d4c40f69a412bd4a3d122955493a",
-            "96",
-        ),
-        (
-            "ros-gis-integration",
-            "16bc077f84400bc346ccb6f5e755fdb53a8545eb792c64cd79bd2bf2113fc9da",
-            "67",
-        ),
-        (
-            "bff-water-planning",
-            "1cd33e7b32c971c62c81d262da52e21fbd8fdeb246c75fe5a246b249107182e5",
-            "81",
-        ),
+    locked_closures = [
+        tuple(line.split())
+        for line in lock_path.read_text(encoding="utf-8").splitlines()
     ]
+    service_order = (
+        "flow-monitoring",
+        "scheduler",
+        "ros-gis-integration",
+        "bff-water-planning",
+    )
+    measured_closures = []
+
+    assert tuple(service for service, _, _ in locked_closures) == service_order
+    for service, _, _ in locked_closures:
+        receipt_lines = (
+            (LOCAL_DIR / "python-closure-receipts" / f"{service}.sha256")
+            .read_bytes()
+            .splitlines(keepends=True)
+        )
+        assert all(
+            re.fullmatch(rb"[0-9a-f]{64}  \./[A-Za-z0-9_.+-]+\.whl\n", receipt_line)
+            for receipt_line in receipt_lines
+        )
+        assert receipt_lines == sorted(
+            receipt_lines, key=lambda line: line.split(b"  ", 1)[1]
+        )
+        measured_closures.append(
+            (
+                service,
+                hashlib.sha256(b"".join(receipt_lines)).hexdigest(),
+                str(len(receipt_lines)),
+            )
+        )
+
+    assert locked_closures == measured_closures
 
 
 def test_bootstrap_validates_and_stages_dependencies_before_runtime_reset():
