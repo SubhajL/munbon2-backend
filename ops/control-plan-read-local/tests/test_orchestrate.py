@@ -55,6 +55,35 @@ def test_build_machine_command_uses_native_arm64_and_both_isolation_flags():
     ]
 
 
+def test_rehearsal_machine_and_guest_commands_use_only_the_fixed_rehearsal_guest():
+    assert orchestrate.build_rehearsal_machine_command() == [
+        "orb",
+        "create",
+        "--arch",
+        "arm64",
+        "--memory",
+        "8G",
+        "--cpus",
+        "4",
+        "--disk",
+        "40G",
+        "--user",
+        "munbonlocal",
+        "--isolated",
+        "--isolate-network",
+        "debian:12",
+        "munbon-control-plan-rehearsal",
+    ]
+    assert orchestrate.build_rehearsal_guest_command(["true"], user="root") == [
+        "orb",
+        "-m",
+        "munbon-control-plan-rehearsal",
+        "-u",
+        "root",
+        "true",
+    ]
+
+
 @pytest.mark.parametrize(
     "override",
     [
@@ -307,6 +336,31 @@ def test_validate_machine_owner_accepts_only_harness_marker():
             orchestrate.validate_machine_owner(marker)
 
 
+def test_validate_rehearsal_owner_requires_structural_non_acceptance_marker():
+    marker = {
+        "machine": "munbon-control-plan-rehearsal",
+        "architecture": "arm64",
+        "state": "ready",
+        "release_sha": "a" * 40,
+        "frontend_sha": "b" * 40,
+        "dependency_sha256": "c" * 64,
+        "execution_kind": "rehearsal",
+        "acceptance_evidence": False,
+    }
+
+    assert orchestrate.validate_rehearsal_owner(json.dumps(marker)) is None
+    for field, value in (
+        ("machine", "munbon-control-plan-local"),
+        ("execution_kind", "canonical"),
+        ("acceptance_evidence", True),
+    ):
+        rejected = {**marker, field: value}
+        with pytest.raises(
+            orchestrate.OrchestrationError, match="rehearsal_owner_not_accepted"
+        ):
+            orchestrate.validate_rehearsal_owner(json.dumps(rejected))
+
+
 def test_validate_existing_guest_allows_only_ready_state_with_matching_owner():
     release_sha = orchestrate.ACCEPTED_BASE_SHA
     frontend_sha = "b" * 40
@@ -440,6 +494,44 @@ def test_finalize_bootstrap_failure_bundle_verifies_inner_and_writes_outer_index
         orchestrate.finalize_bootstrap_failure_bundle(destination)
 
 
+def test_finalize_rehearsal_bootstrap_failure_is_structurally_non_authoritative(
+    tmp_path,
+):
+    destination = tmp_path / "failure"
+    bundle = destination / "bundle"
+    bundle.mkdir(parents=True)
+    metadata = {
+        "classification": "retryable-transport",
+        "dependency_sha256": "c" * 64,
+        "exit_code": 1,
+        "frontend_sha": "b" * 40,
+        "phase": "dependency-staging",
+        "recorded_at": "2026-08-10T10:00:00Z",
+        "release_sha": "a" * 40,
+        "state": "failed",
+        "substep": "auth-npm-ci",
+        "tool_versions": {"node": "v22.23.1", "npm": "10.9.8"},
+    }
+    (bundle / "bootstrap-sanitized.log").write_text("timeout\n")
+    (bundle / "metadata.json").write_text(json.dumps(metadata, sort_keys=True) + "\n")
+    (bundle / "SHA256SUMS").write_text(
+        "".join(
+            f"{hashlib.sha256((bundle / name).read_bytes()).hexdigest()}  {name}\n"
+            for name in ("bootstrap-sanitized.log", "metadata.json")
+        )
+    )
+
+    summary = orchestrate.finalize_rehearsal_bootstrap_failure_bundle(destination)
+
+    assert summary["acceptance_evidence"] is False
+    assert summary["evidence_kind"] == "non_authoritative_rehearsal"
+    assert not (destination / "OUTER-SHA256SUMS").exists()
+    assert not (bundle / "SHA256SUMS").exists()
+    assert (bundle / "REHEARSAL-SHA256SUMS").is_file()
+    assert (destination / "REHEARSAL-BOOTSTRAP-SUMMARY.json").is_file()
+    assert (destination / "REHEARSAL-BOOTSTRAP-OUTER-SHA256SUMS").is_file()
+
+
 def _write_complete_acceptance_evidence(destination: Path) -> dict:
     release_sha = "a" * 40
     frontend_sha = "b" * 40
@@ -541,6 +633,111 @@ def test_finalize_evidence_collection_rejects_partial_harness_identity(tmp_path)
         orchestrate.finalize_evidence_collection(destination)
 
 
+def _write_complete_rehearsal_evidence(destination: Path) -> dict:
+    release_sha = "a" * 40
+    frontend_sha = "b" * 40
+    state = {
+        "release_sha": release_sha,
+        "frontend_sha": frontend_sha,
+        "harness_hashes": {
+            name: "c" * 64 for name in orchestrate.EVIDENCE_HARNESS_ARTIFACTS
+        },
+        "completed": list(orchestrate.REHEARSAL_STAGE_ORDER),
+        "execution_kind": "rehearsal",
+        "machine": "munbon-control-plan-rehearsal",
+        "acceptance_evidence": False,
+        "dependency_sha256": "d" * 64,
+        "as_of_date": "2026-08-16",
+    }
+    artifacts = {
+        "stage-state.json": json.dumps(state, sort_keys=True).encode() + b"\n",
+        **{
+            f"{stage}.json": (
+                json.dumps(
+                    {
+                        "stage": stage,
+                        "verdict": "PASS",
+                        "release_sha": release_sha,
+                        "frontend_sha": frontend_sha,
+                    },
+                    sort_keys=True,
+                ).encode()
+                + b"\n"
+            )
+            for stage in orchestrate.REHEARSAL_STAGE_ORDER
+        },
+    }
+    destination.mkdir(parents=True)
+    for name, body in artifacts.items():
+        (destination / name).write_bytes(body)
+    _write_acceptance_checksums(destination)
+    return state
+
+
+def test_finalize_rehearsal_collection_is_checksum_bound_and_non_authoritative(
+    tmp_path,
+):
+    destination = tmp_path / "rehearsal"
+    state = _write_complete_rehearsal_evidence(destination)
+
+    assert orchestrate.finalize_rehearsal_collection(destination) == {
+        "schema_version": 1,
+        "evidence_kind": "non_authoritative_rehearsal",
+        "execution_kind": "rehearsal",
+        "acceptance_evidence": False,
+        "release_sha": state["release_sha"],
+        "frontend_sha": state["frontend_sha"],
+        "harness_hashes": state["harness_hashes"],
+        "machine": "munbon-control-plan-rehearsal",
+        "dependency_sha256": "d" * 64,
+        "as_of_date": "2026-08-16",
+        "passed": list(orchestrate.REHEARSAL_STAGE_ORDER),
+        "failed": [],
+        "unreached": list(orchestrate.STAGE_ORDER[3:]),
+    }
+    assert not (destination / "OUTER-SHA256SUMS").exists()
+    assert not (destination / "SHA256SUMS").exists()
+    assert (destination / "REHEARSAL-SHA256SUMS").is_file()
+    assert (destination / "REHEARSAL-SUMMARY.json").is_file()
+    outer = (destination / "REHEARSAL-OUTER-SHA256SUMS").read_text().splitlines()
+    assert outer == [
+        f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}"
+        for path in sorted(destination.iterdir())
+        if path.name != "REHEARSAL-OUTER-SHA256SUMS"
+    ]
+
+    (destination / "LOCAL-AC-1.json").write_text("tampered\n")
+    with pytest.raises(
+        orchestrate.OrchestrationError,
+        match="rehearsal_evidence_checksum_mismatch",
+    ):
+        orchestrate.finalize_rehearsal_collection(destination)
+
+
+@pytest.mark.parametrize(
+    "completed",
+    [
+        ["LOCAL-BASE-0", "LOCAL-RTA-1"],
+        ["LOCAL-BASE-0", "LOCAL-RTA-1", "LOCAL-AC-1", "LOCAL-READ-ACT-1"],
+    ],
+)
+def test_finalize_rehearsal_collection_requires_exact_three_stage_prefix(
+    tmp_path, completed
+):
+    destination = tmp_path / "rehearsal"
+    _write_complete_rehearsal_evidence(destination)
+    state_path = destination / "stage-state.json"
+    state = json.loads(state_path.read_text())
+    state["completed"] = completed
+    state_path.write_text(json.dumps(state, sort_keys=True) + "\n")
+    _write_acceptance_checksums(destination)
+
+    with pytest.raises(
+        orchestrate.OrchestrationError, match="rehearsal_evidence_state_invalid"
+    ):
+        orchestrate.finalize_rehearsal_collection(destination)
+
+
 def test_collect_evidence_extracts_then_validates_exact_inventory(
     tmp_path, monkeypatch
 ):
@@ -572,11 +769,164 @@ def test_collect_evidence_extracts_then_validates_exact_inventory(
     assert (destination / "OUTER-SHA256SUMS").is_file()
 
 
-def _write_partial_failure_evidence(destination: Path) -> dict:
+def test_collect_evidence_removes_temporary_output_when_extraction_fails(
+    tmp_path, monkeypatch
+):
+    destination = tmp_path / "evidence"
+
+    def stream_archive(argv, *, stdout, **_kwargs):
+        stdout.write(b"truncated archive")
+        return subprocess.CompletedProcess(argv, 0, b"", b"")
+
+    def fail_extraction(code, _argv, **_kwargs):
+        assert code == "evidence_extract"
+        raise orchestrate.OrchestrationError("evidence_extract_failed")
+
+    monkeypatch.setattr(orchestrate.subprocess, "run", stream_archive)
+    monkeypatch.setattr(orchestrate, "_run_checked", fail_extraction)
+
+    with pytest.raises(orchestrate.OrchestrationError, match="evidence_extract_failed"):
+        orchestrate.collect_evidence(destination)
+
+    assert not destination.exists()
+    assert list(tmp_path.glob(".evidence-*")) == []
+
+
+def test_collect_rehearsal_targets_fixed_guest_and_writes_only_rehearsal_outer_index(
+    tmp_path, monkeypatch
+):
+    destination = tmp_path / "rehearsal"
+    source = tmp_path / "guest-rehearsal"
+    _write_complete_rehearsal_evidence(source)
+    streamed_archive = tmp_path / "streamed-rehearsal.tar.gz"
+    with tarfile.open(streamed_archive, "w:gz") as bundle:
+        for path in sorted(source.iterdir()):
+            bundle.add(path, arcname=path.name)
+
+    def stream_archive(argv, *, stdout, **_kwargs):
+        assert argv[argv.index("-m") + 1] == "munbon-control-plan-rehearsal"
+        stdout.write(streamed_archive.read_bytes())
+        return subprocess.CompletedProcess(argv, 0, b"", b"")
+
+    def extract_archive(code, argv, **_kwargs):
+        if code == "rehearsal_collection_provision_state":
+            return json.dumps(
+                {
+                    "state": "ready",
+                    "dependency_sha256": "d" * 64,
+                    "release_sha": "a" * 40,
+                    "frontend_sha": "b" * 40,
+                    "phase": "complete",
+                    "recorded_at": "2026-08-16T00:00:00Z",
+                    "substep": "ready-state",
+                }
+            )
+        if code == "rehearsal_collection_owner":
+            return json.dumps(
+                {
+                    "machine": "munbon-control-plan-rehearsal",
+                    "architecture": "arm64",
+                    "state": "ready",
+                    "release_sha": "a" * 40,
+                    "frontend_sha": "b" * 40,
+                    "dependency_sha256": "d" * 64,
+                    "execution_kind": "rehearsal",
+                    "acceptance_evidence": False,
+                }
+            )
+        assert code == "rehearsal_evidence_extract"
+        with tarfile.open(argv[2], "r:gz") as bundle:
+            bundle.extractall(argv[4], filter="data")
+        return ""
+
+    monkeypatch.setattr(orchestrate.subprocess, "run", stream_archive)
+    monkeypatch.setattr(orchestrate, "_run_checked", extract_archive)
+    monkeypatch.setattr(orchestrate, "_rehearsal_machine_state", lambda: "ready")
+
+    summary = orchestrate.collect_rehearsal(
+        destination, "a" * 40, "b" * 40, "2026-08-16"
+    )
+
+    assert summary["acceptance_evidence"] is False
+    assert not (destination / "local-rehearsal-evidence.tar.gz").exists()
+    assert not (destination / "OUTER-SHA256SUMS").exists()
+    assert (destination / "REHEARSAL-OUTER-SHA256SUMS").is_file()
+
+
+def test_collect_rehearsal_rechecks_owner_before_atomic_publish(tmp_path, monkeypatch):
+    destination = tmp_path / "rehearsal"
+    owner = {
+        "machine": "munbon-control-plan-rehearsal",
+        "architecture": "arm64",
+        "state": "ready",
+        "release_sha": "a" * 40,
+        "frontend_sha": "b" * 40,
+        "dependency_sha256": "d" * 64,
+        "execution_kind": "rehearsal",
+        "acceptance_evidence": False,
+    }
+    owners = iter((owner, {**owner, "dependency_sha256": "e" * 64}))
+    monkeypatch.setattr(
+        orchestrate,
+        "_validated_rehearsal_owner",
+        lambda _release_sha, _frontend_sha: next(owners),
+    )
+    monkeypatch.setattr(
+        orchestrate,
+        "finalize_rehearsal_collection",
+        lambda _temporary: {
+            "machine": owner["machine"],
+            "release_sha": owner["release_sha"],
+            "frontend_sha": owner["frontend_sha"],
+            "dependency_sha256": owner["dependency_sha256"],
+            "execution_kind": "rehearsal",
+            "acceptance_evidence": False,
+        },
+    )
+
+    def finalize_only(_destination, *, finalizer, **_kwargs):
+        temporary = tmp_path / "temporary"
+        temporary.mkdir()
+        return finalizer(temporary)
+
+    monkeypatch.setattr(orchestrate, "_collect_guest_evidence", finalize_only)
+
+    with pytest.raises(
+        orchestrate.OrchestrationError,
+        match="rehearsal_evidence_owner_mismatch",
+    ):
+        orchestrate.collect_rehearsal(destination, "a" * 40, "b" * 40, "2026-08-16")
+
+    assert not destination.exists()
+
+
+def test_collect_rehearsal_requires_a_new_destination(tmp_path, monkeypatch):
+    destination = tmp_path / "existing"
+    destination.mkdir()
+    (destination / "stale.json").write_text("{}\n")
+    monkeypatch.setattr(
+        orchestrate.subprocess,
+        "run",
+        lambda *_args, **_kwargs: pytest.fail("must reject before streaming"),
+    )
+
+    with pytest.raises(
+        orchestrate.OrchestrationError,
+        match="rehearsal_evidence_destination_exists",
+    ):
+        orchestrate.collect_rehearsal(destination, "a" * 40, "b" * 40, "2026-08-16")
+
+
+def _write_partial_failure_evidence(
+    destination: Path,
+    *,
+    completed_count: int = 2,
+    acceptance_evidence: bool | None = None,
+) -> dict:
     release_sha = "a" * 40
     frontend_sha = "b" * 40
-    completed = list(orchestrate.STAGE_ORDER[:2])
-    failed_stage = orchestrate.STAGE_ORDER[2]
+    completed = list(orchestrate.STAGE_ORDER[:completed_count])
+    failed_stage = orchestrate.STAGE_ORDER[completed_count]
     state = {
         "release_sha": release_sha,
         "frontend_sha": frontend_sha,
@@ -585,21 +935,31 @@ def _write_partial_failure_evidence(destination: Path) -> dict:
         },
         "completed": completed,
     }
+    if acceptance_evidence is not None:
+        state.update(
+            {
+                "execution_kind": "rehearsal",
+                "machine": "munbon-control-plan-rehearsal",
+                "acceptance_evidence": False,
+                "dependency_sha256": "d" * 64,
+                "as_of_date": "2026-08-16",
+            }
+        )
+    failure = {
+        "stage": failed_stage,
+        "verdict": "FAIL",
+        "release_sha": release_sha,
+        "frontend_sha": frontend_sha,
+        "failed_gate": "manual_requirement_run_not_accepted",
+        "failed_at": "2026-08-12T00:00:00Z",
+    }
+    if acceptance_evidence is not None:
+        failure["acceptance_evidence"] = acceptance_evidence
+        failure["as_of_date"] = "2026-08-16"
     artifacts = {
         "stage-state.json": json.dumps(state, sort_keys=True).encode() + b"\n",
         f"{failed_stage}-failure.json": (
-            json.dumps(
-                {
-                    "stage": failed_stage,
-                    "verdict": "FAIL",
-                    "release_sha": release_sha,
-                    "frontend_sha": frontend_sha,
-                    "failed_gate": "manual_requirement_run_not_accepted",
-                    "failed_at": "2026-08-12T00:00:00Z",
-                },
-                sort_keys=True,
-            ).encode()
-            + b"\n"
+            json.dumps(failure, sort_keys=True).encode() + b"\n"
         ),
     }
     artifacts.update(
@@ -659,6 +1019,50 @@ def test_finalize_partial_failure_collection_requires_ordered_prefix_and_identit
         orchestrate.OrchestrationError, match="evidence_inventory_invalid"
     ):
         orchestrate.finalize_evidence_collection(destination)
+
+
+@pytest.mark.parametrize("completed_count", [0, 1, 2])
+def test_finalize_rehearsal_partial_failure_accepts_each_rehearsal_failure_boundary(
+    tmp_path, completed_count
+):
+    destination = tmp_path / "rehearsal-partial"
+    _write_partial_failure_evidence(
+        destination,
+        completed_count=completed_count,
+        acceptance_evidence=False,
+    )
+
+    summary = orchestrate.finalize_rehearsal_partial_failure_collection(destination)
+
+    assert summary["acceptance_evidence"] is False
+    assert summary["evidence_kind"] == "non_authoritative_rehearsal"
+    assert summary["passed"] == completed_count
+    assert summary["failed_stage"] == orchestrate.STAGE_ORDER[completed_count]
+    assert not (destination / "PARTIAL-OUTER-SHA256SUMS").exists()
+    assert not (destination / "SHA256SUMS").exists()
+    assert (destination / "REHEARSAL-SHA256SUMS").is_file()
+    assert (destination / "REHEARSAL-PARTIAL-OUTER-SHA256SUMS").is_file()
+
+
+@pytest.mark.parametrize(
+    ("completed_count", "acceptance_evidence"),
+    [(3, False), (2, None), (2, True)],
+)
+def test_finalize_rehearsal_partial_failure_rejects_later_or_unmarked_failure(
+    tmp_path, completed_count, acceptance_evidence
+):
+    destination = tmp_path / "rehearsal-partial"
+    _write_partial_failure_evidence(
+        destination,
+        completed_count=completed_count,
+        acceptance_evidence=acceptance_evidence,
+    )
+
+    with pytest.raises(
+        orchestrate.OrchestrationError,
+        match="rehearsal_partial_evidence_not_accepted",
+    ):
+        orchestrate.finalize_rehearsal_partial_failure_collection(destination)
 
 
 @pytest.mark.parametrize(
@@ -1046,6 +1450,46 @@ def test_validate_campaign_ledger_accepts_complete_successful_closed_entry(tmp_p
             },
             {"state": "successful_closed", "attempt": 1, "ceiling": 3},
             "SHA256SUMS",
+        ),
+        (
+            {
+                "acceptance": True,
+                "passed": list(EXPECTED_SUCCESSFUL_STAGE_ORDER),
+                "failed": [],
+                "unreached": [],
+            },
+            {"state": "successful_closed", "attempt": 1, "ceiling": 3},
+            "REHEARSAL-OUTER-SHA256SUMS",
+        ),
+        (
+            {
+                "acceptance": False,
+                "passed": list(EXPECTED_SUCCESSFUL_STAGE_ORDER[:2]),
+                "failed": [EXPECTED_SUCCESSFUL_STAGE_ORDER[2]],
+                "unreached": list(EXPECTED_SUCCESSFUL_STAGE_ORDER[3:]),
+            },
+            {"state": "exhausted", "attempt": 3, "ceiling": 3},
+            "REHEARSAL-PARTIAL-OUTER-SHA256SUMS",
+        ),
+        (
+            {
+                "acceptance": False,
+                "passed": [],
+                "failed": [EXPECTED_SUCCESSFUL_STAGE_ORDER[0]],
+                "unreached": list(EXPECTED_SUCCESSFUL_STAGE_ORDER[1:]),
+            },
+            {"state": "exhausted", "attempt": 1, "ceiling": 1},
+            "REHEARSAL-BOOTSTRAP-OUTER-SHA256SUMS",
+        ),
+        (
+            {
+                "acceptance": False,
+                "passed": [],
+                "failed": [EXPECTED_SUCCESSFUL_STAGE_ORDER[0]],
+                "unreached": list(EXPECTED_SUCCESSFUL_STAGE_ORDER[1:]),
+            },
+            {"state": "exhausted", "attempt": 1, "ceiling": 1},
+            "REHEARSAL-SHA256SUMS",
         ),
     ],
 )
@@ -1675,6 +2119,150 @@ def test_provision_collects_failure_bundle_and_returns_only_safe_classification(
     assert collected == [failure_directory]
 
 
+def test_provision_rehearsal_automatically_finalizes_failure_bundle(
+    tmp_path, monkeypatch
+):
+    repo = tmp_path / "repo"
+    frontend = tmp_path / "frontend"
+    dependency_archive = tmp_path / "dependencies.tar.gz"
+    failure_directory = tmp_path / "rehearsal-failure"
+    verifier = repo / "ops/control-plan-read-runtime/verify_bearer.py"
+    verifier.parent.mkdir(parents=True)
+    verifier.write_text("pass\n")
+    dependency_archive.write_bytes(b"bundle")
+    machine_states = iter(("missing", "ready"))
+    collected = []
+
+    monkeypatch.setattr(orchestrate, "_validate_commit", lambda *_args: None)
+    monkeypatch.setattr(
+        orchestrate, "validate_dependency_archive", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(
+        orchestrate, "_rehearsal_machine_state", lambda: next(machine_states)
+    )
+
+    def fail_bootstrap(code, _argv, **_kwargs):
+        if code == "bootstrap_linux":
+            raise orchestrate.CommandExecutionError(code, 1)
+        return ""
+
+    monkeypatch.setattr(orchestrate, "_run_checked", fail_bootstrap)
+    monkeypatch.setattr(
+        orchestrate,
+        "_create_bundle",
+        lambda _repo, _sha, target: target.write_bytes(b"git-bundle"),
+    )
+    monkeypatch.setattr(
+        orchestrate, "_push_rehearsal_isolated_file", lambda *_args: None
+    )
+    monkeypatch.setattr(
+        orchestrate,
+        "collect_bootstrap_failure",
+        lambda destination, *, execution_kind="canonical": collected.append(
+            (destination, execution_kind)
+        )
+        or {"classification": "retryable-transport"},
+    )
+
+    with pytest.raises(
+        orchestrate.OrchestrationError,
+        match="^bootstrap_linux_failed_retryable_transport$",
+    ):
+        orchestrate.provision_rehearsal(
+            repo,
+            "a" * 40,
+            frontend,
+            "b" * 40,
+            dependency_archive,
+            "c" * 64,
+            failure_directory,
+        )
+
+    assert collected == [(failure_directory, "rehearsal")]
+
+
+def test_provision_rehearsal_targets_only_fixed_guest_and_marks_bootstrap_kind(
+    tmp_path, monkeypatch
+):
+    repo = tmp_path / "repo"
+    frontend = tmp_path / "frontend"
+    dependency_archive = tmp_path / "dependencies.tar.gz"
+    failure_directory = tmp_path / "failure"
+    verifier = repo / "ops/control-plan-read-runtime/verify_bearer.py"
+    verifier.parent.mkdir(parents=True)
+    verifier.write_text("pass\n")
+    dependency_archive.write_bytes(b"bundle")
+    machine_states = iter(("missing", "ready"))
+    commands = []
+    pushed = []
+    monkeypatch.setattr(orchestrate, "_validate_commit", lambda *_args: None)
+    monkeypatch.setattr(
+        orchestrate, "validate_dependency_archive", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(
+        orchestrate, "_rehearsal_machine_state", lambda: next(machine_states)
+    )
+    monkeypatch.setattr(
+        orchestrate,
+        "_run_checked",
+        lambda code, argv, **_kwargs: commands.append((code, argv)) or "",
+    )
+    monkeypatch.setattr(
+        orchestrate,
+        "_create_bundle",
+        lambda _repo, _sha, target: target.write_bytes(b"git-bundle"),
+    )
+    monkeypatch.setattr(
+        orchestrate,
+        "_push_rehearsal_isolated_file",
+        lambda source, destination: pushed.append((source.name, destination)),
+    )
+
+    orchestrate.provision_rehearsal(
+        repo,
+        "a" * 40,
+        frontend,
+        "b" * 40,
+        dependency_archive,
+        "c" * 64,
+        failure_directory,
+    )
+
+    assert commands[0] == (
+        "orb_create",
+        orchestrate.build_rehearsal_machine_command(),
+    )
+    for code, argv in commands[1:]:
+        if code in {"guest_input_directory", "bootstrap_linux"}:
+            assert argv[argv.index("-m") + 1] == "munbon-control-plan-rehearsal"
+    bootstrap = next(argv for code, argv in commands if code == "bootstrap_linux")
+    assert bootstrap[-1] == "rehearsal"
+    assert pushed and all(
+        destination == f"/opt/munbon/input/{name}" for name, destination in pushed
+    )
+
+
+def test_push_rehearsal_isolated_file_targets_only_fixed_guest(tmp_path, monkeypatch):
+    source = tmp_path / "source.bundle"
+    source.write_bytes(b"bundle")
+    commands = []
+
+    def capture_upload(argv, **_kwargs):
+        commands.append(argv)
+        return subprocess.CompletedProcess(argv, 0, b"", b"")
+
+    monkeypatch.setattr(orchestrate.subprocess, "run", capture_upload)
+
+    orchestrate._push_rehearsal_isolated_file(source, "/opt/munbon/input/source.bundle")
+
+    assert commands == [
+        orchestrate.build_rehearsal_isolated_write_command(
+            "/opt/munbon/input/source.bundle"
+        )
+    ]
+    assert commands[0][commands[0].index("-m") + 1] == ("munbon-control-plan-rehearsal")
+
+
 def test_run_checked_classifies_host_timeout_for_failure_collection(monkeypatch):
     def raise_timeout(*_args, **_kwargs):
         raise subprocess.TimeoutExpired(["orb"], 3600)
@@ -1741,6 +2329,44 @@ def test_run_all_executes_every_progressive_stage(monkeypatch):
     orchestrate.run_all_stages("a" * 40, "b" * 40)
 
     assert calls == [(stage, "a" * 40, "b" * 40) for stage in orchestrate.STAGE_ORDER]
+
+
+def test_run_rehearsal_stage_allows_only_the_fixed_three_stage_prefix(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        orchestrate,
+        "_run_stage",
+        lambda stage, release_sha, frontend_sha, **kwargs: calls.append(
+            (stage, release_sha, frontend_sha, kwargs)
+        ),
+    )
+
+    orchestrate.run_rehearsal_stage(
+        "LOCAL-AC-1", "a" * 40, "b" * 40, as_of_date="2026-08-16"
+    )
+
+    assert calls == [
+        (
+            "LOCAL-AC-1",
+            "a" * 40,
+            "b" * 40,
+            {"as_of_date": "2026-08-16", "execution_kind": "rehearsal"},
+        )
+    ]
+    with pytest.raises(orchestrate.OrchestrationError, match="stage_not_supported"):
+        orchestrate.run_rehearsal_stage("LOCAL-READ-ACT-1", "a" * 40, "b" * 40)
+
+
+def test_parser_exposes_only_explicit_rehearsal_actions():
+    for action in (
+        "provision-rehearsal",
+        "run-rehearsal-stage",
+        "collect-rehearsal",
+        "collect-rehearsal-partial-failure",
+        "collect-rehearsal-bootstrap-failure",
+    ):
+        args = orchestrate._parse_args([action])
+        assert args.action == action
 
 
 def _capture_ready_stage_command(code, argv, captured):
@@ -1810,6 +2436,8 @@ def test_run_stage_surfaces_failure_manifest_publication_exit(monkeypatch):
     def fail_stage_publication(code, argv, **kwargs):
         if code in {"stage_provision_state", "stage_machine_owner"}:
             return _capture_ready_stage_command(code, argv, captured)
+        if code == "stage_terminal_failure":
+            return ""
         raise orchestrate.CommandExecutionError(
             code, orchestrate.FAILURE_MANIFEST_EXIT_CODE
         )
@@ -1821,6 +2449,34 @@ def test_run_stage_surfaces_failure_manifest_publication_exit(monkeypatch):
         match="stage_failure_manifest_publication_failed",
     ):
         orchestrate.run_stage("LOCAL-WRITE-UI-1", "a" * 40, "b" * 40)
+
+
+def test_run_rehearsal_stage_refuses_any_existing_failure_before_execution(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(orchestrate, "_rehearsal_machine_state", lambda: "ready")
+
+    def terminal_failure(code, argv, **kwargs):
+        if code in {"stage_provision_state", "stage_machine_owner"}:
+            state_or_owner = _capture_ready_stage_command(code, argv, captured)
+            if code == "stage_machine_owner":
+                owner = json.loads(state_or_owner)
+                owner.update(
+                    {
+                        "machine": "munbon-control-plan-rehearsal",
+                        "execution_kind": "rehearsal",
+                        "acceptance_evidence": False,
+                    }
+                )
+                return json.dumps(owner)
+            return state_or_owner
+        if code == "stage_terminal_failure":
+            return "LOCAL-RTA-1-failure.json\n"
+        pytest.fail("stage command must not run")
+
+    monkeypatch.setattr(orchestrate, "_run_checked", terminal_failure)
+
+    with pytest.raises(orchestrate.OrchestrationError, match="stage_failure_terminal"):
+        orchestrate.run_rehearsal_stage("LOCAL-RTA-1", "a" * 40, "b" * 40)
 
 
 def test_run_all_forwards_as_of_date_to_every_stage(monkeypatch):
@@ -1851,7 +2507,8 @@ def test_parse_args_accepts_as_of_date():
     assert args.as_of_date == "2026-11-02"
 
 
-def test_main_rejects_malformed_as_of_date(monkeypatch, capsys):
+@pytest.mark.parametrize("as_of_date", ["2026-13-99", "20260816"])
+def test_main_rejects_noncanonical_as_of_date(as_of_date, monkeypatch, capsys):
     monkeypatch.setattr(orchestrate, "_origin_main_sha", lambda path: "a" * 40)
     monkeypatch.setattr(
         orchestrate, "run_all_stages", lambda *a, **k: pytest.fail("must not run")
@@ -1866,7 +2523,7 @@ def test_main_rejects_malformed_as_of_date(monkeypatch, capsys):
             "a" * 40,
             "--accept-later-origin-main",
             "--as-of-date",
-            "2026-13-99",
+            as_of_date,
         ]
     )
 
@@ -2034,3 +2691,180 @@ def test_failure_collection_does_not_depend_on_current_origin_main(
         == 0
     )
     assert collected == [destination]
+
+
+def test_rehearsal_bootstrap_failure_collection_does_not_inspect_repositories(
+    tmp_path, monkeypatch
+):
+    destination = tmp_path / "rehearsal-bootstrap-failure"
+    collected = []
+    monkeypatch.setattr(
+        orchestrate,
+        "_origin_main_sha",
+        lambda _path: (_ for _ in ()).throw(AssertionError("origin must not be read")),
+    )
+    monkeypatch.setattr(
+        orchestrate,
+        "collect_rehearsal_bootstrap_failure",
+        lambda target: collected.append(target),
+    )
+
+    assert (
+        orchestrate.main(
+            [
+                "collect-rehearsal-bootstrap-failure",
+                "--bootstrap-failure-dir",
+                str(destination),
+            ]
+        )
+        == 0
+    )
+    assert collected == [destination]
+
+
+def test_documented_rehearsal_actions_bind_exact_candidates_and_fixed_handlers(
+    tmp_path, monkeypatch
+):
+    backend_repo = tmp_path / "backend"
+    frontend_repo = tmp_path / "frontend"
+    dependency_bundle = tmp_path / "dependencies.tar.gz"
+    failure_dir = tmp_path / "bootstrap-failure"
+    evidence_dir = tmp_path / "evidence"
+    backend_sha = "a" * 40
+    frontend_sha = "b" * 40
+    calls = []
+    monkeypatch.setattr(
+        orchestrate,
+        "_origin_main_sha",
+        lambda path: backend_sha if path == backend_repo else frontend_sha,
+    )
+    monkeypatch.setattr(
+        orchestrate,
+        "provision_rehearsal",
+        lambda repo, release_sha, frontend, accepted_frontend_sha, bundle, bundle_sha256, bootstrap_failure_dir: calls.append(
+            (
+                "provision",
+                repo,
+                release_sha,
+                frontend,
+                accepted_frontend_sha,
+                bundle,
+                bundle_sha256,
+                bootstrap_failure_dir,
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        orchestrate,
+        "run_rehearsal_stage",
+        lambda stage, release_sha, accepted_frontend_sha, as_of_date=None: calls.append(
+            (stage, release_sha, accepted_frontend_sha, as_of_date)
+        ),
+    )
+    monkeypatch.setattr(
+        orchestrate,
+        "collect_rehearsal",
+        lambda destination, _release_sha, _frontend_sha, as_of_date: calls.append(
+            ("collect", destination, as_of_date)
+        )
+        or {"acceptance_evidence": False},
+    )
+    monkeypatch.setattr(
+        orchestrate,
+        "collect_rehearsal_partial_failure",
+        lambda destination, _release_sha, _frontend_sha, as_of_date: calls.append(
+            ("partial", destination, as_of_date)
+        )
+        or {"acceptance_evidence": False},
+    )
+    common = [
+        "--repo",
+        str(backend_repo),
+        "--frontend-repo",
+        str(frontend_repo),
+        "--release-sha",
+        backend_sha,
+        "--frontend-sha",
+        frontend_sha,
+        "--accept-later-origin-main",
+    ]
+    commands = (
+        [
+            "provision-rehearsal",
+            "--dependency-bundle",
+            str(dependency_bundle),
+            "--dependency-bundle-sha256",
+            "c" * 64,
+            "--bootstrap-failure-dir",
+            str(failure_dir),
+        ],
+        [
+            "run-rehearsal-stage",
+            "--stage",
+            "LOCAL-AC-1",
+            "--as-of-date",
+            "2026-08-16",
+        ],
+        [
+            "collect-rehearsal",
+            "--evidence-dir",
+            str(evidence_dir),
+            "--as-of-date",
+            "2026-08-16",
+        ],
+        [
+            "collect-rehearsal-partial-failure",
+            "--evidence-dir",
+            str(evidence_dir),
+            "--as-of-date",
+            "2026-08-16",
+        ],
+    )
+
+    assert [orchestrate.main([*command, *common]) for command in commands] == [
+        0,
+        0,
+        0,
+        0,
+    ]
+    assert calls == [
+        (
+            "provision",
+            backend_repo,
+            backend_sha,
+            frontend_repo,
+            frontend_sha,
+            dependency_bundle,
+            "c" * 64,
+            failure_dir,
+        ),
+        ("LOCAL-AC-1", backend_sha, frontend_sha, "2026-08-16"),
+        ("collect", evidence_dir, "2026-08-16"),
+        ("partial", evidence_dir, "2026-08-16"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "action", ["collect-rehearsal", "collect-rehearsal-partial-failure"]
+)
+def test_rehearsal_collection_requires_authorized_operational_date(
+    action, tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setattr(orchestrate, "_origin_main_sha", lambda _path: "a" * 40)
+
+    assert (
+        orchestrate.main(
+            [
+                action,
+                "--release-sha",
+                "a" * 40,
+                "--frontend-sha",
+                "a" * 40,
+                "--accept-later-origin-main",
+                "--evidence-dir",
+                str(tmp_path / "evidence"),
+            ]
+        )
+        == 1
+    )
+    assert "as_of_date_required" in capsys.readouterr().out

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ "$(id -u)" != "0" || "$#" != "6" ]]; then
+if [[ "$(id -u)" != "0" || "$#" != "7" ]]; then
   echo "FAIL bootstrap_arguments" >&2
   exit 2
 fi
@@ -44,6 +44,20 @@ on_exit() {
 trap on_exit EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+
+EXECUTION_KIND="$7"
+case "${EXECUTION_KIND}" in
+  canonical)
+    MACHINE_NAME=munbon-control-plan-local
+    ;;
+  rehearsal)
+    MACHINE_NAME=munbon-control-plan-rehearsal
+    ;;
+  *)
+    echo "FAIL bootstrap_execution_kind" >&2
+    exit 2
+    ;;
+esac
 phase() {
   BOOTSTRAP_PHASE="$1"
   echo "${BOOTSTRAP_PHASE}" > /run/munbon-bootstrap-phase
@@ -526,9 +540,15 @@ python3 "${HARNESS_ROOT}/provisioning_contract.py" state \
 phase complete
 substep owner-marker
 OWNER_TEMP="${STATE_ROOT}/.owner.json.$$"
-cat > "${OWNER_TEMP}" <<EOF
-{"machine":"munbon-control-plan-local","architecture":"arm64","state":"ready","release_sha":"${RELEASE_SHA}","frontend_sha":"${FRONTEND_SHA}","dependency_sha256":"${DEPENDENCY_ARCHIVE_SHA256}"}
+if [[ "${EXECUTION_KIND}" == "rehearsal" ]]; then
+  cat > "${OWNER_TEMP}" <<EOF
+{"machine":"${MACHINE_NAME}","architecture":"arm64","state":"ready","release_sha":"${RELEASE_SHA}","frontend_sha":"${FRONTEND_SHA}","dependency_sha256":"${DEPENDENCY_ARCHIVE_SHA256}","execution_kind":"rehearsal","acceptance_evidence":false}
 EOF
+else
+  cat > "${OWNER_TEMP}" <<EOF
+{"machine":"${MACHINE_NAME}","architecture":"arm64","state":"ready","release_sha":"${RELEASE_SHA}","frontend_sha":"${FRONTEND_SHA}","dependency_sha256":"${DEPENDENCY_ARCHIVE_SHA256}"}
+EOF
+fi
 chown munbon:munbon "${OWNER_TEMP}"
 chmod 600 "${OWNER_TEMP}"
 mv -- "${OWNER_TEMP}" "${STATE_ROOT}/owner.json"

@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+from typing import Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from provisioning_contract import (  # noqa: E402
@@ -26,6 +27,7 @@ from provisioning_contract import (  # noqa: E402
 
 ACCEPTED_BASE_SHA = "8095bfe37550200da00ecb554edc646febf8aff9"
 MACHINE_NAME = "munbon-control-plan-local"
+REHEARSAL_MACHINE_NAME = "munbon-control-plan-rehearsal"
 DIAGNOSTIC_MACHINE_NAME = "munbon-control-plan-write-ui-diagnostic"
 STAGE_ORDER = (
     "LOCAL-BASE-0",
@@ -38,6 +40,7 @@ STAGE_ORDER = (
     "LOCAL-WRITE-UI-1",
     "LOCAL-PERSIST-ONLY-1",
 )
+REHEARSAL_STAGE_ORDER = STAGE_ORDER[:3]
 EVIDENCE_HARNESS_ARTIFACTS = (
     "local-ac1.py",
     "run-evidence-browser.js",
@@ -74,6 +77,15 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _is_canonical_date(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        return date.fromisoformat(value).isoformat() == value
+    except ValueError:
+        return False
 
 
 def validate_campaign_ledger(path: Path) -> list[dict]:
@@ -294,8 +306,8 @@ class MachineSpec:
     distribution: str = "debian:12"
 
 
-def build_machine_command(spec: MachineSpec) -> list[str]:
-    if spec != MachineSpec():
+def _build_machine_command(spec: MachineSpec, expected_name: str) -> list[str]:
+    if spec != MachineSpec(name=expected_name):
         raise OrchestrationError("machine_spec_not_accepted")
     return [
         "orb",
@@ -315,6 +327,16 @@ def build_machine_command(spec: MachineSpec) -> list[str]:
         spec.distribution,
         spec.name,
     ]
+
+
+def build_machine_command(spec: MachineSpec) -> list[str]:
+    return _build_machine_command(spec, MACHINE_NAME)
+
+
+def build_rehearsal_machine_command() -> list[str]:
+    return _build_machine_command(
+        MachineSpec(name=REHEARSAL_MACHINE_NAME), REHEARSAL_MACHINE_NAME
+    )
 
 
 def validate_release_sha(
@@ -337,15 +359,33 @@ def validate_release_sha(
     raise OrchestrationError("release_sha_not_accepted")
 
 
-def build_guest_command(
-    argv: list[str], *, user: str = "munbon", workdir: str | None = None
+def _build_guest_command(
+    machine_name: str,
+    argv: list[str],
+    *,
+    user: str = "munbon",
+    workdir: str | None = None,
 ) -> list[str]:
     if not argv or user not in {"root", "munbon"}:
         raise OrchestrationError("guest_command_invalid")
-    command = ["orb", "-m", MACHINE_NAME, "-u", user]
+    command = ["orb", "-m", machine_name, "-u", user]
     if workdir is not None:
         command.extend(["--workdir", workdir])
     return [*command, *argv]
+
+
+def build_guest_command(
+    argv: list[str], *, user: str = "munbon", workdir: str | None = None
+) -> list[str]:
+    return _build_guest_command(MACHINE_NAME, argv, user=user, workdir=workdir)
+
+
+def build_rehearsal_guest_command(
+    argv: list[str], *, user: str = "munbon", workdir: str | None = None
+) -> list[str]:
+    return _build_guest_command(
+        REHEARSAL_MACHINE_NAME, argv, user=user, workdir=workdir
+    )
 
 
 def build_diagnostic_command(argv: list[str], *, user: str = "root") -> list[str]:
@@ -398,6 +438,10 @@ def classify_machine_inventory(inventory_json: str) -> str:
     return _classify_machine_inventory(inventory_json, MACHINE_NAME)
 
 
+def classify_rehearsal_machine_inventory(inventory_json: str) -> str:
+    return _classify_machine_inventory(inventory_json, REHEARSAL_MACHINE_NAME)
+
+
 def classify_diagnostic_machine_inventory(inventory_json: str) -> str:
     return _classify_machine_inventory(inventory_json, DIAGNOSTIC_MACHINE_NAME)
 
@@ -435,7 +479,39 @@ def validate_machine_owner(marker_json: str) -> None:
         raise OrchestrationError("machine_owner_not_accepted") from exc
 
 
-def validate_existing_guest(provision_state_json: str, owner_json: str) -> None:
+def validate_rehearsal_owner(marker_json: str) -> None:
+    try:
+        marker = json.loads(marker_json)
+        if (
+            not isinstance(marker, dict)
+            or set(marker)
+            != {
+                "machine",
+                "architecture",
+                "state",
+                "release_sha",
+                "frontend_sha",
+                "dependency_sha256",
+                "execution_kind",
+                "acceptance_evidence",
+            }
+            or marker.get("machine") != REHEARSAL_MACHINE_NAME
+            or marker.get("architecture") != "arm64"
+            or marker.get("state") != "ready"
+            or marker.get("execution_kind") != "rehearsal"
+            or marker.get("acceptance_evidence") is not False
+            or not re.fullmatch(r"[0-9a-f]{40}", marker.get("release_sha", ""))
+            or not re.fullmatch(r"[0-9a-f]{40}", marker.get("frontend_sha", ""))
+            or not re.fullmatch(r"[0-9a-f]{64}", marker.get("dependency_sha256", ""))
+        ):
+            raise ValueError
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise OrchestrationError("rehearsal_owner_not_accepted") from exc
+
+
+def validate_existing_guest(
+    provision_state_json: str, owner_json: str, *, execution_kind: str = "canonical"
+) -> None:
     if not provision_state_json:
         raise OrchestrationError("machine_provision_state_missing")
     try:
@@ -467,7 +543,12 @@ def validate_existing_guest(provision_state_json: str, owner_json: str) -> None:
         raise OrchestrationError("machine_failed_evidence_only")
     if state["state"] != "ready":
         raise OrchestrationError("machine_provision_incomplete")
-    validate_machine_owner(owner_json)
+    if execution_kind == "canonical":
+        validate_machine_owner(owner_json)
+    elif execution_kind == "rehearsal":
+        validate_rehearsal_owner(owner_json)
+    else:
+        raise OrchestrationError("execution_kind_not_accepted")
     owner = json.loads(owner_json)
     if (
         owner["release_sha"] != state["release_sha"]
@@ -482,8 +563,12 @@ def validate_stage_guest(
     owner_json: str,
     release_sha: str,
     frontend_sha: str,
+    *,
+    execution_kind: str = "canonical",
 ) -> None:
-    validate_existing_guest(provision_state_json, owner_json)
+    validate_existing_guest(
+        provision_state_json, owner_json, execution_kind=execution_kind
+    )
     state = json.loads(provision_state_json)
     if state["release_sha"] != release_sha or state["frontend_sha"] != frontend_sha:
         raise OrchestrationError("machine_stage_sha_mismatch")
@@ -570,6 +655,41 @@ def finalize_bootstrap_failure_bundle(destination: Path) -> dict:
     return metadata
 
 
+def finalize_rehearsal_bootstrap_failure_bundle(destination: Path) -> dict:
+    metadata = finalize_bootstrap_failure_bundle(destination)
+    (destination / "OUTER-SHA256SUMS").unlink()
+    bundle = destination / "bundle"
+    (bundle / "SHA256SUMS").rename(bundle / "REHEARSAL-SHA256SUMS")
+    summary = {
+        **metadata,
+        "schema_version": 1,
+        "evidence_kind": "non_authoritative_rehearsal",
+        "execution_kind": "rehearsal",
+        "acceptance_evidence": False,
+    }
+    summary_path = destination / "REHEARSAL-BOOTSTRAP-SUMMARY.json"
+    summary_path.write_text(
+        json.dumps(summary, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+    summary_path.chmod(0o600)
+    outer_path = destination / "REHEARSAL-BOOTSTRAP-OUTER-SHA256SUMS"
+    outer_path.write_text(
+        "".join(
+            [
+                *(
+                    f"{_sha256_file(path)}  bundle/{path.name}\n"
+                    for path in sorted(bundle.iterdir())
+                ),
+                f"{_sha256_file(summary_path)}  {summary_path.name}\n",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    outer_path.chmod(0o600)
+    return summary
+
+
 def validate_failure_state_matches_metadata(state: dict, metadata: dict) -> None:
     bound_fields = {
         "dependency_sha256",
@@ -627,18 +747,26 @@ def validate_dependency_archive(
             raise OrchestrationError("dependency_archive_not_accepted") from exc
 
 
-def build_isolated_write_command(destination: str) -> list[str]:
+def _build_isolated_write_command(machine_name: str, destination: str) -> list[str]:
     if not destination.startswith("/opt/munbon/input/") or destination.endswith("/"):
         raise OrchestrationError("isolated_destination_invalid")
     return [
         "orb",
         "-m",
-        MACHINE_NAME,
+        machine_name,
         "-u",
         "root",
         "tee",
         destination,
     ]
+
+
+def build_isolated_write_command(destination: str) -> list[str]:
+    return _build_isolated_write_command(MACHINE_NAME, destination)
+
+
+def build_rehearsal_isolated_write_command(destination: str) -> list[str]:
+    return _build_isolated_write_command(REHEARSAL_MACHINE_NAME, destination)
 
 
 def _run_checked(
@@ -689,6 +817,13 @@ def _machine_state() -> str:
         "orb_inventory", ["orb", "list", "--format", "json"], timeout=30
     )
     return classify_machine_inventory(inventory)
+
+
+def _rehearsal_machine_state() -> str:
+    inventory = _run_checked(
+        "rehearsal_orb_inventory", ["orb", "list", "--format", "json"], timeout=30
+    )
+    return classify_rehearsal_machine_inventory(inventory)
 
 
 def _prepare_diagnostic_machine(*, confirmed: bool) -> None:
@@ -763,11 +898,13 @@ def _create_bundle(repo: Path, release_sha: str, target: Path) -> None:
     )
 
 
-def _push_isolated_file(source: Path, destination: str) -> None:
+def _push_isolated_file_with_command(
+    source: Path, destination: str, command: list[str]
+) -> None:
     try:
         with source.open("rb") as stream:
             result = subprocess.run(
-                build_isolated_write_command(destination),
+                command,
                 stdin=stream,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
@@ -779,6 +916,18 @@ def _push_isolated_file(source: Path, destination: str) -> None:
     if result.returncode != 0:
         raise OrchestrationError("guest_input_push_failed")
     print(f"PASS guest_input_{source.name}")
+
+
+def _push_isolated_file(source: Path, destination: str) -> None:
+    _push_isolated_file_with_command(
+        source, destination, build_isolated_write_command(destination)
+    )
+
+
+def _push_rehearsal_isolated_file(source: Path, destination: str) -> None:
+    _push_isolated_file_with_command(
+        source, destination, build_rehearsal_isolated_write_command(destination)
+    )
 
 
 def _push_diagnostic_file(source: Path, destination: str) -> None:
@@ -897,7 +1046,7 @@ def build_dependency_bundle(
     return archive_sha256
 
 
-def provision(
+def _provision(
     repo: Path,
     release_sha: str,
     frontend_repo: Path,
@@ -905,7 +1054,21 @@ def provision(
     dependency_archive: Path,
     dependency_archive_sha256: str,
     failure_directory: Path,
+    *,
+    execution_kind: str,
 ) -> None:
+    if execution_kind == "canonical":
+        machine_state = _machine_state
+        machine_command = build_machine_command(MachineSpec())
+        guest_command = build_guest_command
+        push_isolated_file = _push_isolated_file
+    elif execution_kind == "rehearsal":
+        machine_state = _rehearsal_machine_state
+        machine_command = build_rehearsal_machine_command()
+        guest_command = build_rehearsal_guest_command
+        push_isolated_file = _push_rehearsal_isolated_file
+    else:
+        raise OrchestrationError("execution_kind_not_accepted")
     _validate_commit(repo, release_sha)
     _validate_commit(frontend_repo, frontend_sha)
     validate_dependency_archive(
@@ -916,16 +1079,16 @@ def provision(
         frontend_repo=frontend_repo,
         frontend_sha=frontend_sha,
     )
-    state = _machine_state()
+    state = machine_state()
     created_now = state == "missing"
     if state == "missing":
-        _run_checked("orb_create", build_machine_command(MachineSpec()), timeout=600)
-        if _machine_state() != "ready":
+        _run_checked("orb_create", machine_command, timeout=600)
+        if machine_state() != "ready":
             raise OrchestrationError("machine_create_not_ready")
     if not created_now:
         provision_state = _run_checked(
             "machine_provision_state",
-            build_guest_command(
+            guest_command(
                 [
                     "sh",
                     "-c",
@@ -937,7 +1100,7 @@ def provision(
         )
         owner = _run_checked(
             "machine_owner",
-            build_guest_command(
+            guest_command(
                 [
                     "sh",
                     "-c",
@@ -947,7 +1110,7 @@ def provision(
             ),
             timeout=30,
         )
-        validate_existing_guest(provision_state, owner)
+        validate_existing_guest(provision_state, owner, execution_kind=execution_kind)
         raise OrchestrationError("machine_reprovision_not_authorized")
     local_dir = Path(__file__).resolve().parent
     runtime_verifier = repo / "ops/control-plan-read-runtime/verify_bearer.py"
@@ -977,18 +1140,18 @@ def provision(
         _create_bundle(frontend_repo, frontend_sha, frontend_bundle)
         _run_checked(
             "guest_input_directory",
-            build_guest_command(
+            guest_command(
                 ["install", "-d", "-m", "0700", "/opt/munbon/input"],
                 user="root",
             ),
             timeout=30,
         )
         for source in (bundle, frontend_bundle, dependency_archive, *sources):
-            _push_isolated_file(source, f"/opt/munbon/input/{source.name}")
+            push_isolated_file(source, f"/opt/munbon/input/{source.name}")
     try:
         _run_checked(
             "bootstrap_linux",
-            build_guest_command(
+            guest_command(
                 [
                     "timeout",
                     "--signal=TERM",
@@ -1002,6 +1165,7 @@ def provision(
                     frontend_sha,
                     f"/opt/munbon/input/{dependency_archive.name}",
                     dependency_archive_sha256,
+                    execution_kind,
                 ],
                 user="root",
             ),
@@ -1009,7 +1173,12 @@ def provision(
         )
     except CommandExecutionError as exc:
         try:
-            metadata = collect_bootstrap_failure(failure_directory)
+            if execution_kind == "canonical":
+                metadata = collect_bootstrap_failure(failure_directory)
+            else:
+                metadata = collect_bootstrap_failure(
+                    failure_directory, execution_kind="rehearsal"
+                )
         except OrchestrationError as collection_exc:
             raise OrchestrationError(
                 "bootstrap_linux_failed_and_failure_collection_failed"
@@ -1018,19 +1187,73 @@ def provision(
         raise OrchestrationError(f"bootstrap_linux_failed_{classification}") from exc
 
 
-def run_stage(
+def provision(
+    repo: Path,
+    release_sha: str,
+    frontend_repo: Path,
+    frontend_sha: str,
+    dependency_archive: Path,
+    dependency_archive_sha256: str,
+    failure_directory: Path,
+) -> None:
+    _provision(
+        repo,
+        release_sha,
+        frontend_repo,
+        frontend_sha,
+        dependency_archive,
+        dependency_archive_sha256,
+        failure_directory,
+        execution_kind="canonical",
+    )
+
+
+def provision_rehearsal(
+    repo: Path,
+    release_sha: str,
+    frontend_repo: Path,
+    frontend_sha: str,
+    dependency_archive: Path,
+    dependency_archive_sha256: str,
+    failure_directory: Path,
+) -> None:
+    _provision(
+        repo,
+        release_sha,
+        frontend_repo,
+        frontend_sha,
+        dependency_archive,
+        dependency_archive_sha256,
+        failure_directory,
+        execution_kind="rehearsal",
+    )
+
+
+def _run_stage(
     stage: str,
     release_sha: str,
     frontend_sha: str,
     as_of_date: str | None = None,
+    *,
+    execution_kind: str,
 ) -> None:
-    if stage not in STAGE_ORDER:
+    if execution_kind == "canonical":
+        accepted_stages = STAGE_ORDER
+        machine_state = _machine_state
+        guest_command = build_guest_command
+    elif execution_kind == "rehearsal":
+        accepted_stages = REHEARSAL_STAGE_ORDER
+        machine_state = _rehearsal_machine_state
+        guest_command = build_rehearsal_guest_command
+    else:
+        raise OrchestrationError("execution_kind_not_accepted")
+    if stage not in accepted_stages:
         raise OrchestrationError("stage_not_supported")
-    if _machine_state() != "ready":
+    if machine_state() != "ready":
         raise OrchestrationError("machine_not_ready")
     provision_state = _run_checked(
         "stage_provision_state",
-        build_guest_command(
+        guest_command(
             ["cat", "/var/lib/munbon-local-acceptance/provisioning/state.json"],
             user="root",
         ),
@@ -1038,12 +1261,32 @@ def run_stage(
     )
     owner = _run_checked(
         "stage_machine_owner",
-        build_guest_command(
+        guest_command(
             ["cat", "/var/lib/munbon-local-acceptance/owner.json"], user="root"
         ),
         timeout=30,
     )
-    validate_stage_guest(provision_state, owner, release_sha, frontend_sha)
+    validate_stage_guest(
+        provision_state,
+        owner,
+        release_sha,
+        frontend_sha,
+        execution_kind=execution_kind,
+    )
+    terminal_failure = _run_checked(
+        "stage_terminal_failure",
+        guest_command(
+            [
+                "sh",
+                "-c",
+                "find /var/lib/munbon-local-acceptance/evidence -maxdepth 1 -type f -name '*-failure.json' -print -quit",
+            ],
+            user="root",
+        ),
+        timeout=30,
+    )
+    if terminal_failure.strip():
+        raise OrchestrationError("stage_failure_terminal")
     stage_argv = [
         "python3",
         "/opt/munbon/harness/run-stage-suite.py",
@@ -1053,12 +1296,13 @@ def run_stage(
         "--frontend-sha",
         frontend_sha,
     ]
+    stage_argv.extend(["--execution-kind", execution_kind])
     if as_of_date is not None:
         stage_argv.extend(["--as-of-date", as_of_date])
     try:
         _run_checked(
             stage.lower().replace("-", "_"),
-            build_guest_command(stage_argv, workdir="/opt/munbon/repo"),
+            guest_command(stage_argv, workdir="/opt/munbon/repo"),
             timeout=2400,
         )
     except CommandExecutionError as exc:
@@ -1067,6 +1311,38 @@ def run_stage(
                 "stage_failure_manifest_publication_failed"
             ) from exc
         raise
+
+
+def run_stage(
+    stage: str,
+    release_sha: str,
+    frontend_sha: str,
+    as_of_date: str | None = None,
+) -> None:
+    _run_stage(
+        stage,
+        release_sha,
+        frontend_sha,
+        as_of_date=as_of_date,
+        execution_kind="canonical",
+    )
+
+
+def run_rehearsal_stage(
+    stage: str,
+    release_sha: str,
+    frontend_sha: str,
+    as_of_date: str | None = None,
+) -> None:
+    if stage not in REHEARSAL_STAGE_ORDER:
+        raise OrchestrationError("stage_not_supported")
+    _run_stage(
+        stage,
+        release_sha,
+        frontend_sha,
+        as_of_date=as_of_date,
+        execution_kind="rehearsal",
+    )
 
 
 def run_all_stages(
@@ -1180,7 +1456,152 @@ def finalize_evidence_collection(destination: Path) -> dict:
     return state
 
 
-def finalize_partial_failure_collection(destination: Path) -> dict:
+def finalize_rehearsal_collection(destination: Path) -> dict:
+    stage_names = {f"{stage}.json" for stage in REHEARSAL_STAGE_ORDER}
+    indexed_names = {*stage_names, "stage-state.json"}
+    raw_index_name = "SHA256SUMS"
+    rehearsal_index_name = "REHEARSAL-SHA256SUMS"
+    summary_name = "REHEARSAL-SUMMARY.json"
+    outer_name = "REHEARSAL-OUTER-SHA256SUMS"
+    try:
+        artifacts = tuple(destination.iterdir())
+    except OSError as exc:
+        raise OrchestrationError("rehearsal_evidence_inventory_invalid") from exc
+    if any(path.is_symlink() or not path.is_file() for path in artifacts):
+        raise OrchestrationError("rehearsal_evidence_inventory_invalid")
+    artifact_names = {path.name for path in artifacts}
+    initial_names = {*indexed_names, raw_index_name}
+    finalized_names = {
+        *indexed_names,
+        rehearsal_index_name,
+        summary_name,
+        outer_name,
+    }
+    if artifact_names == initial_names:
+        checksum_path = destination / raw_index_name
+    elif artifact_names == finalized_names:
+        checksum_path = destination / rehearsal_index_name
+    else:
+        raise OrchestrationError("rehearsal_evidence_inventory_invalid")
+
+    try:
+        checksum_lines = checksum_path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        raise OrchestrationError("rehearsal_evidence_checksum_index_invalid") from exc
+    checksums: dict[str, str] = {}
+    for line in checksum_lines:
+        match = re.fullmatch(r"([0-9a-f]{64})  ([A-Za-z0-9_.-]+)", line)
+        if match is None or match.group(2) in checksums:
+            raise OrchestrationError("rehearsal_evidence_checksum_index_invalid")
+        digest, name = match.groups()
+        checksums[name] = digest
+    if set(checksums) != indexed_names:
+        raise OrchestrationError("rehearsal_evidence_inventory_invalid")
+    for name, digest in checksums.items():
+        if _sha256_file(destination / name) != digest:
+            raise OrchestrationError("rehearsal_evidence_checksum_mismatch")
+
+    try:
+        state = json.loads(
+            (destination / "stage-state.json").read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError) as exc:
+        raise OrchestrationError("rehearsal_evidence_state_invalid") from exc
+    if (
+        not isinstance(state, dict)
+        or set(state)
+        != {
+            "release_sha",
+            "frontend_sha",
+            "harness_hashes",
+            "completed",
+            "execution_kind",
+            "machine",
+            "acceptance_evidence",
+            "dependency_sha256",
+            "as_of_date",
+        }
+        or not re.fullmatch(r"[0-9a-f]{40}", state.get("release_sha", ""))
+        or not re.fullmatch(r"[0-9a-f]{40}", state.get("frontend_sha", ""))
+        or state.get("completed") != list(REHEARSAL_STAGE_ORDER)
+        or state.get("execution_kind") != "rehearsal"
+        or state.get("machine") != REHEARSAL_MACHINE_NAME
+        or state.get("acceptance_evidence") is not False
+        or not re.fullmatch(r"[0-9a-f]{64}", state.get("dependency_sha256", ""))
+        or not _is_canonical_date(state.get("as_of_date"))
+        or not isinstance(state.get("harness_hashes"), dict)
+        or set(state["harness_hashes"]) != set(EVIDENCE_HARNESS_ARTIFACTS)
+        or not all(
+            isinstance(name, str)
+            and isinstance(digest, str)
+            and re.fullmatch(r"[0-9a-f]{64}", digest)
+            for name, digest in state["harness_hashes"].items()
+        )
+    ):
+        raise OrchestrationError("rehearsal_evidence_state_invalid")
+
+    for stage in REHEARSAL_STAGE_ORDER:
+        try:
+            manifest = json.loads(
+                (destination / f"{stage}.json").read_text(encoding="utf-8")
+            )
+        except (OSError, json.JSONDecodeError) as exc:
+            raise OrchestrationError("rehearsal_evidence_manifest_invalid") from exc
+        release_sha = (
+            manifest.get("release_sha", manifest.get("backend_sha"))
+            if isinstance(manifest, dict)
+            else None
+        )
+        if (
+            not isinstance(manifest, dict)
+            or manifest.get("stage") != stage
+            or manifest.get("verdict") != "PASS"
+            or release_sha != state["release_sha"]
+            or manifest.get("frontend_sha") != state["frontend_sha"]
+        ):
+            raise OrchestrationError("rehearsal_evidence_manifest_invalid")
+
+    summary = {
+        "schema_version": 1,
+        "evidence_kind": "non_authoritative_rehearsal",
+        "execution_kind": "rehearsal",
+        "acceptance_evidence": False,
+        "release_sha": state["release_sha"],
+        "frontend_sha": state["frontend_sha"],
+        "harness_hashes": state["harness_hashes"],
+        "machine": REHEARSAL_MACHINE_NAME,
+        "dependency_sha256": state["dependency_sha256"],
+        "as_of_date": state["as_of_date"],
+        "passed": list(REHEARSAL_STAGE_ORDER),
+        "failed": [],
+        "unreached": list(STAGE_ORDER[len(REHEARSAL_STAGE_ORDER) :]),
+    }
+    if checksum_path.name == raw_index_name:
+        checksum_path.rename(destination / rehearsal_index_name)
+    summary_path = destination / summary_name
+    summary_path.write_text(
+        json.dumps(summary, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+    summary_path.chmod(0o600)
+    outer_path = destination / outer_name
+    outer_path.write_text(
+        "".join(
+            f"{_sha256_file(path)}  {path.name}\n"
+            for path in sorted(destination.iterdir())
+            if path.name != outer_name
+        ),
+        encoding="utf-8",
+    )
+    outer_path.chmod(0o600)
+    return summary
+
+
+def finalize_partial_failure_collection(
+    destination: Path, *, execution_kind: str = "canonical"
+) -> dict:
+    if execution_kind not in {"canonical", "rehearsal"}:
+        raise OrchestrationError("execution_kind_not_accepted")
     outer_name = "PARTIAL-OUTER-SHA256SUMS"
     summary_name = "PARTIAL-SUMMARY.json"
     try:
@@ -1224,9 +1645,20 @@ def finalize_partial_failure_collection(destination: Path) -> dict:
         )
     except (OSError, json.JSONDecodeError) as exc:
         raise OrchestrationError("partial_evidence_state_invalid") from exc
+    state_names = {"release_sha", "frontend_sha", "harness_hashes", "completed"}
+    if execution_kind == "rehearsal":
+        state_names.update(
+            {
+                "execution_kind",
+                "machine",
+                "acceptance_evidence",
+                "dependency_sha256",
+                "as_of_date",
+            }
+        )
     if (
         not isinstance(state, dict)
-        or set(state) != {"release_sha", "frontend_sha", "harness_hashes", "completed"}
+        or set(state) != state_names
         or not re.fullmatch(r"[0-9a-f]{40}", state.get("release_sha", ""))
         or not re.fullmatch(r"[0-9a-f]{40}", state.get("frontend_sha", ""))
         or not isinstance(state.get("completed"), list)
@@ -1239,6 +1671,16 @@ def finalize_partial_failure_collection(destination: Path) -> dict:
             and isinstance(digest, str)
             and re.fullmatch(r"[0-9a-f]{64}", digest)
             for name, digest in state["harness_hashes"].items()
+        )
+        or (
+            execution_kind == "rehearsal"
+            and (
+                state.get("execution_kind") != "rehearsal"
+                or state.get("machine") != REHEARSAL_MACHINE_NAME
+                or state.get("acceptance_evidence") is not False
+                or not re.fullmatch(r"[0-9a-f]{64}", state.get("dependency_sha256", ""))
+                or not _is_canonical_date(state.get("as_of_date"))
+            )
         )
     ):
         raise OrchestrationError("partial_evidence_state_invalid")
@@ -1304,6 +1746,10 @@ def finalize_partial_failure_collection(destination: Path) -> dict:
         or failure.get("frontend_sha") != state["frontend_sha"]
         or not isinstance(failure.get("failed_gate"), str)
         or not failure["failed_gate"]
+        or (
+            execution_kind == "rehearsal"
+            and failure.get("as_of_date") != state["as_of_date"]
+        )
     ):
         raise OrchestrationError("partial_evidence_manifest_invalid")
 
@@ -1319,6 +1765,15 @@ def finalize_partial_failure_collection(destination: Path) -> dict:
         "failed": 1,
         "unreached": len(STAGE_ORDER) - len(completed) - 1,
     }
+    if execution_kind == "rehearsal":
+        summary.update(
+            {
+                "execution_kind": "rehearsal",
+                "machine": REHEARSAL_MACHINE_NAME,
+                "dependency_sha256": state["dependency_sha256"],
+                "as_of_date": state["as_of_date"],
+            }
+        )
     summary_path = destination / summary_name
     summary_path.write_text(
         json.dumps(summary, sort_keys=True, separators=(",", ":")) + "\n",
@@ -1338,86 +1793,246 @@ def finalize_partial_failure_collection(destination: Path) -> dict:
     return summary
 
 
-def collect_evidence(destination: Path) -> None:
-    destination.mkdir(mode=0o700, parents=True, exist_ok=True)
-    archive_name = "local-acceptance-evidence.tar.gz"
-    archive = destination / archive_name
+def finalize_rehearsal_partial_failure_collection(destination: Path) -> dict:
     try:
-        with archive.open("wb") as stream:
-            result = subprocess.run(
-                build_guest_command(
-                    [
-                        "tar",
-                        "-C",
-                        "/var/lib/munbon-local-acceptance/evidence",
-                        "-czf",
-                        "-",
-                        ".",
-                    ],
-                    user="root",
-                ),
-                stdout=stream,
-                stderr=subprocess.PIPE,
-                check=False,
-                timeout=120,
-            )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise OrchestrationError("evidence_stream_failed") from exc
-    if result.returncode != 0:
-        raise OrchestrationError("evidence_stream_failed")
-    print("PASS evidence_stream")
-    _run_checked(
-        "evidence_extract",
-        ["tar", "-xzf", str(archive), "-C", str(destination)],
-        timeout=120,
+        state = json.loads(
+            (destination / "stage-state.json").read_text(encoding="utf-8")
+        )
+        completed = state["completed"]
+        if (
+            not isinstance(completed, list)
+            or len(completed) >= len(REHEARSAL_STAGE_ORDER)
+            or completed != list(REHEARSAL_STAGE_ORDER[: len(completed)])
+        ):
+            raise ValueError
+        failed_stage = REHEARSAL_STAGE_ORDER[len(completed)]
+        failure = json.loads(
+            (destination / f"{failed_stage}-failure.json").read_text(encoding="utf-8")
+        )
+        if failure.get("acceptance_evidence") is not False:
+            raise ValueError
+    except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise OrchestrationError("rehearsal_partial_evidence_not_accepted") from exc
+    summary = finalize_partial_failure_collection(
+        destination, execution_kind="rehearsal"
     )
-    archive.unlink()
-    finalize_evidence_collection(destination)
+    (destination / "PARTIAL-OUTER-SHA256SUMS").unlink()
+    (destination / "SHA256SUMS").rename(destination / "REHEARSAL-SHA256SUMS")
+    summary["evidence_kind"] = "non_authoritative_rehearsal"
+    summary_path = destination / "PARTIAL-SUMMARY.json"
+    summary_path.write_text(
+        json.dumps(summary, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+    summary_path.chmod(0o600)
+    outer_path = destination / "REHEARSAL-PARTIAL-OUTER-SHA256SUMS"
+    outer_path.write_text(
+        "".join(
+            f"{_sha256_file(path)}  {path.name}\n"
+            for path in sorted(destination.iterdir())
+            if path.name != outer_path.name
+        ),
+        encoding="utf-8",
+    )
+    outer_path.chmod(0o600)
+    return summary
+
+
+def _collect_guest_evidence(
+    destination: Path,
+    *,
+    guest_command: Callable[..., list[str]],
+    archive_name: str,
+    stream_code: str,
+    extract_code: str,
+    destination_error: str,
+    finalizer: Callable[[Path], dict | None],
+) -> dict | None:
+    if destination.exists():
+        raise OrchestrationError(destination_error)
+    destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    temporary = Path(
+        tempfile.mkdtemp(prefix=f".{destination.name}-", dir=destination.parent)
+    )
+    try:
+        archive = temporary / archive_name
+        try:
+            with archive.open("wb") as stream:
+                result = subprocess.run(
+                    guest_command(
+                        [
+                            "tar",
+                            "-C",
+                            "/var/lib/munbon-local-acceptance/evidence",
+                            "-czf",
+                            "-",
+                            ".",
+                        ],
+                        user="root",
+                    ),
+                    stdout=stream,
+                    stderr=subprocess.PIPE,
+                    check=False,
+                    timeout=120,
+                )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise OrchestrationError(f"{stream_code}_failed") from exc
+        if result.returncode != 0:
+            raise OrchestrationError(f"{stream_code}_failed")
+        print(f"PASS {stream_code}")
+        _run_checked(
+            extract_code,
+            ["tar", "-xzf", str(archive), "-C", str(temporary)],
+            timeout=120,
+        )
+        archive.unlink()
+        result_summary = finalizer(temporary)
+        temporary.rename(destination)
+        return result_summary
+    finally:
+        if temporary.exists():
+            shutil.rmtree(temporary)
+
+
+def collect_evidence(destination: Path) -> None:
+    _collect_guest_evidence(
+        destination,
+        guest_command=build_guest_command,
+        archive_name="local-acceptance-evidence.tar.gz",
+        stream_code="evidence_stream",
+        extract_code="evidence_extract",
+        destination_error="evidence_destination_exists",
+        finalizer=finalize_evidence_collection,
+    )
+
+
+def _validated_rehearsal_owner(release_sha: str, frontend_sha: str) -> dict:
+    if _rehearsal_machine_state() != "ready":
+        raise OrchestrationError("machine_not_ready")
+    provision_state = _run_checked(
+        "rehearsal_collection_provision_state",
+        build_rehearsal_guest_command(
+            ["cat", "/var/lib/munbon-local-acceptance/provisioning/state.json"],
+            user="root",
+        ),
+        timeout=30,
+    )
+    owner_json = _run_checked(
+        "rehearsal_collection_owner",
+        build_rehearsal_guest_command(
+            ["cat", "/var/lib/munbon-local-acceptance/owner.json"], user="root"
+        ),
+        timeout=30,
+    )
+    validate_stage_guest(
+        provision_state,
+        owner_json,
+        release_sha,
+        frontend_sha,
+        execution_kind="rehearsal",
+    )
+    return json.loads(owner_json)
+
+
+def _validate_rehearsal_summary_owner(
+    summary: dict, owner: dict, as_of_date: str
+) -> None:
+    if (
+        summary.get("machine") != owner["machine"]
+        or summary.get("release_sha") != owner["release_sha"]
+        or summary.get("frontend_sha") != owner["frontend_sha"]
+        or summary.get("dependency_sha256") != owner["dependency_sha256"]
+        or summary.get("as_of_date") != as_of_date
+        or summary.get("execution_kind") != "rehearsal"
+        or summary.get("acceptance_evidence") is not False
+    ):
+        raise OrchestrationError("rehearsal_evidence_owner_mismatch")
+
+
+def collect_rehearsal(
+    destination: Path, release_sha: str, frontend_sha: str, as_of_date: str
+) -> dict:
+    if destination.exists():
+        raise OrchestrationError("rehearsal_evidence_destination_exists")
+    owner = _validated_rehearsal_owner(release_sha, frontend_sha)
+
+    def finalize_bound_rehearsal(temporary: Path) -> dict:
+        summary = finalize_rehearsal_collection(temporary)
+        current_owner = _validated_rehearsal_owner(release_sha, frontend_sha)
+        if current_owner != owner:
+            raise OrchestrationError("rehearsal_evidence_owner_mismatch")
+        _validate_rehearsal_summary_owner(summary, current_owner, as_of_date)
+        return summary
+
+    summary = _collect_guest_evidence(
+        destination,
+        guest_command=build_rehearsal_guest_command,
+        archive_name="local-rehearsal-evidence.tar.gz",
+        stream_code="rehearsal_evidence_stream",
+        extract_code="rehearsal_evidence_extract",
+        destination_error="rehearsal_evidence_destination_exists",
+        finalizer=finalize_bound_rehearsal,
+    )
+    assert isinstance(summary, dict)
+    return summary
 
 
 def collect_partial_failure(destination: Path) -> dict:
-    destination.mkdir(mode=0o700, parents=True, exist_ok=True)
-    archive_name = "local-partial-failure-evidence.tar.gz"
-    archive = destination / archive_name
-    try:
-        with archive.open("wb") as stream:
-            result = subprocess.run(
-                build_guest_command(
-                    [
-                        "tar",
-                        "-C",
-                        "/var/lib/munbon-local-acceptance/evidence",
-                        "-czf",
-                        "-",
-                        ".",
-                    ],
-                    user="root",
-                ),
-                stdout=stream,
-                stderr=subprocess.PIPE,
-                check=False,
-                timeout=120,
-            )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise OrchestrationError("partial_evidence_stream_failed") from exc
-    if result.returncode != 0:
-        raise OrchestrationError("partial_evidence_stream_failed")
-    print("PASS partial_evidence_stream")
-    _run_checked(
-        "partial_evidence_extract",
-        ["tar", "-xzf", str(archive), "-C", str(destination)],
-        timeout=120,
+    summary = _collect_guest_evidence(
+        destination,
+        guest_command=build_guest_command,
+        archive_name="local-partial-failure-evidence.tar.gz",
+        stream_code="partial_evidence_stream",
+        extract_code="partial_evidence_extract",
+        destination_error="partial_evidence_destination_exists",
+        finalizer=finalize_partial_failure_collection,
     )
-    archive.unlink()
-    return finalize_partial_failure_collection(destination)
+    assert isinstance(summary, dict)
+    return summary
 
 
-def collect_bootstrap_failure(destination: Path) -> dict:
+def collect_rehearsal_partial_failure(
+    destination: Path, release_sha: str, frontend_sha: str, as_of_date: str
+) -> dict:
+    if destination.exists():
+        raise OrchestrationError("rehearsal_partial_evidence_destination_exists")
+    owner = _validated_rehearsal_owner(release_sha, frontend_sha)
+
+    def finalize_bound_rehearsal_partial(temporary: Path) -> dict:
+        summary = finalize_rehearsal_partial_failure_collection(temporary)
+        current_owner = _validated_rehearsal_owner(release_sha, frontend_sha)
+        if current_owner != owner:
+            raise OrchestrationError("rehearsal_evidence_owner_mismatch")
+        _validate_rehearsal_summary_owner(summary, current_owner, as_of_date)
+        return summary
+
+    summary = _collect_guest_evidence(
+        destination,
+        guest_command=build_rehearsal_guest_command,
+        archive_name="local-rehearsal-partial-failure-evidence.tar.gz",
+        stream_code="rehearsal_partial_evidence_stream",
+        extract_code="rehearsal_partial_evidence_extract",
+        destination_error="rehearsal_partial_evidence_destination_exists",
+        finalizer=finalize_bound_rehearsal_partial,
+    )
+    assert isinstance(summary, dict)
+    return summary
+
+
+def collect_bootstrap_failure(
+    destination: Path, *, execution_kind: str = "canonical"
+) -> dict:
+    if execution_kind == "canonical":
+        guest_command = build_guest_command
+    elif execution_kind == "rehearsal":
+        guest_command = build_rehearsal_guest_command
+    else:
+        raise OrchestrationError("execution_kind_not_accepted")
     if destination.exists():
         raise OrchestrationError("bootstrap_failure_destination_exists")
     state_json = _run_checked(
         "bootstrap_failure_state",
-        build_guest_command(
+        guest_command(
             ["cat", "/var/lib/munbon-local-acceptance/provisioning/state.json"],
             user="root",
         ),
@@ -1440,7 +2055,7 @@ def collect_bootstrap_failure(destination: Path) -> dict:
         try:
             with archive.open("wb") as stream:
                 result = subprocess.run(
-                    build_guest_command(
+                    guest_command(
                         [
                             "tar",
                             "-C",
@@ -1474,7 +2089,10 @@ def collect_bootstrap_failure(destination: Path) -> dict:
         except (OSError, tarfile.TarError) as exc:
             raise OrchestrationError("bootstrap_failure_archive_invalid") from exc
         archive.unlink()
-        metadata = finalize_bootstrap_failure_bundle(temporary)
+        if execution_kind == "canonical":
+            metadata = finalize_bootstrap_failure_bundle(temporary)
+        else:
+            metadata = finalize_rehearsal_bootstrap_failure_bundle(temporary)
         validate_failure_state_matches_metadata(state, metadata)
         temporary.rename(destination)
         print("PASS bootstrap_failure_bundle")
@@ -1482,6 +2100,10 @@ def collect_bootstrap_failure(destination: Path) -> dict:
     finally:
         if temporary.exists():
             shutil.rmtree(temporary)
+
+
+def collect_rehearsal_bootstrap_failure(destination: Path) -> dict:
+    return collect_bootstrap_failure(destination, execution_kind="rehearsal")
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -1497,6 +2119,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "collect",
             "collect-partial-failure",
             "collect-bootstrap-failure",
+            "provision-rehearsal",
+            "run-rehearsal-stage",
+            "collect-rehearsal",
+            "collect-rehearsal-partial-failure",
+            "collect-rehearsal-bootstrap-failure",
             "validate-campaign-ledger",
         ),
     )
@@ -1529,6 +2156,11 @@ def main(argv: list[str] | None = None) -> int:
                 raise OrchestrationError("bootstrap_failure_dir_required")
             collect_bootstrap_failure(args.bootstrap_failure_dir)
             return 0
+        if args.action == "collect-rehearsal-bootstrap-failure":
+            if args.bootstrap_failure_dir is None:
+                raise OrchestrationError("bootstrap_failure_dir_required")
+            collect_rehearsal_bootstrap_failure(args.bootstrap_failure_dir)
+            return 0
         if args.action == "validate-campaign-ledger":
             if args.campaign_ledger is None:
                 raise OrchestrationError("campaign_ledger_path_required")
@@ -1553,11 +2185,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         if args.frontend_sha != frontend_origin_main:
             raise OrchestrationError("frontend_sha_not_accepted")
-        if args.as_of_date is not None:
-            try:
-                date.fromisoformat(args.as_of_date)
-            except ValueError as exc:
-                raise OrchestrationError("as_of_date_not_accepted") from exc
+        if args.as_of_date is not None and not _is_canonical_date(args.as_of_date):
+            raise OrchestrationError("as_of_date_not_accepted")
         if args.action == "plan":
             print(
                 json.dumps(
@@ -1584,14 +2213,17 @@ def main(argv: list[str] | None = None) -> int:
                 args.dependency_bundle,
                 confirm_diagnostic_build=args.confirm_diagnostic_build,
             )
-        elif args.action == "provision":
+        elif args.action in {"provision", "provision-rehearsal"}:
             if (
                 args.dependency_bundle is None
                 or args.dependency_bundle_sha256 is None
                 or args.bootstrap_failure_dir is None
             ):
                 raise OrchestrationError("provision_dependency_arguments_required")
-            provision(
+            provision_action = (
+                provision if args.action == "provision" else provision_rehearsal
+            )
+            provision_action(
                 args.repo,
                 release_sha,
                 args.frontend_repo,
@@ -1600,10 +2232,15 @@ def main(argv: list[str] | None = None) -> int:
                 args.dependency_bundle_sha256,
                 args.bootstrap_failure_dir,
             )
-        elif args.action == "run-stage":
+        elif args.action in {"run-stage", "run-rehearsal-stage"}:
             if args.stage is None:
                 raise OrchestrationError("stage_required")
-            run_stage(
+            if args.action == "run-rehearsal-stage" and args.as_of_date is None:
+                raise OrchestrationError("as_of_date_required")
+            stage_action = (
+                run_stage if args.action == "run-stage" else run_rehearsal_stage
+            )
+            stage_action(
                 args.stage, release_sha, args.frontend_sha, as_of_date=args.as_of_date
             )
         elif args.action == "run-all":
@@ -1612,11 +2249,43 @@ def main(argv: list[str] | None = None) -> int:
             if args.evidence_dir is None:
                 raise OrchestrationError("evidence_dir_required")
             collect_evidence(args.evidence_dir)
+        elif args.action == "collect-rehearsal":
+            if args.evidence_dir is None:
+                raise OrchestrationError("evidence_dir_required")
+            if args.as_of_date is None:
+                raise OrchestrationError("as_of_date_required")
+            print(
+                json.dumps(
+                    collect_rehearsal(
+                        args.evidence_dir,
+                        release_sha,
+                        args.frontend_sha,
+                        args.as_of_date,
+                    ),
+                    sort_keys=True,
+                )
+            )
         elif args.action == "collect-partial-failure":
             if args.evidence_dir is None:
                 raise OrchestrationError("evidence_dir_required")
             print(
                 json.dumps(collect_partial_failure(args.evidence_dir), sort_keys=True)
+            )
+        elif args.action == "collect-rehearsal-partial-failure":
+            if args.evidence_dir is None:
+                raise OrchestrationError("evidence_dir_required")
+            if args.as_of_date is None:
+                raise OrchestrationError("as_of_date_required")
+            print(
+                json.dumps(
+                    collect_rehearsal_partial_failure(
+                        args.evidence_dir,
+                        release_sha,
+                        args.frontend_sha,
+                        args.as_of_date,
+                    ),
+                    sort_keys=True,
+                )
             )
         else:
             raise OrchestrationError("action_not_accepted")

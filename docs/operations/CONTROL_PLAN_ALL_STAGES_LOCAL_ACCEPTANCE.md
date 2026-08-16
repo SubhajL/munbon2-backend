@@ -72,6 +72,102 @@ every bundled byte. Public registries are allowed only in this diagnostic build
 lane. A bundle-build failure has no
 acceptance meaning and must not trigger a canonical guest retry.
 
+## Non-authoritative three-stage rehearsal
+
+A separate rehearsal grant may create only the fixed
+`munbon-control-plan-rehearsal` guest and run only the ordered `LOCAL-BASE-0 → LOCAL-RTA-1 → LOCAL-AC-1` prefix. The grant must name the exact
+backend and frontend SHAs, dependency bundle and checksum, Bangkok operational
+date with unused RID weeks, and fresh evidence destinations. A rehearsal grant does not authorize canonical guest replacement, canonical campaign execution,
+deployment, activation, visibility, writes, or AWS action.
+
+After the exact candidates and offline dependency closure are ready, use the
+separately authorized values:
+
+```bash
+rehearsal_as_of_date=REPLACE_WITH_AUTHORIZED_BANGKOK_DATE
+rehearsal_bootstrap_failure_dir=/absolute/external/evidence/rehearsal-bootstrap-failure-${accepted_backend_sha}
+rehearsal_evidence_dir=/absolute/external/evidence/rehearsal-${accepted_backend_sha}
+
+python3 ops/control-plan-read-local/orchestrate.py provision-rehearsal \
+  --release-sha "$accepted_backend_sha" \
+  --frontend-sha "$accepted_frontend_sha" \
+  --accept-later-origin-main \
+  --dependency-bundle "$dependency_bundle" \
+  --dependency-bundle-sha256 "$dependency_bundle_sha256" \
+  --bootstrap-failure-dir "$rehearsal_bootstrap_failure_dir"
+
+python3 ops/control-plan-read-local/orchestrate.py run-rehearsal-stage --stage LOCAL-BASE-0 \
+  --release-sha "$accepted_backend_sha" \
+  --frontend-sha "$accepted_frontend_sha" \
+  --accept-later-origin-main \
+  --as-of-date "$rehearsal_as_of_date"
+
+python3 ops/control-plan-read-local/orchestrate.py run-rehearsal-stage --stage LOCAL-RTA-1 \
+  --release-sha "$accepted_backend_sha" \
+  --frontend-sha "$accepted_frontend_sha" \
+  --accept-later-origin-main \
+  --as-of-date "$rehearsal_as_of_date"
+
+python3 ops/control-plan-read-local/orchestrate.py run-rehearsal-stage --stage LOCAL-AC-1 \
+  --release-sha "$accepted_backend_sha" \
+  --frontend-sha "$accepted_frontend_sha" \
+  --accept-later-origin-main \
+  --as-of-date "$rehearsal_as_of_date"
+
+python3 ops/control-plan-read-local/orchestrate.py collect-rehearsal \
+  --release-sha "$accepted_backend_sha" \
+  --frontend-sha "$accepted_frontend_sha" \
+  --accept-later-origin-main \
+  --as-of-date "$rehearsal_as_of_date" \
+  --evidence-dir "$rehearsal_evidence_dir"
+```
+
+Successful collection requires the exact three PASS manifests and writes
+`REHEARSAL-SUMMARY.json` with `acceptance_evidence=false`, six explicitly
+unreached stages, and `REHEARSAL-OUTER-SHA256SUMS`. It never writes
+`SHA256SUMS` or `OUTER-SHA256SUMS`; its verified inner index is renamed to
+`REHEARSAL-SHA256SUMS`. It cannot satisfy `successful_closed` and cannot be
+appended as campaign acceptance evidence.
+
+On the first rehearsal stage failure, stop immediately and use only:
+
+```bash
+python3 ops/control-plan-read-local/orchestrate.py collect-rehearsal-partial-failure \
+  --release-sha "$accepted_backend_sha" \
+  --frontend-sha "$accepted_frontend_sha" \
+  --accept-later-origin-main \
+  --as-of-date "$rehearsal_as_of_date" \
+  --evidence-dir "$rehearsal_evidence_dir"
+```
+
+This recovery keeps `acceptance_evidence=false`, adds the
+`non_authoritative_rehearsal` evidence kind, and writes
+`REHEARSAL-SHA256SUMS` and `REHEARSAL-PARTIAL-OUTER-SHA256SUMS`, both of which
+the campaign-ledger validator rejects.
+
+For provisioning failure, do not call a stage collector. Provisioning already collects and finalizes this bundle automatically at
+`$rehearsal_bootstrap_failure_dir`. If that destination exists, preserve and
+verify it; do not run a second collector against the same path.
+
+Use the standalone collector below only when provisioning reports
+`bootstrap_linux_failed_and_failure_collection_failed` (or was interrupted
+before collection completed) **and** the authorized destination does not
+exist. It retries recovery of only the sanitized bundle from the preserved
+fixed guest:
+
+```bash
+python3 ops/control-plan-read-local/orchestrate.py collect-rehearsal-bootstrap-failure \
+  --bootstrap-failure-dir "$rehearsal_bootstrap_failure_dir"
+```
+
+The rehearsal bootstrap collector adds `REHEARSAL-BOOTSTRAP-SUMMARY.json` with
+`acceptance_evidence=false` and writes only
+`REHEARSAL-SHA256SUMS` inside the bundle and
+`REHEARSAL-BOOTSTRAP-OUTER-SHA256SUMS`, which the campaign ledger rejects.
+
+Do not repair, reprovision, or promote the rehearsal guest. Guest cleanup needs
+separate authority after the frozen host evidence verifies.
+
 Verify the resulting digest, choose a new external failure destination, and
 then provision:
 
@@ -125,6 +221,16 @@ Do not manually complete installs, import an unverified cache, snapshot a
 partial guest as fresh, or classify pre-stage provisioning as an acceptance
 stage failure. Guest deletion or a new canonical attempt always needs separate
 authorization after the failure bundle verifies.
+
+Canonical replacement authority must name the exact preserved guest ID and
+machine name, the new campaign and attempt ceiling, accepted candidates,
+dependency checksum, evidence destination, Bangkok date, and clean RID weeks.
+Before deletion, one operator must validate that exact stable ID against its
+name, shape, owner, candidate, dependency, stage state, failure evidence, and
+checksums; immediately re-read the inventory, delete only that stable ID using
+the validated Orb command, and verify it is absent. Stop if Orb cannot address
+the stable ID or if any field changes. Never delete by name alone and never
+modify or replay the exhausted guest.
 
 The Prometheus Debian package is used only for `promtool`; its Prometheus and
 node-exporter services are disabled to prevent wildcard listeners.
@@ -354,6 +460,7 @@ orb -m munbon-control-plan-write-ui-diagnostic -u munbon \
   python3 /opt/munbon/harness/run-stage-suite.py LOCAL-WRITE-UI-1 \
   --release-sha "$diagnostic_backend_sha" \
   --frontend-sha "$diagnostic_frontend_sha" \
+  --execution-kind canonical \
   --as-of-date "$fresh_diagnostic_date" \
   --evidence-root /var/lib/munbon-local-acceptance/write-ui-diagnostic \
   --diagnostic

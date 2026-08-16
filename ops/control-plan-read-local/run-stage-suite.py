@@ -56,6 +56,7 @@ STAGE_ORDER = (
 WRITE_UI_DIAGNOSTIC_STAGE = "LOCAL-WRITE-UI-DIAGNOSTIC"
 FAILURE_MANIFEST_EXIT_CODE = 70
 ACCEPTANCE_MACHINE_NAME = "munbon-control-plan-local"
+REHEARSAL_MACHINE_NAME = "munbon-control-plan-rehearsal"
 DEFAULT_ACCEPTANCE_EVIDENCE_ROOT = Path("/var/lib/munbon-local-acceptance/evidence")
 READINESS_URLS = {
     "flow-monitoring": "http://127.0.0.1:3011/ready",
@@ -133,6 +134,8 @@ class StageContext:
     frontend_root: Path = Path("/opt/munbon/frontend")
     stability_duration: int = 300
     as_of_date: date = date.today()
+    execution_kind: str = "canonical"
+    owner_path: Path = Path("/var/lib/munbon-local-acceptance/owner.json")
 
 
 @dataclass(frozen=True)
@@ -1697,13 +1700,57 @@ def _hash_file(path: Path) -> str:
 
 
 def _stage_identity(context: StageContext) -> dict[str, Any]:
-    return {
+    identity = {
         "release_sha": context.release_sha,
         "frontend_sha": context.frontend_sha,
         "harness_hashes": {
             name: _hash_file(context.harness_root / name) for name in HARNESS_ARTIFACTS
         },
     }
+    if context.execution_kind == "rehearsal":
+        owner = _read_json(context.owner_path)
+        _validate_execution_owner(context, owner)
+        identity.update(
+            {
+                "execution_kind": "rehearsal",
+                "machine": REHEARSAL_MACHINE_NAME,
+                "acceptance_evidence": False,
+                "dependency_sha256": owner["dependency_sha256"],
+                "as_of_date": context.as_of_date.isoformat(),
+            }
+        )
+    return identity
+
+
+def _execution_stages(context: StageContext) -> tuple[str, ...]:
+    if context.execution_kind == "canonical":
+        return STAGE_ORDER
+    if context.execution_kind == "rehearsal":
+        return STAGE_ORDER[:3]
+    raise StageGateError("execution_kind_not_accepted")
+
+
+def _validate_execution_owner(context: StageContext, owner: dict[str, Any]) -> None:
+    common_is_valid = (
+        owner.get("architecture") == "arm64"
+        and owner.get("state") == "ready"
+        and owner.get("release_sha") == context.release_sha
+        and owner.get("frontend_sha") == context.frontend_sha
+        and re.fullmatch(r"[0-9a-f]{64}", owner.get("dependency_sha256", ""))
+    )
+    if context.execution_kind == "canonical":
+        valid = common_is_valid and owner.get("machine") == ACCEPTANCE_MACHINE_NAME
+    elif context.execution_kind == "rehearsal":
+        valid = (
+            common_is_valid
+            and owner.get("machine") == REHEARSAL_MACHINE_NAME
+            and owner.get("execution_kind") == "rehearsal"
+            and owner.get("acceptance_evidence") is False
+        )
+    else:
+        raise StageGateError("execution_kind_not_accepted")
+    if not valid:
+        raise StageGateError("local_baseline_invalid")
 
 
 def _verify_source_checkouts(context: StageContext) -> None:
@@ -1738,7 +1785,8 @@ def _load_state(context: StageContext) -> dict[str, Any]:
     expected_identity = _stage_identity(context)
     if (
         not isinstance(completed, list)
-        or tuple(completed) != STAGE_ORDER[: len(completed)]
+        or tuple(completed) != _execution_stages(context)[: len(completed)]
+        or set(state) != {*expected_identity, "completed"}
         or {key: state.get(key) for key in expected_identity} != expected_identity
     ):
         raise StageGateError("stage_state_stale")
@@ -1783,14 +1831,9 @@ def run_local_base(context: StageContext) -> dict:
         actual_sha != context.release_sha
         or tracked_status
         or os.uname().machine != "aarch64"
-        or owner.get("machine") != "munbon-control-plan-local"
-        or owner.get("architecture") != "arm64"
-        or owner.get("release_sha") != context.release_sha
-        or owner.get("frontend_sha") != context.frontend_sha
-        or not re.fullmatch(r"[0-9a-f]{64}", owner.get("dependency_sha256", ""))
-        or owner.get("state") != "ready"
     ):
         raise StageGateError("local_baseline_invalid")
+    _validate_execution_owner(context, owner)
     manifest = {
         "stage": "LOCAL-BASE-0",
         "verdict": "PASS",
@@ -6101,7 +6144,10 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=Path,
         default=Path("/etc/munbon/control-plan-read-runtime"),
     )
-    parser.add_argument("--as-of-date", type=date.fromisoformat, default=date.today())
+    parser.add_argument("--as-of-date", type=date.fromisoformat)
+    parser.add_argument(
+        "--execution-kind", choices=("canonical", "rehearsal"), required=True
+    )
     parser.add_argument("--diagnostic", action="store_true")
     args = parser.parse_args(argv)
     if args.diagnostic:
@@ -6112,11 +6158,20 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             or (args.evidence_root / "stage-state.json").exists()
         ):
             parser.error("--diagnostic requires an isolated evidence root")
+    if args.execution_kind == "rehearsal" and args.stage not in STAGE_ORDER[:3]:
+        parser.error(
+            "rehearsal execution supports only LOCAL-BASE-0 through LOCAL-AC-1"
+        )
+    if args.execution_kind == "rehearsal" and args.as_of_date is None:
+        parser.error("rehearsal execution requires --as-of-date")
+    if args.as_of_date is None:
+        args.as_of_date = date.today()
     return args
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
+    execution_kind = getattr(args, "execution_kind", "canonical")
     context = StageContext(
         release_sha=args.release_sha,
         frontend_sha=args.frontend_sha,
@@ -6126,7 +6181,11 @@ def main(argv: list[str] | None = None) -> int:
         evidence_root=args.evidence_root,
         runtime_env_dir=args.runtime_env_dir,
         as_of_date=args.as_of_date,
+        execution_kind=execution_kind,
     )
+    if any(context.evidence_root.glob("*-failure.json")):
+        print("FAIL stage_failure_terminal")
+        return 1
     try:
         if args.stage == "LOCAL-BASE-0":
             run_local_base(context)
@@ -6187,6 +6246,9 @@ def main(argv: list[str] | None = None) -> int:
         }
         if diagnostic:
             failure["acceptance_evidence"] = False
+        if execution_kind == "rehearsal":
+            failure["acceptance_evidence"] = False
+            failure["as_of_date"] = context.as_of_date.isoformat()
         if teardown_error is not None:
             failure["teardown_error"] = teardown_error
         restoration = getattr(safe_error, "restoration", None)

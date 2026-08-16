@@ -1767,6 +1767,217 @@ def test_stage_state_fails_closed_if_index_survives_without_state(
         stage_suite._load_state(context)
 
 
+def test_rehearsal_context_accepts_only_the_first_three_stages_and_fixed_owner():
+    context = stage_suite.StageContext(
+        release_sha="8" * 40,
+        frontend_sha="9" * 40,
+        repo_root=Path("/opt/munbon/repo"),
+        harness_root=Path("/opt/munbon/harness"),
+        evidence_root=Path("/var/lib/munbon-local-acceptance/evidence"),
+        runtime_env_dir=Path("/etc/munbon/control-plan-read-runtime"),
+        execution_kind="rehearsal",
+    )
+    owner = {
+        "machine": "munbon-control-plan-rehearsal",
+        "architecture": "arm64",
+        "state": "ready",
+        "release_sha": context.release_sha,
+        "frontend_sha": context.frontend_sha,
+        "dependency_sha256": "c" * 64,
+        "execution_kind": "rehearsal",
+        "acceptance_evidence": False,
+    }
+
+    assert stage_suite._validate_execution_owner(context, owner) is None
+    assert stage_suite._execution_stages(context) == stage_suite.STAGE_ORDER[:3]
+    with pytest.raises(stage_suite.StageGateError, match="local_baseline_invalid"):
+        stage_suite._validate_execution_owner(
+            context, {**owner, "acceptance_evidence": True}
+        )
+
+
+def test_rehearsal_stage_state_binds_profile_machine_and_dependency(
+    tmp_path, monkeypatch
+):
+    harness_root = tmp_path / "harness"
+    evidence_root = tmp_path / "evidence"
+    harness_root.mkdir()
+    evidence_root.mkdir()
+    for name in stage_suite.HARNESS_ARTIFACTS:
+        (harness_root / name).write_text(f"{name}\n", encoding="utf-8")
+    owner_path = tmp_path / "owner.json"
+    owner_path.write_text(
+        json.dumps(
+            {
+                "machine": "munbon-control-plan-rehearsal",
+                "architecture": "arm64",
+                "state": "ready",
+                "release_sha": "8" * 40,
+                "frontend_sha": "9" * 40,
+                "dependency_sha256": "c" * 64,
+                "execution_kind": "rehearsal",
+                "acceptance_evidence": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    context = stage_suite.StageContext(
+        release_sha="8" * 40,
+        frontend_sha="9" * 40,
+        repo_root=tmp_path / "repo",
+        harness_root=harness_root,
+        evidence_root=evidence_root,
+        runtime_env_dir=tmp_path / "runtime",
+        frontend_root=tmp_path / "frontend",
+        as_of_date=stage_suite.date(2026, 8, 16),
+        execution_kind="rehearsal",
+        owner_path=owner_path,
+    )
+    monkeypatch.setattr(stage_suite, "_verify_source_checkouts", lambda _context: None)
+    for stage in stage_suite.STAGE_ORDER[:3]:
+        manifest = evidence_root / f"{stage}.json"
+        manifest.write_text('{"verdict":"PASS"}\n', encoding="utf-8")
+        stage_suite._checksum_manifest(manifest)
+
+    stage_suite._save_state(context, list(stage_suite.STAGE_ORDER[:3]))
+    state = stage_suite._load_state(context)
+
+    assert {
+        key: state[key]
+        for key in (
+            "execution_kind",
+            "machine",
+            "acceptance_evidence",
+            "dependency_sha256",
+            "as_of_date",
+        )
+    } == {
+        "execution_kind": "rehearsal",
+        "machine": "munbon-control-plan-rehearsal",
+        "acceptance_evidence": False,
+        "dependency_sha256": "c" * 64,
+        "as_of_date": "2026-08-16",
+    }
+    changed_date_context = dataclasses.replace(
+        context, as_of_date=stage_suite.date(2026, 8, 17)
+    )
+    with pytest.raises(stage_suite.StageGateError, match="stage_state_stale"):
+        stage_suite._load_state(changed_date_context)
+    canonical_context = stage_suite.StageContext(
+        release_sha=context.release_sha,
+        frontend_sha=context.frontend_sha,
+        repo_root=context.repo_root,
+        harness_root=context.harness_root,
+        evidence_root=context.evidence_root,
+        runtime_env_dir=context.runtime_env_dir,
+        frontend_root=context.frontend_root,
+        execution_kind="canonical",
+    )
+    with pytest.raises(stage_suite.StageGateError, match="stage_state_stale"):
+        stage_suite._load_state(canonical_context)
+
+
+def test_parse_args_rejects_later_stage_for_rehearsal_execution():
+    with pytest.raises(SystemExit):
+        stage_suite._parse_args(
+            [
+                "LOCAL-READ-ACT-1",
+                "--release-sha",
+                "8" * 40,
+                "--frontend-sha",
+                "9" * 40,
+                "--execution-kind",
+                "rehearsal",
+            ]
+        )
+
+
+def test_parse_args_requires_explicit_execution_kind_and_rehearsal_date():
+    common = ["--release-sha", "8" * 40, "--frontend-sha", "9" * 40]
+
+    with pytest.raises(SystemExit):
+        stage_suite._parse_args(["LOCAL-BASE-0", *common])
+    with pytest.raises(SystemExit):
+        stage_suite._parse_args(
+            ["LOCAL-BASE-0", *common, "--execution-kind", "rehearsal"]
+        )
+
+
+def test_rehearsal_failure_manifest_is_explicitly_non_authoritative(
+    tmp_path, monkeypatch
+):
+    evidence_root = tmp_path / "evidence"
+    evidence_root.mkdir()
+    args = stage_suite.argparse.Namespace(
+        stage="LOCAL-AC-1",
+        release_sha="8" * 40,
+        frontend_sha="9" * 40,
+        repo_root=tmp_path / "repo",
+        frontend_root=tmp_path / "frontend",
+        harness_root=tmp_path / "harness",
+        evidence_root=evidence_root,
+        runtime_env_dir=tmp_path / "runtime",
+        as_of_date=stage_suite.date(2026, 8, 16),
+        execution_kind="rehearsal",
+        diagnostic=False,
+    )
+    monkeypatch.setattr(stage_suite, "_parse_args", lambda _argv: args)
+    monkeypatch.setattr(
+        stage_suite,
+        "run_local_ac",
+        lambda _context: (_ for _ in ()).throw(
+            stage_suite.StageGateError("rehearsal_ac_failed")
+        ),
+    )
+
+    assert stage_suite.main([]) == 1
+    failure = json.loads(
+        (evidence_root / "LOCAL-AC-1-failure.json").read_text(encoding="utf-8")
+    )
+    assert failure == {
+        "stage": "LOCAL-AC-1",
+        "verdict": "FAIL",
+        "release_sha": "8" * 40,
+        "frontend_sha": "9" * 40,
+        "failed_gate": "rehearsal_ac_failed",
+        "failed_at": failure["failed_at"],
+        "acceptance_evidence": False,
+        "as_of_date": "2026-08-16",
+    }
+
+
+def test_existing_rehearsal_failure_is_terminal_without_manifest_rewrite(
+    tmp_path, monkeypatch
+):
+    evidence_root = tmp_path / "evidence"
+    evidence_root.mkdir()
+    failure_path = evidence_root / "LOCAL-AC-1-failure.json"
+    failure_body = b'{"failed_gate":"first_failure","verdict":"FAIL"}\n'
+    failure_path.write_bytes(failure_body)
+    args = stage_suite.argparse.Namespace(
+        stage="LOCAL-AC-1",
+        release_sha="8" * 40,
+        frontend_sha="9" * 40,
+        repo_root=tmp_path / "repo",
+        frontend_root=tmp_path / "frontend",
+        harness_root=tmp_path / "harness",
+        evidence_root=evidence_root,
+        runtime_env_dir=tmp_path / "runtime",
+        as_of_date=stage_suite.date(2026, 8, 16),
+        execution_kind="rehearsal",
+        diagnostic=False,
+    )
+    calls = []
+    monkeypatch.setattr(stage_suite, "_parse_args", lambda _argv: args)
+    monkeypatch.setattr(
+        stage_suite, "run_local_ac", lambda _context: calls.append("stage")
+    )
+
+    assert stage_suite.main([]) == 1
+    assert calls == []
+    assert failure_path.read_bytes() == failure_body
+
+
 def test_clear_failure_manifest_removes_only_the_completed_stage(tmp_path):
     current = tmp_path / "LOCAL-AC-1-failure.json"
     other = tmp_path / "LOCAL-RTA-1-failure.json"
@@ -3889,6 +4100,8 @@ def test_parse_args_rejects_diagnostic_mode_for_acceptance_evidence_root():
                 "8" * 40,
                 "--frontend-sha",
                 "9" * 40,
+                "--execution-kind",
+                "canonical",
                 "--diagnostic",
             ]
         )
@@ -3904,6 +4117,8 @@ def test_parse_args_accepts_write_ui_diagnostic_with_separate_evidence_root(
             "8" * 40,
             "--frontend-sha",
             "9" * 40,
+            "--execution-kind",
+            "canonical",
             "--diagnostic",
             "--evidence-root",
             str(tmp_path / "diagnostic-evidence"),
