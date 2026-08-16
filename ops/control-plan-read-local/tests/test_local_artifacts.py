@@ -165,6 +165,11 @@ def test_bootstrap_is_valid_bash_and_provisions_only_isolated_manifests():
         "frontend.bundle",
         '"frontend_sha":"${FRONTEND_SHA}"',
         'mv -- "${OWNER_TEMP}" "${STATE_ROOT}/owner.json"',
+        '"$#" != "7"',
+        "MACHINE_NAME=munbon-control-plan-local",
+        "MACHINE_NAME=munbon-control-plan-rehearsal",
+        '"execution_kind":"rehearsal"',
+        '"acceptance_evidence":false',
         "run-read-browser.js",
         "run-evidence-browser.js",
         "run-go-read-browser.js",
@@ -871,7 +876,8 @@ def test_stage_baseline_uses_nonsecret_owner_attestation_not_private_failure_sta
     assert (
         'Path("/var/lib/munbon-local-acceptance/provisioning/state.json")' not in body
     )
-    assert 'owner.get("state") != "ready"' in body
+    assert 'owner.get("state") == "ready"' in body
+    assert "_validate_execution_owner(context, owner)" in body
     assert "--no-index" in body
     assert "--find-links" in body
     assert "npm install --global" not in body
@@ -903,8 +909,12 @@ def test_local_base_binds_ready_state_and_dependency_environment_digest():
     base_body = body[start:end]
 
     assert "/var/lib/munbon-local-acceptance/owner.json" in base_body
-    assert 'owner.get("state") != "ready"' in base_body
-    assert 'owner.get("dependency_sha256", "")' in base_body
+    assert "_validate_execution_owner(context, owner)" in base_body
+    owner_start = body.index("def _validate_execution_owner")
+    owner_end = body.index("\ndef _verify_source_checkouts", owner_start)
+    owner_body = body[owner_start:owner_end]
+    assert 'owner.get("state") == "ready"' in owner_body
+    assert 'owner.get("dependency_sha256", "")' in owner_body
     assert '"dependency_bundle_sha256"' in base_body
 
 
@@ -1013,7 +1023,7 @@ def test_all_stages_runbook_locks_local_before_aws_and_documents_current_command
     body = (
         REPO_ROOT / "docs/operations/CONTROL_PLAN_ALL_STAGES_LOCAL_ACCEPTANCE.md"
     ).read_text(encoding="utf-8")
-    documented_candidate_commands = 12
+    documented_candidate_commands = 18
 
     for required in (
         "LOCAL-BASE-0",
@@ -1034,6 +1044,20 @@ def test_all_stages_runbook_locks_local_before_aws_and_documents_current_command
         "orchestrate.py run-stage --stage LOCAL-WRITE-UI-1",
         "orchestrate.py run-stage --stage LOCAL-PERSIST-ONLY-1",
         "orchestrate.py collect",
+        "munbon-control-plan-rehearsal",
+        "orchestrate.py provision-rehearsal",
+        "orchestrate.py run-rehearsal-stage --stage LOCAL-BASE-0",
+        "orchestrate.py run-rehearsal-stage --stage LOCAL-RTA-1",
+        "orchestrate.py run-rehearsal-stage --stage LOCAL-AC-1",
+        "orchestrate.py collect-rehearsal",
+        "orchestrate.py collect-rehearsal-partial-failure",
+        "orchestrate.py collect-rehearsal-bootstrap-failure",
+        "REHEARSAL-OUTER-SHA256SUMS",
+        "REHEARSAL-PARTIAL-OUTER-SHA256SUMS",
+        "REHEARSAL-BOOTSTRAP-OUTER-SHA256SUMS",
+        "REHEARSAL-SHA256SUMS",
+        "REHEARSAL-SUMMARY.json",
+        "acceptance_evidence=false",
         "false → true → false",
         "bearer verification before `pm2 save`",
         "evidence-with-wildcard",
@@ -1048,12 +1072,17 @@ def test_all_stages_runbook_locks_local_before_aws_and_documents_current_command
         body.count('--frontend-sha "$accepted_frontend_sha"')
         == documented_candidate_commands
     )
+    assert body.count('--as-of-date "$rehearsal_as_of_date"') == 5
     for required in (
         "accepted_frontend_sha=REPLACE_WITH_ACCEPTED_40_CHARACTER_FRONTEND_SHA",
         "Historical frontend SHAs below are evidence identities, not reusable defaults.",
         "All nine current local acceptance stages are implemented",
         "No current candidate has genuine 9/9 acceptance evidence.",
         "A fresh exact-SHA rehearsal and canonical campaign require separate authorization.",
+        "A rehearsal grant does not authorize canonical guest replacement",
+        "Provisioning already collects and finalizes this bundle automatically",
+        "only the ordered `LOCAL-BASE-0 → LOCAL-RTA-1 → LOCAL-AC-1` prefix",
+        "cannot satisfy `successful_closed`",
         "Guest replacement, deployment, and activation remain separately authorized actions.",
         "Every authorized campaign outcome, success or failure, must extend the campaign",
         "genuine 9/9 evidence from one pristine authorized guest, a separately authorized",
