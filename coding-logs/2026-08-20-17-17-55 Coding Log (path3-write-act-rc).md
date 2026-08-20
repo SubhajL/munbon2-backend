@@ -755,3 +755,305 @@ LOW
 - Final static/integrity pass: Black left all five changed Python files unchanged; Ruff passed; `py_compile` passed; both changed JavaScript files passed `node --check`; `git diff --check` passed.
 - Pytest emitted only the existing `asyncio_default_fixture_loop_scope` deprecation warning in each round. The failed `python` shim probe before the sequence executed no tests; the valid three-round sequence was restarted at round 1 with `python3`.
 - These remain local source gates only. No guest, AWS, deployment, activation, `LOCAL-WRITE-ACT-1`, or `LOCAL-RC-1` acceptance was run or claimed.
+
+## Path 2 formal g-check (2026-08-20T23:53:46+07:00)
+
+### Reviewed
+- Repo/branch/base: `/Users/subhajlimanond/dev/munbon2-backend-path3-write-act-rc`, `test/local-write-act-1`, `3e038caec2909665266905aa00beff5e78299dc0`.
+- Scope: deep uncommitted snapshot `2026-08-20/2347`; continuation chat `path-1-g-check-A2FFB2`; all six Path 2 production, test, and runbook files.
+- Reported primary evidence before review: complete Python harness `681 passed`; complete Node harness `51 passed`; Black, Ruff, `py_compile`, `node --check`, and `git diff --check` passed. The reviewer did not independently rerun these gates.
+
+### Findings
+CRITICAL
+- None.
+
+HIGH
+- RC partial bundles are not bound to a successful exact-identity RC preflight or its Bangkok date. An ordinary campaign prefix can be relabeled as an RC partial result, while a preflight failure can be collected under caller-supplied dependency, guest, and date values that were not recorded by the failed invocation.
+- The RC partial inventory rejects valid bounded auxiliary evidence produced by a failed `LOCAL-GO-READ-1`, `LOCAL-WRITE-UI-1`, or `LOCAL-WRITE-ACT-1` before its later failure boundary.
+- Final RC rate proof accepts any positive counter and TTL for an allowed principal-derived key, including counter drift or renewed/unbounded TTLs that can conceal limiter corruption or operator lockout.
+
+MEDIUM
+- Host RC phase execution does not distinguish guest exit 70, meaning failure-manifest publication failure is collapsed into a generic phase failure instead of a dedicated recoverability error.
+
+LOW
+- Runbook command coverage still uses a fragile aggregate occurrence total; duplicates can compensate for a missing command.
+
+### Confirmed invariants
+- `LOCAL-RC-1` remains outside both live `STAGE_ORDER` and frozen `CAMPAIGN_LEDGER_V1_STAGE_ORDER`; the historical ledger remains nine-stage.
+- Host execution remains ordered, stop-on-first-failure, and no-retry; success evidence remains RC-specific and campaign-ledger-ineligible.
+- The runbook makes no live guest, WRITE-ACT, RC, AWS, deployment, or activation acceptance claim.
+
+### Primary disposition
+- All three HIGH findings and the MEDIUM finding are accepted as blocking and will receive primary-owned executable RED contracts followed by bounded Luna-Max remediation.
+- The LOW finding is accepted and will be removed by replacing the aggregate command total with exact per-command identity counts.
+- Snapshot `2026-08-20/2347` is not g-check clean for commit/PR. No guest command, AWS action, deployment, activation, `LOCAL-WRITE-ACT-1`, or `LOCAL-RC-1` acceptance was run or claimed.
+
+## Path 2 independent QCHECK (2026-08-21T00:02:00+07:00)
+
+### Evidence
+- Read-only Terra support independently reviewed the complete six-file Path 2 diff and ran a focused RC selector: `204 passed, 434 deselected`.
+
+### Findings and disposition
+- HIGH, accepted: RC partial evidence can be relabeled from an ordinary canonical attempt because its dependency, guest, and date are supplied only by the collector. This corroborates formal g-check HIGH-1 and is covered by the durable `RC-PREFLIGHT.json`/exact failure-identity RED.
+- HIGH, accepted: host validates the immutable Orb ID but then dispatches by mutable machine name. The replacement window is covered by a host-sampled `/etc/machine-id`, repeat Orb-ID validation, and same-process guest identity guard RED for every RC phase and stage dispatch.
+- HIGH, accepted: guest harness hashes are self-attested and source cleanliness ignores untracked files. The remediation contract requires host-authorized provision-source hashes during RC collection and `--untracked-files=all` for unignored source drift.
+- MEDIUM, accepted: a failed artifact-producing stage can leave useful bounded auxiliary evidence that current RC partial inventory rejects. This corroborates formal g-check HIGH-2 and is covered by stage-specific bounded-subset REDs.
+- MEDIUM, accepted: RC phase exit 70 lacks a dedicated failure-publication classification. This corroborates the formal g-check MEDIUM and is covered by both-phase host REDs.
+- No finding: the frozen historical nine-stage ledger and source-versus-runtime authority language remain correct.
+
+### Boundary
+- This independent review is not acceptance evidence and made no production or lifecycle mutation. No guest command, AWS action, deployment, activation, `LOCAL-WRITE-ACT-1`, or `LOCAL-RC-1` acceptance was run or claimed.
+
+## Path 2 formal-review remediation (2026-08-21T00:37:00+07:00)
+
+- Primary-owned behavioral REDs covered exact RC preflight lineage, bounded failed-stage auxiliary evidence, host-authorized harness identity, untracked source drift, immutable guest machine identity, RC phase exit 70, WRITE-ACT rate snapshot publication, and guest/host counter-plus-TTL integrity. The cumulative initial selector produced `22 failed` for the missing contracts.
+- The first lineage delegation receipt was rejected because Black changed protected test files after its ownership snapshot. Luna restored both production files to the exact pre-slice SHA-256 values; no reset or branch replacement was used. A fresh ownership snapshot was then created before reimplementation.
+- Accepted Luna GREEN `PATH2-RC-LINEAGE-2`: snapshot `/tmp/munbon-path2-rc-lineage-v2.snapshot.json`; receipt `/tmp/munbon-path2-rc-lineage-v2.receipt.json`; ownership validator `verified=true`; production SHA-256 values `orchestrate.py=59b4a0af01fa3d237374efbe3c6216a6519e9d6450af7e504f7bfc0ec0248402` and `run-stage-suite.py=2978d45d0b036c5f40a6bd0155309c34c6923ebd11b40de92bd3601620d953ed` at that slice boundary.
+- Lineage disposition: successful preflight now creates identical external and checksum-bound internal `RC-PREFLIGHT.json` records plus an empty completed-stage state; RC failure manifests bind phase, dependency, guest, and date; partial collection rejects ordinary campaign failures, requires canonical preflight lineage after preflight, retains bounded failed-stage auxiliaries, requires complete passed-stage auxiliaries, and independently binds guest harness hashes to host-authorized provision sources. Source checks now include unignored untracked files.
+- Accepted Luna GREEN `PATH2-RC-MACHINE-EXIT-1`: snapshot `/tmp/munbon-path2-rc-machine-exit.snapshot.json`; receipt `/tmp/munbon-path2-rc-machine-exit.receipt.json`; ownership validator `verified=true`; production SHA-256 values `orchestrate.py=c6af7922ff4ad09f17cea0f3091265ad21032ec926c7fb5dea1fcacb702aeefb` and `run-stage-suite.py=3000c5896a66abcfce1c3ea542bda6a6069d1d85d6b8c113253c41a860490dc6` at that slice boundary.
+- Machine/exit disposition: host validation now sandwiches a root guest `/etc/machine-id` read between two immutable Orb-inventory validations and threads the exact machine ID through preflight, every live stage, and finalize. Guest dispatch rejects a different machine before evidence inspection or mutation. RC preflight/finalize exit 70 is surfaced as a dedicated failure-manifest-publication error. Unit tests inject the canonical Linux guest ID so the macOS test host never weakens the fail-closed production behavior.
+- Accepted Luna GREEN `PATH2-RC-RATE-INTEGRITY-1`: snapshot `/tmp/munbon-path2-rc-rate-integrity.snapshot.json`; receipt `/tmp/munbon-path2-rc-rate-integrity.receipt.json`; ownership validator `verified=true`; final production SHA-256 values `orchestrate.py=346d7533cd3ac5d449dc521cc55cad01547ade370d7787b54624aff0fc435348` and `run-stage-suite.py=aa12580f41ea35e2a490ead7c49e4e447e775de606d04ae5f1becf0171ecb5ce`.
+- Rate disposition: WRITE-ACT now checksum-binds the already observed post-browser rate snapshot and configured window. Guest finalization and the host collector independently require surviving rate keys to be a subset of the two authenticated principals, keep the recorded counter unchanged, and have a positive TTL no greater than both the recorded TTL and configured window; expired absent keys remain valid.
+- The runbook command-coverage LOW was remediated with exact per-action occurrence counts rather than an aggregate total. Frozen historical nine-stage ledger semantics remain unchanged; `LOCAL-RC-1` remains an outer wrapper outside both stage-order ledgers.
+- Independent primary focused reruns passed after each slice. Fresh complete candidate gate: Python harness `744 passed`; Node harness `51 passed`; Black left all eleven Python files unchanged; Ruff, `py_compile`, all Node syntax checks, and `git diff --check` passed. Pytest emitted only the existing asyncio fixture-scope deprecation warning.
+- Repeat formal g-check remains required. These are local source gates only; no guest command, AWS action, deployment, activation, `LOCAL-WRITE-ACT-1`, or `LOCAL-RC-1` acceptance was run or claimed.
+
+## Review (2026-08-21T01:46:29+07:00) - Path 2 second remediation repeat formal g-check
+
+### Reviewed
+- Repo/branch/base: `/Users/subhajlimanond/dev/munbon2-backend-path3-write-act-rc`, `test/local-write-act-1`, `3e038caec2909665266905aa00beff5e78299dc0`.
+- Scope: complete deep uncommitted snapshot `2026-08-21/0142`; continuation chat `path-1-g-check-A2FFB2`; nine changed/untracked files, with prompt exports treated only as review transport.
+- Reported primary evidence: complete Python harness `760 passed`; complete Node harness `51 passed`; Black, Ruff, `py_compile`, all Node syntax checks, and `git diff --check` passed. The reviewer did not independently rerun these gates.
+
+### Findings
+CRITICAL
+- None.
+
+HIGH
+- RC stage lineage is attached after the ordinary stage has already published PASS and advanced `stage-state.json`. A later read/rewrite/checksum failure can leave one stage simultaneously completed and failed, with partial collection expecting the next stage and unable to collect the real failure.
+- A preflight failure manifest is not bound to the host-authorized harness. Because no stage state exists on that path and the preflight snapshot does not bind harness hashes, a modified guest harness can publish a checksummed exact-looking preflight failure that the host accepts as RC partial evidence.
+- Machine identity is enforced transiently during `run-rc` but absent from durable preflight, `rc_attempt`, failure, summary, and standalone collection lineage. Recovery collection can accept evidence after a machine-ID change on the same Orb ID; mutable-name command dispatch also retains a narrow same-name replacement race.
+- Rate decay measures only through the end of WRITE-ACT. Guest finalization and host collection omit the additional guaranteed elapsed time before the actual final Redis snapshot, so a renewed key below the old bound but above the true final-snapshot decay bound can pass.
+
+MEDIUM
+- When an ordinary RC operation and its post-operation identity check both fail, the later identity exception replaces the first operation failure as the authoritative verdict. The cause retains debugging context, but durable lifecycle reporting loses the primary safe code.
+
+LOW
+- None newly reported.
+
+### Prior-finding disposition
+- Source recheck for empty RC state and GO reachable screenshot subsets are resolved.
+- RC phase exit 70 and exact runbook command identity counts remain resolved.
+- Reference subsets, exact rate counters, and elapsed decay through WRITE-ACT are resolved, but full decay through final snapshot remains blocking.
+- Progressive stage lineage/date is mostly resolved, but publication is not atomic at the RC binding boundary.
+- Run-scoped guest identity is narrowed, but machine identity is not durable lineage and mutable-name dispatch remains raceable.
+
+### Confirmed invariants and primary disposition
+- `LOCAL-RC-1` remains outside both live `STAGE_ORDER` and frozen `CAMPAIGN_LEDGER_V1_STAGE_ORDER`; the historical campaign ledger remains nine-stage and live progressive execution ten-stage.
+- RC summaries remain RC-specific, campaign-ledger-ineligible, AWS-ineligible, ordered, stop-on-first-failure, and no-retry. Documentation makes no live acceptance claim.
+- All four HIGH findings and the MEDIUM finding are accepted as blocking pending primary-owned RED contracts, independent validation, and bounded Luna-Max remediation. Snapshot `2026-08-21/0142` is not clean for commit/PR.
+- No guest, AWS, deployment, activation, `LOCAL-WRITE-ACT-1`, or `LOCAL-RC-1` acceptance was run or claimed.
+
+## Review (2026-08-21T00:58:49+07:00) - Path 2 remediation repeat formal g-check
+
+### Reviewed
+- Repo/branch/base: `/Users/subhajlimanond/dev/munbon2-backend-path3-write-act-rc`, `test/local-write-act-1`, `3e038caec2909665266905aa00beff5e78299dc0`.
+- Scope: complete deep uncommitted snapshot `2026-08-21/0053`; continuation chat `path-1-g-check-A2FFB2`; eight changed/untracked files, with prompt exports treated only as review transport.
+- Reported primary evidence: complete Python harness `744 passed`; complete Node harness `51 passed`; Black, Ruff, `py_compile`, all Node syntax checks, and `git diff --check` passed. The reviewer did not independently rerun those gates.
+
+### Findings
+CRITICAL
+- None.
+
+HIGH
+- Final rate validation bounds a surviving TTL by the recorded TTL and configured window but not by elapsed decay. A recreated or renewed key can therefore pass with a smaller positive TTL long after the reference key should have expired. The reference also requires both principal-derived keys even when the persist-only key legitimately expired before the WRITE-ACT post-browser snapshot.
+- Progressive-stage PASS/failure evidence is not bound to the RC invocation, canonical preflight digest, or operational date. After a valid preflight, a standalone stage failure with another or implicit date can be relabeled as the RC attempt's partial failure.
+- The host samples a new machine ID before each phase/stage and treats each sample as newly authorized instead of pinning the first accepted identity for the run. A replacement can therefore change machine ID between dispatches, while the mutable-name gap after the second inventory check also remains relevant for a same-machine-ID clone.
+
+MEDIUM
+- The checksum-bound empty RC stage state has `completed=[]`, and `_load_state()` skips `_verify_source_checkouts()` when that list is empty. The first `LOCAL-BASE-0` dispatch can therefore miss untracked drift introduced after preflight.
+- Failed `LOCAL-GO-READ-1` auxiliary inventory requires at least one screenshot and accepts any nonempty subset. Reachable ordered subsets are none, live-only, and live-plus-outage; outage-only must be rejected.
+
+LOW
+- None newly reported.
+
+### Prior-finding disposition
+- Exact preflight/date lineage is partially resolved: canonical internal preflight and exact preflight/finalize failure identity are present, but progressive stages remain unbound.
+- Failed-stage auxiliaries are partially resolved: WRITE-UI/WRITE-ACT are bounded, while GO empty/outage-only boundaries are wrong.
+- Rate integrity is partially resolved: counters, allowed keys, recorded TTL, and configured window are checked independently by guest and host, but elapsed renewal detection and reference-subset handling remain incomplete.
+- RC phase exit 70 and exact runbook action counts are resolved.
+- Machine replacement protection is partially resolved: two-pass Orb inventory plus guest machine-ID comparison narrows but does not close the run-wide identity gap.
+- Host-authorized harness identity and untracked preflight checking are present, but the first post-preflight stage skips the source recheck.
+
+### Confirmed invariants and disposition
+- `LOCAL-RC-1` remains outside live `STAGE_ORDER` and frozen `CAMPAIGN_LEDGER_V1_STAGE_ORDER`; the historical campaign ledger remains nine-stage while live execution remains ten-stage.
+- RC summaries remain RC-specific, campaign-ledger-ineligible, AWS-ineligible, ordered, stop-on-first-failure, and no-retry. Documentation still makes no live acceptance claim.
+- All five findings are accepted as blocking pending primary-owned RED contracts and bounded Luna-Max remediation. Snapshot `2026-08-21/0053` is not clean for commit/PR.
+- No guest, AWS, deployment, activation, `LOCAL-WRITE-ACT-1`, or `LOCAL-RC-1` acceptance was run or claimed.
+
+## Path 2 repeat-review remediation (2026-08-21T01:34:00+07:00)
+
+- Accepted Luna GREEN `PATH2-RC-EVIDENCE-BOUNDARIES-1`: snapshot `/tmp/munbon-path2-rc-evidence-boundaries.snapshot.json`; receipt `/tmp/munbon-path2-rc-evidence-boundaries.receipt.json`; ownership validator `verified=true`. The guest now rechecks source checkouts for every valid existing stage state, including `completed=[]`, and the GO failure inventory accepts only the reachable ordered screenshot subsets: none, live-only, or live-plus-outage.
+- Accepted Luna GREEN `PATH2-RC-PINNED-GUEST-1`: snapshot `/tmp/munbon-path2-rc-pinned-guest.snapshot.json`; receipt `/tmp/munbon-path2-rc-pinned-guest.receipt.json`; ownership validator `verified=true`. The host pins the first complete guest identity and brackets preflight, every stage, finalize, and collection with pre/post validation against that identity. A replacement or same-name identity drift cannot be accepted as output from an RC operation, and original command failures and interrupts preserve their exact semantics.
+- Accepted Luna GREEN `PATH2-RC-RATE-DECAY-1`: snapshot `/tmp/munbon-path2-rc-rate-decay.snapshot.json`; receipt `/tmp/munbon-path2-rc-rate-decay.receipt.json`; ownership validator `verified=true`. WRITE-ACT records a monotonic completion boundary and conservative `minimum_elapsed_ms`; guest finalization and host collection independently allow only surviving reference keys, require exact counters, and bound TTL by the recorded TTL minus elapsed time as well as the configured window.
+- Accepted Luna GREEN `PATH2-RC-STAGE-LINEAGE-1`: snapshot `/tmp/munbon-path2-rc-stage-lineage.snapshot.json`; receipt `/tmp/munbon-path2-rc-stage-lineage.receipt.json`; ownership validator `verified=true`; final production SHA-256 values `orchestrate.py=9cea86fab89c64f6e5e2825e7ffb1849bbf7b7de8b4ef2398341a02867f08ee` and `run-stage-suite.py=6fdda4ae105b8b360f04cf00eafaceb496aa2c16066d956f86e9e0e10b497d75`. Ordinary canonical stages automatically bind PASS/failure evidence to the checksum-bound internal preflight identity and exact Bangkok date; guest finalization and host complete/partial collection reject a missing or mismatched attempt.
+- Primary test-fixture reconciliation preserved the intended boundary: RC preflight verifies the host-pinned machine before dispatch but captures no redundant function parameter, while finalize receives the pinned machine ID for its internal proof. The two parser-dispatch tests pass together.
+- Fresh complete candidate gate passed: Python harness `760 passed`; Node harness `51 passed`; Black left all eleven Python files unchanged; Ruff, `py_compile`, all Node syntax checks, and `git diff --check` passed. Pytest emitted only the existing asyncio fixture-scope deprecation warning.
+- Repeat formal g-check remains required. These are local source gates only; no guest command, AWS action, deployment, activation, `LOCAL-WRITE-ACT-1`, or `LOCAL-RC-1` acceptance was run or claimed.
+
+## Path 2 deep-review remediation (2026-08-21T02:31:31+07:00)
+
+- Accepted Luna GREEN `PATH2-RC-ATOMIC-STAGE-1`: snapshot `/tmp/munbon-path2-rc-atomic-stage.snapshot.json`; receipt `/tmp/munbon-path2-rc-atomic-stage.receipt.json`; ownership validator `verified=true`; production SHA-256 `run-stage-suite.py=0169c6b20ea111fb5975aa5926193c12083ba206c68ecc2cffa67b821a50e6e6` at that slice boundary. RC attempt lineage is now written and checksummed before `stage-state.json` advances; a binding failure discards the orphan PASS/checksum pair and publishes the canonical stage failure without creating contradictory completed state.
+- Accepted Luna GREEN `PATH2-RC-PREFLIGHT-HARNESS-1`: snapshot `/tmp/munbon-path2-rc-preflight-harness.snapshot.json`; receipt `/tmp/munbon-path2-rc-preflight-harness.receipt.json`; ownership validator `verified=true`; production SHA-256 values `run-stage-suite.py=c09e45fdd62b43a67abdc8d4519568301efa2de13b53cee57915c2dd32caf788` and `orchestrate.py=413ecdb8e1cb34ea1cb40b8351ee797aa199336a03fadeccd62a3b4bb71761b6` at that slice boundary. Preflight failure evidence now binds the exact host-authorized harness hashes and partial collection independently enforces that binding.
+- Accepted Luna GREEN `PATH2-RC-FAILURE-PRECEDENCE-1`: snapshot `/tmp/munbon-path2-rc-failure-precedence.snapshot.json`; receipt `/tmp/munbon-path2-rc-failure-precedence.receipt.json`; ownership validator `verified=true`; production SHA-256 `orchestrate.py=28b5446ccea175c6a5d22c212a1df230fe9a5d3e6300f663bbe342ea2f560222` at that slice boundary. An ordinary RC operation remains the authoritative failure when its identity postcheck also fails; a sanitized `identity_postcheck_error` diagnostic is attached without masking the primary object, while interrupts retain exact identity.
+- Accepted Luna GREEN `PATH2-RC-FINAL-RATE-ELAPSED-1`: snapshot `/tmp/munbon-path2-rc-final-rate-elapsed.snapshot.json`; receipt `/tmp/munbon-path2-rc-final-rate-elapsed.receipt.json`; ownership validator `verified=true`; production SHA-256 values `run-stage-suite.py=f49f175f5657ac910feac283cbecd62b64c6be4151792c0f3e51569e82aae0f5` and `orchestrate.py=f90fa9c30c6b69ea41b4f150a9b61f04522ff4c9306e66fbc16ad1f6e48c25e8` at that slice boundary. Final rate proof now measures the conservative monotonic elapsed bound at the actual final Redis snapshot and the host independently replays it.
+- Accepted Luna GREEN `PATH2-RC-DURABLE-MACHINE-1`: snapshot `/tmp/munbon-path2-rc-durable-machine.snapshot.json`; receipt `/tmp/munbon-path2-rc-durable-machine.receipt.json`; ownership validator `verified=true`; production SHA-256 values `run-stage-suite.py=edaa2fc063cb9cef1ac8b3782fa2da7f6860ba7adf8f7f827013e1ac13a7bd24` and `orchestrate.py=1ba6b6a58211bc2970f6f98ea17c30bd62b4d26da86676746a399270cfa01a0e` at that slice boundary. Canonical lowercase `/etc/machine-id` is now durable across preflight, RC attempt, stage failure, final manifest, final summary, and complete/partial collection; standalone collection rejects machine drift.
+- Independent Terra analysis confirmed OrbStack 2.2.2 documents an immutable ID selector for `orbctl info`, but only a mutable `--machine` selector for `orbctl run`. Primary RED therefore locked an honest same-command guard rather than inventing an undocumented selector. Accepted Luna GREEN `PATH2-RC-ATOMIC-ARCHIVE-GUARD-1`: snapshot `/tmp/munbon-path2-rc-atomic-archive-guard.snapshot.json`; receipt `/tmp/munbon-path2-rc-atomic-archive-guard.receipt.json`; ownership validator `verified=true`; final production SHA-256 `orchestrate.py=c5c790bf7677a466e1c67fb2f2736b92a622e330ce45df1dafc837d1939bbe28`. Both RC archive streams now compare `/etc/machine-id` to the pinned value and `exec tar` in the same dispatched guest shell process; the value is supplied as an argv item, a guard failure retains the existing stream-failure verdict and creates no destination, and non-RC archive behavior is unchanged.
+- Finding disposition: all snapshot `0142` HIGH and MEDIUM findings are remediated. The remaining mutable-name residual is explicit: the documented Orb CLI does not expose an immutable host dispatch selector, and the same-command guard cannot defend against privileged in-guest mutation of `/etc/machine-id` or prove undocumented Orb internal atomicity. Durable lineage plus the guard prevents acceptance when the mutable name selects a guest with another machine ID; any stricter host-selector requirement depends on new OrbStack documentation or API support.
+- Independent primary exact-candidate gate after the final slice: Python harness `775 passed`; Node harness `51 passed`; Black, Ruff, `py_compile`, both changed JavaScript syntax checks, and `git diff --check` passed. Pytest emitted only the existing asyncio fixture-scope deprecation warning.
+- Repeat formal g-check remains required before delivery. These are local source gates only; no guest command, AWS action, deployment, activation, `LOCAL-WRITE-ACT-1`, or `LOCAL-RC-1` acceptance was run or claimed.
+
+## Review (2026-08-21T02:36:58+07:00) - Path 2 third remediation repeat formal g-check
+
+### Reviewed
+- Repo/branch/base: `/Users/subhajlimanond/dev/munbon2-backend-path3-write-act-rc`, `test/local-write-act-1`, `3e038caec2909665266905aa00beff5e78299dc0`.
+- Scope: fresh deep snapshot `2026-08-21/0232`; continuation chat `path-1-g-check-A2FFB2`; complete production, test, and runbook patches. The Coding Log and prior prompt exports were excluded from the review transport after the first submission exceeded RepoPrompt's 1 MiB provider limit.
+- Reported primary evidence: complete Python harness `775 passed`; complete Node harness `51 passed`; Black, Ruff, `py_compile`, both changed JavaScript syntax checks, and `git diff --check` passed. The reviewer did not independently rerun these gates and inferred no live acceptance.
+
+### Findings
+CRITICAL
+- None.
+
+HIGH
+- RC stage publication is not transactional through the subsequent `stage-state.json` write and checksum. Binding succeeds first; a later state publication failure can leave a bound PASS beside a canonical failure, or advanced state bytes beside a stale checksum, producing contradictory and uncollectable evidence.
+- Final rate validation examines only surviving keys. A key recorded with positive remaining TTL can disappear before natural expiry and still pass, concealing deletion, flush, or other limiter-state mutation.
+
+MEDIUM
+- The guest records only a derived `rate_minimum_elapsed_ms`; the host cannot recompute that value from checksum-bound final-snapshot monotonic boundaries and therefore trusts a guest-attested elapsed number.
+
+LOW
+- Mutable-name Orb dispatch remains unable to distinguish a deliberate same-name replacement carrying a cloned `/etc/machine-id`. The new same-command guard closes ordinary replacement/drift, but the documented Orb CLI exposes no immutable run selector. This remains an explicit non-blocking cooperative-host/platform boundary.
+
+### Snapshot 0142 disposition
+- Partially resolved: RC lineage is bound before state advancement and binding-leg failures remove the PASS artifact; state publication and checksum failure remain non-atomic.
+- Resolved: preflight-failure evidence binds host-authorized harness hashes.
+- Resolved for ordinary replacement/drift: durable machine identity plus the same-shell archive guard; the deliberate cloned-ID host boundary remains LOW.
+- Resolved for surviving rate keys: the final snapshot elapsed bound tightens their TTL. Premature disappearance and independently replayable timing remain blocking.
+- Resolved: ordinary primary failure and interrupt precedence over identity-postcheck failure.
+- Empty-state source recheck, GO auxiliary subsets, RC phase exit 70, and exact runbook action counts remain resolved.
+
+### Primary disposition
+- Both HIGH findings and the MEDIUM supporting timing-integrity gap are accepted as blocking. Independent Terra analysis corroborated the publication and premature-disappearance defects and recommended transactional prior-state/checksum restoration plus conservative final-snapshot start/completion bounds.
+- Snapshot `2026-08-21/0232` is not g-check clean for commit/PR. No guest, AWS, deployment, activation, `LOCAL-WRITE-ACT-1`, or `LOCAL-RC-1` acceptance was run or claimed.
+
+## Path 2 third-repeat review remediation (2026-08-21T02:52:24+07:00)
+
+- Primary RED covered failure during both advanced `stage-state.json` publication legs, exact restoration of the prior state/checksum prefix, removal of the bound PASS, and exit 70 without a failure manifest when compensation cannot be verified. Accepted Luna GREEN `PATH2-RC-ATOMIC-STATE-2`: snapshot `/tmp/munbon-path2-rc-atomic-state-v2.snapshot.json`; receipt `/tmp/munbon-path2-rc-atomic-state-v2.receipt.json`; ownership validator `verified=true`; production SHA-256 `run-stage-suite.py=76d3a31f2ca0c8229f11246cbb82e7641299099e9a8c1c81a8c6e1bc1a42284a` at that slice boundary.
+- Publication disposition: RC PASS binding and state advancement are now one compensated transaction. Recoverable publication failure restores and verifies exact prior state bytes and checksum entries, removes the orphan PASS and its entry, then permits exactly one checksummed canonical failure. Unverifiable compensation returns `FAIL rc_stage_publication_rollback_failed` with exit 70 and does not fabricate a collectable failure. Non-RC and interrupt semantics remain unchanged.
+- Primary RED then required final snapshot start/completion monotonic boundaries, conservative early-disappearance rejection, exact-expiry acceptance, rejection when expiry is only possible during the observation interval, and exact host recomputation of the derived elapsed value. Accepted Luna GREEN `PATH2-RC-FINAL-RATE-BOUNDARIES-1`: snapshot `/tmp/munbon-path2-rc-final-rate-boundaries.snapshot.json`; receipt `/tmp/munbon-path2-rc-final-rate-boundaries.receipt.json`; ownership validator `verified=true`; final production SHA-256 values `run-stage-suite.py=d3a5379e1bceeb60520be43effdcba720637551c867927e10e1db033123f6370` and `orchestrate.py=e6d50d79dbff529658df770c8f12a207d8c23691f6558be617e5c8ea5335e6c4`.
+- Rate disposition: the guest records floor-rounded snapshot start and ceil-rounded completion, derives the lower-bound elapsed from checksum-bound WRITE-ACT completion evidence, and checks every reference key. Missing keys pass only when natural expiry is already guaranteed at snapshot start; keys that could expire only during the interval fail closed. The host independently validates timing order, recomputes the exact elapsed value, and applies the same missing/surviving-key rules. No TTL tolerance or empty-final-state assumption was introduced.
+- Independent primary combined focused rerun: `18 passed` guest and `16 passed` host. Fresh complete exact-candidate gate: Python harness `788 passed`; Node harness `51 passed`; Black, Ruff, `py_compile`, both changed JavaScript syntax checks, and `git diff --check` passed. Pytest emitted only the existing asyncio fixture-scope deprecation warning.
+- Repeat formal g-check remains required. These are local source gates only; no guest command, AWS action, deployment, activation, `LOCAL-WRITE-ACT-1`, or `LOCAL-RC-1` acceptance was run or claimed.
+
+## Review (2026-08-21T02:57:07+07:00) - Path 2 fourth remediation repeat formal g-check
+
+### Reviewed
+- Scope: complete Path 2 production, test, and runbook patches in fresh deep snapshot `2026-08-21/0252`; continuation chat `path-1-g-check-A2FFB2`; base/HEAD `3e038caec2909665266905aa00beff5e78299dc0`.
+- Reported primary evidence: complete Python `788 passed`, Node `51 passed`, and all static/integrity gates passed. The reviewer did not independently rerun these gates and inferred no live acceptance.
+
+### Findings
+HIGH
+- Stage publication snapshot acquisition occurs after the stage PASS exists but outside the guarded transaction. A failed prior-state/index read can therefore publish FAIL beside PASS. Binding failure cleanup still uses best-effort `_discard_rc_stage_artifact()`, so failed unlink or index repair can produce the same contradiction instead of exit 70.
+- RC preflight publication cleanup is best-effort. If internal artifact removal fails, main can publish an ordinary failure beside a partial successful preflight. Failure-time harness hashing also falls back to `{}`, knowingly producing a host-rejected failure bundle instead of exit 70.
+
+MEDIUM
+- An ordinary RC operation failure followed by `KeyboardInterrupt` or `SystemExit` during its identity postcheck converts the interrupt into a string diagnostic and rethrows the ordinary primary, violating exact interrupt propagation.
+
+LOW
+- Deliberate same-name replacement with cloned `/etc/machine-id` remains the accepted cooperative-host/Orb platform boundary; no documented immutable `orbctl run` selector exists.
+
+### Prior-finding disposition and primary disposition
+- Resolved: premature Redis-key disappearance and independent host timing replay.
+- Partially resolved: advanced state write/checksum compensation; transaction setup and binding cleanup remain blocking.
+- Durable machine identity, preflight harness binding, progressive lineage/date, source recheck, auxiliary inventories, phase exit-70 classification, runbook identity counts, and frozen nine-stage semantics remain intact subject to the new preflight-publication finding.
+- All new findings are accepted for primary-owned RED contracts. Independent Terra review corroborated each and narrowed the interrupt defect to ordinary-primary plus interrupted-postcheck only. Snapshot `0252` is not clean for commit/PR. No guest, AWS, deployment, activation, WRITE-ACT acceptance, or RC acceptance was run or claimed.
+
+## Path 2 fourth-repeat review remediation (2026-08-21T03:08:39+07:00)
+
+- Primary RED produced eight guest failures covering prior-state/index snapshot acquisition, binding cleanup unlink/index repair, each retained preflight internal artifact, and missing failure-time harness identity. Accepted Luna GREEN `PATH2-RC-PUBLICATION-CONTAINMENT-1`: snapshot `/tmp/munbon-path2-rc-publication-containment.snapshot.json`; receipt `/tmp/munbon-path2-rc-publication-containment.receipt.json`; ownership validator `verified=true`; final production SHA-256 `run-stage-suite.py=a446fe4a86f61a28942f5ce1882d98279d17246816ef595590611af141d4539c`.
+- Publication disposition: unreadable stage-transaction snapshots and unverified binding cleanup now return `rc_stage_publication_rollback_failed`/exit 70 without a verdict. Preflight cleanup verifies removal of every internal artifact; any retained artifact returns `rc_preflight_publication_rollback_failed`/exit 70. Failure-time preflight harness hashes are mandatory; unavailable identity returns `rc_preflight_failure_harness_identity_unavailable`/exit 70 rather than `{}`. Verified recoverable publication failures still produce exactly one checksummed canonical failure; interrupts and non-RC behavior remain unchanged.
+- Primary RED produced two host failures for ordinary primary operation error followed by postcheck `KeyboardInterrupt`/`SystemExit`. Accepted Luna GREEN `PATH2-RC-POSTCHECK-INTERRUPT-1`: snapshot `/tmp/munbon-path2-rc-postcheck-interrupt.snapshot.json`; receipt `/tmp/munbon-path2-rc-postcheck-interrupt.receipt.json`; ownership validator `verified=true`; final production SHA-256 `orchestrate.py=e73ca515d48d10e889cbd2ef0cd30a0b12dfc59083d5a2b2f539c9711fea7ec3`.
+- Interrupt disposition: the exact postcheck interrupt is now authoritative and propagates with the ordinary operation failure as its explicit cause; no later phase, stage, finalize, or collection action runs. Ordinary-primary plus ordinary-postcheck behavior and primary-interrupt behavior remain unchanged.
+- Independent primary focused reruns passed `13` guest publication tests and `5` host identity/interrupt tests. Fresh complete exact-candidate gate: Python harness `798 passed`; Node harness `51 passed`; Black, Ruff, `py_compile`, both changed JavaScript syntax checks, and `git diff --check` passed. Pytest emitted only the existing asyncio fixture-scope deprecation warning.
+- Repeat formal g-check remains required. These are local source gates only; no guest command, AWS action, deployment, activation, WRITE-ACT acceptance, or RC acceptance was run or claimed.
+
+## Review (2026-08-21T03:13:59+07:00) - Path 2 fifth remediation repeat formal g-check
+
+### Reviewed
+- Scope: complete Path 2 production, test, and runbook patches in fresh deep snapshot `2026-08-21/0309`; continuation chat `path-1-g-check-A2FFB2`; base/HEAD `3e038caec2909665266905aa00beff5e78299dc0`.
+- Reported primary evidence: complete Python `798 passed`, Node `51 passed`, and all static/integrity gates passed before this review. The reviewer did not independently rerun these gates, and they became stale when the new remediation tests were added.
+
+### Findings
+HIGH
+- Missing, corrupt, checksum-invalid, or noncanonical post-stage `stage-state.json` is treated as success. The RC-dispatched-stage path falls back to rebinding PASS and returning zero instead of requiring the exact checksum-valid completed prefix.
+- Preflight rollback omits the external `LOCAL-RC-1-preflight.json`. A post-write external publication error can therefore leave a PASS record that blocks later attempts while an ordinary failure is published internally.
+- Finalization success publication uses best-effort, unverified compensation. Failure while writing/checksumming `LOCAL-RC-1.json` or `RC-SUMMARY.json`, or removing the external preflight record, can leave contradictory success evidence beside an ordinary failure verdict.
+- Guest publication interrupts are not consistently preserved and contained. Snapshot-acquisition interrupts can strand an unbound PASS, and compensation-time `KeyboardInterrupt`/`SystemExit` can be translated to a stage-gate error rather than propagating as the exact interrupt.
+
+LOW
+- Deliberate same-name Orb replacement with a cloned `/etc/machine-id` remains the accepted cooperative-host/platform boundary because the documented Orb CLI exposes no immutable `orbctl run` selector.
+
+### Prior-finding disposition and primary disposition
+- Resolved for ordinary exceptions: stage transaction snapshot/binding cleanup. Post-stage state proof and interrupt paths remain blocking.
+- Partially resolved: preflight internal cleanup and mandatory failure-time harness identity. External preflight compensation remains blocking.
+- Resolved: exact host postcheck interrupt propagation after an ordinary RC operation failure.
+- Resolved and preserved: final Redis timing/expiry proof, progressive-stage lineage/date binding, source cleanliness including untracked files, ordered failure auxiliaries, exit-70 host classification for existing gates, exact runbook action inventory, ordinary guest-identity drift protection, frozen nine-stage campaign-ledger semantics, ten-stage live order, and wrapper-only `LOCAL-RC-1`.
+- All four HIGH findings are accepted as blocking. Primary RED now covers post-stage state omission/corruption/noncanonical prefixes, external preflight post-write rollback and unproved cleanup, finalization publication-leg rollback and unproved cleanup, and exact interrupt identity across snapshot/write/checksum/compensation paths.
+- Snapshot `2026-08-21/0309` is not g-check clean for commit/PR. No guest, AWS, deployment, activation, `LOCAL-WRITE-ACT-1`, or `LOCAL-RC-1` acceptance was run or claimed.
+
+## Path 2 fifth-repeat review remediation (2026-08-21T03:55:00+07:00)
+
+- Primary RED established `13 failed, 8 passed` across the complete `0309` publication boundary: missing/corrupt/checksum-invalid/noncanonical post-stage state, exact stage snapshot/write/checksum interrupts, cleanup-interrupt authority, external preflight post-write rollback, finalize publication-leg rollback, and unverifiable finalize cleanup.
+- Accepted Luna GREEN `PATH2-RC-POST-STAGE-STATE-1`: snapshot `/tmp/path2-rc-post-stage-state-1.snapshot.json`; receipt `/tmp/path2-rc-post-stage-state-1.receipt.json`; ownership validator `verified=true`; production SHA-256 `run-stage-suite.py=c608bf232410d20faf9c41b8847cd8feeace0a1944f757af9be747dfa5d8c102` at that slice boundary. Every RC-dispatched PASS now requires canonical, checksum-valid state with the exact completed prefix and matching PASS/attempt identity; no state is inferred or repaired.
+- Accepted Luna GREEN `PATH2-RC-EXTERNAL-PREFLIGHT-ROLLBACK-1`: snapshot `/tmp/path2-rc-external-preflight-rollback-1.snapshot.json`; receipt `/tmp/path2-rc-external-preflight-rollback-1.receipt.json`; ownership validator `verified=true`; production SHA-256 `run-stage-suite.py=d4269971c8512e21d1248adaa574a0943e9b02a12b1a9c575e359be447aceea1` at that slice boundary. The external preflight record now participates in the verified rollback inventory with all internal preflight artifacts; unproved cleanup returns `rc_preflight_publication_rollback_failed`/exit 70 without a failure verdict.
+- Accepted Luna GREEN `PATH2-RC-FINALIZE-INTERRUPT-TRANSACTION-1`: snapshot `/tmp/path2-rc-finalize-interrupt-transaction-1.snapshot.json`; receipt `/tmp/path2-rc-finalize-interrupt-transaction-1.receipt.json`; ownership validator `verified=true`; final production SHA-256 `run-stage-suite.py=ccdafbf16ef377a10cdc058c9c738ca51bf5fc9f54084fbbf37d115d40acc38d`. Stage publication preserves exact `KeyboardInterrupt`/`SystemExit` authority across snapshot, write, checksum, and compensation paths. Final success artifacts are now removed and checksum absence verified before an ordinary failure verdict is allowed; unproved rollback returns `rc_finalize_publication_rollback_failed`/exit 70, and cleanup interrupts retain exact identity plus ordinary-primary cause.
+- Primary reconciled one stale direct-unit expectation after the reviewed contract changed: a preflight-unlink error following verified finalize-success rollback remains the original ordinary `OSError`, while `main()` publishes the collectable canonical failure. No production behavior was changed in that reconciliation.
+- Independent primary locked/nearby reruns passed after each slice. Fresh complete exact-candidate gate: Python harness `818 passed`; Node harness `51 passed`; Black left all eleven Python files unchanged; Ruff, `py_compile`, every harness JavaScript syntax check, and `git diff --check` passed. Pytest emitted only the existing asyncio fixture-scope deprecation warning.
+- All four snapshot `0309` HIGH findings are dispositioned as remediated pending repeat formal g-check. The accepted LOW cooperative-host/Orb cloned-machine-ID boundary is unchanged.
+- These are local source gates only. No guest command, AWS action, deployment, activation, `LOCAL-WRITE-ACT-1`, or `LOCAL-RC-1` acceptance was run or claimed.
+
+## Review (2026-08-21T03:43:21+07:00) - Path 2 clean repeat formal g-check
+
+### Reviewed
+- Scope: complete Path 2 production, test, and runbook patches in fresh deep snapshot `2026-08-21/0339`; continuation chat `path-1-g-check-A2FFB2`; base/HEAD `3e038caec2909665266905aa00beff5e78299dc0`.
+- Reported primary evidence: complete Python `818 passed`, Node `51 passed`, and all static/integrity gates passed. The reviewer did not independently rerun those gates and inferred no live acceptance.
+
+### Findings
+CRITICAL
+- None.
+
+HIGH
+- None.
+
+MEDIUM
+- None.
+
+LOW
+- Preflight interrupt cleanup attempts preserve the exact interrupt and publish no verdict, but a cleanup failure is discarded rather than retained as bounded diagnostic/cause information. This can make recovery from residual preflight artifacts less explanatory; it is non-blocking because the interrupt remains authoritative and no acceptance/failure verdict is fabricated.
+- Deliberate same-name Orb replacement carrying a cloned `/etc/machine-id` remains outside the provable RC boundary because the documented OrbStack interface exposes no immutable-ID selector for `orbctl run`. Durable machine-ID lineage, surrounding inventory checks, guest-side checks, and same-command archive guards still reject ordinary drift/replacement.
+
+### Prior-finding disposition and conclusion
+- Snapshot `0309` unproved post-stage state: resolved by exact canonical checksum-valid completed-prefix and PASS/attempt validation.
+- Snapshot `0309` external preflight rollback: resolved by verified cleanup of external and internal preflight artifacts; retained artifacts return exit 70 without a verdict.
+- Snapshot `0309` finalize compensation: resolved by verified success-artifact and checksum cleanup; uncertainty returns `rc_finalize_publication_rollback_failed`/exit 70.
+- Snapshot `0309` stage/finalize interrupt containment: resolved with exact interrupt identity and cleanup diagnostic cause where implemented; no verdict is fabricated.
+- Earlier Redis timing/expiry proof, attempt/dependency/guest/date lineage, host-authorized harness identity, untracked source validation, auxiliary inventory boundaries, stop-on-first-failure/no-retry behavior, host interrupt precedence, exit-70 classification, exact runbook inventory, and frozen historical semantics remain resolved.
+- `LOCAL-RC-1` remains outside live `STAGE_ORDER` and frozen `CAMPAIGN_LEDGER_V1_STAGE_ORDER`; the historical ledger remains nine-stage while live progressive execution remains ten-stage.
+- Snapshot `2026-08-21/0339` is formal g-check clean for commit/PR at the reviewed source boundary, with the two documented LOW residuals accepted.
+- No guest, AWS, deployment, activation, `LOCAL-WRITE-ACT-1`, or `LOCAL-RC-1` acceptance was run or inferred.
+
+## Path 2 post-review stability gate (2026-08-21T03:49:00+07:00)
+
+- On the unchanged clean-review source/test candidate, the complete affected gate passed three consecutive times. Rounds 1, 2, and 3 each passed the complete Python harness with `818 passed` and the complete Node harness with `51 passed`.
+- Final static/integrity pass: Black left all eleven Python files unchanged; Ruff passed; `py_compile` passed; every harness JavaScript file passed `node --check`; `git diff --check` passed.
+- The candidate remains local source evidence only. No guest command, AWS action, deployment, activation, `LOCAL-WRITE-ACT-1`, or `LOCAL-RC-1` acceptance was run or claimed.

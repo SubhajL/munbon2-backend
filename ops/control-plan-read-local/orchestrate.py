@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -16,7 +17,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
-from typing import Callable
+from typing import Any, Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from provisioning_contract import (  # noqa: E402
@@ -56,6 +57,12 @@ EVIDENCE_HARNESS_ARTIFACTS = (
     "validate-dependency-bundle-linux.sh",
     "verify_bearer.py",
 )
+RC_PROCESS_NAMES = (
+    "flow-monitoring",
+    "scheduler",
+    "ros-gis-integration",
+    "bff-water-planning",
+)
 FAILURE_MANIFEST_EXIT_CODE = 70
 
 
@@ -78,6 +85,22 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _host_harness_hashes() -> dict[str, str]:
+    harness_root = Path(__file__).resolve().parent
+    hashes: dict[str, str] = {}
+    try:
+        for name in EVIDENCE_HARNESS_ARTIFACTS:
+            path = (
+                harness_root.parent / "control-plan-read-runtime" / name
+                if name == "verify_bearer.py"
+                else harness_root / name
+            )
+            hashes[name] = _sha256_file(path)
+    except OSError as exc:
+        raise OrchestrationError("rc_evidence_identity_mismatch") from exc
+    return hashes
 
 
 def _is_canonical_date(value: object) -> bool:
@@ -445,6 +468,48 @@ def classify_rehearsal_machine_inventory(inventory_json: str) -> str:
 
 def classify_diagnostic_machine_inventory(inventory_json: str) -> str:
     return _classify_machine_inventory(inventory_json, DIAGNOSTIC_MACHINE_NAME)
+
+
+def validate_rc_guest_identity(
+    inventory_json: str, expected_guest_id: str
+) -> dict[str, str]:
+    try:
+        if not isinstance(expected_guest_id, str) or not re.fullmatch(
+            r"[0-9A-HJKMNP-TV-Z]{26}", expected_guest_id
+        ):
+            raise ValueError
+        inventory = json.loads(inventory_json)
+        if not isinstance(inventory, list):
+            raise ValueError
+        matches = [
+            item
+            for item in inventory
+            if isinstance(item, dict) and item.get("name") == MACHINE_NAME
+        ]
+        if len(matches) != 1:
+            raise ValueError
+        machine = matches[0]
+        image = machine.get("image")
+        config = machine.get("config")
+        if (
+            machine.get("id") != expected_guest_id
+            or not isinstance(image, dict)
+            or not isinstance(config, dict)
+            or image.get("distro") != "debian"
+            or image.get("version") not in {"bookworm", "12"}
+            or image.get("arch") != "arm64"
+            or config.get("isolated") is not True
+            or config.get("isolate_network") is not True
+            or config.get("default_username") != "munbonlocal"
+            or config.get("memory_limit_mib") != 8192
+            or config.get("cpu_limit") != 4
+            or config.get("disk_limit_bytes") != 40 * 1024**3
+            or machine.get("state") != "running"
+        ):
+            raise ValueError
+        return {"name": MACHINE_NAME, "id": expected_guest_id, "architecture": "arm64"}
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise OrchestrationError("rc_guest_identity_not_accepted") from exc
 
 
 def validate_diagnostic_owner(marker_json: str) -> None:
@@ -1237,6 +1302,7 @@ def _run_stage(
     as_of_date: str | None = None,
     *,
     execution_kind: str,
+    expected_machine_id: str | None = None,
 ) -> None:
     if execution_kind == "canonical":
         accepted_stages = STAGE_ORDER
@@ -1250,6 +1316,13 @@ def _run_stage(
         raise OrchestrationError("execution_kind_not_accepted")
     if stage not in accepted_stages:
         raise OrchestrationError("stage_not_supported")
+    if expected_machine_id is not None:
+        if (
+            execution_kind != "canonical"
+            or not isinstance(expected_machine_id, str)
+            or not re.fullmatch(r"[0-9a-f]{32}", expected_machine_id)
+        ):
+            raise OrchestrationError("rc_guest_machine_identity_mismatch")
     if machine_state() != "ready":
         raise OrchestrationError("machine_not_ready")
     provision_state = _run_checked(
@@ -1300,6 +1373,8 @@ def _run_stage(
     stage_argv.extend(["--execution-kind", execution_kind])
     if as_of_date is not None:
         stage_argv.extend(["--as-of-date", as_of_date])
+    if expected_machine_id is not None:
+        stage_argv.extend(["--expected-machine-id", expected_machine_id])
     try:
         _run_checked(
             stage.lower().replace("-", "_"),
@@ -1319,6 +1394,8 @@ def run_stage(
     release_sha: str,
     frontend_sha: str,
     as_of_date: str | None = None,
+    *,
+    expected_machine_id: str | None = None,
 ) -> None:
     _run_stage(
         stage,
@@ -1326,6 +1403,7 @@ def run_stage(
         frontend_sha,
         as_of_date=as_of_date,
         execution_kind="canonical",
+        expected_machine_id=expected_machine_id,
     )
 
 
@@ -1351,6 +1429,1246 @@ def run_all_stages(
 ) -> None:
     for stage in STAGE_ORDER:
         run_stage(stage, release_sha, frontend_sha, as_of_date=as_of_date)
+
+
+def _run_rc_phase(
+    phase: str,
+    release_sha: str,
+    frontend_sha: str,
+    dependency_sha256: str,
+    guest_id: str,
+    as_of_date: str,
+    *,
+    expected_machine_id: str,
+) -> None:
+    if phase not in {"preflight", "finalize"}:
+        raise OrchestrationError("rc_phase_not_supported")
+    if (
+        not re.fullmatch(r"[0-9a-f]{40}", release_sha)
+        or not re.fullmatch(r"[0-9a-f]{40}", frontend_sha)
+        or not re.fullmatch(r"[0-9a-f]{64}", dependency_sha256)
+        or not re.fullmatch(r"[0-9A-HJKMNP-TV-Z]{26}", guest_id)
+        or not isinstance(expected_machine_id, str)
+        or not re.fullmatch(r"[0-9a-f]{32}", expected_machine_id)
+        or not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", as_of_date)
+    ):
+        raise OrchestrationError("rc_phase_arguments_not_accepted")
+    phase_argv = [
+        "python3",
+        "/opt/munbon/harness/run-stage-suite.py",
+        "LOCAL-RC-1",
+        "--rc-phase",
+        phase,
+        "--release-sha",
+        release_sha,
+        "--frontend-sha",
+        frontend_sha,
+        "--execution-kind",
+        "canonical",
+        "--dependency-sha256",
+        dependency_sha256,
+        "--guest-id",
+        guest_id,
+        "--expected-machine-id",
+        expected_machine_id,
+        "--as-of-date",
+        as_of_date,
+    ]
+    try:
+        _run_checked(
+            f"rc_{phase}",
+            build_guest_command(phase_argv, workdir="/opt/munbon/repo"),
+            timeout=2400,
+        )
+    except CommandExecutionError as exc:
+        if exc.returncode == FAILURE_MANIFEST_EXIT_CODE:
+            raise OrchestrationError(
+                f"rc_{phase}_failure_manifest_publication_failed"
+            ) from exc
+        raise
+
+
+def _validated_rc_guest(
+    release_sha: str,
+    frontend_sha: str,
+    dependency_sha256: str,
+    guest_id: str,
+) -> dict[str, str]:
+    inventory = _run_checked(
+        "rc_orb_inventory", ["orb", "list", "--format", "json"], timeout=30
+    )
+    identity = validate_rc_guest_identity(inventory, guest_id)
+    provision_state_json = _run_checked(
+        "rc_provision_state",
+        build_guest_command(
+            ["cat", "/var/lib/munbon-local-acceptance/provisioning/state.json"],
+            user="root",
+        ),
+        timeout=30,
+    )
+    owner_json = _run_checked(
+        "rc_machine_owner",
+        build_guest_command(
+            ["cat", "/var/lib/munbon-local-acceptance/owner.json"], user="root"
+        ),
+        timeout=30,
+    )
+    try:
+        provision_state = json.loads(provision_state_json)
+        owner = json.loads(owner_json)
+        if not isinstance(provision_state, dict) or not isinstance(owner, dict):
+            raise ValueError
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise OrchestrationError("rc_guest_identity_not_accepted") from exc
+    if (
+        provision_state.get("dependency_sha256") != dependency_sha256
+        or owner.get("dependency_sha256") != dependency_sha256
+    ):
+        raise OrchestrationError("rc_dependency_identity_mismatch")
+    validate_existing_guest(provision_state_json, owner_json)
+    if (
+        provision_state.get("release_sha") != release_sha
+        or provision_state.get("frontend_sha") != frontend_sha
+        or owner.get("release_sha") != release_sha
+        or owner.get("frontend_sha") != frontend_sha
+    ):
+        raise OrchestrationError("rc_guest_identity_not_accepted")
+    try:
+        machine_id = _run_checked(
+            "rc_guest_machine_id",
+            build_guest_command(["cat", "/etc/machine-id"], user="root"),
+            timeout=30,
+        ).strip()
+    except Exception as exc:
+        raise OrchestrationError("rc_guest_machine_identity_mismatch") from exc
+    if not re.fullmatch(r"[0-9a-f]{32}", machine_id):
+        raise OrchestrationError("rc_guest_machine_identity_mismatch")
+    second_inventory = _run_checked(
+        "rc_orb_inventory", ["orb", "list", "--format", "json"], timeout=30
+    )
+    second_identity = validate_rc_guest_identity(second_inventory, guest_id)
+    if second_identity != identity:
+        raise OrchestrationError("rc_guest_machine_identity_mismatch")
+    return {
+        **identity,
+        "dependency_sha256": dependency_sha256,
+        "machine_id": machine_id,
+    }
+
+
+def _validate_rc_final_proof(
+    destination: Path,
+    final: object,
+    stage_manifests: dict[str, dict],
+) -> dict:
+    expected_final = {
+        "verdict": "PASS",
+        "completed": list(STAGE_ORDER),
+        "runtime_dark": True,
+        "processes_stable": True,
+        "readiness_green": True,
+        "listeners_accepted": True,
+        "immutable_history": True,
+    }
+    expected_proof_keys = {
+        "processes",
+        "dark_contract",
+        "frontend_activation_gates",
+        "readiness",
+        "listeners",
+        "persist_snapshot_sha256",
+        "rate_state",
+        "rate_minimum_elapsed_ms",
+        "rate_snapshot_started_monotonic_ms",
+        "rate_snapshot_completed_monotonic_ms",
+        "write_activation_manifest_sha256",
+    }
+    dark_contract = {
+        "flow_gates_api": False,
+        "scheduler_execution": "disabled",
+        "scheduler_readback": "off",
+        "scheduler_scada_configured": False,
+        "ros_manual_producer": False,
+        "ros_startup_producer": False,
+        "ros_recurring_producer": False,
+        "ros_source_configured": False,
+        "planning_depth_writes": False,
+        "machine_commands_configured": False,
+        "model_release_commandable": False,
+        "control_plan_reads_visible": False,
+        "planning_depth_writes_visible": False,
+    }
+    frontend_gates = {
+        "control_plan_reads": False,
+        "control_plan_evidence_reads": False,
+        "water_planning_v2": False,
+        "water_planning_submit": False,
+    }
+    application_ports = {3011, 3021, 3022, 3047}
+
+    def invalid() -> None:
+        raise OrchestrationError("rc_evidence_identity_mismatch")
+
+    def process_identity(processes: object) -> list[tuple[str, str, int, int]]:
+        if type(processes) is not list or len(processes) != len(RC_PROCESS_NAMES):
+            invalid()
+        identity = []
+        for item in processes:
+            if (
+                type(item) is not dict
+                or set(item)
+                != {
+                    "name",
+                    "status",
+                    "restarts",
+                    "pid",
+                    "memory_bytes",
+                    "cpu_percent",
+                }
+                or type(item.get("name")) is not str
+                or type(item.get("status")) is not str
+                or item.get("status") != "online"
+                or type(item.get("restarts")) is not int
+                or item.get("restarts") < 0
+                or type(item.get("pid")) is not int
+                or item.get("pid") <= 0
+                or type(item.get("memory_bytes")) is not int
+                or item.get("memory_bytes") < 0
+                or type(item.get("cpu_percent")) not in {int, float}
+                or isinstance(item.get("cpu_percent"), bool)
+                or not math.isfinite(item.get("cpu_percent"))
+                or item.get("cpu_percent") < 0
+                or item.get("name") not in RC_PROCESS_NAMES
+            ):
+                invalid()
+            identity.append(
+                (
+                    item["name"],
+                    item["status"],
+                    item["restarts"],
+                    item["pid"],
+                )
+            )
+        if sorted(name for name, *_rest in identity) != sorted(RC_PROCESS_NAMES):
+            invalid()
+        return sorted(identity)
+
+    def readiness_shape(readiness: object) -> None:
+        if type(readiness) is not dict or set(readiness) != set(RC_PROCESS_NAMES):
+            invalid()
+        for value in readiness.values():
+            if (
+                type(value) is not dict
+                or set(value) != {"status_code", "status", "checks"}
+                or type(value.get("status_code")) is not int
+                or value.get("status_code") != 200
+                or value.get("status") != "ready"
+                or type(value.get("checks")) is not dict
+            ):
+                invalid()
+
+    def listener_shape(listeners: object) -> None:
+        if type(listeners) is not list:
+            invalid()
+        seen: set[tuple[str, int]] = set()
+        ports: list[int] = []
+        for item in listeners:
+            if (
+                type(item) is not dict
+                or set(item) != {"address", "port"}
+                or item.get("address") not in {"127.0.0.1", "::1"}
+                or type(item.get("port")) is not int
+                or item.get("port") <= 0
+            ):
+                invalid()
+            pair = (item["address"], item["port"])
+            if pair in seen:
+                invalid()
+            seen.add(pair)
+            ports.append(item["port"])
+        if any(ports.count(port) != 1 for port in application_ports):
+            invalid()
+
+    try:
+        if (
+            type(final) is not dict
+            or set(final) != {*expected_final, "proof"}
+            or {key: final.get(key) for key in expected_final} != expected_final
+            or type(final["proof"]) is not dict
+            or set(final["proof"]) != expected_proof_keys
+        ):
+            invalid()
+        proof = final["proof"]
+        write_manifest = stage_manifests["LOCAL-WRITE-ACT-1"]
+        persist_manifest = stage_manifests["LOCAL-PERSIST-ONLY-1"]
+        write_steps = write_manifest["steps"]
+        persist_steps = persist_manifest["steps"]
+        write_principal = write_steps["operator_principal"]["subject"]
+        persist_principal = persist_steps["operator_principal"]["subject"]
+        baseline = write_steps["runtime_restoration"]
+        persisted_digest = write_steps["persist_snapshot_sha256"]
+        if (
+            type(write_principal) is not str
+            or not write_principal
+            or type(persist_principal) is not str
+            or not persist_principal
+            or type(baseline) is not dict
+            or type(persisted_digest) is not str
+            or not re.fullmatch(r"[0-9a-f]{64}", persisted_digest)
+        ):
+            invalid()
+        baseline_processes = baseline["processes"]
+        baseline_dark = baseline["dark_contract_after"]
+        baseline_frontend = baseline["final_activation_gates"]
+        baseline_readiness = baseline["readiness"]
+        baseline_listeners = baseline["listeners"]
+        baseline_identity = process_identity(baseline_processes)
+        proof_identity = process_identity(proof["processes"])
+        if proof_identity != baseline_identity:
+            invalid()
+        if (
+            baseline_dark != dark_contract
+            or proof["dark_contract"] != dark_contract
+            or proof["dark_contract"] != baseline_dark
+        ):
+            invalid()
+        if (
+            baseline_frontend != frontend_gates
+            or proof["frontend_activation_gates"] != frontend_gates
+            or proof["frontend_activation_gates"] != baseline_frontend
+        ):
+            invalid()
+        readiness_shape(baseline_readiness)
+        readiness_shape(proof["readiness"])
+        if proof["readiness"] != baseline_readiness:
+            invalid()
+        listener_shape(baseline_listeners)
+        listener_shape(proof["listeners"])
+        if proof["listeners"] != baseline_listeners:
+            invalid()
+        if (
+            type(proof["persist_snapshot_sha256"]) is not str
+            or not re.fullmatch(r"[0-9a-f]{64}", proof["persist_snapshot_sha256"])
+            or proof["persist_snapshot_sha256"] != persisted_digest
+        ):
+            invalid()
+        allowed_rate_keys = {
+            "bff-water-planning:rate:planning_depth.submit:"
+            + hashlib.sha256(subject.encode("utf-8")).hexdigest()
+            for subject in (persist_principal, write_principal)
+        }
+        write_rate_key = (
+            "bff-water-planning:rate:planning_depth.submit:"
+            + hashlib.sha256(write_principal.encode("utf-8")).hexdigest()
+        )
+        rate_reference = write_steps["rate_state_after_browser"]
+        if (
+            type(rate_reference) is not dict
+            or set(rate_reference)
+            != {
+                "configured_window_ms",
+                "minimum_elapsed_ms",
+                "snapshot_completed_monotonic_ms",
+                "snapshot",
+            }
+            or type(rate_reference["configured_window_ms"]) is not int
+            or isinstance(rate_reference["configured_window_ms"], bool)
+            or rate_reference["configured_window_ms"] <= 0
+            or type(rate_reference["minimum_elapsed_ms"]) is not int
+            or isinstance(rate_reference["minimum_elapsed_ms"], bool)
+            or rate_reference["minimum_elapsed_ms"] < 0
+            or type(rate_reference["snapshot_completed_monotonic_ms"]) is not int
+            or isinstance(rate_reference["snapshot_completed_monotonic_ms"], bool)
+            or rate_reference["snapshot_completed_monotonic_ms"] < 0
+            or type(rate_reference["snapshot"]) is not dict
+            or not set(rate_reference["snapshot"]).issubset(allowed_rate_keys)
+            or write_rate_key not in rate_reference["snapshot"]
+        ):
+            invalid()
+        configured_window_ms = rate_reference["configured_window_ms"]
+        minimum_elapsed_ms = rate_reference["minimum_elapsed_ms"]
+        snapshot_completed_monotonic_ms = rate_reference[
+            "snapshot_completed_monotonic_ms"
+        ]
+        reference_rate_state = rate_reference["snapshot"]
+        for key, row in reference_rate_state.items():
+            if (
+                type(key) is not str
+                or key not in allowed_rate_keys
+                or type(row) is not dict
+                or set(row) != {"value", "ttl_ms"}
+                or type(row["value"]) is not int
+                or row["value"] <= 0
+                or type(row["ttl_ms"]) is not int
+                or row["ttl_ms"] <= 0
+                or row["ttl_ms"] > configured_window_ms
+            ):
+                invalid()
+        rate_minimum_elapsed_ms = proof["rate_minimum_elapsed_ms"]
+        rate_snapshot_started_ms = proof["rate_snapshot_started_monotonic_ms"]
+        rate_snapshot_completed_ms = proof["rate_snapshot_completed_monotonic_ms"]
+        if (
+            type(rate_minimum_elapsed_ms) is not int
+            or isinstance(rate_minimum_elapsed_ms, bool)
+            or rate_minimum_elapsed_ms < 0
+            or type(rate_snapshot_started_ms) is not int
+            or isinstance(rate_snapshot_started_ms, bool)
+            or rate_snapshot_started_ms < snapshot_completed_monotonic_ms
+            or type(rate_snapshot_completed_ms) is not int
+            or isinstance(rate_snapshot_completed_ms, bool)
+            or rate_snapshot_completed_ms < rate_snapshot_started_ms
+        ):
+            invalid()
+        expected_rate_minimum_elapsed_ms = max(
+            minimum_elapsed_ms,
+            rate_snapshot_started_ms - snapshot_completed_monotonic_ms,
+        )
+        if rate_minimum_elapsed_ms != expected_rate_minimum_elapsed_ms:
+            invalid()
+        rate_state = proof["rate_state"]
+        if type(rate_state) is not dict:
+            invalid()
+        for key, reference_row in reference_rate_state.items():
+            if (
+                key not in rate_state
+                and reference_row["ttl_ms"] > rate_minimum_elapsed_ms
+            ):
+                invalid()
+        for key, row in rate_state.items():
+            if (
+                type(key) is not str
+                or key not in allowed_rate_keys
+                or type(row) is not dict
+                or set(row) != {"value", "ttl_ms"}
+                or type(row["value"]) is not int
+                or row["value"] <= 0
+                or type(row["ttl_ms"]) is not int
+                or row["ttl_ms"] <= 0
+                or key not in reference_rate_state
+                or row["value"] != reference_rate_state[key]["value"]
+                or row["ttl_ms"] > configured_window_ms
+                or row["ttl_ms"]
+                > max(
+                    0,
+                    reference_rate_state[key]["ttl_ms"] - rate_minimum_elapsed_ms,
+                )
+            ):
+                invalid()
+        write_manifest_sha256 = _sha256_file(destination / "LOCAL-WRITE-ACT-1.json")
+        if (
+            type(proof["write_activation_manifest_sha256"]) is not str
+            or not re.fullmatch(
+                r"[0-9a-f]{64}", proof["write_activation_manifest_sha256"]
+            )
+            or proof["write_activation_manifest_sha256"] != write_manifest_sha256
+        ):
+            invalid()
+        return proof
+    except OrchestrationError:
+        raise
+    except (KeyError, TypeError, ValueError, OSError) as exc:
+        raise OrchestrationError("rc_evidence_identity_mismatch") from exc
+
+
+def finalize_rc_collection(
+    destination: Path,
+    *,
+    release_sha: str,
+    frontend_sha: str,
+    dependency_sha256: str,
+    guest_id: str,
+    as_of_date: str,
+    expected_machine_id: str | None = None,
+) -> dict:
+    stage_names = {f"{stage}.json" for stage in STAGE_ORDER}
+    inner_names = {
+        *stage_names,
+        "stage-state.json",
+        "RC-PREFLIGHT.json",
+        "LOCAL-WRITE-UI-1-browser-result.json",
+        "LOCAL-WRITE-ACT-1-browser-result.json",
+        "LOCAL-GO-READ-1-live.png",
+        "LOCAL-GO-READ-1-outage.png",
+        "SHA256SUMS",
+    }
+    base_names = {*inner_names, "LOCAL-RC-1.json", "RC-SUMMARY.json"}
+    final_names = {*base_names, "RC-SHA256SUMS", "RC-OUTER-SHA256SUMS"}
+    if (
+        not re.fullmatch(r"[0-9a-f]{40}", release_sha)
+        or not re.fullmatch(r"[0-9a-f]{40}", frontend_sha)
+        or not re.fullmatch(r"[0-9a-f]{64}", dependency_sha256)
+        or not re.fullmatch(r"[0-9A-HJKMNP-TV-Z]{26}", guest_id)
+        or not _is_canonical_date(as_of_date)
+        or (
+            expected_machine_id is not None
+            and (
+                not isinstance(expected_machine_id, str)
+                or not re.fullmatch(r"[0-9a-f]{32}", expected_machine_id)
+            )
+        )
+    ):
+        raise OrchestrationError("rc_evidence_identity_mismatch")
+    try:
+        artifacts = tuple(destination.iterdir())
+    except OSError as exc:
+        raise OrchestrationError("rc_evidence_inventory_invalid") from exc
+    if any(path.is_symlink() or not path.is_file() for path in artifacts):
+        raise OrchestrationError("rc_evidence_inventory_invalid")
+    artifact_names = {path.name for path in artifacts}
+    if "OUTER-SHA256SUMS" in artifact_names:
+        raise OrchestrationError("rc_evidence_inventory_invalid")
+    if artifact_names != base_names and artifact_names != final_names:
+        raise OrchestrationError("rc_evidence_inventory_invalid")
+
+    def read_index(path: Path, expected_names: set[str]) -> tuple[str, dict[str, str]]:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise OrchestrationError("rc_evidence_inventory_invalid") from exc
+        checksums: dict[str, str] = {}
+        for line in text.splitlines():
+            match = re.fullmatch(r"([0-9a-f]{64})  ([A-Za-z0-9_.-]+)", line)
+            if match is None or match.group(2) in checksums:
+                raise OrchestrationError("rc_evidence_inventory_invalid")
+            checksums[match.group(2)] = match.group(1)
+        if set(checksums) != expected_names:
+            raise OrchestrationError("rc_evidence_inventory_invalid")
+        for name, digest in checksums.items():
+            if _sha256_file(destination / name) != digest:
+                raise OrchestrationError("rc_evidence_checksum_mismatch")
+        return text, checksums
+
+    read_index(destination / "SHA256SUMS", base_names - {"SHA256SUMS"})
+    try:
+        state = json.loads(
+            (destination / "stage-state.json").read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError) as exc:
+        raise OrchestrationError("rc_evidence_inventory_invalid") from exc
+    if (
+        not isinstance(state, dict)
+        or set(state) != {"release_sha", "frontend_sha", "harness_hashes", "completed"}
+        or state.get("release_sha") != release_sha
+        or state.get("frontend_sha") != frontend_sha
+        or state.get("completed") != list(STAGE_ORDER)
+        or not isinstance(state.get("harness_hashes"), dict)
+        or set(state["harness_hashes"]) != set(EVIDENCE_HARNESS_ARTIFACTS)
+        or not all(
+            isinstance(name, str)
+            and isinstance(digest, str)
+            and re.fullmatch(r"[0-9a-f]{64}", digest)
+            for name, digest in state["harness_hashes"].items()
+        )
+    ):
+        raise OrchestrationError("rc_evidence_inventory_invalid")
+    try:
+        if state["harness_hashes"] != _host_harness_hashes():
+            raise OrchestrationError("rc_evidence_identity_mismatch")
+    except OrchestrationError:
+        raise
+    except OSError as exc:
+        raise OrchestrationError("rc_evidence_identity_mismatch") from exc
+
+    stage_manifests: dict[str, dict] = {}
+    for stage in STAGE_ORDER:
+        try:
+            manifest = json.loads(
+                (destination / f"{stage}.json").read_text(encoding="utf-8")
+            )
+        except (OSError, json.JSONDecodeError) as exc:
+            raise OrchestrationError("rc_evidence_inventory_invalid") from exc
+        stage_release = (
+            manifest.get("release_sha", manifest.get("backend_sha"))
+            if isinstance(manifest, dict)
+            else None
+        )
+        if (
+            not isinstance(manifest, dict)
+            or manifest.get("stage") != stage
+            or manifest.get("verdict") != "PASS"
+            or stage_release != release_sha
+            or manifest.get("frontend_sha") != frontend_sha
+        ):
+            raise OrchestrationError("rc_evidence_inventory_invalid")
+        stage_manifests[stage] = manifest
+
+    expected_guest = {
+        "name": MACHINE_NAME,
+        "id": guest_id,
+        "architecture": "arm64",
+    }
+    expected_preflight_checks = {
+        "evidence_root_empty": True,
+        "database_clean": True,
+        "rate_state_clean": True,
+        "actionable_commands": 0,
+        "sources_clean": True,
+        "runtime_dark": True,
+    }
+    expected_manifest = {
+        "schema_version": 1,
+        "stage": "LOCAL-RC-1",
+        "verdict": "PASS",
+        "release_sha": release_sha,
+        "frontend_sha": frontend_sha,
+        "dependency_sha256": dependency_sha256,
+        "guest": expected_guest,
+        "as_of_date": as_of_date,
+        "preflight": {
+            "verdict": "PASS",
+            **expected_preflight_checks,
+        },
+        "final": {
+            "verdict": "PASS",
+            "completed": list(STAGE_ORDER),
+            "runtime_dark": True,
+            "processes_stable": True,
+            "readiness_green": True,
+            "listeners_accepted": True,
+            "immutable_history": True,
+        },
+    }
+    try:
+        manifest = json.loads(
+            (destination / "LOCAL-RC-1.json").read_text(encoding="utf-8")
+        )
+        summary = json.loads(
+            (destination / "RC-SUMMARY.json").read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError) as exc:
+        raise OrchestrationError("rc_evidence_inventory_invalid") from exc
+    if not isinstance(manifest, dict):
+        raise OrchestrationError("rc_evidence_identity_mismatch")
+    preflight = manifest.get("preflight")
+    record = preflight.get("record") if isinstance(preflight, dict) else None
+    record_sha256 = (
+        preflight.get("record_sha256") if isinstance(preflight, dict) else None
+    )
+    record_guest = record.get("guest") if isinstance(record, dict) else None
+    if (
+        not isinstance(record_guest, dict)
+        or set(record_guest) != {"name", "id", "architecture", "machine_id"}
+        or record_guest.get("name") != MACHINE_NAME
+        or record_guest.get("id") != guest_id
+        or record_guest.get("architecture") != "arm64"
+        or not isinstance(record_guest.get("machine_id"), str)
+        or not re.fullmatch(r"[0-9a-f]{32}", record_guest["machine_id"])
+        or (
+            expected_machine_id is not None
+            and record_guest["machine_id"] != expected_machine_id
+        )
+    ):
+        raise OrchestrationError("rc_evidence_identity_mismatch")
+    expected_guest["machine_id"] = record_guest["machine_id"]
+    expected_preflight_record = {
+        "schema_version": 1,
+        "phase": "preflight",
+        "verdict": "PASS",
+        "release_sha": release_sha,
+        "frontend_sha": frontend_sha,
+        "dependency_sha256": dependency_sha256,
+        "guest": expected_guest,
+        "as_of_date": as_of_date,
+        "checks": expected_preflight_checks,
+    }
+    if (
+        not isinstance(record, dict)
+        or set(record) != {*expected_preflight_record, "captured_at"}
+        or not isinstance(record.get("captured_at"), str)
+        or not re.fullmatch(
+            r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z",
+            record["captured_at"],
+        )
+    ):
+        raise OrchestrationError("rc_evidence_identity_mismatch")
+    try:
+        captured_at = datetime.strptime(
+            record["captured_at"], "%Y-%m-%dT%H:%M:%SZ"
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except ValueError as exc:
+        raise OrchestrationError("rc_evidence_identity_mismatch") from exc
+    if captured_at != record["captured_at"]:
+        raise OrchestrationError("rc_evidence_identity_mismatch")
+    expected_preflight_record["captured_at"] = record["captured_at"]
+    if record != expected_preflight_record:
+        raise OrchestrationError("rc_evidence_identity_mismatch")
+    try:
+        record_bytes = (json.dumps(record, indent=2, sort_keys=True) + "\n").encode()
+    except (TypeError, ValueError) as exc:
+        raise OrchestrationError("rc_evidence_identity_mismatch") from exc
+    if record_sha256 != hashlib.sha256(record_bytes).hexdigest():
+        raise OrchestrationError("rc_evidence_identity_mismatch")
+    try:
+        preflight_bytes = (destination / "RC-PREFLIGHT.json").read_bytes()
+        internal_record = json.loads(preflight_bytes.decode("utf-8"))
+        internal_canonical = (
+            json.dumps(internal_record, indent=2, sort_keys=True) + "\n"
+        ).encode()
+    except (
+        OSError,
+        UnicodeDecodeError,
+        TypeError,
+        ValueError,
+        json.JSONDecodeError,
+    ) as exc:
+        raise OrchestrationError("rc_evidence_identity_mismatch") from exc
+    if (
+        internal_record != expected_preflight_record
+        or preflight_bytes != internal_canonical
+        or hashlib.sha256(preflight_bytes).hexdigest() != record_sha256
+    ):
+        raise OrchestrationError("rc_evidence_identity_mismatch")
+    expected_rc_attempt = {
+        "preflight_sha256": record_sha256,
+        "dependency_sha256": dependency_sha256,
+        "guest": expected_guest,
+        "as_of_date": as_of_date,
+    }
+    for stage in STAGE_ORDER:
+        if stage_manifests[stage].get("rc_attempt") != expected_rc_attempt:
+            raise OrchestrationError("rc_evidence_identity_mismatch")
+    expected_manifest["preflight"]["record"] = expected_preflight_record
+    expected_manifest["preflight"]["record_sha256"] = record_sha256
+    final_proof = _validate_rc_final_proof(
+        destination,
+        manifest.get("final"),
+        stage_manifests,
+    )
+    expected_manifest["final"]["proof"] = final_proof
+    expected_summary = {
+        "schema_version": 1,
+        "evidence_kind": "local_release_candidate",
+        "acceptance": "LOCAL-RC-1",
+        "acceptance_evidence": True,
+        "campaign_ledger_eligible": False,
+        "aws_actions_authorized": False,
+        "release_sha": release_sha,
+        "frontend_sha": frontend_sha,
+        "dependency_sha256": dependency_sha256,
+        "guest": expected_guest,
+        "as_of_date": as_of_date,
+        "passed": [*STAGE_ORDER, "LOCAL-RC-1"],
+        "failed": [],
+        "unreached": [],
+        "verdict": "PASS",
+    }
+    if manifest != expected_manifest or summary != expected_summary:
+        raise OrchestrationError("rc_evidence_identity_mismatch")
+
+    if artifact_names == final_names:
+        read_index(destination / "RC-SHA256SUMS", base_names)
+        read_index(
+            destination / "RC-OUTER-SHA256SUMS",
+            final_names - {"RC-OUTER-SHA256SUMS"},
+        )
+        return summary
+
+    rc_checksum_path = destination / "RC-SHA256SUMS"
+    rc_checksum_path.write_text(
+        "".join(
+            f"{_sha256_file(path)}  {path.name}\n"
+            for path in sorted(destination.iterdir())
+            if path.name not in {"RC-SHA256SUMS", "RC-OUTER-SHA256SUMS"}
+        ),
+        encoding="utf-8",
+    )
+    rc_checksum_path.chmod(0o600)
+    outer_path = destination / "RC-OUTER-SHA256SUMS"
+    outer_path.write_text(
+        "".join(
+            f"{_sha256_file(path)}  {path.name}\n"
+            for path in sorted(destination.iterdir())
+            if path.name != outer_path.name
+        ),
+        encoding="utf-8",
+    )
+    outer_path.chmod(0o600)
+    return summary
+
+
+def finalize_rc_partial_failure_collection(
+    destination: Path,
+    *,
+    release_sha: str,
+    frontend_sha: str,
+    dependency_sha256: str,
+    guest_id: str,
+    as_of_date: str,
+    expected_machine_id: str | None = None,
+) -> dict:
+    """Finalize a bounded, non-authoritative RC failure bundle."""
+
+    if (
+        not isinstance(destination, Path)
+        or not re.fullmatch(r"[0-9a-f]{40}", release_sha)
+        or not re.fullmatch(r"[0-9a-f]{40}", frontend_sha)
+        or not re.fullmatch(r"[0-9a-f]{64}", dependency_sha256)
+        or not re.fullmatch(r"[0-9A-HJKMNP-TV-Z]{26}", guest_id)
+        or not _is_canonical_date(as_of_date)
+        or (
+            expected_machine_id is not None
+            and (
+                not isinstance(expected_machine_id, str)
+                or not re.fullmatch(r"[0-9a-f]{32}", expected_machine_id)
+            )
+        )
+    ):
+        raise OrchestrationError("rc_partial_evidence_identity_mismatch")
+
+    try:
+        artifacts = tuple(destination.iterdir())
+    except OSError as exc:
+        raise OrchestrationError("rc_partial_evidence_inventory_invalid") from exc
+    if any(path.is_symlink() or not path.is_file() for path in artifacts):
+        raise OrchestrationError("rc_partial_evidence_inventory_invalid")
+    artifact_names = {path.name for path in artifacts}
+    forbidden_names = {
+        "OUTER-SHA256SUMS",
+        "PARTIAL-OUTER-SHA256SUMS",
+        "PARTIAL-SUMMARY.json",
+        "REHEARSAL-SHA256SUMS",
+        "REHEARSAL-SUMMARY.json",
+        "REHEARSAL-OUTER-SHA256SUMS",
+        "RC-SHA256SUMS",
+        "RC-OUTER-SHA256SUMS",
+        "RC-SUMMARY.json",
+        "LOCAL-RC-1.json",
+        "RC-PARTIAL-SHA256SUMS",
+        "RC-PARTIAL-SUMMARY.json",
+        "RC-PARTIAL-OUTER-SHA256SUMS",
+    }
+    if "SHA256SUMS" not in artifact_names or artifact_names & forbidden_names:
+        raise OrchestrationError("rc_partial_evidence_inventory_invalid")
+
+    try:
+        checksum_lines = (
+            (destination / "SHA256SUMS").read_text(encoding="utf-8").splitlines()
+        )
+    except OSError as exc:
+        raise OrchestrationError("rc_partial_evidence_checksum_index_invalid") from exc
+    checksums: dict[str, str] = {}
+    for line in checksum_lines:
+        match = re.fullmatch(r"([0-9a-f]{64})  ([A-Za-z0-9_.-]+)", line)
+        if match is None or match.group(2) in checksums:
+            raise OrchestrationError("rc_partial_evidence_checksum_index_invalid")
+        checksums[match.group(2)] = match.group(1)
+    if set(checksums) != artifact_names - {"SHA256SUMS"}:
+        raise OrchestrationError("rc_partial_evidence_inventory_invalid")
+    for name, digest in checksums.items():
+        try:
+            actual_digest = _sha256_file(destination / name)
+        except OSError as exc:
+            raise OrchestrationError("rc_partial_evidence_checksum_mismatch") from exc
+        if actual_digest != digest:
+            raise OrchestrationError("rc_partial_evidence_checksum_mismatch")
+
+    def read_json(name: str, code: str) -> dict:
+        try:
+            value = json.loads((destination / name).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise OrchestrationError(code) from exc
+        if not isinstance(value, dict):
+            raise OrchestrationError(code)
+        return value
+
+    expected_state_keys = {
+        "release_sha",
+        "frontend_sha",
+        "harness_hashes",
+        "completed",
+    }
+    state: dict | None = None
+    completed: list[str]
+    phase: str
+    if "stage-state.json" not in artifact_names:
+        phase = "preflight"
+        completed = []
+        expected_names = {"SHA256SUMS", "LOCAL-RC-1-failure.json"}
+        if artifact_names != expected_names:
+            if any(
+                name == "stage-state.json"
+                or any(
+                    name == f"{stage}.json"
+                    or name == f"{stage}-failure.json"
+                    or name.startswith(f"{stage}-")
+                    for stage in STAGE_ORDER
+                )
+                for name in artifact_names
+            ):
+                raise OrchestrationError("rc_partial_evidence_stage_sequence_invalid")
+            raise OrchestrationError("rc_partial_evidence_inventory_invalid")
+    else:
+        state = read_json("stage-state.json", "rc_partial_evidence_state_invalid")
+        if set(state) != expected_state_keys:
+            raise OrchestrationError("rc_partial_evidence_state_invalid")
+        if (
+            state.get("release_sha") != release_sha
+            or state.get("frontend_sha") != frontend_sha
+        ):
+            raise OrchestrationError("rc_partial_evidence_identity_mismatch")
+        harness_hashes = state.get("harness_hashes")
+        if (
+            type(harness_hashes) is not dict
+            or set(harness_hashes) != set(EVIDENCE_HARNESS_ARTIFACTS)
+            or not all(
+                type(name) is str
+                and type(digest) is str
+                and re.fullmatch(r"[0-9a-f]{64}", digest)
+                for name, digest in harness_hashes.items()
+            )
+            or type(state.get("completed")) is not list
+            or any(type(stage) is not str for stage in state["completed"])
+        ):
+            raise OrchestrationError("rc_partial_evidence_state_invalid")
+        completed = state["completed"]
+        if completed != list(STAGE_ORDER[: len(completed)]):
+            raise OrchestrationError("rc_partial_evidence_stage_sequence_invalid")
+        if len(completed) == len(STAGE_ORDER):
+            phase = "finalize"
+        elif len(completed) < len(STAGE_ORDER):
+            phase = "stage"
+        else:
+            raise OrchestrationError("rc_partial_evidence_stage_sequence_invalid")
+        if "RC-PREFLIGHT.json" not in artifact_names:
+            raise OrchestrationError("rc_partial_evidence_identity_mismatch")
+        try:
+            if state["harness_hashes"] != _host_harness_hashes():
+                raise OrchestrationError("rc_partial_evidence_identity_mismatch")
+        except OrchestrationError:
+            raise
+        except OSError as exc:
+            raise OrchestrationError("rc_partial_evidence_identity_mismatch") from exc
+
+    def read_rc_preflight() -> dict[str, Any]:
+        try:
+            raw = (destination / "RC-PREFLIGHT.json").read_bytes()
+            record = json.loads(raw.decode("utf-8"))
+            canonical = (json.dumps(record, indent=2, sort_keys=True) + "\n").encode(
+                "utf-8"
+            )
+        except (
+            OSError,
+            UnicodeDecodeError,
+            TypeError,
+            ValueError,
+            json.JSONDecodeError,
+        ) as exc:
+            raise OrchestrationError("rc_partial_evidence_identity_mismatch") from exc
+        record_guest = record.get("guest") if isinstance(record, dict) else None
+        if (
+            not isinstance(record_guest, dict)
+            or set(record_guest) != {"name", "id", "architecture", "machine_id"}
+            or record_guest.get("name") != MACHINE_NAME
+            or record_guest.get("id") != guest_id
+            or record_guest.get("architecture") != "arm64"
+            or not isinstance(record_guest.get("machine_id"), str)
+            or not re.fullmatch(r"[0-9a-f]{32}", record_guest["machine_id"])
+            or (
+                expected_machine_id is not None
+                and record_guest["machine_id"] != expected_machine_id
+            )
+        ):
+            raise OrchestrationError("rc_partial_evidence_identity_mismatch")
+        expected = {
+            "schema_version": 1,
+            "phase": "preflight",
+            "verdict": "PASS",
+            "release_sha": release_sha,
+            "frontend_sha": frontend_sha,
+            "dependency_sha256": dependency_sha256,
+            "guest": record_guest,
+            "as_of_date": as_of_date,
+            "checks": {
+                "evidence_root_empty": True,
+                "database_clean": True,
+                "rate_state_clean": True,
+                "actionable_commands": 0,
+                "sources_clean": True,
+                "runtime_dark": True,
+            },
+        }
+        captured_at = record.get("captured_at") if isinstance(record, dict) else None
+        if (
+            not isinstance(record, dict)
+            or set(record) != {*expected, "captured_at"}
+            or not isinstance(captured_at, str)
+            or not re.fullmatch(
+                r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z",
+                captured_at,
+            )
+            or record != {**expected, "captured_at": captured_at}
+            or raw != canonical
+            or len(raw) > 1024 * 1024
+        ):
+            raise OrchestrationError("rc_partial_evidence_identity_mismatch")
+        try:
+            if (
+                datetime.strptime(captured_at, "%Y-%m-%dT%H:%M:%SZ").strftime(
+                    "%Y-%m-%dT%H:%M:%SZ"
+                )
+                != captured_at
+            ):
+                raise ValueError
+        except ValueError as exc:
+            raise OrchestrationError("rc_partial_evidence_identity_mismatch") from exc
+        return record
+
+    preflight_record: dict[str, Any] | None = None
+    durable_guest: dict[str, str] | None = None
+    expected_rc_attempt: dict[str, Any] | None = None
+    if phase != "preflight":
+        preflight_record = read_rc_preflight()
+        durable_guest = preflight_record["guest"]
+        preflight_bytes = (
+            json.dumps(preflight_record, indent=2, sort_keys=True) + "\n"
+        ).encode("utf-8")
+        expected_rc_attempt = {
+            "preflight_sha256": hashlib.sha256(preflight_bytes).hexdigest(),
+            "dependency_sha256": dependency_sha256,
+            "guest": durable_guest,
+            "as_of_date": as_of_date,
+        }
+
+    failed_stage = (
+        "LOCAL-RC-1"
+        if phase == "preflight"
+        else ("LOCAL-RC-1" if phase == "finalize" else STAGE_ORDER[len(completed)])
+    )
+    failure_name = f"{failed_stage}-failure.json"
+    if failure_name not in artifact_names:
+        raise OrchestrationError("rc_partial_evidence_stage_sequence_invalid")
+
+    stage_manifest_names = {f"{stage}.json" for stage in STAGE_ORDER}
+    stage_failure_names = {f"{stage}-failure.json" for stage in STAGE_ORDER}
+    auxiliary_names = {
+        "LOCAL-WRITE-UI-1-browser-result.json",
+        "LOCAL-WRITE-ACT-1-browser-result.json",
+        "LOCAL-GO-READ-1-live.png",
+        "LOCAL-GO-READ-1-outage.png",
+    }
+    if phase == "preflight":
+        expected_names = {"SHA256SUMS", failure_name}
+        if artifact_names != expected_names:
+            raise OrchestrationError("rc_partial_evidence_stage_sequence_invalid")
+    else:
+        allowed_auxiliary = set()
+        if "LOCAL-WRITE-UI-1" in completed:
+            allowed_auxiliary.add("LOCAL-WRITE-UI-1-browser-result.json")
+        if "LOCAL-WRITE-ACT-1" in completed:
+            allowed_auxiliary.add("LOCAL-WRITE-ACT-1-browser-result.json")
+        if "LOCAL-GO-READ-1" in completed:
+            allowed_auxiliary.update(
+                {"LOCAL-GO-READ-1-live.png", "LOCAL-GO-READ-1-outage.png"}
+            )
+        failed_auxiliary = set()
+        if phase == "stage":
+            if failed_stage == "LOCAL-GO-READ-1":
+                failed_auxiliary = {
+                    name
+                    for name in {
+                        "LOCAL-GO-READ-1-live.png",
+                        "LOCAL-GO-READ-1-outage.png",
+                    }
+                    if name in artifact_names
+                }
+                if failed_auxiliary not in (
+                    set(),
+                    {"LOCAL-GO-READ-1-live.png"},
+                    {"LOCAL-GO-READ-1-live.png", "LOCAL-GO-READ-1-outage.png"},
+                ):
+                    raise OrchestrationError(
+                        "rc_partial_evidence_stage_sequence_invalid"
+                    )
+            elif failed_stage == "LOCAL-WRITE-UI-1":
+                name = "LOCAL-WRITE-UI-1-browser-result.json"
+                if name in artifact_names:
+                    failed_auxiliary.add(name)
+            elif failed_stage == "LOCAL-WRITE-ACT-1":
+                name = "LOCAL-WRITE-ACT-1-browser-result.json"
+                if name in artifact_names:
+                    failed_auxiliary.add(name)
+        expected_names = {
+            "SHA256SUMS",
+            "stage-state.json",
+            "RC-PREFLIGHT.json",
+            failure_name,
+            *(f"{stage}.json" for stage in completed),
+            *allowed_auxiliary,
+            *failed_auxiliary,
+        }
+        if phase == "finalize":
+            expected_names.update(
+                {f"{stage}.json" for stage in STAGE_ORDER[len(completed) :]}
+            )
+            expected_names.update(auxiliary_names)
+        if artifact_names != expected_names:
+            known_stage_artifact = any(
+                name in stage_manifest_names
+                or name in stage_failure_names
+                or any(name.startswith(f"{stage}-") for stage in STAGE_ORDER)
+                for name in artifact_names
+            )
+            if known_stage_artifact:
+                raise OrchestrationError("rc_partial_evidence_stage_sequence_invalid")
+            raise OrchestrationError("rc_partial_evidence_inventory_invalid")
+
+    for stage in completed:
+        manifest = read_json(f"{stage}.json", "rc_partial_evidence_manifest_invalid")
+        manifest_release = manifest.get("release_sha", manifest.get("backend_sha"))
+        if (
+            manifest.get("stage") != stage
+            or manifest.get("verdict") != "PASS"
+            or manifest_release != release_sha
+            or manifest.get("frontend_sha") != frontend_sha
+        ):
+            raise OrchestrationError("rc_partial_evidence_identity_mismatch")
+        if (
+            expected_rc_attempt is not None
+            and manifest.get("rc_attempt") != expected_rc_attempt
+        ):
+            raise OrchestrationError("rc_partial_evidence_identity_mismatch")
+    if phase == "finalize":
+        for stage in STAGE_ORDER:
+            if stage in completed:
+                continue
+            manifest = read_json(
+                f"{stage}.json", "rc_partial_evidence_manifest_invalid"
+            )
+            manifest_release = manifest.get("release_sha", manifest.get("backend_sha"))
+            if (
+                manifest.get("stage") != stage
+                or manifest.get("verdict") != "PASS"
+                or manifest_release != release_sha
+                or manifest.get("frontend_sha") != frontend_sha
+            ):
+                raise OrchestrationError("rc_partial_evidence_identity_mismatch")
+            if (
+                expected_rc_attempt is not None
+                and manifest.get("rc_attempt") != expected_rc_attempt
+            ):
+                raise OrchestrationError("rc_partial_evidence_identity_mismatch")
+
+    failure = read_json(failure_name, "rc_partial_evidence_manifest_invalid")
+    if (
+        failure.get("stage") != failed_stage
+        or failure.get("verdict") != "FAIL"
+        or failure.get("release_sha") != release_sha
+        or failure.get("frontend_sha") != frontend_sha
+        or not isinstance(failure.get("failed_gate"), str)
+        or not failure["failed_gate"]
+    ):
+        if (
+            failure.get("release_sha") != release_sha
+            or failure.get("frontend_sha") != frontend_sha
+        ):
+            raise OrchestrationError("rc_partial_evidence_identity_mismatch")
+        if failure.get("stage") != failed_stage:
+            raise OrchestrationError("rc_partial_evidence_stage_sequence_invalid")
+        raise OrchestrationError("rc_partial_evidence_manifest_invalid")
+    if phase in {"preflight", "finalize"}:
+        expected_phase = phase
+        failure_guest = failure.get("guest")
+        if phase == "preflight":
+            if (
+                not isinstance(failure_guest, dict)
+                or set(failure_guest) != {"name", "id", "architecture", "machine_id"}
+                or failure_guest.get("name") != MACHINE_NAME
+                or failure_guest.get("id") != guest_id
+                or failure_guest.get("architecture") != "arm64"
+                or not isinstance(failure_guest.get("machine_id"), str)
+                or not re.fullmatch(r"[0-9a-f]{32}", failure_guest["machine_id"])
+                or (
+                    expected_machine_id is not None
+                    and failure_guest["machine_id"] != expected_machine_id
+                )
+            ):
+                raise OrchestrationError("rc_partial_evidence_identity_mismatch")
+            durable_guest = failure_guest
+        if durable_guest is None:
+            raise OrchestrationError("rc_partial_evidence_identity_mismatch")
+        expected_guest = durable_guest
+        if (
+            failure.get("rc_phase") != expected_phase
+            or failure.get("dependency_sha256") != dependency_sha256
+            or failure.get("guest") != expected_guest
+            or failure.get("as_of_date") != as_of_date
+        ):
+            raise OrchestrationError("rc_partial_evidence_identity_mismatch")
+        if phase == "preflight":
+            harness_hashes = failure.get("harness_hashes")
+            if (
+                type(harness_hashes) is not dict
+                or set(harness_hashes) != set(EVIDENCE_HARNESS_ARTIFACTS)
+                or not all(
+                    type(name) is str
+                    and type(digest) is str
+                    and re.fullmatch(r"[0-9a-f]{64}", digest)
+                    for name, digest in harness_hashes.items()
+                )
+            ):
+                raise OrchestrationError("rc_partial_evidence_identity_mismatch")
+            try:
+                if harness_hashes != _host_harness_hashes():
+                    raise OrchestrationError("rc_partial_evidence_identity_mismatch")
+            except OrchestrationError:
+                raise
+            except OSError as exc:
+                raise OrchestrationError(
+                    "rc_partial_evidence_identity_mismatch"
+                ) from exc
+    if phase == "stage" and (
+        expected_rc_attempt is None or failure.get("rc_attempt") != expected_rc_attempt
+    ):
+        raise OrchestrationError("rc_partial_evidence_identity_mismatch")
+
+    summary = {
+        "schema_version": 1,
+        "evidence_kind": "local_release_candidate_partial_failure",
+        "acceptance": "LOCAL-RC-1",
+        "acceptance_evidence": False,
+        "campaign_ledger_eligible": False,
+        "aws_actions_authorized": False,
+        "release_sha": release_sha,
+        "frontend_sha": frontend_sha,
+        "dependency_sha256": dependency_sha256,
+        "guest": durable_guest,
+        "as_of_date": as_of_date,
+        "phase": phase,
+        "passed": list(completed),
+        "failed": [failed_stage],
+        "failed_gate": failure["failed_gate"],
+        "unreached": (
+            list(STAGE_ORDER)
+            if phase == "preflight"
+            else (
+                [*STAGE_ORDER[len(completed) + 1 :], "LOCAL-RC-1"]
+                if phase == "stage"
+                else []
+            )
+        ),
+        "verdict": "FAIL",
+    }
+    checksum_path = destination / "SHA256SUMS"
+    partial_checksum_path = destination / "RC-PARTIAL-SHA256SUMS"
+    checksum_path.rename(partial_checksum_path)
+    partial_checksum_path.chmod(0o600)
+    summary_path = destination / "RC-PARTIAL-SUMMARY.json"
+    summary_path.write_text(
+        json.dumps(summary, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+    summary_path.chmod(0o600)
+    outer_path = destination / "RC-PARTIAL-OUTER-SHA256SUMS"
+    outer_path.write_text(
+        "".join(
+            f"{_sha256_file(path)}  {path.name}\n"
+            for path in sorted(destination.iterdir())
+            if path.name != outer_path.name
+        ),
+        encoding="utf-8",
+    )
+    outer_path.chmod(0o600)
+    return summary
 
 
 def finalize_evidence_collection(destination: Path) -> dict:
@@ -1849,6 +3167,7 @@ def _collect_guest_evidence(
     extract_code: str,
     destination_error: str,
     finalizer: Callable[[Path], dict | None],
+    expected_machine_id: str | None = None,
 ) -> dict | None:
     if destination.exists():
         raise OrchestrationError(destination_error)
@@ -1858,20 +3177,37 @@ def _collect_guest_evidence(
     )
     try:
         archive = temporary / archive_name
+        if expected_machine_id is None:
+            archive_argv = [
+                "tar",
+                "-C",
+                "/var/lib/munbon-local-acceptance/evidence",
+                "-czf",
+                "-",
+                ".",
+            ]
+        elif isinstance(expected_machine_id, str) and re.fullmatch(
+            r"[0-9a-f]{32}", expected_machine_id
+        ):
+            archive_argv = [
+                "sh",
+                "-ceu",
+                'test "$(cat /etc/machine-id)" = "$1"; shift; exec "$@"',
+                "rc-archive-guard",
+                expected_machine_id,
+                "tar",
+                "-C",
+                "/var/lib/munbon-local-acceptance/evidence",
+                "-czf",
+                "-",
+                ".",
+            ]
+        else:
+            raise OrchestrationError(f"{stream_code}_failed")
         try:
             with archive.open("wb") as stream:
                 result = subprocess.run(
-                    guest_command(
-                        [
-                            "tar",
-                            "-C",
-                            "/var/lib/munbon-local-acceptance/evidence",
-                            "-czf",
-                            "-",
-                            ".",
-                        ],
-                        user="root",
-                    ),
+                    guest_command(archive_argv, user="root"),
                     stdout=stream,
                     stderr=subprocess.PIPE,
                     check=False,
@@ -1905,6 +3241,217 @@ def collect_evidence(destination: Path) -> None:
         extract_code="evidence_extract",
         destination_error="evidence_destination_exists",
         finalizer=finalize_evidence_collection,
+    )
+
+
+def collect_rc(
+    destination: Path,
+    release_sha: str,
+    frontend_sha: str,
+    dependency_sha256: str,
+    guest_id: str,
+    as_of_date: str,
+    *,
+    expected_machine_id: str | None = None,
+) -> dict:
+    if destination.exists():
+        raise OrchestrationError("rc_evidence_destination_exists")
+    owner = _validated_rc_guest(release_sha, frontend_sha, dependency_sha256, guest_id)
+    if expected_machine_id is not None and (
+        not isinstance(expected_machine_id, str)
+        or not re.fullmatch(r"[0-9a-f]{32}", expected_machine_id)
+        or owner.get("machine_id") != expected_machine_id
+    ):
+        raise OrchestrationError("rc_evidence_identity_mismatch")
+    archive_machine_id = expected_machine_id or owner["machine_id"]
+
+    def finalize_bound_rc(temporary: Path) -> dict:
+        summary = finalize_rc_collection(
+            temporary,
+            release_sha=release_sha,
+            frontend_sha=frontend_sha,
+            dependency_sha256=dependency_sha256,
+            guest_id=guest_id,
+            as_of_date=as_of_date,
+            expected_machine_id=archive_machine_id,
+        )
+        current_owner = _validated_rc_guest(
+            release_sha, frontend_sha, dependency_sha256, guest_id
+        )
+        if current_owner != owner:
+            raise OrchestrationError("rc_evidence_identity_mismatch")
+        return summary
+
+    summary = _collect_guest_evidence(
+        destination,
+        guest_command=build_guest_command,
+        archive_name="local-rc-evidence.tar.gz",
+        stream_code="rc_evidence_stream",
+        extract_code="rc_evidence_extract",
+        destination_error="rc_evidence_destination_exists",
+        finalizer=finalize_bound_rc,
+        expected_machine_id=archive_machine_id,
+    )
+    assert isinstance(summary, dict)
+    return summary
+
+
+def collect_rc_partial_failure(
+    destination: Path,
+    release_sha: str,
+    frontend_sha: str,
+    dependency_sha256: str,
+    guest_id: str,
+    as_of_date: str,
+) -> dict:
+    if destination.exists():
+        raise OrchestrationError("rc_partial_evidence_destination_exists")
+    owner = _validated_rc_guest(release_sha, frontend_sha, dependency_sha256, guest_id)
+
+    def finalize_bound_rc_partial(temporary: Path) -> dict:
+        summary = finalize_rc_partial_failure_collection(
+            temporary,
+            release_sha=release_sha,
+            frontend_sha=frontend_sha,
+            dependency_sha256=dependency_sha256,
+            guest_id=guest_id,
+            as_of_date=as_of_date,
+            expected_machine_id=owner["machine_id"],
+        )
+        current_owner = _validated_rc_guest(
+            release_sha, frontend_sha, dependency_sha256, guest_id
+        )
+        if current_owner != owner:
+            raise OrchestrationError("rc_partial_evidence_identity_mismatch")
+        return summary
+
+    summary = _collect_guest_evidence(
+        destination,
+        guest_command=build_guest_command,
+        archive_name="local-rc-partial-failure-evidence.tar.gz",
+        stream_code="rc_partial_evidence_stream",
+        extract_code="rc_partial_evidence_extract",
+        destination_error="rc_partial_evidence_destination_exists",
+        finalizer=finalize_bound_rc_partial,
+        expected_machine_id=owner["machine_id"],
+    )
+    assert isinstance(summary, dict)
+    return summary
+
+
+def run_rc(
+    release_sha: str,
+    frontend_sha: str,
+    dependency_sha256: str,
+    guest_id: str,
+    destination: Path,
+    as_of_date: str,
+) -> dict:
+    if (
+        not isinstance(destination, Path)
+        or not isinstance(release_sha, str)
+        or not re.fullmatch(r"[0-9a-f]{40}", release_sha)
+        or not isinstance(frontend_sha, str)
+        or not re.fullmatch(r"[0-9a-f]{40}", frontend_sha)
+        or not isinstance(dependency_sha256, str)
+        or not re.fullmatch(r"[0-9a-f]{64}", dependency_sha256)
+        or not isinstance(guest_id, str)
+        or not re.fullmatch(r"[0-9A-HJKMNP-TV-Z]{26}", guest_id)
+        or not _is_canonical_date(as_of_date)
+    ):
+        raise OrchestrationError("rc_arguments_not_accepted")
+    if destination.exists():
+        raise OrchestrationError("rc_evidence_destination_exists")
+    pinned_guest = _validated_rc_guest(
+        release_sha, frontend_sha, dependency_sha256, guest_id
+    )
+    if (
+        type(pinned_guest) is not dict
+        or not isinstance(pinned_guest.get("machine_id"), str)
+        or not re.fullmatch(r"[0-9a-f]{32}", pinned_guest["machine_id"])
+    ):
+        raise OrchestrationError("rc_guest_machine_identity_mismatch")
+
+    def assert_pinned_guest() -> None:
+        try:
+            current_guest = _validated_rc_guest(
+                release_sha, frontend_sha, dependency_sha256, guest_id
+            )
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException as exc:
+            raise OrchestrationError("rc_guest_machine_identity_mismatch") from exc
+        if current_guest != pinned_guest:
+            raise OrchestrationError("rc_guest_machine_identity_mismatch")
+
+    def run_pinned(operation: Callable[[], Any], *, prechecked: bool = False) -> Any:
+        if not prechecked:
+            assert_pinned_guest()
+        try:
+            result = operation()
+        except BaseException as primary:
+            try:
+                assert_pinned_guest()
+            except BaseException as postcheck_error:
+                if isinstance(primary, (KeyboardInterrupt, SystemExit)):
+                    raise primary
+                if isinstance(postcheck_error, (KeyboardInterrupt, SystemExit)):
+                    raise postcheck_error from primary
+                try:
+                    postcheck_code = str(postcheck_error)
+                    if not re.fullmatch(r"[a-z][a-z0-9_]{0,127}", postcheck_code):
+                        postcheck_code = "rc_guest_machine_identity_mismatch"
+                    primary.identity_postcheck_error = postcheck_code
+                except BaseException:
+                    pass
+                raise primary
+            raise
+        assert_pinned_guest()
+        return result
+
+    run_pinned(
+        lambda: _run_rc_phase(
+            "preflight",
+            release_sha,
+            frontend_sha,
+            dependency_sha256,
+            guest_id,
+            as_of_date,
+            expected_machine_id=pinned_guest["machine_id"],
+        ),
+        prechecked=True,
+    )
+    for stage in STAGE_ORDER:
+        run_pinned(
+            lambda stage=stage: run_stage(
+                stage,
+                release_sha,
+                frontend_sha,
+                as_of_date=as_of_date,
+                expected_machine_id=pinned_guest["machine_id"],
+            )
+        )
+    run_pinned(
+        lambda: _run_rc_phase(
+            "finalize",
+            release_sha,
+            frontend_sha,
+            dependency_sha256,
+            guest_id,
+            as_of_date,
+            expected_machine_id=pinned_guest["machine_id"],
+        )
+    )
+    return run_pinned(
+        lambda: collect_rc(
+            destination,
+            release_sha,
+            frontend_sha,
+            dependency_sha256,
+            guest_id,
+            as_of_date,
+            expected_machine_id=pinned_guest["machine_id"],
+        )
     )
 
 
@@ -2126,6 +3673,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "collect-rehearsal",
             "collect-rehearsal-partial-failure",
             "collect-rehearsal-bootstrap-failure",
+            "run-rc",
+            "collect-rc",
+            "collect-rc-partial-failure",
             "validate-campaign-ledger",
         ),
     )
@@ -2142,6 +3692,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--evidence-dir", type=Path)
     parser.add_argument("--dependency-bundle", type=Path)
     parser.add_argument("--dependency-bundle-sha256")
+    parser.add_argument("--guest-id")
     parser.add_argument("--bootstrap-failure-dir", type=Path)
     parser.add_argument("--campaign-ledger", type=Path)
     parser.add_argument("--base-campaign-ledger", type=Path)
@@ -2189,7 +3740,64 @@ def main(argv: list[str] | None = None) -> int:
             raise OrchestrationError("frontend_sha_not_accepted")
         if args.as_of_date is not None and not _is_canonical_date(args.as_of_date):
             raise OrchestrationError("as_of_date_not_accepted")
-        if args.action == "plan":
+        if args.action in {"run-rc", "collect-rc", "collect-rc-partial-failure"}:
+            if args.evidence_dir is None:
+                raise OrchestrationError("rc_evidence_destination_required")
+            if args.guest_id is None:
+                raise OrchestrationError("rc_guest_id_required")
+            if not re.fullmatch(r"[0-9A-HJKMNP-TV-Z]{26}", args.guest_id):
+                raise OrchestrationError("rc_guest_identity_not_accepted")
+            if args.dependency_bundle_sha256 is None:
+                raise OrchestrationError("rc_dependency_sha256_required")
+            if not re.fullmatch(r"[0-9a-f]{64}", args.dependency_bundle_sha256):
+                raise OrchestrationError("rc_dependency_identity_mismatch")
+            if args.as_of_date is None:
+                raise OrchestrationError("as_of_date_required")
+            if args.evidence_dir.exists():
+                raise OrchestrationError("rc_evidence_destination_exists")
+            if args.action == "run-rc":
+                print(
+                    json.dumps(
+                        run_rc(
+                            release_sha=release_sha,
+                            frontend_sha=args.frontend_sha,
+                            dependency_sha256=args.dependency_bundle_sha256,
+                            guest_id=args.guest_id,
+                            destination=args.evidence_dir,
+                            as_of_date=args.as_of_date,
+                        ),
+                        sort_keys=True,
+                    )
+                )
+            elif args.action == "collect-rc":
+                print(
+                    json.dumps(
+                        collect_rc(
+                            destination=args.evidence_dir,
+                            release_sha=release_sha,
+                            frontend_sha=args.frontend_sha,
+                            dependency_sha256=args.dependency_bundle_sha256,
+                            guest_id=args.guest_id,
+                            as_of_date=args.as_of_date,
+                        ),
+                        sort_keys=True,
+                    )
+                )
+            else:
+                print(
+                    json.dumps(
+                        collect_rc_partial_failure(
+                            args.evidence_dir,
+                            release_sha,
+                            args.frontend_sha,
+                            args.dependency_bundle_sha256,
+                            args.guest_id,
+                            args.as_of_date,
+                        ),
+                        sort_keys=True,
+                    )
+                )
+        elif args.action == "plan":
             print(
                 json.dumps(
                     {

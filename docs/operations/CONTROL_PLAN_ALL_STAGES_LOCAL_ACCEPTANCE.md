@@ -33,8 +33,8 @@ bundle; the runtime checkout must remain at the accepted 40-character SHA.
 | W1 / W2            | `LOCAL-WRITE-FOUNDATION-1` | Implemented; prior SHA passed |
 | FE-5 / FE-6        | `LOCAL-WRITE-UI-1`         | Implemented; latest campaign passed |
 | DEC-W4             | `LOCAL-PERSIST-ONLY-1`     | Implemented; latest campaign passed |
-| WRITE-ACT-1        | `LOCAL-WRITE-ACT-1`        | Planned; not yet implemented |
-| Combined clean run | `LOCAL-RC-1`               | Required before AWS          |
+| WRITE-ACT-1        | `LOCAL-WRITE-ACT-1`        | Implemented in source; not yet accepted |
+| Combined clean run | `LOCAL-RC-1`               | Implemented in source; not yet accepted |
 
 Passing `LOCAL-RTA-1` unlocks the next local stage only. It is not production
 RTA-1 and does not authorize deployment, visibility, writes, authority, or
@@ -235,7 +235,7 @@ modify or replay the exhausted guest.
 The Prometheus Debian package is used only for `promtool`; its Prometheus and
 node-exporter services are disabled to prevent wildcard listeners.
 
-## Run the nine implemented stages
+## Run the ten implemented stages
 
 ```bash
 python3 ops/control-plan-read-local/orchestrate.py run-stage --stage LOCAL-BASE-0 \
@@ -279,6 +279,11 @@ python3 ops/control-plan-read-local/orchestrate.py run-stage --stage LOCAL-WRITE
   --accept-later-origin-main
 
 python3 ops/control-plan-read-local/orchestrate.py run-stage --stage LOCAL-PERSIST-ONLY-1 \
+  --release-sha "$accepted_backend_sha" \
+  --frontend-sha "$accepted_frontend_sha" \
+  --accept-later-origin-main
+
+python3 ops/control-plan-read-local/orchestrate.py run-stage --stage LOCAL-WRITE-ACT-1 \
   --release-sha "$accepted_backend_sha" \
   --frontend-sha "$accepted_frontend_sha" \
   --accept-later-origin-main
@@ -361,6 +366,82 @@ remain ready, every execution/authority/write gate to remain dark, and both
 Smart CMS flags to remain false. The same restoration checks run after
 readiness, browser, or outage failure; the failure manifest records their result
 without replacing the original failed-gate code.
+
+## Run the clean release-candidate wrapper
+
+`LOCAL-RC-1` is a separate controller and evidence family; it is not an
+eleventh progressive stage and is not part of the frozen nine-stage campaign
+ledger. It requires a new, separately authorized pristine canonical guest at
+the exact backend, frontend, dependency, guest, and Bangkok-date identities.
+Source availability does not authorize guest creation, replacement, repair, deployment, activation, or AWS action.
+
+Set fresh destinations outside the repository and use only the values granted
+for that release-candidate attempt:
+
+```bash
+accepted_guest_id=REPLACE_WITH_AUTHORIZED_26_CHARACTER_GUEST_ID
+rc_as_of_date=REPLACE_WITH_AUTHORIZED_BANGKOK_DATE
+rc_evidence_dir=/absolute/external/evidence/rc-${accepted_backend_sha}
+rc_partial_failure_dir=/absolute/external/evidence/rc-partial-${accepted_backend_sha}
+
+python3 ops/control-plan-read-local/orchestrate.py run-rc \
+  --release-sha "$accepted_backend_sha" \
+  --frontend-sha "$accepted_frontend_sha" \
+  --accept-later-origin-main \
+  --dependency-bundle-sha256 "$dependency_bundle_sha256" \
+  --guest-id "$accepted_guest_id" \
+  --as-of-date "$rc_as_of_date" \
+  --evidence-dir "$rc_evidence_dir"
+```
+
+The controller revalidates immutable guest identity before preflight, before
+every one of the ten stages, before finalization, and around collection. It
+stops at the first failure or interrupt without retry, repair, reprovisioning,
+or a fabricated later-stage verdict. Preflight requires empty evidence,
+application schemas, and rate state; clean source checkouts; no actionable
+commands; no managed application processes; and the actual configured runtime
+dark contract. Finalization binds the completed ten-stage state, all stage
+checksums, the external preflight record, stable exact PM2 identity, readiness,
+loopback listeners, the final database snapshot, bounded rate state, and the
+fully dark backend and frontend contract.
+
+Success writes `LOCAL-RC-1.json`, `RC-SUMMARY.json`, `RC-SHA256SUMS`, and
+`RC-OUTER-SHA256SUMS`. The summary is RC-specific with
+`campaign_ledger_eligible=false`; it cannot extend or redefine the historical
+nine-stage campaign ledger. `run-rc` performs collection automatically. Use
+the standalone success collector only if guest finalization completed but the
+fresh host destination was not published:
+
+```bash
+python3 ops/control-plan-read-local/orchestrate.py collect-rc \
+  --release-sha "$accepted_backend_sha" \
+  --frontend-sha "$accepted_frontend_sha" \
+  --accept-later-origin-main \
+  --dependency-bundle-sha256 "$dependency_bundle_sha256" \
+  --guest-id "$accepted_guest_id" \
+  --as-of-date "$rc_as_of_date" \
+  --evidence-dir "$rc_evidence_dir"
+```
+
+After a preflight, stage, or finalization failure, preserve only its bounded
+ordered-prefix evidence in a different fresh destination:
+
+```bash
+python3 ops/control-plan-read-local/orchestrate.py collect-rc-partial-failure \
+  --release-sha "$accepted_backend_sha" \
+  --frontend-sha "$accepted_frontend_sha" \
+  --accept-later-origin-main \
+  --dependency-bundle-sha256 "$dependency_bundle_sha256" \
+  --guest-id "$accepted_guest_id" \
+  --as-of-date "$rc_as_of_date" \
+  --evidence-dir "$rc_partial_failure_dir"
+```
+
+The recovery bundle writes `RC-PARTIAL-SUMMARY.json`,
+`RC-PARTIAL-SHA256SUMS`, and `RC-PARTIAL-OUTER-SHA256SUMS`, and records
+`acceptance_evidence=false`, `campaign_ledger_eligible=false`, the exact failed
+phase/gate, passed prefix, and unreached suffix. Neither collector retries a
+stage or changes the guest.
 
 ## Evidence
 
@@ -597,15 +678,15 @@ The result above predates the later source-delivered write-foundation stage.
 `LOCAL-WRITE-FOUNDATION-1` subsequently passed at its own exact SHA; that
 evidence is not reused for a new candidate.
 
-Every new candidate must be provisioned cleanly and rerun through all nine
-implemented stages at its exact SHA. Evidence from a predecessor or a
+Every new candidate must be provisioned cleanly and rerun through all ten
+source-implemented progressive stages at its exact SHA. Evidence from a predecessor or a
 tree-equivalent squash commit is not reused because the evidence index is
 SHA-bound. These readings are local evidence and do not describe AWS capacity
 or runtime state.
 
 ## Remaining authority boundary
 
-All nine current local acceptance stages are implemented.
+All ten current local acceptance stages are implemented in source. Neither `LOCAL-WRITE-ACT-1` nor `LOCAL-RC-1` has been run or accepted in this source lifecycle.
 The current candidate has genuine 9/9 local acceptance evidence from one
 pristine authorized guest, and its `successful_closed` ledger entry binds the
 exact backend, frontend, dependency, harness, guest, and outer checksum index.

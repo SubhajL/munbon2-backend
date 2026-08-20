@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import argparse
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 import errno
 from http.cookiejar import CookieJar
@@ -18,6 +18,7 @@ import os
 from pathlib import Path
 import signal
 import re
+import stat
 import subprocess
 import tempfile
 import sys
@@ -139,6 +140,7 @@ class StageContext:
     as_of_date: date = date.today()
     execution_kind: str = "canonical"
     owner_path: Path = Path("/var/lib/munbon-local-acceptance/owner.json")
+    rc_attempt: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -1399,6 +1401,24 @@ def _utc_timestamp() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def _utc_timestamp_seconds() -> str:
+    return (
+        datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+
+
+def _canonical_json_sha256(value: Any) -> str:
+    validate_evidence_payload(value)
+    try:
+        text = json.dumps(value, separators=(",", ":"), sort_keys=True)
+    except (TypeError, ValueError) as exc:
+        raise StageGateError("canonical_json_unserializable") from exc
+    return hashlib.sha256((text + "\n").encode("utf-8")).hexdigest()
+
+
 def safe_subprocess_failure_code(stderr: str, prefix: str) -> str | None:
     matches = []
     for line in stderr.splitlines():
@@ -1768,7 +1788,7 @@ def _verify_source_checkouts(context: StageContext) -> None:
         ).strip()
         tracked_status = _run_checked(
             f"{label}_tracked_identity",
-            ["git", "status", "--porcelain", "--untracked-files=no"],
+            ["git", "status", "--porcelain", "--untracked-files=all"],
             cwd=root,
         ).strip()
         if actual_sha != expected_sha or tracked_status:
@@ -1776,15 +1796,17 @@ def _verify_source_checkouts(context: StageContext) -> None:
 
 
 def _load_state(context: StageContext) -> dict[str, Any]:
-    _verify_source_checkouts(context)
     path = context.evidence_root / "stage-state.json"
     if not path.exists():
+        _verify_source_checkouts(context)
         if (context.evidence_root / "SHA256SUMS").exists():
             raise StageGateError("stage_state_missing")
         return {**_stage_identity(context), "completed": []}
     _verify_checksum_entry(path)
     state = _read_json(path)
     completed = state.get("completed")
+    if completed:
+        _verify_source_checkouts(context)
     expected_identity = _stage_identity(context)
     if (
         not isinstance(completed, list)
@@ -1793,15 +1815,221 @@ def _load_state(context: StageContext) -> dict[str, Any]:
         or {key: state.get(key) for key in expected_identity} != expected_identity
     ):
         raise StageGateError("stage_state_stale")
+    _verify_source_checkouts(context)
     for stage in completed:
         _verify_checksum_entry(context.evidence_root / f"{stage}.json")
     return state
 
 
+def _discard_rc_stage_artifact(context: StageContext, stage: str) -> None:
+    target = context.evidence_root / f"{stage}.json"
+    index = context.evidence_root / "SHA256SUMS"
+    try:
+        target.unlink(missing_ok=True)
+        if target.exists():
+            raise OSError("RC PASS artifact remained after cleanup")
+        if index.exists():
+            entries = _read_checksum_index(index)
+            if target.name in entries:
+                entries.pop(target.name)
+                _write_checksum_index(index, entries)
+            if target.name in _read_checksum_index(index):
+                raise OSError("RC PASS checksum remained after cleanup")
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException as exc:
+        raise StageGateError("rc_stage_publication_rollback_failed") from exc
+
+
+def _restore_rc_stage_publication(
+    context: StageContext,
+    stage: str,
+    *,
+    prior_state_exists: bool,
+    prior_state: bytes | None,
+    prior_index_exists: bool,
+    prior_index_entries: dict[str, str],
+) -> None:
+    target = context.evidence_root / f"{stage}.json"
+    state_path = context.evidence_root / "stage-state.json"
+    index_path = context.evidence_root / "SHA256SUMS"
+    expected_entries = dict(prior_index_entries)
+    expected_entries.pop(target.name, None)
+    try:
+        target.unlink(missing_ok=True)
+        if target.exists():
+            raise OSError("RC PASS artifact remained after rollback")
+        if prior_state_exists:
+            if prior_state is None:
+                raise OSError("prior stage state bytes were unavailable")
+            state_path.write_bytes(prior_state)
+            if state_path.read_bytes() != prior_state:
+                raise OSError("prior stage state was not restored")
+        else:
+            state_path.unlink(missing_ok=True)
+            if state_path.exists():
+                raise OSError("stage state remained after rollback")
+        if prior_index_exists:
+            _write_checksum_index(index_path, expected_entries)
+            if _read_checksum_index(index_path) != expected_entries:
+                raise OSError("checksum index was not restored")
+        else:
+            index_path.unlink(missing_ok=True)
+            if index_path.exists():
+                raise OSError("checksum index remained after rollback")
+        if target.name in _read_checksum_index(index_path):
+            raise OSError("RC PASS checksum remained after rollback")
+        if prior_state_exists:
+            restored_entries = _read_checksum_index(index_path)
+            if restored_entries.get(state_path.name) != _hash_file(state_path):
+                raise OSError("restored stage state checksum did not match")
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException as exc:
+        raise StageGateError("rc_stage_publication_rollback_failed") from exc
+
+
 def _save_state(context: StageContext, completed: list[str]) -> None:
+    if context.rc_attempt is not None and completed:
+        stage = completed[-1]
+        if stage in STAGE_ORDER:
+            state_path = context.evidence_root / "stage-state.json"
+            index_path = context.evidence_root / "SHA256SUMS"
+            try:
+                prior_state_exists = state_path.exists()
+                prior_state = state_path.read_bytes() if prior_state_exists else None
+                prior_index_exists = index_path.exists()
+                prior_index_entries = (
+                    _read_checksum_index(index_path) if prior_index_exists else {}
+                )
+            except (KeyboardInterrupt, SystemExit) as primary:
+                try:
+                    _discard_rc_stage_artifact(context, stage)
+                except (KeyboardInterrupt, SystemExit) as cleanup:
+                    if cleanup is primary:
+                        raise
+                    raise primary from cleanup
+                except BaseException as cleanup_exc:
+                    raise primary from cleanup_exc
+                raise
+            except BaseException as primary:
+                try:
+                    _discard_rc_stage_artifact(context, stage)
+                except (KeyboardInterrupt, SystemExit) as cleanup:
+                    raise cleanup from primary
+                except BaseException as cleanup_exc:
+                    raise StageGateError(
+                        "rc_stage_publication_rollback_failed"
+                    ) from cleanup_exc
+                raise StageGateError(
+                    "rc_stage_publication_rollback_failed"
+                ) from primary
+            try:
+                _bind_rc_stage_attempt(context, stage, context.rc_attempt)
+            except BaseException as exc:
+                try:
+                    _discard_rc_stage_artifact(context, stage)
+                except (KeyboardInterrupt, SystemExit):
+                    if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+                        raise exc
+                    raise
+                except BaseException:
+                    if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+                        raise exc
+                    raise
+                raise
+            try:
+                write_stage_manifest(
+                    state_path, {**_stage_identity(context), "completed": completed}
+                )
+                _checksum_manifest(state_path)
+            except (KeyboardInterrupt, SystemExit) as primary:
+                try:
+                    _restore_rc_stage_publication(
+                        context,
+                        stage,
+                        prior_state_exists=prior_state_exists,
+                        prior_state=prior_state,
+                        prior_index_exists=prior_index_exists,
+                        prior_index_entries=prior_index_entries,
+                    )
+                except (KeyboardInterrupt, SystemExit) as cleanup:
+                    if cleanup is primary:
+                        raise
+                    raise primary from cleanup
+                except BaseException as cleanup_exc:
+                    raise primary from cleanup_exc
+                raise
+            except Exception as primary:
+                try:
+                    _restore_rc_stage_publication(
+                        context,
+                        stage,
+                        prior_state_exists=prior_state_exists,
+                        prior_state=prior_state,
+                        prior_index_exists=prior_index_exists,
+                        prior_index_entries=prior_index_entries,
+                    )
+                except (KeyboardInterrupt, SystemExit) as cleanup:
+                    raise cleanup from primary
+                except StageGateError:
+                    raise
+                raise
+            return
     path = context.evidence_root / "stage-state.json"
     write_stage_manifest(path, {**_stage_identity(context), "completed": completed})
     _checksum_manifest(path)
+
+
+def _verify_rc_post_stage_state(
+    context: StageContext, stage: str, attempt: dict[str, Any]
+) -> None:
+    state_path = context.evidence_root / "stage-state.json"
+    pass_path = context.evidence_root / f"{stage}.json"
+    try:
+        expected_state = {
+            **_stage_identity(context),
+            "completed": list(STAGE_ORDER[: STAGE_ORDER.index(stage) + 1]),
+        }
+        _verify_checksum_entry(state_path)
+        raw_state = state_path.read_bytes()
+        state = json.loads(raw_state.decode("utf-8"))
+        canonical_state = (json.dumps(state, indent=2, sort_keys=True) + "\n").encode(
+            "utf-8"
+        )
+        if raw_state != canonical_state or state != expected_state:
+            raise ValueError
+        _verify_checksum_entry(pass_path)
+        manifest = _read_json(pass_path)
+        if (
+            manifest.get("stage") != stage
+            or manifest.get("verdict") != "PASS"
+            or manifest.get("release_sha", manifest.get("backend_sha"))
+            != context.release_sha
+            or manifest.get("frontend_sha") != context.frontend_sha
+            or manifest.get("rc_attempt") != attempt
+        ):
+            raise ValueError
+    except (KeyboardInterrupt, SystemExit) as primary:
+        try:
+            _discard_rc_stage_artifact(context, stage)
+        except (KeyboardInterrupt, SystemExit) as cleanup:
+            if cleanup is primary:
+                raise
+            raise primary from cleanup
+        except BaseException as cleanup_exc:
+            raise primary from cleanup_exc
+        raise
+    except BaseException as exc:
+        try:
+            _discard_rc_stage_artifact(context, stage)
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException as cleanup_exc:
+            raise StageGateError(
+                "rc_stage_publication_rollback_failed"
+            ) from cleanup_exc
+        raise StageGateError("rc_stage_publication_rollback_failed") from exc
 
 
 def _accepted_frontend_sha(frontend_sha: str) -> str:
@@ -5492,6 +5720,16 @@ def _safe_error_code(error: BaseException) -> str:
     return f"unexpected_{type(error).__name__}"
 
 
+def _actual_machine_id() -> str:
+    try:
+        machine_id = Path("/etc/machine-id").read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeError) as exc:
+        raise StageGateError("rc_guest_machine_identity_mismatch") from exc
+    if not re.fullmatch(r"[0-9a-f]{32}", machine_id):
+        raise StageGateError("rc_guest_machine_identity_mismatch")
+    return machine_id
+
+
 def _verify_scheduler_restoration() -> None:
     """Independent final-state check (#160 HIGH-2): no restart here. Readiness
     is polled FIRST (up to _wait_json's own budget) so a restart that timed out
@@ -6224,6 +6462,7 @@ def _verify_write_activation_restoration(
     _verify_frontend_source(context)
     return {
         "verified": True,
+        "processes": after_processes,
         "processes_online": sorted(required_online),
         "listeners": after_listeners,
         "dark_contract_after": after_dark,
@@ -6300,11 +6539,30 @@ def _run_local_write_activation_authenticated(
     )
     after_rate: dict | None = None
     after_rate_started_at: float | None = None
+    after_rate_completed_at: float | None = None
+    after_rate_completed_monotonic_ms: int | None = None
 
     def capture_rate_after_browser() -> None:
-        nonlocal after_rate, after_rate_started_at
+        nonlocal after_rate, after_rate_started_at, after_rate_completed_at
+        nonlocal after_rate_completed_monotonic_ms
         after_rate_started_at = time.monotonic()
         after_rate = _snapshot_planning_depth_rate_keys(context)
+        after_rate_completed_at = time.monotonic()
+        if (
+            type(after_rate_completed_at) not in {int, float}
+            or isinstance(after_rate_completed_at, bool)
+            or not math.isfinite(after_rate_completed_at)
+            or after_rate_completed_at < 0
+        ):
+            raise StageGateError("write_activation_rate_snapshot_missing")
+        try:
+            after_rate_completed_monotonic_ms = math.ceil(
+                after_rate_completed_at * 1000.0
+            )
+        except (OverflowError, TypeError, ValueError) as exc:
+            raise StageGateError("write_activation_rate_snapshot_missing") from exc
+        if after_rate_completed_monotonic_ms < 0:
+            raise StageGateError("write_activation_rate_snapshot_missing")
 
     def capture_bff_dark_probe(fresh_client, fresh_token: str) -> dict:
         restored_probe = fresh_client.request(
@@ -6528,13 +6786,40 @@ def _run_local_write_activation_authenticated(
         before_listeners=before_listeners,
     )
     after_snapshot = _take_persist_snapshot(context)
+    steps["persist_snapshot_sha256"] = _canonical_json_sha256(after_snapshot)
     if after_rate is None:
         raise StageGateError("write_activation_rate_snapshot_missing")
     if after_rate_started_at is None:
         raise StageGateError("write_activation_rate_snapshot_missing")
+    if after_rate_completed_at is None:
+        raise StageGateError("write_activation_rate_snapshot_missing")
+    if after_rate_completed_monotonic_ms is None:
+        raise StageGateError("write_activation_rate_snapshot_missing")
     elapsed_ms = _rate_snapshot_elapsed_ms(
         before_rate_completed_at, after_rate_started_at
     )
+    try:
+        current_monotonic = time.monotonic()
+        minimum_elapsed_seconds = current_monotonic - after_rate_completed_at
+        minimum_elapsed_ms = math.floor(minimum_elapsed_seconds * 1000.0)
+        timing_is_valid = (
+            math.isfinite(current_monotonic)
+            and math.isfinite(after_rate_completed_at)
+            and math.isfinite(minimum_elapsed_seconds)
+            and minimum_elapsed_seconds >= 0
+            and minimum_elapsed_ms >= 0
+        )
+    except (TypeError, ValueError, OverflowError):
+        timing_is_valid = False
+    if not timing_is_valid:
+        raise StageGateError("write_activation_rate_snapshot_missing")
+    configured_window_ms = _planning_depth_write_window_ms(context)
+    steps["rate_state_after_browser"] = {
+        "configured_window_ms": configured_window_ms,
+        "minimum_elapsed_ms": minimum_elapsed_ms,
+        "snapshot_completed_monotonic_ms": after_rate_completed_monotonic_ms,
+        "snapshot": after_rate,
+    }
     steps["persisted_diff"] = validate_write_activation_diff(
         before_snapshot,
         after_snapshot,
@@ -6547,7 +6832,7 @@ def _run_local_write_activation_authenticated(
         before_rate,
         after_rate,
         expected_increment=3,
-        configured_window_ms=_planning_depth_write_window_ms(context),
+        configured_window_ms=configured_window_ms,
         elapsed_ms=elapsed_ms,
         expected_operator_key=_planning_depth_rate_key(
             steps["operator_principal"]["subject"]
@@ -7361,6 +7646,890 @@ def _snapshot_planning_depth_rate_keys(context: StageContext) -> dict:
     return _parse_rate_key_snapshot(raw)
 
 
+def _rc_database_clean(context: StageContext) -> bool:
+    query = """
+SELECT (
+    to_regnamespace('scheduler') IS NULL
+    AND to_regnamespace('ros_gis') IS NULL
+    AND to_regnamespace('water_planning') IS NULL
+    AND to_regnamespace('gis') IS NULL
+)::text;
+"""
+    try:
+        result = _psql(context, query)
+    except Exception as exc:
+        raise StageGateError("rc_database_not_clean") from exc
+    if result.strip() != "t":
+        raise StageGateError("rc_database_not_clean")
+    return True
+
+
+def _rc_configured_dark(context: StageContext) -> bool:
+    try:
+        environments = {
+            name: _load_env_file(context.runtime_env_dir / f"{name}.env")
+            for name in ("flow", "scheduler", "ros", "bff")
+        }
+        scheduler = environments["scheduler"]
+        ros = environments["ros"]
+        if any(
+            scheduler.get(name)
+            for name in (
+                "SCHEDULER_SCADA_BASE_URL",
+                "SCHEDULER_SERVICE_JWT_SECRET",
+                "SCHEDULER_DEVICE_CAPABILITY_SNAPSHOT_PATH",
+            )
+        ) or ros.get("REQUIREMENT_SOURCE_POSTGRES_URL"):
+            raise ValueError
+        if any(
+            values.get("ALLOW_MACHINE_COMMANDS") not in (None, "false")
+            for values in environments.values()
+        ):
+            raise ValueError
+        sanitized = []
+        for name, service in (
+            ("flow-monitoring", "flow"),
+            ("scheduler", "scheduler"),
+            ("ros-gis-integration", "ros"),
+            ("bff-water-planning", "bff"),
+        ):
+            source = environments[service]
+            selected = {
+                key: source[key]
+                for key in GATE_ENV_NAMES
+                - {
+                    "REQUIREMENT_SOURCE_POSTGRES_URL",
+                    "SCHEDULER_SCADA_BASE_URL",
+                    "SCHEDULER_SERVICE_JWT_SECRET",
+                    "SCHEDULER_DEVICE_CAPABILITY_SNAPSHOT_PATH",
+                }
+                if key in source
+            }
+            sanitized.append({"name": name, "pm2_env": {"env": selected, **selected}})
+        collect_dark_runtime_contract(
+            json.dumps(sanitized, separators=(",", ":")),
+            _read_json(
+                context.repo_root / "services/flow-monitoring/data/model-releases/"
+                "engineering-prior-v5-v1.json"
+            ),
+        )
+        return True
+    except (KeyError, TypeError, ValueError, StageGateError) as exc:
+        raise StageGateError("rc_runtime_not_dark") from exc
+
+
+def _rc_preflight_snapshot(context: StageContext) -> dict[str, Any]:
+    _verify_source_checkouts(context)
+    if _rc_database_clean(context) is not True:
+        raise StageGateError("rc_database_not_clean")
+    try:
+        rate_state = _snapshot_planning_depth_rate_keys(context)
+    except Exception as exc:
+        raise StageGateError("rc_rate_state_not_clean") from exc
+    if rate_state != {}:
+        raise StageGateError("rc_rate_state_not_clean")
+    try:
+        raw_pm2 = json.loads(_pm2_json())
+        if not isinstance(raw_pm2, list) or raw_pm2:
+            raise ValueError
+    except Exception as exc:
+        raise StageGateError("rc_runtime_not_clean") from exc
+    try:
+        listeners = _listener_snapshot()
+        if application_port_conflicts(listeners) or unexpected_non_loopback_listeners(
+            listeners
+        ):
+            raise ValueError
+    except Exception as exc:
+        raise StageGateError("rc_listener_state_not_clean") from exc
+    if _rc_configured_dark(context) is not True:
+        raise StageGateError("rc_runtime_not_dark")
+    return {
+        "evidence_root_empty": True,
+        "database_clean": True,
+        "rate_state_clean": True,
+        "actionable_commands": 0,
+        "sources_clean": True,
+        "runtime_dark": True,
+    }
+
+
+def _rc_preflight_path(context: StageContext) -> Path:
+    return context.evidence_root.parent / "LOCAL-RC-1-preflight.json"
+
+
+def _rc_internal_preflight_attempt(
+    context: StageContext,
+) -> tuple[dict[str, Any], str] | None:
+    path = context.evidence_root / "RC-PREFLIGHT.json"
+    if not path.exists():
+        return None
+    try:
+        _verify_checksum_entry(path)
+        raw = path.read_bytes()
+        if len(raw) > 1024 * 1024:
+            raise ValueError
+        record = json.loads(raw.decode("utf-8"))
+        expected = {
+            "schema_version": 1,
+            "phase": "preflight",
+            "verdict": "PASS",
+            "release_sha": context.release_sha,
+            "frontend_sha": context.frontend_sha,
+            "dependency_sha256": None,
+            "guest": None,
+            "as_of_date": None,
+            "checks": _rc_expected_preflight_checks(),
+        }
+        if not isinstance(record, dict):
+            raise ValueError
+        dependency_sha256 = record.get("dependency_sha256")
+        guest = record.get("guest")
+        as_of_date = record.get("as_of_date")
+        captured_at = record.get("captured_at")
+        expected["dependency_sha256"] = dependency_sha256
+        expected["guest"] = guest
+        expected["as_of_date"] = as_of_date
+        if (
+            set(record) != {*expected, "captured_at"}
+            or not isinstance(dependency_sha256, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", dependency_sha256)
+            or not isinstance(guest, dict)
+            or set(guest) != {"name", "id", "architecture", "machine_id"}
+            or guest.get("name") != ACCEPTANCE_MACHINE_NAME
+            or not isinstance(guest.get("id"), str)
+            or not re.fullmatch(r"[0-9A-HJKMNP-TV-Z]{26}", guest["id"])
+            or guest.get("architecture") != "arm64"
+            or not isinstance(guest.get("machine_id"), str)
+            or not re.fullmatch(r"[0-9a-f]{32}", guest["machine_id"])
+            or not isinstance(as_of_date, str)
+            or not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", as_of_date)
+            or not isinstance(captured_at, str)
+            or not re.fullmatch(
+                r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z",
+                captured_at,
+            )
+            or record != {**expected, "captured_at": captured_at}
+            or raw
+            != (json.dumps(record, indent=2, sort_keys=True) + "\n").encode("utf-8")
+        ):
+            raise ValueError
+        if (
+            datetime.strptime(captured_at, "%Y-%m-%dT%H:%M:%SZ").strftime(
+                "%Y-%m-%dT%H:%M:%SZ"
+            )
+            != captured_at
+        ):
+            raise ValueError
+        validate_evidence_payload(record)
+        return record, hashlib.sha256(raw).hexdigest()
+    except (
+        OSError,
+        UnicodeDecodeError,
+        TypeError,
+        ValueError,
+        json.JSONDecodeError,
+        StageGateError,
+    ) as exc:
+        raise StageGateError("rc_stage_attempt_identity_mismatch") from exc
+
+
+def _rc_stage_attempt_from_record(
+    record: dict[str, Any], preflight_sha256: str, as_of_date: str
+) -> dict[str, Any]:
+    return {
+        "preflight_sha256": preflight_sha256,
+        "dependency_sha256": record["dependency_sha256"],
+        "guest": record["guest"],
+        "as_of_date": as_of_date,
+    }
+
+
+def _rc_stage_attempt(
+    context: StageContext, expected_machine_id: str | None
+) -> dict[str, Any] | None:
+    internal = _rc_internal_preflight_attempt(context)
+    if internal is None:
+        if expected_machine_id is not None:
+            raise StageGateError("rc_stage_attempt_identity_mismatch")
+        return None
+    record, preflight_sha256 = internal
+    attempt = _rc_stage_attempt_from_record(
+        record, preflight_sha256, context.as_of_date.isoformat()
+    )
+    error = None
+    if context.execution_kind != "canonical":
+        error = StageGateError("rc_stage_attempt_identity_mismatch")
+    elif not isinstance(expected_machine_id, str) or not re.fullmatch(
+        r"[0-9a-f]{32}", expected_machine_id
+    ):
+        error = StageGateError("rc_stage_attempt_identity_mismatch")
+    elif record["as_of_date"] != context.as_of_date.isoformat():
+        error = StageGateError("rc_stage_attempt_identity_mismatch")
+    elif record["guest"].get("machine_id") != expected_machine_id:
+        error = StageGateError("rc_stage_attempt_identity_mismatch")
+    if error is not None:
+        error.rc_attempt = attempt
+        raise error
+    return attempt
+
+
+def _bind_rc_stage_attempt(
+    context: StageContext, stage: str, attempt: dict[str, Any]
+) -> None:
+    path = context.evidence_root / f"{stage}.json"
+    try:
+        _verify_checksum_entry(path)
+        manifest = _read_json(path)
+        if (
+            manifest.get("stage") != stage
+            or manifest.get("verdict") != "PASS"
+            or manifest.get("release_sha", manifest.get("backend_sha"))
+            != context.release_sha
+            or manifest.get("frontend_sha") != context.frontend_sha
+        ):
+            raise ValueError
+        manifest["rc_attempt"] = attempt
+        write_stage_manifest(path, manifest)
+        _checksum_manifest(path)
+    except BaseException as exc:
+        try:
+            _discard_rc_stage_artifact(context, stage)
+        except (KeyboardInterrupt, SystemExit):
+            if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+                raise exc
+            raise
+        except BaseException:
+            if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+                raise exc
+            raise
+        if isinstance(exc, (OSError, TypeError, ValueError, StageGateError)):
+            raise StageGateError("rc_stage_attempt_identity_mismatch") from exc
+        raise
+
+
+def _cleanup_rc_preflight_publication(
+    internal_paths: tuple[Path, ...],
+    external_path: Path | None = None,
+) -> None:
+    try:
+        paths = internal_paths
+        if external_path is not None and external_path.exists():
+            paths = (*paths, external_path)
+        for path in paths:
+            path.unlink(missing_ok=True)
+            if path.exists():
+                raise OSError(f"RC preflight artifact remained: {path.name}")
+        if external_path is not None and external_path.exists():
+            raise OSError("RC external preflight artifact remained")
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException as exc:
+        raise StageGateError("rc_preflight_publication_rollback_failed") from exc
+
+
+def run_local_rc_preflight(
+    context: StageContext,
+    *,
+    dependency_sha256: str,
+    guest_id: str,
+    expected_machine_id: str,
+) -> dict[str, Any]:
+    try:
+        if any(context.evidence_root.iterdir()):
+            raise StageGateError("rc_evidence_not_clean")
+    except OSError as exc:
+        raise StageGateError("rc_evidence_not_clean") from exc
+    preflight_path = _rc_preflight_path(context)
+    if preflight_path.exists():
+        raise StageGateError("rc_preflight_artifact_exists")
+    if context.execution_kind != "canonical":
+        raise StageGateError("rc_execution_kind_not_accepted")
+    if not isinstance(expected_machine_id, str) or not re.fullmatch(
+        r"[0-9a-f]{32}", expected_machine_id
+    ):
+        raise StageGateError("rc_guest_machine_identity_mismatch")
+    if not re.fullmatch(r"[0-9a-f]{64}", dependency_sha256):
+        raise StageGateError("rc_dependency_identity_not_accepted")
+    if not re.fullmatch(r"[0-9A-HJKMNP-TV-Z]{26}", guest_id):
+        raise StageGateError("rc_guest_identity_not_accepted")
+    owner = _read_json(context.owner_path)
+    _validate_execution_owner(context, owner)
+    if owner.get("dependency_sha256") != dependency_sha256:
+        raise StageGateError("rc_dependency_identity_mismatch")
+    checks = _rc_preflight_snapshot(context)
+    manifest = {
+        "schema_version": 1,
+        "phase": "preflight",
+        "verdict": "PASS",
+        "release_sha": context.release_sha,
+        "frontend_sha": context.frontend_sha,
+        "dependency_sha256": dependency_sha256,
+        "guest": {
+            "name": ACCEPTANCE_MACHINE_NAME,
+            "id": guest_id,
+            "architecture": owner["architecture"],
+            "machine_id": expected_machine_id,
+        },
+        "as_of_date": context.as_of_date.isoformat(),
+        "checks": checks,
+        "captured_at": _utc_timestamp_seconds(),
+    }
+    validate_evidence_payload(manifest)
+    internal_paths = (
+        context.evidence_root / "RC-PREFLIGHT.json",
+        context.evidence_root / "stage-state.json",
+        context.evidence_root / "SHA256SUMS",
+    )
+    try:
+        write_stage_manifest(internal_paths[0], manifest)
+        _checksum_manifest(internal_paths[0])
+        _save_state(context, [])
+        write_stage_manifest(preflight_path, manifest)
+    except (KeyboardInterrupt, SystemExit):
+        try:
+            _cleanup_rc_preflight_publication(internal_paths, preflight_path)
+        except BaseException:
+            pass
+        raise
+    except BaseException:
+        try:
+            _cleanup_rc_preflight_publication(internal_paths, preflight_path)
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException:
+            raise
+        raise
+    return manifest
+
+
+def _rc_load_stage_manifests(
+    context: StageContext,
+    *,
+    expected_attempt: dict[str, Any] | None = None,
+    require_internal: bool = False,
+) -> dict[str, dict[str, Any]]:
+    internal_path = context.evidence_root / "RC-PREFLIGHT.json"
+    if require_internal or internal_path.exists():
+        try:
+            internal = _rc_internal_preflight_attempt(context)
+            if internal is None:
+                raise StageGateError("rc_finalize_stage_attempt_invalid")
+            record, preflight_sha256 = internal
+            internal_attempt = _rc_stage_attempt_from_record(
+                record, preflight_sha256, context.as_of_date.isoformat()
+            )
+            if expected_attempt is not None and internal_attempt != expected_attempt:
+                raise StageGateError("rc_finalize_stage_attempt_invalid")
+            expected_attempt = internal_attempt
+        except StageGateError as exc:
+            if str(exc) == "rc_finalize_stage_attempt_invalid":
+                raise
+            raise StageGateError("rc_finalize_stage_attempt_invalid") from exc
+    try:
+        state = _load_state(context)
+    except Exception as exc:
+        raise StageGateError("rc_finalize_stage_state_incomplete") from exc
+    if state.get("completed") != list(STAGE_ORDER):
+        raise StageGateError("rc_finalize_stage_state_incomplete")
+    manifests: dict[str, dict[str, Any]] = {}
+    for stage in STAGE_ORDER:
+        path = context.evidence_root / f"{stage}.json"
+        try:
+            _verify_checksum_entry(path)
+            manifest = _read_json(path)
+        except Exception as exc:
+            raise StageGateError("rc_finalize_stage_manifest_invalid") from exc
+        if (
+            manifest.get("stage") != stage
+            or manifest.get("verdict") != "PASS"
+            or manifest.get("release_sha", manifest.get("backend_sha"))
+            != context.release_sha
+            or manifest.get("frontend_sha") != context.frontend_sha
+        ):
+            raise StageGateError("rc_finalize_stage_manifest_invalid")
+        if (
+            expected_attempt is not None
+            and manifest.get("rc_attempt") != expected_attempt
+        ):
+            raise StageGateError("rc_finalize_stage_attempt_invalid")
+        manifests[stage] = manifest
+    return manifests
+
+
+def _rc_expected_preflight_checks() -> dict[str, Any]:
+    return {
+        "evidence_root_empty": True,
+        "database_clean": True,
+        "rate_state_clean": True,
+        "actionable_commands": 0,
+        "sources_clean": True,
+        "runtime_dark": True,
+    }
+
+
+def _rc_load_preflight_record(
+    context: StageContext,
+    *,
+    dependency_sha256: str,
+    guest_id: str,
+    expected_machine_id: str,
+) -> tuple[dict[str, Any], str]:
+    if (
+        context.execution_kind != "canonical"
+        or not re.fullmatch(r"[0-9a-f]{64}", dependency_sha256)
+        or not re.fullmatch(r"[0-9A-HJKMNP-TV-Z]{26}", guest_id)
+        or not isinstance(expected_machine_id, str)
+        or not re.fullmatch(r"[0-9a-f]{32}", expected_machine_id)
+    ):
+        raise StageGateError("rc_finalize_preflight_invalid")
+    try:
+        owner = _read_json(context.owner_path)
+        _validate_execution_owner(context, owner)
+        if owner.get("dependency_sha256") != dependency_sha256:
+            raise ValueError
+        path = _rc_preflight_path(context)
+        descriptor = os.open(
+            path,
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+        )
+        try:
+            descriptor_stat = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(descriptor_stat.st_mode)
+                or descriptor_stat.st_size > 1024 * 1024
+            ):
+                raise ValueError
+            with os.fdopen(descriptor, "rb") as stream:
+                descriptor = -1
+                raw = stream.read(1024 * 1024 + 1)
+            if len(raw) != descriptor_stat.st_size or len(raw) > 1024 * 1024:
+                raise ValueError
+        finally:
+            if descriptor != -1:
+                os.close(descriptor)
+        record = json.loads(raw.decode("utf-8"))
+    except (
+        OSError,
+        UnicodeDecodeError,
+        TypeError,
+        ValueError,
+        json.JSONDecodeError,
+        StageGateError,
+    ) as exc:
+        raise StageGateError("rc_finalize_preflight_invalid") from exc
+    if not isinstance(record, dict):
+        raise StageGateError("rc_finalize_preflight_invalid")
+    expected_guest = {
+        "name": ACCEPTANCE_MACHINE_NAME,
+        "id": guest_id,
+        "architecture": "arm64",
+        "machine_id": expected_machine_id,
+    }
+    expected = {
+        "schema_version": 1,
+        "phase": "preflight",
+        "verdict": "PASS",
+        "release_sha": context.release_sha,
+        "frontend_sha": context.frontend_sha,
+        "dependency_sha256": dependency_sha256,
+        "guest": expected_guest,
+        "as_of_date": context.as_of_date.isoformat(),
+        "checks": _rc_expected_preflight_checks(),
+    }
+    captured_at = record.get("captured_at")
+    if (
+        set(record) != {*expected, "captured_at"}
+        or not isinstance(captured_at, str)
+        or not re.fullmatch(
+            r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z",
+            captured_at,
+        )
+    ):
+        raise StageGateError("rc_finalize_preflight_invalid")
+    try:
+        if (
+            datetime.strptime(captured_at, "%Y-%m-%dT%H:%M:%SZ").strftime(
+                "%Y-%m-%dT%H:%M:%SZ"
+            )
+            != captured_at
+        ):
+            raise ValueError
+    except ValueError as exc:
+        raise StageGateError("rc_finalize_preflight_invalid") from exc
+    expected["captured_at"] = captured_at
+    if record != expected:
+        raise StageGateError("rc_finalize_preflight_invalid")
+    try:
+        validate_evidence_payload(record)
+        canonical = (json.dumps(record, indent=2, sort_keys=True) + "\n").encode(
+            "utf-8"
+        )
+        if raw != canonical:
+            raise ValueError
+        record_sha256 = hashlib.sha256(raw).hexdigest()
+    except (StageGateError, TypeError, ValueError) as exc:
+        raise StageGateError("rc_finalize_preflight_invalid") from exc
+    return record, record_sha256
+
+
+def _rc_process_identity(processes: object) -> list[tuple[Any, ...]]:
+    if not isinstance(processes, list) or len(processes) != len(PROCESS_NAMES):
+        raise StageGateError("rc_finalize_process_stability_invalid")
+    identity = []
+    for item in processes:
+        if (
+            type(item) is not dict
+            or set(item)
+            != {"name", "status", "restarts", "pid", "memory_bytes", "cpu_percent"}
+            or type(item.get("name")) is not str
+            or type(item.get("status")) is not str
+            or item.get("status") != "online"
+            or type(item.get("restarts")) is not int
+            or item.get("restarts") < 0
+            or type(item.get("pid")) is not int
+            or item.get("pid") <= 0
+            or type(item.get("memory_bytes")) is not int
+            or item.get("memory_bytes") < 0
+            or type(item.get("cpu_percent")) not in {int, float}
+            or isinstance(item.get("cpu_percent"), bool)
+            or not math.isfinite(item.get("cpu_percent"))
+            or item.get("cpu_percent") < 0
+        ):
+            raise StageGateError("rc_finalize_process_stability_invalid")
+        identity.append((item["name"], item["status"], item["restarts"], item["pid"]))
+    if sorted(name for name, *_rest in identity) != sorted(PROCESS_NAMES):
+        raise StageGateError("rc_finalize_process_stability_invalid")
+    return sorted(identity)
+
+
+def _rc_final_snapshot(
+    context: StageContext, stage_manifests: dict[str, dict[str, Any]]
+) -> dict[str, Any]:
+    try:
+        persist_steps = stage_manifests["LOCAL-PERSIST-ONLY-1"]["steps"]
+        write_steps = stage_manifests["LOCAL-WRITE-ACT-1"]["steps"]
+        persist_principal = persist_steps["operator_principal"]["subject"]
+        write_principal = write_steps["operator_principal"]["subject"]
+        runtime_baseline = write_steps["runtime_restoration"]
+        expected_persist_digest = write_steps["persist_snapshot_sha256"]
+        if (
+            not isinstance(persist_principal, str)
+            or not persist_principal
+            or not isinstance(write_principal, str)
+            or not write_principal
+            or not isinstance(runtime_baseline, dict)
+            or not isinstance(expected_persist_digest, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", expected_persist_digest)
+        ):
+            raise ValueError
+        baseline_processes = runtime_baseline["processes"]
+        baseline_dark = runtime_baseline["dark_contract_after"]
+        baseline_listeners = runtime_baseline["listeners"]
+        if not isinstance(baseline_dark, dict) or not isinstance(
+            baseline_listeners, list
+        ):
+            raise ValueError
+        baseline_identity = _rc_process_identity(baseline_processes)
+    except (KeyError, TypeError, ValueError, StageGateError) as exc:
+        if isinstance(exc, StageGateError):
+            raise
+        raise StageGateError("rc_finalize_immutable_history_invalid") from exc
+
+    try:
+        model_release = _read_json(
+            context.repo_root / "services/flow-monitoring/data/model-releases/"
+            "engineering-prior-v5-v1.json"
+        )
+        runtime = _verify_write_activation_restoration(
+            context,
+            before_dark=baseline_dark,
+            model_release=model_release,
+            before_listeners=baseline_listeners,
+        )
+        fresh_identity = _rc_process_identity(runtime.get("processes"))
+    except Exception as exc:
+        if isinstance(exc, StageGateError) and str(exc) == (
+            "rc_finalize_process_stability_invalid"
+        ):
+            raise
+        raise StageGateError("rc_finalize_process_stability_invalid") from exc
+    if fresh_identity != baseline_identity:
+        raise StageGateError("rc_finalize_process_stability_invalid")
+    if runtime.get("verified") is not True:
+        raise StageGateError("rc_finalize_process_stability_invalid")
+
+    try:
+        fresh_snapshot = _take_persist_snapshot(context)
+        fresh_digest = _canonical_json_sha256(fresh_snapshot)
+    except Exception as exc:
+        raise StageGateError("rc_finalize_immutable_history_invalid") from exc
+    if fresh_digest != expected_persist_digest:
+        raise StageGateError("rc_finalize_immutable_history_invalid")
+
+    allowed_rate_keys = {
+        _planning_depth_rate_key(persist_principal),
+        _planning_depth_rate_key(write_principal),
+    }
+    write_rate_key = _planning_depth_rate_key(write_principal)
+    try:
+        rate_reference = write_steps["rate_state_after_browser"]
+        if (
+            type(rate_reference) is not dict
+            or set(rate_reference)
+            != {
+                "configured_window_ms",
+                "minimum_elapsed_ms",
+                "snapshot_completed_monotonic_ms",
+                "snapshot",
+            }
+            or type(rate_reference["configured_window_ms"]) is not int
+            or isinstance(rate_reference["configured_window_ms"], bool)
+            or rate_reference["configured_window_ms"] <= 0
+            or type(rate_reference["minimum_elapsed_ms"]) is not int
+            or isinstance(rate_reference["minimum_elapsed_ms"], bool)
+            or rate_reference["minimum_elapsed_ms"] < 0
+            or type(rate_reference["snapshot_completed_monotonic_ms"]) is not int
+            or isinstance(rate_reference["snapshot_completed_monotonic_ms"], bool)
+            or rate_reference["snapshot_completed_monotonic_ms"] < 0
+            or type(rate_reference["snapshot"]) is not dict
+            or not set(rate_reference["snapshot"]).issubset(allowed_rate_keys)
+            or write_rate_key not in rate_reference["snapshot"]
+        ):
+            raise ValueError
+        configured_window_ms = rate_reference["configured_window_ms"]
+        minimum_elapsed_ms = rate_reference["minimum_elapsed_ms"]
+        snapshot_completed_monotonic_ms = rate_reference[
+            "snapshot_completed_monotonic_ms"
+        ]
+        reference_rate_state = rate_reference["snapshot"]
+        for key, row in reference_rate_state.items():
+            if (
+                type(key) is not str
+                or key not in allowed_rate_keys
+                or type(row) is not dict
+                or set(row) != {"value", "ttl_ms"}
+                or type(row["value"]) is not int
+                or row["value"] <= 0
+                or type(row["ttl_ms"]) is not int
+                or row["ttl_ms"] <= 0
+                or row["ttl_ms"] > configured_window_ms
+            ):
+                raise ValueError
+    except (KeyError, TypeError, ValueError) as exc:
+        raise StageGateError("rc_finalize_rate_state_invalid") from exc
+    try:
+        final_rate_snapshot_started_at = time.monotonic()
+        if (
+            type(final_rate_snapshot_started_at) not in {int, float}
+            or isinstance(final_rate_snapshot_started_at, bool)
+            or not math.isfinite(final_rate_snapshot_started_at)
+            or final_rate_snapshot_started_at < 0
+        ):
+            raise ValueError
+        final_rate_snapshot_started_ms = math.floor(
+            final_rate_snapshot_started_at * 1000.0
+        )
+        if final_rate_snapshot_started_ms < snapshot_completed_monotonic_ms:
+            raise ValueError
+        rate_state = _snapshot_planning_depth_rate_keys(context)
+        final_rate_snapshot_completed_at = time.monotonic()
+        if (
+            type(final_rate_snapshot_completed_at) not in {int, float}
+            or isinstance(final_rate_snapshot_completed_at, bool)
+            or not math.isfinite(final_rate_snapshot_completed_at)
+            or final_rate_snapshot_completed_at < 0
+        ):
+            raise ValueError
+        final_rate_snapshot_completed_ms = math.ceil(
+            final_rate_snapshot_completed_at * 1000.0
+        )
+        if final_rate_snapshot_completed_ms < final_rate_snapshot_started_ms:
+            raise ValueError
+        full_elapsed_ms = max(
+            minimum_elapsed_ms,
+            final_rate_snapshot_started_ms - snapshot_completed_monotonic_ms,
+        )
+        if full_elapsed_ms < 0:
+            raise ValueError
+        if type(rate_state) is not dict:
+            raise ValueError
+        for key, reference_row in reference_rate_state.items():
+            if key not in rate_state and reference_row["ttl_ms"] > full_elapsed_ms:
+                raise ValueError
+        for key, row in rate_state.items():
+            if (
+                key not in allowed_rate_keys
+                or type(row) is not dict
+                or set(row) != {"value", "ttl_ms"}
+                or type(row["value"]) is not int
+                or row["value"] <= 0
+                or type(row["ttl_ms"]) is not int
+                or row["ttl_ms"] <= 0
+                or key not in reference_rate_state
+                or row["value"] != reference_rate_state[key]["value"]
+                or row["ttl_ms"] > configured_window_ms
+                or row["ttl_ms"]
+                > max(0, reference_rate_state[key]["ttl_ms"] - full_elapsed_ms)
+            ):
+                raise ValueError
+    except Exception as exc:
+        raise StageGateError("rc_finalize_rate_state_invalid") from exc
+
+    try:
+        write_manifest_path = context.evidence_root / "LOCAL-WRITE-ACT-1.json"
+        _verify_checksum_entry(write_manifest_path)
+        write_manifest_sha256 = hashlib.sha256(
+            write_manifest_path.read_bytes()
+        ).hexdigest()
+        proof = {
+            "processes": runtime["processes"],
+            "dark_contract": runtime["dark_contract_after"],
+            "frontend_activation_gates": runtime["final_activation_gates"],
+            "readiness": runtime["readiness"],
+            "listeners": runtime["listeners"],
+            "persist_snapshot_sha256": fresh_digest,
+            "rate_state": rate_state,
+            "rate_minimum_elapsed_ms": full_elapsed_ms,
+            "rate_snapshot_started_monotonic_ms": final_rate_snapshot_started_ms,
+            "rate_snapshot_completed_monotonic_ms": final_rate_snapshot_completed_ms,
+            "write_activation_manifest_sha256": write_manifest_sha256,
+        }
+        result = {
+            "verdict": "PASS",
+            "completed": list(STAGE_ORDER),
+            "runtime_dark": True,
+            "processes_stable": True,
+            "readiness_green": True,
+            "listeners_accepted": True,
+            "immutable_history": True,
+            "proof": proof,
+        }
+        validate_evidence_payload(result)
+        return result
+    except (OSError, StageGateError, TypeError, ValueError) as exc:
+        if isinstance(exc, StageGateError) and str(exc).startswith("rc_finalize_"):
+            raise
+        raise StageGateError("rc_finalize_immutable_history_invalid") from exc
+
+
+def _rollback_rc_finalize_publication(
+    context: StageContext,
+    success_paths: tuple[Path, ...],
+    primary: BaseException,
+) -> None:
+    try:
+        for path in success_paths:
+            _clear_checksum_artifact(context.evidence_root, path.name)
+            if path.exists():
+                raise OSError(f"RC success artifact remained: {path.name}")
+        index_entries = _read_checksum_index(context.evidence_root / "SHA256SUMS")
+        if any(path.name in index_entries for path in success_paths):
+            raise OSError("RC success checksum remained after rollback")
+    except (KeyboardInterrupt, SystemExit) as cleanup:
+        if isinstance(primary, (KeyboardInterrupt, SystemExit)):
+            if cleanup is primary:
+                raise
+            raise primary from cleanup
+        raise cleanup from primary
+    except BaseException as cleanup_exc:
+        if isinstance(primary, (KeyboardInterrupt, SystemExit)):
+            raise primary from cleanup_exc
+        raise StageGateError("rc_finalize_publication_rollback_failed") from cleanup_exc
+
+
+def run_local_rc_finalize(
+    context: StageContext,
+    *,
+    dependency_sha256: str,
+    guest_id: str,
+    expected_machine_id: str | None = None,
+) -> dict[str, Any]:
+    if not isinstance(expected_machine_id, str) or not re.fullmatch(
+        r"[0-9a-f]{32}", expected_machine_id
+    ):
+        raise StageGateError("rc_guest_machine_identity_mismatch")
+    record, record_sha256 = _rc_load_preflight_record(
+        context,
+        dependency_sha256=dependency_sha256,
+        guest_id=guest_id,
+        expected_machine_id=expected_machine_id,
+    )
+    expected_attempt = _rc_stage_attempt_from_record(
+        record, record_sha256, context.as_of_date.isoformat()
+    )
+    stage_manifests = _rc_load_stage_manifests(
+        context,
+        expected_attempt=expected_attempt,
+        require_internal=False,
+    )
+    final = _rc_final_snapshot(context, stage_manifests)
+    expected_guest = {
+        "name": ACCEPTANCE_MACHINE_NAME,
+        "id": guest_id,
+        "architecture": "arm64",
+        "machine_id": expected_machine_id,
+    }
+    manifest = {
+        "schema_version": 1,
+        "stage": "LOCAL-RC-1",
+        "verdict": "PASS",
+        "release_sha": context.release_sha,
+        "frontend_sha": context.frontend_sha,
+        "dependency_sha256": dependency_sha256,
+        "guest": expected_guest,
+        "as_of_date": context.as_of_date.isoformat(),
+        "preflight": {
+            "verdict": record["verdict"],
+            **record["checks"],
+            "record": record,
+            "record_sha256": record_sha256,
+        },
+        "final": final,
+    }
+    summary = {
+        "schema_version": 1,
+        "evidence_kind": "local_release_candidate",
+        "acceptance": "LOCAL-RC-1",
+        "acceptance_evidence": True,
+        "campaign_ledger_eligible": False,
+        "aws_actions_authorized": False,
+        "release_sha": context.release_sha,
+        "frontend_sha": context.frontend_sha,
+        "dependency_sha256": dependency_sha256,
+        "guest": expected_guest,
+        "as_of_date": context.as_of_date.isoformat(),
+        "passed": [*STAGE_ORDER, "LOCAL-RC-1"],
+        "failed": [],
+        "unreached": [],
+        "verdict": "PASS",
+    }
+    validate_evidence_payload(manifest)
+    validate_evidence_payload(summary)
+    rc_manifest_path = context.evidence_root / "LOCAL-RC-1.json"
+    summary_path = context.evidence_root / "RC-SUMMARY.json"
+    success_paths = (rc_manifest_path, summary_path)
+    preflight_path = _rc_preflight_path(context)
+    failure_path = context.evidence_root / "LOCAL-RC-1-failure.json"
+    if failure_path.exists():
+        _clear_checksum_artifact(context.evidence_root, failure_path.name)
+    try:
+        write_stage_manifest(rc_manifest_path, manifest)
+        _checksum_manifest(rc_manifest_path)
+        write_stage_manifest(summary_path, summary)
+        _checksum_manifest(summary_path)
+        preflight_path.unlink()
+        if preflight_path.exists():
+            raise OSError("external preflight artifact remained")
+    except (KeyboardInterrupt, SystemExit) as primary:
+        _rollback_rc_finalize_publication(context, success_paths, primary)
+        raise
+    except BaseException as primary:
+        _rollback_rc_finalize_publication(context, success_paths, primary)
+        raise
+    return manifest
+
+
 def assert_persist_target_week_clean(before_snapshot: dict, week_key: str) -> dict:
     """Require the persist-only target week to hold no existing submission.
 
@@ -7880,7 +9049,7 @@ def run_local_write_activation(context: StageContext) -> dict:
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("stage", choices=STAGE_ORDER)
+    parser.add_argument("stage", choices=(*STAGE_ORDER, "LOCAL-RC-1"))
     parser.add_argument("--release-sha", required=True)
     parser.add_argument("--frontend-sha", required=True)
     parser.add_argument("--repo-root", type=Path, default=Path("/opt/munbon/repo"))
@@ -7906,8 +9075,39 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--execution-kind", choices=("canonical", "rehearsal"), required=True
     )
+    parser.add_argument("--rc-phase", choices=("preflight", "finalize"))
+    parser.add_argument("--dependency-sha256")
+    parser.add_argument("--guest-id")
+    parser.add_argument("--expected-machine-id")
     parser.add_argument("--diagnostic", action="store_true")
     args = parser.parse_args(argv)
+    if args.stage == "LOCAL-RC-1":
+        if args.execution_kind != "canonical":
+            parser.error("LOCAL-RC-1 requires canonical execution")
+        if args.rc_phase is None:
+            parser.error("LOCAL-RC-1 requires --rc-phase")
+        if args.dependency_sha256 is None or args.guest_id is None:
+            parser.error("LOCAL-RC-1 requires dependency and guest identity")
+        if args.expected_machine_id is None or not re.fullmatch(
+            r"[0-9a-f]{32}", args.expected_machine_id
+        ):
+            parser.error("LOCAL-RC-1 requires expected machine identity")
+        if args.as_of_date is None:
+            parser.error("LOCAL-RC-1 requires --as-of-date")
+    elif any(
+        value is not None
+        for value in (
+            args.rc_phase,
+            args.dependency_sha256,
+            args.guest_id,
+        )
+    ):
+        parser.error("RC options are supported only for LOCAL-RC-1")
+    elif args.expected_machine_id is not None:
+        if args.execution_kind != "canonical":
+            parser.error("expected machine identity requires canonical execution")
+        if not re.fullmatch(r"[0-9a-f]{32}", args.expected_machine_id):
+            parser.error("expected machine identity is invalid")
     if args.diagnostic:
         if args.stage != "LOCAL-WRITE-UI-1":
             parser.error("--diagnostic is supported only for LOCAL-WRITE-UI-1")
@@ -7941,11 +9141,34 @@ def main(argv: list[str] | None = None) -> int:
         as_of_date=args.as_of_date,
         execution_kind=execution_kind,
     )
+    expected_machine_id = getattr(args, "expected_machine_id", None)
+    if expected_machine_id is not None and _actual_machine_id() != expected_machine_id:
+        raise StageGateError("rc_guest_machine_identity_mismatch")
     if any(context.evidence_root.glob("*-failure.json")):
         print("FAIL stage_failure_terminal")
         return 1
+    rc_attempt: dict[str, Any] | None = None
     try:
-        if args.stage == "LOCAL-BASE-0":
+        if args.stage in STAGE_ORDER:
+            rc_attempt = _rc_stage_attempt(context, expected_machine_id)
+            if rc_attempt is not None:
+                context = replace(context, rc_attempt=rc_attempt)
+        if args.stage == "LOCAL-RC-1":
+            if args.rc_phase == "preflight":
+                run_local_rc_preflight(
+                    context,
+                    dependency_sha256=args.dependency_sha256,
+                    guest_id=args.guest_id,
+                    expected_machine_id=expected_machine_id,
+                )
+            else:
+                run_local_rc_finalize(
+                    context,
+                    dependency_sha256=args.dependency_sha256,
+                    guest_id=args.guest_id,
+                    expected_machine_id=expected_machine_id,
+                )
+        elif args.stage == "LOCAL-BASE-0":
             run_local_base(context)
         elif args.stage == "LOCAL-RTA-1":
             run_local_rta(context)
@@ -7970,6 +9193,19 @@ def main(argv: list[str] | None = None) -> int:
             run_local_write_activation(context)
         else:
             raise StageGateError("stage_dispatch_invalid")
+        if rc_attempt is not None:
+            _verify_rc_post_stage_state(context, args.stage, rc_attempt)
+    except (KeyboardInterrupt, SystemExit) as primary:
+        if rc_attempt is not None and args.stage in STAGE_ORDER:
+            try:
+                _discard_rc_stage_artifact(context, args.stage)
+            except (KeyboardInterrupt, SystemExit) as cleanup:
+                if cleanup is primary:
+                    raise
+                raise primary from cleanup
+            except BaseException as cleanup_exc:
+                raise primary from cleanup_exc
+        raise
     except Exception as exc:
         # Only Exception is a stage verdict. An operator interrupt
         # (KeyboardInterrupt/SystemExit) is NOT: it propagates with standard
@@ -7978,6 +9214,27 @@ def main(argv: list[str] | None = None) -> int:
         # a stage completed, permanently contradicting the evidence.
         # DRY with _safe_error_code: same unexpected_<Type> fallback as the
         # restoration guard, so non-StageGateError codes never diverge.
+        if isinstance(exc, StageGateError) and str(exc) in {
+            "rc_stage_publication_rollback_failed",
+            "rc_preflight_publication_rollback_failed",
+            "rc_finalize_publication_rollback_failed",
+        }:
+            print(f"FAIL {exc}", file=sys.stderr)
+            return FAILURE_MANIFEST_EXIT_CODE
+        if rc_attempt is not None and args.stage in STAGE_ORDER:
+            pass_path = args.evidence_root / f"{args.stage}.json"
+            if pass_path.exists():
+                try:
+                    _discard_rc_stage_artifact(context, args.stage)
+                except (KeyboardInterrupt, SystemExit):
+                    raise
+                except BaseException:
+                    pass
+                print(
+                    "FAIL rc_stage_publication_rollback_failed",
+                    file=sys.stderr,
+                )
+                return FAILURE_MANIFEST_EXIT_CODE
         safe_error = (
             exc
             if isinstance(exc, StageGateError)
@@ -8004,8 +9261,38 @@ def main(argv: list[str] | None = None) -> int:
             "release_sha": args.release_sha,
             "frontend_sha": args.frontend_sha,
             "failed_gate": str(safe_error),
-            "failed_at": _utc_timestamp(),
+            "failed_at": (
+                _utc_timestamp_seconds()
+                if args.stage == "LOCAL-RC-1"
+                else _utc_timestamp()
+            ),
         }
+        if args.stage == "LOCAL-RC-1":
+            failure.update(
+                {
+                    "rc_phase": args.rc_phase,
+                    "dependency_sha256": args.dependency_sha256,
+                    "guest": {
+                        "name": ACCEPTANCE_MACHINE_NAME,
+                        "id": args.guest_id,
+                        "architecture": "arm64",
+                        "machine_id": expected_machine_id,
+                    },
+                    "as_of_date": context.as_of_date.isoformat(),
+                }
+            )
+            if args.rc_phase == "preflight":
+                try:
+                    failure["harness_hashes"] = {
+                        name: _hash_file(context.harness_root / name)
+                        for name in HARNESS_ARTIFACTS
+                    }
+                except Exception:
+                    print(
+                        "FAIL rc_preflight_failure_harness_identity_unavailable",
+                        file=sys.stderr,
+                    )
+                    return FAILURE_MANIFEST_EXIT_CODE
         if diagnostic:
             failure["acceptance_evidence"] = False
         if execution_kind == "rehearsal":
@@ -8013,6 +9300,12 @@ def main(argv: list[str] | None = None) -> int:
             failure["as_of_date"] = context.as_of_date.isoformat()
         if teardown_error is not None:
             failure["teardown_error"] = teardown_error
+        if rc_attempt is None:
+            attached_attempt = getattr(safe_error, "rc_attempt", None)
+            if isinstance(attached_attempt, dict):
+                rc_attempt = attached_attempt
+        if rc_attempt is not None and args.stage in STAGE_ORDER:
+            failure["rc_attempt"] = rc_attempt
         restoration = getattr(safe_error, "restoration", None)
         if isinstance(restoration, dict):
             failure["restoration"] = restoration
