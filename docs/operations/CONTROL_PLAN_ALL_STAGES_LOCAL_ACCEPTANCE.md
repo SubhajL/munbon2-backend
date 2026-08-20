@@ -40,6 +40,15 @@ Passing `LOCAL-RTA-1` unlocks the next local stage only. It is not production
 RTA-1 and does not authorize deployment, visibility, writes, authority, or
 machine execution.
 
+## Source delivery status
+
+- Path 1 source delivery landed through PR #193. Its reviewed candidate was `86f7bc293277277010a64a2751d56fbeeb9e4172`, and local `main` landed at merge commit `3e038caec2909665266905aa00beff5e78299dc0`. On the unchanged candidate, 661 Python tests and 51 Node tests passed in each of three consecutive rounds, and formal g-check snapshot `2026-08-20/2218` was clean.
+- Path 2 source delivery landed through PR #194. Its reviewed candidate was `75408f8f8c83c48bccc5b9e64c67b8124281cdd3`, and local `main` landed at merge commit `fa588d285932569147038ff8209961b8cf965dd4`. On the unchanged candidate, 818 Python tests and 51 Node tests passed in each of three consecutive rounds, and formal g-check snapshot `2026-08-21/0339` was clean.
+
+Those results are source and local-test evidence only. No guest command or fresh exact-SHA acceptance run was performed for either delivered path. No authoritative `LOCAL-WRITE-ACT-1` or `LOCAL-RC-1` acceptance is claimed. This documentation does not authorize or perform guest creation, guest replacement, live guest operations, AWS inventory or action, promotion, deployment, activation, post-deployment verification, or rollback execution.
+
+The historical campaign ledger remains frozen at nine stages. Its existing 9/9 rows are not redefined by the ten-stage live order or by the `LOCAL-RC-1` wrapper.
+
 ## Provision
 
 Run from the isolated implementation worktree. Replace SHAs only with explicitly

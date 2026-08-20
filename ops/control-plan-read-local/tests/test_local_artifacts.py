@@ -1212,3 +1212,32 @@ def test_all_stages_runbook_locks_local_before_aws_and_documents_current_command
         "585467a896065b42a40982eb08c1f3447e1b5439928bcca50fc471a7595e51aa",
     ):
         assert required in current_result
+
+
+def test_all_stages_runbook_records_source_delivery_without_runtime_acceptance():
+    body = (
+        REPO_ROOT / "docs/operations/CONTROL_PLAN_ALL_STAGES_LOCAL_ACCEPTANCE.md"
+    ).read_text(encoding="utf-8")
+    source_delivery = body.split("## Source delivery status\n", maxsplit=1)[1].split(
+        "\n## ", maxsplit=1
+    )[0]
+
+    for required in (
+        "PR #193",
+        "86f7bc293277277010a64a2751d56fbeeb9e4172",
+        "3e038caec2909665266905aa00beff5e78299dc0",
+        "661 Python tests and 51 Node tests passed in each of three consecutive rounds",
+        "formal g-check snapshot `2026-08-20/2218` was clean",
+        "PR #194",
+        "75408f8f8c83c48bccc5b9e64c67b8124281cdd3",
+        "fa588d285932569147038ff8209961b8cf965dd4",
+        "818 Python tests and 51 Node tests passed in each of three consecutive rounds",
+        "formal g-check snapshot `2026-08-21/0339` was clean",
+        "No guest command or fresh exact-SHA acceptance run was performed",
+        "No authoritative `LOCAL-WRITE-ACT-1` or `LOCAL-RC-1` acceptance is claimed",
+        "does not authorize or perform guest creation, guest replacement, live guest operations",
+        "AWS inventory or action, promotion, deployment, activation, post-deployment verification, or rollback execution",
+        "The historical campaign ledger remains frozen at nine stages",
+        "Its existing 9/9 rows are not redefined by the ten-stage live order or by the `LOCAL-RC-1` wrapper",
+    ):
+        assert required in source_delivery
