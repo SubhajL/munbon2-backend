@@ -31,8 +31,8 @@ bundle; the runtime checkout must remain at the accepted 40-character SHA.
 | ME-1 / FE-8        | `LOCAL-EVIDENCE-1`         | Implemented and passed       |
 | GO-READ-1          | `LOCAL-GO-READ-1`          | Implemented and passed       |
 | W1 / W2            | `LOCAL-WRITE-FOUNDATION-1` | Implemented; prior SHA passed |
-| FE-5 / FE-6        | `LOCAL-WRITE-UI-1`         | Implemented; latest run failed |
-| DEC-W4             | `LOCAL-PERSIST-ONLY-1`     | Implemented; latest run not reached |
+| FE-5 / FE-6        | `LOCAL-WRITE-UI-1`         | Implemented; latest campaign passed |
+| DEC-W4             | `LOCAL-PERSIST-ONLY-1`     | Implemented; latest campaign passed |
 | WRITE-ACT-1        | `LOCAL-WRITE-ACT-1`        | Planned; not yet implemented |
 | Combined clean run | `LOCAL-RC-1`               | Required before AWS          |
 
