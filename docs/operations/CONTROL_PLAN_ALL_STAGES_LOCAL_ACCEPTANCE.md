@@ -493,8 +493,38 @@ gate was strengthened, and Stage 0/1 were rerun from a new evidence directory.
 
 ## Current local result
 
-The latest canonical attempt is acceptance-truthfully **2 passed / 1 failed /
-6 unreached**, not 2/9 completed:
+The latest canonical campaign is acceptance-truthfully **9 passed / 0 failed /
+0 unreached** on one fresh guest and database:
+
+- Campaign: `2026-08-20-nine-stage-orbstack-7f032c4c-attempt-1`
+- Backend: `7f032c4c20e7f9cdd443d64f7adbeb37342ff190`
+- Frontend: `067b3e22401854f8c6d6db42dc0c5c1872fca6f8`
+- Dependency archive: `89a26cbd783b21037acd3ce2f1e116f0e69ba8ea0d1667be8b6fda22a1aef7ab`
+- Guest ID: `01M0F27Z1GZQ7SQF07XH9M3VQT`
+- all nine ordered local stages: PASS
+- failed and unreached stages: none
+- final visibility, submit, execution, authority, and write flags: false
+- authorization: `successful_closed`, attempt 1 of 1
+- external frozen archive:
+  `../munbon-control-plan-9of9-evidence/2026-08-20-nine-stage-orbstack-7f032c4c-attempt-1/`
+- outer index SHA-256:
+  `903602d8ae622c5de72ffa31c705782ae663dfd6dc9a53d4450c6aa5e0c1bbef`
+- campaign-ledger entry SHA-256:
+  `585467a896065b42a40982eb08c1f3447e1b5439928bcca50fc471a7595e51aa`
+
+The strict `collect` action accepted this checksum-bound 9/9 result and remains
+9/9-only. Use
+`collect-partial-failure` only to preserve an ordered-prefix failure bundle;
+its checksum-bound `PARTIAL-SUMMARY.json` and CLI output are explicitly
+`acceptance_evidence=false`, and it writes `PARTIAL-OUTER-SHA256SUMS`. The
+append-only campaign history is
+`docs/operations/control-plan-campaign-ledger.jsonl` and must pass
+`validate_campaign_ledger` before it is extended.
+
+### Historical three-stage result
+
+The prior exhausted attempt remains acceptance-truthfully **2 passed / 1
+failed / 6 unreached**:
 
 - Backend: `5cfdb2a05b4ea4c2742250845ae55a76816700bd`
 - Frontend: `067b3e22401854f8c6d6db42dc0c5c1872fca6f8`
@@ -503,19 +533,11 @@ The latest canonical attempt is acceptance-truthfully **2 passed / 1 failed /
 - `LOCAL-BASE-0`, `LOCAL-RTA-1`: PASS
 - `LOCAL-AC-1`: FAIL at `manual_requirement_run_not_accepted`
 - stages 4–9: unreached
-- authorization: attempt 3 of 3 consumed; no retry is authorized
+- authorization: attempt 3 of 3 consumed
 - external frozen archive:
   `../munbon2-backend-external-evidence/2026-08-12-nine-stage-orbstack-5cfdb2a0-attempt-3/`
 - outer index SHA-256:
   `34b952b660ec230ab2d9049b60f6dd8496561ce6e2860b377124c8ae48947ecd`
-
-The strict `collect` action remains 9/9-only. Use
-`collect-partial-failure` only to preserve an ordered-prefix failure bundle;
-its checksum-bound `PARTIAL-SUMMARY.json` and CLI output are explicitly
-`acceptance_evidence=false`, and it writes `PARTIAL-OUTER-SHA256SUMS`. The
-append-only campaign history is
-`docs/operations/control-plan-campaign-ledger.jsonl` and must pass
-`validate_campaign_ledger` before it is extended.
 
 ### Historical seven-stage result
 
@@ -581,16 +603,20 @@ tree-equivalent squash commit is not reused because the evidence index is
 SHA-bound. These readings are local evidence and do not describe AWS capacity
 or runtime state.
 
-## Next local work
+## Remaining authority boundary
 
 All nine current local acceptance stages are implemented.
-No current candidate has genuine 9/9 acceptance evidence. Refresh the exact backend and frontend
-candidates only after this source preparation lands, and keep visibility,
-submit, write, and authority gates dark by default.
+The current candidate has genuine 9/9 local acceptance evidence from one
+pristine authorized guest, and its `successful_closed` ledger entry binds the
+exact backend, frontend, dependency, harness, guest, and outer checksum index.
+Future candidates must still refresh the exact identities and rerun the full
+contract. Visibility, submit, write, and authority gates remain dark by
+default.
 
-A fresh exact-SHA rehearsal and canonical campaign require separate authorization.
+Another rehearsal or canonical campaign requires a new separate authorization.
 Guest replacement, deployment, and activation remain separately authorized actions.
 Every authorized campaign outcome, success or failure, must extend the campaign
-ledger with its appropriate checksum-bound evidence. Promotion still requires
-genuine 9/9 evidence from one pristine authorized guest, a separately authorized
-passing `LOCAL-RC-1`, and separate promotion and AWS authorization.
+ledger with its appropriate checksum-bound evidence. This 9/9 result grants no
+`LOCAL-RC-1`, deployment, activation, AWS, or production authority. Promotion
+still requires a separately authorized passing `LOCAL-RC-1`, and separate
+promotion and AWS authorization.
