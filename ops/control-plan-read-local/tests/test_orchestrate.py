@@ -541,6 +541,132 @@ def test_finalize_rehearsal_bootstrap_failure_is_structurally_non_authoritative(
     assert (destination / "REHEARSAL-BOOTSTRAP-OUTER-SHA256SUMS").is_file()
 
 
+RC_PROCESS_NAMES = (
+    "flow-monitoring",
+    "scheduler",
+    "ros-gis-integration",
+    "bff-water-planning",
+)
+
+
+def _rc_test_processes():
+    return [
+        {
+            "name": name,
+            "status": "online",
+            "restarts": index,
+            "pid": 100 + index,
+            "memory_bytes": 1024 + index,
+            "cpu_percent": index / 10,
+        }
+        for index, name in enumerate(RC_PROCESS_NAMES)
+    ]
+
+
+def _rc_test_dark_contract():
+    return {
+        "flow_gates_api": False,
+        "scheduler_execution": "disabled",
+        "scheduler_readback": "off",
+        "scheduler_scada_configured": False,
+        "ros_manual_producer": False,
+        "ros_startup_producer": False,
+        "ros_recurring_producer": False,
+        "ros_source_configured": False,
+        "planning_depth_writes": False,
+        "machine_commands_configured": False,
+        "model_release_commandable": False,
+        "control_plan_reads_visible": False,
+        "planning_depth_writes_visible": False,
+    }
+
+
+def _rc_test_runtime_proof():
+    return {
+        "verified": True,
+        "processes": _rc_test_processes(),
+        "processes_online": sorted(RC_PROCESS_NAMES),
+        "listeners": [
+            {"address": "127.0.0.1", "port": port} for port in (3011, 3021, 3022, 3047)
+        ],
+        "dark_contract_after": _rc_test_dark_contract(),
+        "final_activation_gates": {
+            "control_plan_reads": False,
+            "control_plan_evidence_reads": False,
+            "water_planning_v2": False,
+            "water_planning_submit": False,
+        },
+        "readiness": {
+            name: {"status_code": 200, "status": "ready", "checks": {}}
+            for name in RC_PROCESS_NAMES
+        },
+    }
+
+
+def _authorized_rc_harness_hashes():
+    harness_root = Path(orchestrate.__file__).resolve().parent
+    return {
+        name: hashlib.sha256(
+            (
+                harness_root / name
+                if name != "verify_bearer.py"
+                else harness_root.parent / "control-plan-read-runtime" / name
+            ).read_bytes()
+        ).hexdigest()
+        for name in orchestrate.EVIDENCE_HARNESS_ARTIFACTS
+    }
+
+
+def _rc_preflight_record():
+    return {
+        "schema_version": 1,
+        "phase": "preflight",
+        "verdict": "PASS",
+        "release_sha": "a" * 40,
+        "frontend_sha": "b" * 40,
+        "dependency_sha256": "d" * 64,
+        "guest": {
+            "name": "munbon-control-plan-local",
+            "id": "01KZSKQ6FY4EVCCY94XGWZ9NDS",
+            "architecture": "arm64",
+            "machine_id": "f" * 32,
+        },
+        "as_of_date": "2026-11-02",
+        "checks": {
+            "evidence_root_empty": True,
+            "database_clean": True,
+            "rate_state_clean": True,
+            "actionable_commands": 0,
+            "sources_clean": True,
+            "runtime_dark": True,
+        },
+        "captured_at": "2026-11-02T01:02:03Z",
+    }
+
+
+def _rc_stage_attempt(*, as_of_date="2026-11-02"):
+    preflight = _rc_preflight_record()
+    preflight_bytes = (json.dumps(preflight, indent=2, sort_keys=True) + "\n").encode()
+    return {
+        "preflight_sha256": hashlib.sha256(preflight_bytes).hexdigest(),
+        "dependency_sha256": "d" * 64,
+        "guest": preflight["guest"],
+        "as_of_date": as_of_date,
+    }
+
+
+def _bind_rc_stage_evidence(destination: Path) -> None:
+    attempt = _rc_stage_attempt()
+    for stage in orchestrate.STAGE_ORDER:
+        for name in (f"{stage}.json", f"{stage}-failure.json"):
+            path = destination / name
+            if not path.exists():
+                continue
+            payload = json.loads(path.read_text())
+            payload["rc_attempt"] = attempt
+            path.write_text(json.dumps(payload, sort_keys=True) + "\n")
+
+
 def _write_complete_acceptance_evidence(destination: Path) -> dict:
     release_sha = "a" * 40
     frontend_sha = "b" * 40
@@ -559,23 +685,36 @@ def _write_complete_acceptance_evidence(destination: Path) -> dict:
         "LOCAL-GO-READ-1-live.png": b"live-png",
         "LOCAL-GO-READ-1-outage.png": b"outage-png",
     }
-    artifacts.update(
-        {
-            f"{stage}.json": (
-                json.dumps(
-                    {
-                        "stage": stage,
-                        "verdict": "PASS",
-                        "release_sha": release_sha,
-                        "frontend_sha": frontend_sha,
-                    },
-                    sort_keys=True,
-                ).encode()
-                + b"\n"
-            )
-            for stage in orchestrate.STAGE_ORDER
+    for stage in orchestrate.STAGE_ORDER:
+        manifest = {
+            "stage": stage,
+            "verdict": "PASS",
+            "release_sha": release_sha,
+            "frontend_sha": frontend_sha,
         }
-    )
+        if stage == "LOCAL-PERSIST-ONLY-1":
+            manifest["steps"] = {"operator_principal": {"subject": "operator-persist"}}
+        if stage == "LOCAL-WRITE-ACT-1":
+            write_key = (
+                "bff-water-planning:rate:planning_depth.submit:"
+                + hashlib.sha256(b"operator-write").hexdigest()
+            )
+            manifest["steps"] = {
+                "operator_principal": {"subject": "operator-write"},
+                "runtime_restoration": _rc_test_runtime_proof(),
+                "persist_snapshot_sha256": "e" * 64,
+                "rate_state_after_browser": {
+                    "configured_window_ms": 300000,
+                    "minimum_elapsed_ms": 900000,
+                    "snapshot_completed_monotonic_ms": 20100,
+                    "snapshot": {
+                        write_key: {"value": 3, "ttl_ms": 6000},
+                    },
+                },
+            }
+        artifacts[f"{stage}.json"] = (
+            json.dumps(manifest, sort_keys=True).encode() + b"\n"
+        )
     destination.mkdir(parents=True)
     for name, body in artifacts.items():
         (destination / name).write_bytes(body)
@@ -2930,3 +3069,1756 @@ def test_rehearsal_collection_requires_authorized_operational_date(
         == 1
     )
     assert "as_of_date_required" in capsys.readouterr().out
+
+
+def _rc_machine(guest_id="01KZSKQ6FY4EVCCY94XGWZ9NDS"):
+    return {
+        "id": guest_id,
+        "name": "munbon-control-plan-local",
+        "image": {"distro": "debian", "version": "bookworm", "arch": "arm64"},
+        "config": {
+            "isolated": True,
+            "isolate_network": True,
+            "default_username": "munbonlocal",
+            "memory_limit_mib": 8192,
+            "cpu_limit": 4,
+            "disk_limit_bytes": 40 * 1024**3,
+        },
+        "state": "running",
+    }
+
+
+def test_validate_rc_guest_identity_accepts_only_the_expected_immutable_guest():
+    guest_id = "01KZSKQ6FY4EVCCY94XGWZ9NDS"
+    unrelated = {**_rc_machine("01KZSKQ6FY4EVCCY94XGWZ9NDT"), "name": "unrelated"}
+
+    assert orchestrate.validate_rc_guest_identity(
+        json.dumps([unrelated, _rc_machine()]), guest_id
+    ) == {
+        "name": "munbon-control-plan-local",
+        "id": guest_id,
+        "architecture": "arm64",
+    }
+
+
+@pytest.mark.parametrize(
+    "inventory",
+    [
+        [_rc_machine("01KZSKQ6FY4EVCCY94XGWZ9NDT")],
+        [_rc_machine(), _rc_machine()],
+        [{**_rc_machine(), "state": "stopped"}],
+        [
+            {
+                **_rc_machine(),
+                "image": {"distro": "ubuntu", "version": "24.04", "arch": "arm64"},
+            }
+        ],
+        [
+            {
+                **_rc_machine(),
+                "image": {"distro": "debian", "version": "bookworm", "arch": "amd64"},
+            }
+        ],
+    ],
+)
+def test_validate_rc_guest_identity_rejects_identity_or_shape_drift(inventory):
+    with pytest.raises(
+        orchestrate.OrchestrationError, match="rc_guest_identity_not_accepted"
+    ):
+        orchestrate.validate_rc_guest_identity(
+            json.dumps(inventory), "01KZSKQ6FY4EVCCY94XGWZ9NDS"
+        )
+
+
+def test_validated_rc_guest_binds_inventory_owner_and_dependency_archive(monkeypatch):
+    responses = {
+        "rc_orb_inventory": json.dumps([_rc_machine()]),
+        "rc_provision_state": json.dumps(
+            {
+                "dependency_sha256": "c" * 64,
+                "frontend_sha": "b" * 40,
+                "phase": "complete",
+                "recorded_at": "2026-11-02T00:00:00Z",
+                "release_sha": "a" * 40,
+                "state": "ready",
+                "substep": "ready-state",
+            }
+        ),
+        "rc_machine_owner": json.dumps(
+            {
+                "architecture": "arm64",
+                "dependency_sha256": "c" * 64,
+                "frontend_sha": "b" * 40,
+                "machine": "munbon-control-plan-local",
+                "release_sha": "a" * 40,
+                "state": "ready",
+            }
+        ),
+        "rc_guest_machine_id": "f" * 32 + "\n",
+    }
+    inventory_reads = []
+
+    def checked(code, _argv, **_kwargs):
+        if code == "rc_orb_inventory":
+            inventory_reads.append(code)
+        return responses[code]
+
+    monkeypatch.setattr(
+        orchestrate,
+        "_run_checked",
+        checked,
+    )
+
+    assert orchestrate._validated_rc_guest(
+        "a" * 40,
+        "b" * 40,
+        "c" * 64,
+        "01KZSKQ6FY4EVCCY94XGWZ9NDS",
+    ) == {
+        "name": "munbon-control-plan-local",
+        "id": "01KZSKQ6FY4EVCCY94XGWZ9NDS",
+        "architecture": "arm64",
+        "dependency_sha256": "c" * 64,
+        "machine_id": "f" * 32,
+    }
+    assert inventory_reads == ["rc_orb_inventory", "rc_orb_inventory"]
+
+    with pytest.raises(
+        orchestrate.OrchestrationError, match="rc_dependency_identity_mismatch"
+    ):
+        orchestrate._validated_rc_guest(
+            "a" * 40,
+            "b" * 40,
+            "d" * 64,
+            "01KZSKQ6FY4EVCCY94XGWZ9NDS",
+        )
+
+
+def test_run_rc_revalidates_identity_around_every_no_retry_phase(monkeypatch, tmp_path):
+    events = []
+    guest = {
+        "name": "munbon-control-plan-local",
+        "id": "01KZSKQ6FY4EVCCY94XGWZ9NDS",
+        "architecture": "arm64",
+        "dependency_sha256": "c" * 64,
+        "machine_id": "f" * 32,
+    }
+
+    def validate(*_args, **_kwargs):
+        events.append("identity")
+        return guest
+
+    def phase(name, *_args, **_kwargs):
+        events.append(name)
+
+    monkeypatch.setattr(orchestrate, "_validated_rc_guest", validate, raising=False)
+    monkeypatch.setattr(orchestrate, "_run_rc_phase", phase, raising=False)
+    monkeypatch.setattr(
+        orchestrate,
+        "run_stage",
+        lambda stage, *_args, **_kwargs: events.append(stage),
+    )
+    monkeypatch.setattr(
+        orchestrate,
+        "collect_rc",
+        lambda *_args, **_kwargs: events.append("collect") or {"verdict": "PASS"},
+        raising=False,
+    )
+
+    assert orchestrate.run_rc(
+        release_sha="a" * 40,
+        frontend_sha="b" * 40,
+        dependency_sha256="c" * 64,
+        guest_id=guest["id"],
+        destination=tmp_path / "rc-evidence",
+        as_of_date="2026-11-02",
+    ) == {"verdict": "PASS"}
+    assert events == [
+        "identity",
+        "preflight",
+        "identity",
+        *[
+            event
+            for stage in orchestrate.STAGE_ORDER
+            for event in ("identity", stage, "identity")
+        ],
+        "identity",
+        "finalize",
+        "identity",
+        "identity",
+        "collect",
+        "identity",
+    ]
+
+
+@pytest.mark.parametrize(
+    "replacement",
+    (
+        {"machine_id": "e" * 32},
+        {"id": "01KZSKQ6FY4EVCCY94XGWZ9NDT"},
+    ),
+)
+def test_run_rc_pins_the_first_guest_identity_for_the_entire_lifecycle(
+    monkeypatch, tmp_path, replacement
+):
+    accepted = {
+        "name": "munbon-control-plan-local",
+        "id": "01KZSKQ6FY4EVCCY94XGWZ9NDS",
+        "architecture": "arm64",
+        "dependency_sha256": "c" * 64,
+        "machine_id": "f" * 32,
+    }
+    changed = {**accepted, **replacement}
+    validation_count = [0]
+
+    def validate(*_args):
+        validation_count[0] += 1
+        return accepted if validation_count[0] == 1 else changed
+
+    monkeypatch.setattr(orchestrate, "_validated_rc_guest", validate)
+    monkeypatch.setattr(orchestrate, "_run_rc_phase", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        orchestrate,
+        "run_stage",
+        lambda *_args, **_kwargs: pytest.fail("replacement must block dispatch"),
+    )
+    monkeypatch.setattr(
+        orchestrate,
+        "collect_rc",
+        lambda *_args, **_kwargs: pytest.fail("replacement must block collection"),
+    )
+
+    with pytest.raises(
+        orchestrate.OrchestrationError,
+        match="rc_guest_machine_identity_mismatch",
+    ):
+        orchestrate.run_rc(
+            "a" * 40,
+            "b" * 40,
+            "c" * 64,
+            accepted["id"],
+            tmp_path / "rc",
+            "2026-11-02",
+        )
+
+    assert validation_count == [2]
+
+
+def test_run_rc_rejects_noncanonical_date_before_guest_inspection(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(
+        orchestrate,
+        "_validated_rc_guest",
+        lambda *_args, **_kwargs: pytest.fail("guest inspection must not run"),
+    )
+
+    with pytest.raises(
+        orchestrate.OrchestrationError, match="rc_arguments_not_accepted"
+    ):
+        orchestrate.run_rc(
+            release_sha="a" * 40,
+            frontend_sha="b" * 40,
+            dependency_sha256="c" * 64,
+            guest_id="01KZSKQ6FY4EVCCY94XGWZ9NDS",
+            destination=tmp_path / "rc-evidence",
+            as_of_date="2026-99-99",
+        )
+
+
+def test_run_rc_phase_uses_explicit_canonical_guest_execution(monkeypatch):
+    captured = {}
+
+    def record(code, argv, **kwargs):
+        captured.update({"code": code, "argv": argv, "timeout": kwargs["timeout"]})
+        return ""
+
+    monkeypatch.setattr(orchestrate, "_run_checked", record)
+
+    orchestrate._run_rc_phase(
+        "preflight",
+        "a" * 40,
+        "b" * 40,
+        "c" * 64,
+        "01KZSKQ6FY4EVCCY94XGWZ9NDS",
+        "2026-11-02",
+        expected_machine_id="f" * 32,
+    )
+
+    assert captured["code"] == "rc_preflight"
+    assert captured["timeout"] == 2400
+    assert captured["argv"][captured["argv"].index("--execution-kind") + 1] == (
+        "canonical"
+    )
+    assert captured["argv"][captured["argv"].index("--expected-machine-id") + 1] == (
+        "f" * 32
+    )
+
+
+@pytest.mark.parametrize("phase", ("preflight", "finalize"))
+def test_run_rc_phase_surfaces_failure_manifest_publication_exit(monkeypatch, phase):
+    monkeypatch.setattr(
+        orchestrate,
+        "_run_checked",
+        lambda code, _argv, **_kwargs: (_ for _ in ()).throw(
+            orchestrate.CommandExecutionError(
+                code, orchestrate.FAILURE_MANIFEST_EXIT_CODE
+            )
+        ),
+    )
+
+    with pytest.raises(
+        orchestrate.OrchestrationError,
+        match=f"rc_{phase}_failure_manifest_publication_failed",
+    ):
+        orchestrate._run_rc_phase(
+            phase,
+            "a" * 40,
+            "b" * 40,
+            "c" * 64,
+            "01KZSKQ6FY4EVCCY94XGWZ9NDS",
+            "2026-11-02",
+            expected_machine_id="f" * 32,
+        )
+
+
+def test_run_rc_passes_the_revalidated_machine_id_to_every_guest_dispatch(
+    monkeypatch, tmp_path
+):
+    phase_machine_ids = []
+    stage_machine_ids = []
+    collection_machine_ids = []
+    guest = {
+        "name": "munbon-control-plan-local",
+        "id": "01KZSKQ6FY4EVCCY94XGWZ9NDS",
+        "architecture": "arm64",
+        "dependency_sha256": "c" * 64,
+        "machine_id": "f" * 32,
+    }
+    monkeypatch.setattr(orchestrate, "_validated_rc_guest", lambda *_args: guest)
+    monkeypatch.setattr(
+        orchestrate,
+        "_run_rc_phase",
+        lambda _phase, *_args, expected_machine_id: phase_machine_ids.append(
+            expected_machine_id
+        ),
+    )
+    monkeypatch.setattr(
+        orchestrate,
+        "run_stage",
+        lambda _stage, *_args, expected_machine_id, **_kwargs: stage_machine_ids.append(
+            expected_machine_id
+        ),
+    )
+    monkeypatch.setattr(
+        orchestrate,
+        "collect_rc",
+        lambda *_args, expected_machine_id: collection_machine_ids.append(
+            expected_machine_id
+        )
+        or {"verdict": "PASS"},
+    )
+
+    orchestrate.run_rc(
+        "a" * 40,
+        "b" * 40,
+        "c" * 64,
+        guest["id"],
+        tmp_path / "rc",
+        "2026-11-02",
+    )
+
+    assert phase_machine_ids == ["f" * 32, "f" * 32]
+    assert stage_machine_ids == ["f" * 32] * len(orchestrate.STAGE_ORDER)
+    assert collection_machine_ids == ["f" * 32]
+
+
+def test_run_rc_rejects_existing_destination_before_guest_inspection(
+    monkeypatch, tmp_path
+):
+    destination = tmp_path / "existing"
+    destination.mkdir()
+    monkeypatch.setattr(
+        orchestrate,
+        "_validated_rc_guest",
+        lambda *_args, **_kwargs: pytest.fail("guest inspection must not run"),
+        raising=False,
+    )
+
+    with pytest.raises(
+        orchestrate.OrchestrationError, match="rc_evidence_destination_exists"
+    ):
+        orchestrate.run_rc(
+            release_sha="a" * 40,
+            frontend_sha="b" * 40,
+            dependency_sha256="c" * 64,
+            guest_id="01KZSKQ6FY4EVCCY94XGWZ9NDS",
+            destination=destination,
+            as_of_date="2026-11-02",
+        )
+
+
+def test_run_rc_stops_on_first_failure_without_retry_finalize_or_collect(
+    monkeypatch, tmp_path
+):
+    events = []
+    failure = orchestrate.OrchestrationError("stage_failed")
+    monkeypatch.setattr(
+        orchestrate,
+        "_validated_rc_guest",
+        lambda *_args, **_kwargs: events.append("identity") or {"machine_id": "f" * 32},
+        raising=False,
+    )
+    monkeypatch.setattr(
+        orchestrate,
+        "_run_rc_phase",
+        lambda phase, *_args, **_kwargs: events.append(phase),
+        raising=False,
+    )
+
+    def run_stage(stage, *_args, **_kwargs):
+        events.append(stage)
+        if stage == "LOCAL-AC-1":
+            raise failure
+
+    monkeypatch.setattr(orchestrate, "run_stage", run_stage)
+    monkeypatch.setattr(
+        orchestrate,
+        "collect_rc",
+        lambda *_args, **_kwargs: pytest.fail("collection must not run"),
+        raising=False,
+    )
+
+    with pytest.raises(orchestrate.OrchestrationError) as caught:
+        orchestrate.run_rc(
+            release_sha="a" * 40,
+            frontend_sha="b" * 40,
+            dependency_sha256="c" * 64,
+            guest_id="01KZSKQ6FY4EVCCY94XGWZ9NDS",
+            destination=tmp_path / "rc-evidence",
+            as_of_date="2026-11-02",
+        )
+
+    assert caught.value is failure
+    assert events == [
+        "identity",
+        "preflight",
+        "identity",
+        "identity",
+        "LOCAL-BASE-0",
+        "identity",
+        "identity",
+        "LOCAL-RTA-1",
+        "identity",
+        "identity",
+        "LOCAL-AC-1",
+        "identity",
+    ]
+
+
+def test_run_rc_preserves_the_primary_failure_when_identity_postcheck_also_fails(
+    monkeypatch, tmp_path
+):
+    primary = orchestrate.OrchestrationError("base_probe_failed")
+    accepted = {
+        "name": "munbon-control-plan-local",
+        "id": "01KZSKQ6FY4EVCCY94XGWZ9NDS",
+        "architecture": "arm64",
+        "dependency_sha256": "c" * 64,
+        "machine_id": "f" * 32,
+    }
+    changed = {**accepted, "machine_id": "e" * 32}
+    validations = []
+
+    def validate(*_args):
+        validations.append("identity")
+        return changed if len(validations) == 4 else accepted
+
+    monkeypatch.setattr(orchestrate, "_validated_rc_guest", validate)
+    monkeypatch.setattr(orchestrate, "_run_rc_phase", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        orchestrate,
+        "run_stage",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(primary),
+    )
+    monkeypatch.setattr(
+        orchestrate,
+        "collect_rc",
+        lambda *_args, **_kwargs: pytest.fail("collection must not run"),
+    )
+
+    with pytest.raises(orchestrate.OrchestrationError) as caught:
+        orchestrate.run_rc(
+            "a" * 40,
+            "b" * 40,
+            "c" * 64,
+            accepted["id"],
+            tmp_path / "rc",
+            "2026-11-02",
+        )
+
+    assert caught.value is primary
+    assert caught.value.identity_postcheck_error == (
+        "rc_guest_machine_identity_mismatch"
+    )
+    assert validations == ["identity"] * 4
+
+
+@pytest.mark.parametrize("interrupt", (KeyboardInterrupt(), SystemExit(23)))
+def test_run_rc_propagates_a_postcheck_interrupt_after_an_ordinary_failure(
+    monkeypatch, tmp_path, interrupt
+):
+    primary = orchestrate.OrchestrationError("base_probe_failed")
+    guest = {
+        "name": "munbon-control-plan-local",
+        "id": "01KZSKQ6FY4EVCCY94XGWZ9NDS",
+        "architecture": "arm64",
+        "dependency_sha256": "c" * 64,
+        "machine_id": "f" * 32,
+    }
+    validations = []
+    stages = []
+
+    def validate(*_args):
+        validations.append("identity")
+        if len(validations) == 4:
+            raise interrupt
+        return guest
+
+    monkeypatch.setattr(orchestrate, "_validated_rc_guest", validate)
+    monkeypatch.setattr(orchestrate, "_run_rc_phase", lambda *_args, **_kwargs: None)
+
+    def fail_stage(stage, *_args, **_kwargs):
+        stages.append(stage)
+        raise primary
+
+    monkeypatch.setattr(orchestrate, "run_stage", fail_stage)
+    monkeypatch.setattr(
+        orchestrate,
+        "collect_rc",
+        lambda *_args, **_kwargs: pytest.fail("collection must not run"),
+    )
+
+    with pytest.raises(BaseException) as caught:
+        orchestrate.run_rc(
+            "a" * 40,
+            "b" * 40,
+            "c" * 64,
+            guest["id"],
+            tmp_path / "rc",
+            "2026-11-02",
+        )
+
+    assert caught.value is interrupt
+    assert caught.value.__cause__ is primary
+    assert validations == ["identity"] * 4
+    assert stages == ["LOCAL-BASE-0"]
+
+
+@pytest.mark.parametrize("interrupt", [KeyboardInterrupt(), SystemExit(17)])
+def test_run_rc_preserves_interrupt_identity_without_follow_on_actions(
+    monkeypatch, tmp_path, interrupt
+):
+    events = []
+    monkeypatch.setattr(
+        orchestrate,
+        "_validated_rc_guest",
+        lambda *_args, **_kwargs: events.append("identity") or {"machine_id": "f" * 32},
+        raising=False,
+    )
+    monkeypatch.setattr(
+        orchestrate,
+        "_run_rc_phase",
+        lambda phase, *_args, **_kwargs: events.append(phase),
+        raising=False,
+    )
+
+    def run_stage(stage, *_args, **_kwargs):
+        events.append(stage)
+        raise interrupt
+
+    monkeypatch.setattr(orchestrate, "run_stage", run_stage)
+    monkeypatch.setattr(
+        orchestrate,
+        "collect_rc",
+        lambda *_args, **_kwargs: pytest.fail("collection must not run"),
+        raising=False,
+    )
+
+    with pytest.raises(BaseException) as caught:
+        orchestrate.run_rc(
+            release_sha="a" * 40,
+            frontend_sha="b" * 40,
+            dependency_sha256="c" * 64,
+            guest_id="01KZSKQ6FY4EVCCY94XGWZ9NDS",
+            destination=tmp_path / "rc-evidence",
+            as_of_date="2026-11-02",
+        )
+
+    assert caught.value is interrupt
+    assert events == [
+        "identity",
+        "preflight",
+        "identity",
+        "identity",
+        "LOCAL-BASE-0",
+        "identity",
+    ]
+
+
+def _write_complete_rc_evidence(destination: Path) -> dict:
+    state = _write_complete_acceptance_evidence(destination)
+    state["harness_hashes"] = _authorized_rc_harness_hashes()
+    (destination / "stage-state.json").write_text(
+        json.dumps(state, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    guest = {
+        "name": "munbon-control-plan-local",
+        "id": "01KZSKQ6FY4EVCCY94XGWZ9NDS",
+        "architecture": "arm64",
+        "machine_id": "f" * 32,
+    }
+    preflight_record = _rc_preflight_record()
+    (destination / "RC-PREFLIGHT.json").write_text(
+        json.dumps(preflight_record, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    _bind_rc_stage_evidence(destination)
+    preflight_bytes = (
+        json.dumps(preflight_record, indent=2, sort_keys=True) + "\n"
+    ).encode()
+    runtime = _rc_test_runtime_proof()
+    write_activation_sha256 = hashlib.sha256(
+        (destination / "LOCAL-WRITE-ACT-1.json").read_bytes()
+    ).hexdigest()
+    manifest = {
+        "schema_version": 1,
+        "stage": "LOCAL-RC-1",
+        "verdict": "PASS",
+        "release_sha": state["release_sha"],
+        "frontend_sha": state["frontend_sha"],
+        "dependency_sha256": "d" * 64,
+        "guest": guest,
+        "as_of_date": "2026-11-02",
+        "preflight": {
+            "verdict": "PASS",
+            "evidence_root_empty": True,
+            "database_clean": True,
+            "rate_state_clean": True,
+            "actionable_commands": 0,
+            "sources_clean": True,
+            "runtime_dark": True,
+            "record": preflight_record,
+            "record_sha256": hashlib.sha256(preflight_bytes).hexdigest(),
+        },
+        "final": {
+            "verdict": "PASS",
+            "completed": list(orchestrate.STAGE_ORDER),
+            "runtime_dark": True,
+            "processes_stable": True,
+            "readiness_green": True,
+            "listeners_accepted": True,
+            "immutable_history": True,
+            "proof": {
+                "processes": runtime["processes"],
+                "dark_contract": runtime["dark_contract_after"],
+                "frontend_activation_gates": runtime["final_activation_gates"],
+                "readiness": runtime["readiness"],
+                "listeners": runtime["listeners"],
+                "persist_snapshot_sha256": "e" * 64,
+                "rate_state": {},
+                "rate_minimum_elapsed_ms": 900000,
+                "rate_snapshot_started_monotonic_ms": 920000,
+                "rate_snapshot_completed_monotonic_ms": 921000,
+                "write_activation_manifest_sha256": write_activation_sha256,
+            },
+        },
+    }
+    summary = {
+        "schema_version": 1,
+        "evidence_kind": "local_release_candidate",
+        "acceptance": "LOCAL-RC-1",
+        "acceptance_evidence": True,
+        "campaign_ledger_eligible": False,
+        "aws_actions_authorized": False,
+        "release_sha": state["release_sha"],
+        "frontend_sha": state["frontend_sha"],
+        "dependency_sha256": "d" * 64,
+        "guest": guest,
+        "as_of_date": "2026-11-02",
+        "passed": [*orchestrate.STAGE_ORDER, "LOCAL-RC-1"],
+        "failed": [],
+        "unreached": [],
+        "verdict": "PASS",
+    }
+    (destination / "LOCAL-RC-1.json").write_text(
+        json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    (destination / "RC-SUMMARY.json").write_text(
+        json.dumps(summary, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    _write_acceptance_checksums(destination)
+    return summary
+
+
+def test_finalize_rc_collection_binds_exact_identity_and_writes_only_rc_indexes(
+    tmp_path,
+):
+    destination = tmp_path / "rc-evidence"
+    expected = _write_complete_rc_evidence(destination)
+
+    assert (
+        orchestrate.finalize_rc_collection(
+            destination,
+            release_sha="a" * 40,
+            frontend_sha="b" * 40,
+            dependency_sha256="d" * 64,
+            guest_id="01KZSKQ6FY4EVCCY94XGWZ9NDS",
+            as_of_date="2026-11-02",
+        )
+        == expected
+    )
+    assert not (destination / "OUTER-SHA256SUMS").exists()
+    assert (destination / "RC-SHA256SUMS").is_file()
+    rc_index = (destination / "RC-SHA256SUMS").read_text().splitlines()
+    assert rc_index == [
+        f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}"
+        for path in sorted(destination.iterdir())
+        if path.name not in {"RC-SHA256SUMS", "RC-OUTER-SHA256SUMS"}
+    ]
+    outer = (destination / "RC-OUTER-SHA256SUMS").read_text().splitlines()
+    assert outer == [
+        f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}"
+        for path in sorted(destination.iterdir())
+        if path.name != "RC-OUTER-SHA256SUMS"
+    ]
+
+
+@pytest.mark.parametrize("mutation", ["record", "digest"])
+def test_finalize_rc_collection_rejects_preflight_record_or_digest_substitution(
+    tmp_path, mutation
+):
+    destination = tmp_path / mutation
+    _write_complete_rc_evidence(destination)
+    manifest_path = destination / "LOCAL-RC-1.json"
+    manifest = json.loads(manifest_path.read_text())
+    if mutation == "record":
+        manifest["preflight"]["record"]["guest"]["id"] = "01KZSKQ6FY4EVCCY94XGWZ9NDT"
+    else:
+        manifest["preflight"]["record_sha256"] = "0" * 64
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n")
+    _write_acceptance_checksums(destination)
+
+    with pytest.raises(
+        orchestrate.OrchestrationError,
+        match="rc_evidence_identity_mismatch",
+    ):
+        orchestrate.finalize_rc_collection(
+            destination,
+            release_sha="a" * 40,
+            frontend_sha="b" * 40,
+            dependency_sha256="d" * 64,
+            guest_id="01KZSKQ6FY4EVCCY94XGWZ9NDS",
+            as_of_date="2026-11-02",
+        )
+
+
+@pytest.mark.parametrize("mutation", ("missing", "date"))
+def test_finalize_rc_collection_rejects_stage_attempt_lineage_drift(tmp_path, mutation):
+    destination = tmp_path / f"stage-lineage-{mutation}"
+    _write_complete_rc_evidence(destination)
+    stage_path = destination / "LOCAL-BASE-0.json"
+    manifest = json.loads(stage_path.read_text())
+    if mutation == "missing":
+        manifest.pop("rc_attempt")
+    else:
+        manifest["rc_attempt"]["as_of_date"] = "2026-11-03"
+    stage_path.write_text(json.dumps(manifest, sort_keys=True) + "\n")
+    _write_acceptance_checksums(destination)
+
+    with pytest.raises(
+        orchestrate.OrchestrationError,
+        match="rc_evidence_identity_mismatch",
+    ):
+        orchestrate.finalize_rc_collection(
+            destination,
+            release_sha="a" * 40,
+            frontend_sha="b" * 40,
+            dependency_sha256="d" * 64,
+            guest_id="01KZSKQ6FY4EVCCY94XGWZ9NDS",
+            as_of_date="2026-11-02",
+        )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "process",
+        "dark",
+        "readiness",
+        "listener",
+        "persist",
+        "rate",
+        "rate_elapsed",
+        "rate_elapsed_high",
+        "rate_timing",
+        "write_digest",
+    ),
+)
+def test_finalize_rc_collection_rejects_unproved_final_runtime_or_history(
+    tmp_path, mutation
+):
+    destination = tmp_path / mutation
+    _write_complete_rc_evidence(destination)
+    manifest_path = destination / "LOCAL-RC-1.json"
+    manifest = json.loads(manifest_path.read_text())
+    proof = manifest["final"]["proof"]
+    if mutation == "process":
+        proof["processes"][0]["pid"] += 1
+    elif mutation == "dark":
+        proof["dark_contract"]["planning_depth_writes"] = True
+    elif mutation == "readiness":
+        proof["readiness"].pop("scheduler")
+    elif mutation == "listener":
+        proof["listeners"][0]["address"] = "0.0.0.0"
+    elif mutation == "persist":
+        proof["persist_snapshot_sha256"] = "f" * 64
+    elif mutation == "rate":
+        proof["rate_state"] = {
+            "bff-water-planning:rate:planning_depth.submit:"
+            + "f"
+            * 64: {
+                "value": 1,
+                "ttl_ms": 1000,
+            }
+        }
+    elif mutation == "rate_elapsed":
+        proof["rate_minimum_elapsed_ms"] = 899999
+    elif mutation == "rate_elapsed_high":
+        proof["rate_minimum_elapsed_ms"] = 900001
+    elif mutation == "rate_timing":
+        proof["rate_snapshot_started_monotonic_ms"] = 920101
+    else:
+        proof["write_activation_manifest_sha256"] = "0" * 64
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n")
+    _write_acceptance_checksums(destination)
+
+    with pytest.raises(
+        orchestrate.OrchestrationError,
+        match="rc_evidence_identity_mismatch",
+    ):
+        orchestrate.finalize_rc_collection(
+            destination,
+            release_sha="a" * 40,
+            frontend_sha="b" * 40,
+            dependency_sha256="d" * 64,
+            guest_id="01KZSKQ6FY4EVCCY94XGWZ9NDS",
+            as_of_date="2026-11-02",
+        )
+
+
+@pytest.mark.parametrize(
+    "rate_row",
+    (
+        {"value": 4, "ttl_ms": 1000},
+        {"value": 3, "ttl_ms": 1},
+        {"value": 3, "ttl_ms": 300001},
+    ),
+)
+def test_finalize_rc_collection_rejects_counter_or_ttl_drift_from_write_act(
+    tmp_path, rate_row
+):
+    destination = tmp_path / f"rate-{rate_row['value']}-{rate_row['ttl_ms']}"
+    _write_complete_rc_evidence(destination)
+    manifest_path = destination / "LOCAL-RC-1.json"
+    manifest = json.loads(manifest_path.read_text())
+    write_key = (
+        "bff-water-planning:rate:planning_depth.submit:"
+        + hashlib.sha256(b"operator-write").hexdigest()
+    )
+    manifest["final"]["proof"]["rate_state"] = {write_key: rate_row}
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n")
+    _write_acceptance_checksums(destination)
+
+    with pytest.raises(
+        orchestrate.OrchestrationError,
+        match="rc_evidence_identity_mismatch",
+    ):
+        orchestrate.finalize_rc_collection(
+            destination,
+            release_sha="a" * 40,
+            frontend_sha="b" * 40,
+            dependency_sha256="d" * 64,
+            guest_id="01KZSKQ6FY4EVCCY94XGWZ9NDS",
+            as_of_date="2026-11-02",
+        )
+
+
+def test_finalize_rc_collection_accepts_a_surviving_key_at_the_decay_bound(tmp_path):
+    destination = tmp_path / "rate-decay-bound"
+    _write_complete_rc_evidence(destination)
+    write_path = destination / "LOCAL-WRITE-ACT-1.json"
+    write_manifest = json.loads(write_path.read_text())
+    write_manifest["steps"]["rate_state_after_browser"]["minimum_elapsed_ms"] = 1000
+    write_manifest["steps"]["rate_state_after_browser"][
+        "snapshot_completed_monotonic_ms"
+    ] = 20000
+    write_path.write_text(json.dumps(write_manifest, sort_keys=True) + "\n")
+    rc_path = destination / "LOCAL-RC-1.json"
+    rc_manifest = json.loads(rc_path.read_text())
+    write_key = (
+        "bff-water-planning:rate:planning_depth.submit:"
+        + hashlib.sha256(b"operator-write").hexdigest()
+    )
+    rc_manifest["final"]["proof"]["rate_state"] = {
+        write_key: {"value": 3, "ttl_ms": 5000}
+    }
+    rc_manifest["final"]["proof"]["rate_minimum_elapsed_ms"] = 1000
+    rc_manifest["final"]["proof"]["rate_snapshot_started_monotonic_ms"] = 21000
+    rc_manifest["final"]["proof"]["rate_snapshot_completed_monotonic_ms"] = 22000
+    rc_manifest["final"]["proof"]["write_activation_manifest_sha256"] = hashlib.sha256(
+        write_path.read_bytes()
+    ).hexdigest()
+    rc_path.write_text(json.dumps(rc_manifest, sort_keys=True) + "\n")
+    _write_acceptance_checksums(destination)
+
+    summary = orchestrate.finalize_rc_collection(
+        destination,
+        release_sha="a" * 40,
+        frontend_sha="b" * 40,
+        dependency_sha256="d" * 64,
+        guest_id="01KZSKQ6FY4EVCCY94XGWZ9NDS",
+        as_of_date="2026-11-02",
+    )
+
+    assert summary["verdict"] == "PASS"
+
+
+def test_finalize_rc_collection_rejects_ttl_above_the_guest_final_elapsed_bound(
+    tmp_path,
+):
+    destination = tmp_path / "rate-final-decay"
+    _write_complete_rc_evidence(destination)
+    write_path = destination / "LOCAL-WRITE-ACT-1.json"
+    write_manifest = json.loads(write_path.read_text())
+    rate_reference = write_manifest["steps"]["rate_state_after_browser"]
+    rate_reference["minimum_elapsed_ms"] = 1000
+    rate_reference["snapshot_completed_monotonic_ms"] = 20000
+    write_path.write_text(json.dumps(write_manifest, sort_keys=True) + "\n")
+    rc_path = destination / "LOCAL-RC-1.json"
+    rc_manifest = json.loads(rc_path.read_text())
+    write_key = (
+        "bff-water-planning:rate:planning_depth.submit:"
+        + hashlib.sha256(b"operator-write").hexdigest()
+    )
+    rc_manifest["final"]["proof"]["rate_state"] = {
+        write_key: {"value": 3, "ttl_ms": 4000}
+    }
+    rc_manifest["final"]["proof"]["rate_minimum_elapsed_ms"] = 3000
+    rc_manifest["final"]["proof"]["rate_snapshot_started_monotonic_ms"] = 23000
+    rc_manifest["final"]["proof"]["rate_snapshot_completed_monotonic_ms"] = 24000
+    rc_manifest["final"]["proof"]["write_activation_manifest_sha256"] = hashlib.sha256(
+        write_path.read_bytes()
+    ).hexdigest()
+    rc_path.write_text(json.dumps(rc_manifest, sort_keys=True) + "\n")
+    _write_acceptance_checksums(destination)
+
+    with pytest.raises(
+        orchestrate.OrchestrationError,
+        match="rc_evidence_identity_mismatch",
+    ):
+        orchestrate.finalize_rc_collection(
+            destination,
+            release_sha="a" * 40,
+            frontend_sha="b" * 40,
+            dependency_sha256="d" * 64,
+            guest_id="01KZSKQ6FY4EVCCY94XGWZ9NDS",
+            as_of_date="2026-11-02",
+        )
+
+
+@pytest.mark.parametrize(
+    ("snapshot_started_ms", "snapshot_completed_ms", "accepted"),
+    (
+        (21000, 22000, False),
+        (25000, 27000, False),
+        (26000, 27000, True),
+        (27000, 28000, True),
+    ),
+)
+def test_finalize_rc_collection_accepts_a_missing_rate_key_only_after_expiry(
+    tmp_path, snapshot_started_ms, snapshot_completed_ms, accepted
+):
+    destination = tmp_path / f"missing-rate-{snapshot_started_ms}"
+    _write_complete_rc_evidence(destination)
+    write_path = destination / "LOCAL-WRITE-ACT-1.json"
+    write_manifest = json.loads(write_path.read_text())
+    rate_reference = write_manifest["steps"]["rate_state_after_browser"]
+    rate_reference["minimum_elapsed_ms"] = 1000
+    rate_reference["snapshot_completed_monotonic_ms"] = 20000
+    write_path.write_text(json.dumps(write_manifest, sort_keys=True) + "\n")
+    rc_path = destination / "LOCAL-RC-1.json"
+    rc_manifest = json.loads(rc_path.read_text())
+    proof = rc_manifest["final"]["proof"]
+    proof["rate_state"] = {}
+    proof["rate_minimum_elapsed_ms"] = max(1000, snapshot_started_ms - 20000)
+    proof["rate_snapshot_started_monotonic_ms"] = snapshot_started_ms
+    proof["rate_snapshot_completed_monotonic_ms"] = snapshot_completed_ms
+    proof["write_activation_manifest_sha256"] = hashlib.sha256(
+        write_path.read_bytes()
+    ).hexdigest()
+    rc_path.write_text(json.dumps(rc_manifest, sort_keys=True) + "\n")
+    _write_acceptance_checksums(destination)
+
+    if not accepted:
+        with pytest.raises(
+            orchestrate.OrchestrationError,
+            match="rc_evidence_identity_mismatch",
+        ):
+            orchestrate.finalize_rc_collection(
+                destination,
+                release_sha="a" * 40,
+                frontend_sha="b" * 40,
+                dependency_sha256="d" * 64,
+                guest_id="01KZSKQ6FY4EVCCY94XGWZ9NDS",
+                as_of_date="2026-11-02",
+            )
+        return
+
+    summary = orchestrate.finalize_rc_collection(
+        destination,
+        release_sha="a" * 40,
+        frontend_sha="b" * 40,
+        dependency_sha256="d" * 64,
+        guest_id="01KZSKQ6FY4EVCCY94XGWZ9NDS",
+        as_of_date="2026-11-02",
+    )
+
+    assert summary["verdict"] == "PASS"
+
+
+def _write_rc_partial_failure_evidence(destination: Path, phase: str):
+    if phase == "preflight":
+        destination.mkdir(parents=True)
+        completed = []
+        failure = {
+            "stage": "LOCAL-RC-1",
+            "rc_phase": "preflight",
+            "verdict": "FAIL",
+            "release_sha": "a" * 40,
+            "frontend_sha": "b" * 40,
+            "dependency_sha256": "d" * 64,
+            "guest": _rc_preflight_record()["guest"],
+            "harness_hashes": _authorized_rc_harness_hashes(),
+            "as_of_date": "2026-11-02",
+            "failed_gate": "rc_database_not_clean",
+            "failed_at": "2026-11-02T01:02:03Z",
+        }
+        (destination / "LOCAL-RC-1-failure.json").write_text(
+            json.dumps(failure, sort_keys=True) + "\n"
+        )
+    elif phase == "stage":
+        completed = list(orchestrate.STAGE_ORDER[:2])
+        state = _write_partial_failure_evidence(destination, completed_count=2)
+        state["harness_hashes"] = _authorized_rc_harness_hashes()
+        (destination / "stage-state.json").write_text(
+            json.dumps(state, sort_keys=True) + "\n"
+        )
+        (destination / "RC-PREFLIGHT.json").write_text(
+            json.dumps(_rc_preflight_record(), indent=2, sort_keys=True) + "\n"
+        )
+        _bind_rc_stage_evidence(destination)
+    elif phase == "finalize":
+        completed = list(orchestrate.STAGE_ORDER)
+        state = _write_complete_acceptance_evidence(destination)
+        state["harness_hashes"] = _authorized_rc_harness_hashes()
+        (destination / "stage-state.json").write_text(
+            json.dumps(state, sort_keys=True) + "\n"
+        )
+        (destination / "RC-PREFLIGHT.json").write_text(
+            json.dumps(_rc_preflight_record(), indent=2, sort_keys=True) + "\n"
+        )
+        _bind_rc_stage_evidence(destination)
+        failure = {
+            "stage": "LOCAL-RC-1",
+            "rc_phase": "finalize",
+            "verdict": "FAIL",
+            "release_sha": "a" * 40,
+            "frontend_sha": "b" * 40,
+            "dependency_sha256": "d" * 64,
+            "guest": _rc_preflight_record()["guest"],
+            "as_of_date": "2026-11-02",
+            "failed_gate": "rc_finalize_runtime_dark_invalid",
+            "failed_at": "2026-11-02T01:02:03Z",
+        }
+        (destination / "LOCAL-RC-1-failure.json").write_text(
+            json.dumps(failure, sort_keys=True) + "\n"
+        )
+    else:
+        raise AssertionError(phase)
+    _write_acceptance_checksums(destination)
+    return completed
+
+
+@pytest.mark.parametrize("phase", ("preflight", "stage", "finalize"))
+def test_finalize_rc_partial_failure_collection_covers_each_failure_boundary(
+    tmp_path, phase
+):
+    destination = tmp_path / phase
+    completed = _write_rc_partial_failure_evidence(destination, phase)
+
+    summary = orchestrate.finalize_rc_partial_failure_collection(
+        destination,
+        release_sha="a" * 40,
+        frontend_sha="b" * 40,
+        dependency_sha256="d" * 64,
+        guest_id="01KZSKQ6FY4EVCCY94XGWZ9NDS",
+        as_of_date="2026-11-02",
+    )
+
+    failed_stage = "LOCAL-AC-1" if phase == "stage" else "LOCAL-RC-1"
+    expected_unreached = (
+        list(orchestrate.STAGE_ORDER)
+        if phase == "preflight"
+        else (
+            [*orchestrate.STAGE_ORDER[len(completed) + 1 :], "LOCAL-RC-1"]
+            if phase == "stage"
+            else []
+        )
+    )
+    assert summary == {
+        "schema_version": 1,
+        "evidence_kind": "local_release_candidate_partial_failure",
+        "acceptance": "LOCAL-RC-1",
+        "acceptance_evidence": False,
+        "campaign_ledger_eligible": False,
+        "aws_actions_authorized": False,
+        "release_sha": "a" * 40,
+        "frontend_sha": "b" * 40,
+        "dependency_sha256": "d" * 64,
+        "guest": {
+            "name": "munbon-control-plan-local",
+            "id": "01KZSKQ6FY4EVCCY94XGWZ9NDS",
+            "architecture": "arm64",
+            "machine_id": "f" * 32,
+        },
+        "as_of_date": "2026-11-02",
+        "phase": phase,
+        "passed": completed,
+        "failed": [failed_stage],
+        "failed_gate": (
+            "manual_requirement_run_not_accepted"
+            if phase == "stage"
+            else (
+                "rc_database_not_clean"
+                if phase == "preflight"
+                else "rc_finalize_runtime_dark_invalid"
+            )
+        ),
+        "unreached": expected_unreached,
+        "verdict": "FAIL",
+    }
+    assert not (destination / "SHA256SUMS").exists()
+    assert not (destination / "OUTER-SHA256SUMS").exists()
+    assert not (destination / "PARTIAL-OUTER-SHA256SUMS").exists()
+    assert (destination / "RC-PARTIAL-SHA256SUMS").is_file()
+    assert (destination / "RC-PARTIAL-OUTER-SHA256SUMS").is_file()
+    outer = (destination / "RC-PARTIAL-OUTER-SHA256SUMS").read_text().splitlines()
+    assert outer == [
+        f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}"
+        for path in sorted(destination.iterdir())
+        if path.name != "RC-PARTIAL-OUTER-SHA256SUMS"
+    ]
+
+
+@pytest.mark.parametrize("mutation", ("missing", "incomplete", "mismatch"))
+def test_rc_preflight_partial_requires_the_exact_host_harness_inventory(
+    monkeypatch, tmp_path, mutation
+):
+    destination = tmp_path / mutation
+    _write_rc_partial_failure_evidence(destination, "preflight")
+    failure_path = destination / "LOCAL-RC-1-failure.json"
+    failure = json.loads(failure_path.read_text(encoding="utf-8"))
+    if mutation == "missing":
+        failure.pop("harness_hashes")
+    elif mutation == "incomplete":
+        failure["harness_hashes"].pop(next(iter(failure["harness_hashes"])))
+    else:
+        first = next(iter(failure["harness_hashes"]))
+        failure["harness_hashes"][first] = "f" * 64
+    failure_path.write_text(json.dumps(failure, sort_keys=True) + "\n")
+    _write_acceptance_checksums(destination)
+    monkeypatch.setattr(
+        orchestrate,
+        "_host_harness_hashes",
+        _authorized_rc_harness_hashes,
+    )
+
+    with pytest.raises(
+        orchestrate.OrchestrationError,
+        match="rc_partial_evidence_identity_mismatch",
+    ):
+        orchestrate.finalize_rc_partial_failure_collection(
+            destination,
+            release_sha="a" * 40,
+            frontend_sha="b" * 40,
+            dependency_sha256="d" * 64,
+            guest_id="01KZSKQ6FY4EVCCY94XGWZ9NDS",
+            as_of_date="2026-11-02",
+        )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "error"),
+    (
+        ("campaign_index", "rc_partial_evidence_inventory_invalid"),
+        ("identity", "rc_partial_evidence_identity_mismatch"),
+        ("gap", "rc_partial_evidence_stage_sequence_invalid"),
+    ),
+)
+def test_finalize_rc_partial_failure_collection_rejects_drift(
+    tmp_path, mutation, error
+):
+    destination = tmp_path / mutation
+    if mutation == "gap":
+        _write_rc_partial_failure_evidence(destination, "stage")
+        source = destination / "LOCAL-AC-1-failure.json"
+        failure = json.loads(source.read_text())
+        failure["stage"] = "LOCAL-READ-ACT-1"
+        source.unlink()
+        (destination / "LOCAL-READ-ACT-1-failure.json").write_text(
+            json.dumps(failure, sort_keys=True) + "\n"
+        )
+    else:
+        _write_rc_partial_failure_evidence(destination, "preflight")
+        if mutation == "campaign_index":
+            (destination / "OUTER-SHA256SUMS").write_text("campaign-shaped\n")
+        else:
+            failure_path = destination / "LOCAL-RC-1-failure.json"
+            failure = json.loads(failure_path.read_text())
+            failure["release_sha"] = "f" * 40
+            failure_path.write_text(json.dumps(failure, sort_keys=True) + "\n")
+    _write_acceptance_checksums(destination)
+
+    with pytest.raises(orchestrate.OrchestrationError, match=error):
+        orchestrate.finalize_rc_partial_failure_collection(
+            destination,
+            release_sha="a" * 40,
+            frontend_sha="b" * 40,
+            dependency_sha256="d" * 64,
+            guest_id="01KZSKQ6FY4EVCCY94XGWZ9NDS",
+            as_of_date="2026-11-02",
+        )
+
+
+def test_rc_partial_rejects_an_ordinary_campaign_failure_without_rc_preflight(
+    tmp_path,
+):
+    destination = tmp_path / "ordinary"
+    state = _write_partial_failure_evidence(destination, completed_count=2)
+    state["harness_hashes"] = _authorized_rc_harness_hashes()
+    (destination / "stage-state.json").write_text(
+        json.dumps(state, sort_keys=True) + "\n"
+    )
+    _write_acceptance_checksums(destination)
+
+    with pytest.raises(
+        orchestrate.OrchestrationError,
+        match="rc_partial_evidence_identity_mismatch",
+    ):
+        orchestrate.finalize_rc_partial_failure_collection(
+            destination,
+            release_sha="a" * 40,
+            frontend_sha="b" * 40,
+            dependency_sha256="d" * 64,
+            guest_id="01KZSKQ6FY4EVCCY94XGWZ9NDS",
+            as_of_date="2026-11-02",
+        )
+
+
+def test_rc_preflight_partial_rejects_collector_supplied_date_drift(tmp_path):
+    destination = tmp_path / "preflight-date-drift"
+    _write_rc_partial_failure_evidence(destination, "preflight")
+
+    with pytest.raises(
+        orchestrate.OrchestrationError,
+        match="rc_partial_evidence_identity_mismatch",
+    ):
+        orchestrate.finalize_rc_partial_failure_collection(
+            destination,
+            release_sha="a" * 40,
+            frontend_sha="b" * 40,
+            dependency_sha256="d" * 64,
+            guest_id="01KZSKQ6FY4EVCCY94XGWZ9NDS",
+            as_of_date="2026-11-03",
+        )
+
+
+def test_rc_partial_rejects_a_stage_failure_from_another_operational_date(tmp_path):
+    destination = tmp_path / "stage-date-drift"
+    _write_rc_partial_failure_evidence(destination, "stage")
+    failure_path = destination / "LOCAL-AC-1-failure.json"
+    failure = json.loads(failure_path.read_text())
+    failure["rc_attempt"]["as_of_date"] = "2026-11-03"
+    failure_path.write_text(json.dumps(failure, sort_keys=True) + "\n")
+    _write_acceptance_checksums(destination)
+
+    with pytest.raises(
+        orchestrate.OrchestrationError,
+        match="rc_partial_evidence_identity_mismatch",
+    ):
+        orchestrate.finalize_rc_partial_failure_collection(
+            destination,
+            release_sha="a" * 40,
+            frontend_sha="b" * 40,
+            dependency_sha256="d" * 64,
+            guest_id="01KZSKQ6FY4EVCCY94XGWZ9NDS",
+            as_of_date="2026-11-02",
+        )
+
+
+@pytest.mark.parametrize(
+    ("failed_stage", "failed_artifacts"),
+    (
+        ("LOCAL-GO-READ-1", ()),
+        ("LOCAL-GO-READ-1", ("LOCAL-GO-READ-1-live.png",)),
+        (
+            "LOCAL-GO-READ-1",
+            ("LOCAL-GO-READ-1-live.png", "LOCAL-GO-READ-1-outage.png"),
+        ),
+        ("LOCAL-WRITE-UI-1", ("LOCAL-WRITE-UI-1-browser-result.json",)),
+        ("LOCAL-WRITE-ACT-1", ("LOCAL-WRITE-ACT-1-browser-result.json",)),
+    ),
+)
+def test_rc_partial_accepts_bounded_auxiliary_evidence_from_the_failed_stage(
+    tmp_path, failed_stage, failed_artifacts
+):
+    destination = tmp_path / failed_stage
+    completed_count = orchestrate.STAGE_ORDER.index(failed_stage)
+    state = _write_partial_failure_evidence(
+        destination, completed_count=completed_count
+    )
+    state["harness_hashes"] = _authorized_rc_harness_hashes()
+    (destination / "stage-state.json").write_text(
+        json.dumps(state, sort_keys=True) + "\n"
+    )
+    (destination / "RC-PREFLIGHT.json").write_text(
+        json.dumps(_rc_preflight_record(), indent=2, sort_keys=True) + "\n"
+    )
+    _bind_rc_stage_evidence(destination)
+    if "LOCAL-GO-READ-1" in state["completed"]:
+        (destination / "LOCAL-GO-READ-1-live.png").write_bytes(b"live")
+        (destination / "LOCAL-GO-READ-1-outage.png").write_bytes(b"outage")
+    if "LOCAL-WRITE-UI-1" in state["completed"]:
+        (destination / "LOCAL-WRITE-UI-1-browser-result.json").write_text(
+            '{"browser":"accepted"}\n'
+        )
+    for name in failed_artifacts:
+        path = destination / name
+        if path.suffix == ".png":
+            path.write_bytes(b"bounded-failure")
+        else:
+            path.write_text('{"browser":"bounded-failure"}\n')
+    _write_acceptance_checksums(destination)
+
+    summary = orchestrate.finalize_rc_partial_failure_collection(
+        destination,
+        release_sha="a" * 40,
+        frontend_sha="b" * 40,
+        dependency_sha256="d" * 64,
+        guest_id="01KZSKQ6FY4EVCCY94XGWZ9NDS",
+        as_of_date="2026-11-02",
+    )
+
+    assert summary["failed"] == [failed_stage]
+
+
+def test_rc_partial_rejects_outage_only_evidence_from_failed_go_read(tmp_path):
+    destination = tmp_path / "go-outage-only"
+    failed_stage = "LOCAL-GO-READ-1"
+    state = _write_partial_failure_evidence(
+        destination,
+        completed_count=orchestrate.STAGE_ORDER.index(failed_stage),
+    )
+    state["harness_hashes"] = _authorized_rc_harness_hashes()
+    (destination / "stage-state.json").write_text(
+        json.dumps(state, sort_keys=True) + "\n"
+    )
+    (destination / "RC-PREFLIGHT.json").write_text(
+        json.dumps(_rc_preflight_record(), indent=2, sort_keys=True) + "\n"
+    )
+    _bind_rc_stage_evidence(destination)
+    (destination / "LOCAL-GO-READ-1-outage.png").write_bytes(b"unreachable")
+    _write_acceptance_checksums(destination)
+
+    with pytest.raises(
+        orchestrate.OrchestrationError,
+        match="rc_partial_evidence_stage_sequence_invalid",
+    ):
+        orchestrate.finalize_rc_partial_failure_collection(
+            destination,
+            release_sha="a" * 40,
+            frontend_sha="b" * 40,
+            dependency_sha256="d" * 64,
+            guest_id="01KZSKQ6FY4EVCCY94XGWZ9NDS",
+            as_of_date="2026-11-02",
+        )
+
+
+def test_rc_success_rejects_a_guest_harness_map_not_authorized_by_the_host(
+    tmp_path, monkeypatch
+):
+    destination = tmp_path / "harness-drift"
+    _write_complete_rc_evidence(destination)
+    monkeypatch.setattr(
+        orchestrate,
+        "_host_harness_hashes",
+        lambda: {name: "f" * 64 for name in orchestrate.EVIDENCE_HARNESS_ARTIFACTS},
+        raising=False,
+    )
+
+    with pytest.raises(
+        orchestrate.OrchestrationError,
+        match="rc_evidence_identity_mismatch",
+    ):
+        orchestrate.finalize_rc_collection(
+            destination,
+            release_sha="a" * 40,
+            frontend_sha="b" * 40,
+            dependency_sha256="d" * 64,
+            guest_id="01KZSKQ6FY4EVCCY94XGWZ9NDS",
+            as_of_date="2026-11-02",
+        )
+
+
+def test_collect_rc_partial_failure_revalidates_guest_around_atomic_collection(
+    monkeypatch, tmp_path
+):
+    source = tmp_path / "source"
+    _write_rc_partial_failure_evidence(source, "preflight")
+    events = []
+    monkeypatch.setattr(
+        orchestrate,
+        "_validated_rc_guest",
+        lambda *_args: events.append("identity")
+        or {"guest": "accepted", "machine_id": "f" * 32},
+    )
+
+    def collect(destination, *, finalizer, **kwargs):
+        assert destination == tmp_path / "collected"
+        assert kwargs["archive_name"] == "local-rc-partial-failure-evidence.tar.gz"
+        events.append("collect")
+        return finalizer(source)
+
+    monkeypatch.setattr(orchestrate, "_collect_guest_evidence", collect)
+
+    summary = orchestrate.collect_rc_partial_failure(
+        tmp_path / "collected",
+        "a" * 40,
+        "b" * 40,
+        "d" * 64,
+        "01KZSKQ6FY4EVCCY94XGWZ9NDS",
+        "2026-11-02",
+    )
+
+    assert summary["acceptance_evidence"] is False
+    assert events == ["identity", "collect", "identity"]
+
+
+@pytest.mark.parametrize(
+    ("collector_name", "finalizer_name"),
+    (
+        ("collect_rc", "finalize_rc_collection"),
+        ("collect_rc_partial_failure", "finalize_rc_partial_failure_collection"),
+    ),
+)
+def test_rc_collection_threads_the_current_machine_into_durable_validation(
+    monkeypatch, tmp_path, collector_name, finalizer_name
+):
+    machine_id = "f" * 32
+    guest = {
+        "name": "munbon-control-plan-local",
+        "id": "01KZSKQ6FY4EVCCY94XGWZ9NDS",
+        "architecture": "arm64",
+        "dependency_sha256": "d" * 64,
+        "machine_id": machine_id,
+    }
+    captured = []
+    archive_machine_ids = []
+    monkeypatch.setattr(orchestrate, "_validated_rc_guest", lambda *_args: guest)
+
+    def finalize(_destination, *, expected_machine_id, **_kwargs):
+        captured.append(expected_machine_id)
+        return {"verdict": "PASS"}
+
+    def collect(_destination, *, finalizer, expected_machine_id, **_kwargs):
+        archive_machine_ids.append(expected_machine_id)
+        return finalizer(tmp_path / "source")
+
+    monkeypatch.setattr(orchestrate, finalizer_name, finalize)
+    monkeypatch.setattr(orchestrate, "_collect_guest_evidence", collect)
+
+    result = getattr(orchestrate, collector_name)(
+        tmp_path / "collected",
+        "a" * 40,
+        "b" * 40,
+        "d" * 64,
+        guest["id"],
+        "2026-11-02",
+    )
+
+    assert result == {"verdict": "PASS"}
+    assert captured == [machine_id]
+    assert archive_machine_ids == [machine_id]
+
+
+@pytest.mark.parametrize(
+    ("stream_code", "archive_name"),
+    (
+        ("rc_evidence_stream", "local-rc-evidence.tar.gz"),
+        (
+            "rc_partial_evidence_stream",
+            "local-rc-partial-failure-evidence.tar.gz",
+        ),
+    ),
+)
+def test_rc_archive_stream_checks_machine_id_in_the_same_guest_command(
+    monkeypatch, tmp_path, stream_code, archive_name
+):
+    machine_id = "f" * 32
+    captured = {}
+
+    def guest_command(argv, *, user):
+        captured["argv"] = argv
+        captured["user"] = user
+        return ["orb", "-m", "munbon-control-plan-local", "run", "--", *argv]
+
+    def run(argv, **_kwargs):
+        captured["command"] = argv
+        return subprocess.CompletedProcess(argv, 1)
+
+    monkeypatch.setattr(orchestrate.subprocess, "run", run)
+    destination = tmp_path / "collected"
+
+    with pytest.raises(
+        orchestrate.OrchestrationError,
+        match=f"{stream_code}_failed",
+    ):
+        orchestrate._collect_guest_evidence(
+            destination,
+            guest_command=guest_command,
+            archive_name=archive_name,
+            stream_code=stream_code,
+            extract_code="unused_extract",
+            destination_error="destination_exists",
+            finalizer=lambda _temporary: pytest.fail("finalizer must not run"),
+            expected_machine_id=machine_id,
+        )
+
+    assert captured == {
+        "argv": [
+            "sh",
+            "-ceu",
+            'test "$(cat /etc/machine-id)" = "$1"; shift; exec "$@"',
+            "rc-archive-guard",
+            machine_id,
+            "tar",
+            "-C",
+            "/var/lib/munbon-local-acceptance/evidence",
+            "-czf",
+            "-",
+            ".",
+        ],
+        "user": "root",
+        "command": [
+            "orb",
+            "-m",
+            "munbon-control-plan-local",
+            "run",
+            "--",
+            "sh",
+            "-ceu",
+            'test "$(cat /etc/machine-id)" = "$1"; shift; exec "$@"',
+            "rc-archive-guard",
+            machine_id,
+            "tar",
+            "-C",
+            "/var/lib/munbon-local-acceptance/evidence",
+            "-czf",
+            "-",
+            ".",
+        ],
+    }
+    assert machine_id not in captured["argv"][2]
+    assert not destination.exists()
+
+
+@pytest.mark.parametrize(
+    ("collector_name", "evidence_kind"),
+    (
+        ("collect_rc", "complete"),
+        ("collect_rc_partial_failure", "partial"),
+    ),
+)
+def test_standalone_rc_collection_rejects_machine_drift_from_durable_lineage(
+    monkeypatch, tmp_path, collector_name, evidence_kind
+):
+    source = tmp_path / "source"
+    if evidence_kind == "complete":
+        _write_complete_rc_evidence(source)
+    else:
+        _write_rc_partial_failure_evidence(source, "preflight")
+    current_guest = {
+        "name": "munbon-control-plan-local",
+        "id": "01KZSKQ6FY4EVCCY94XGWZ9NDS",
+        "architecture": "arm64",
+        "dependency_sha256": "d" * 64,
+        "machine_id": "e" * 32,
+    }
+    monkeypatch.setattr(
+        orchestrate, "_validated_rc_guest", lambda *_args: current_guest
+    )
+    monkeypatch.setattr(
+        orchestrate,
+        "_collect_guest_evidence",
+        lambda _destination, *, finalizer, **_kwargs: finalizer(source),
+    )
+
+    with pytest.raises(
+        orchestrate.OrchestrationError,
+        match=(
+            "rc_evidence_identity_mismatch"
+            if evidence_kind == "complete"
+            else "rc_partial_evidence_identity_mismatch"
+        ),
+    ):
+        getattr(orchestrate, collector_name)(
+            tmp_path / "collected",
+            "a" * 40,
+            "b" * 40,
+            "d" * 64,
+            current_guest["id"],
+            "2026-11-02",
+        )
+
+
+def test_rc_partial_failure_cli_dispatches_instead_of_placeholder(
+    monkeypatch, tmp_path, capsys
+):
+    summary = {
+        "evidence_kind": "local_release_candidate_partial_failure",
+        "acceptance_evidence": False,
+        "verdict": "FAIL",
+    }
+    origin_shas = iter(("a" * 40, "b" * 40))
+    monkeypatch.setattr(
+        orchestrate, "_origin_main_sha", lambda *_args: next(origin_shas)
+    )
+    monkeypatch.setattr(
+        orchestrate,
+        "collect_rc_partial_failure",
+        lambda *args: summary,
+        raising=False,
+    )
+
+    assert (
+        orchestrate.main(
+            [
+                "collect-rc-partial-failure",
+                "--release-sha",
+                "a" * 40,
+                "--frontend-sha",
+                "b" * 40,
+                "--accept-later-origin-main",
+                "--dependency-bundle-sha256",
+                "d" * 64,
+                "--guest-id",
+                "01KZSKQ6FY4EVCCY94XGWZ9NDS",
+                "--as-of-date",
+                "2026-11-02",
+                "--evidence-dir",
+                str(tmp_path / "collected"),
+            ]
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out) == summary
+
+
+@pytest.mark.parametrize(
+    ("mutation", "error"),
+    [
+        ("identity", "rc_evidence_identity_mismatch"),
+        ("tamper", "rc_evidence_checksum_mismatch"),
+        ("campaign_outer", "rc_evidence_inventory_invalid"),
+    ],
+)
+def test_finalize_rc_collection_rejects_identity_checksum_or_campaign_index_drift(
+    tmp_path, mutation, error
+):
+    destination = tmp_path / mutation
+    _write_complete_rc_evidence(destination)
+    kwargs = {
+        "release_sha": "a" * 40,
+        "frontend_sha": "b" * 40,
+        "dependency_sha256": "d" * 64,
+        "guest_id": "01KZSKQ6FY4EVCCY94XGWZ9NDS",
+        "as_of_date": "2026-11-02",
+    }
+    if mutation == "identity":
+        kwargs["guest_id"] = "01KZSKQ6FY4EVCCY94XGWZ9NDT"
+    elif mutation == "tamper":
+        (destination / "LOCAL-RC-1.json").write_text("tampered\n")
+    else:
+        (destination / "OUTER-SHA256SUMS").write_text("campaign-shaped\n")
+
+    with pytest.raises(orchestrate.OrchestrationError, match=error):
+        orchestrate.finalize_rc_collection(destination, **kwargs)
+
+
+def test_parser_exposes_rc_actions_and_exact_identity_arguments():
+    for action in ("run-rc", "collect-rc", "collect-rc-partial-failure"):
+        args = orchestrate._parse_args(
+            [
+                action,
+                "--guest-id",
+                "01KZSKQ6FY4EVCCY94XGWZ9NDS",
+                "--dependency-bundle-sha256",
+                "d" * 64,
+                "--as-of-date",
+                "2026-11-02",
+            ]
+        )
+        assert (
+            args.action,
+            args.guest_id,
+            args.dependency_bundle_sha256,
+            args.as_of_date,
+        ) == (
+            action,
+            "01KZSKQ6FY4EVCCY94XGWZ9NDS",
+            "d" * 64,
+            "2026-11-02",
+        )
+
+
+def test_campaign_ledger_rejects_rc_outer_index_as_historical_acceptance(tmp_path):
+    entry = _campaign_ledger_entry(
+        "rc-not-campaign",
+        previous_entry_sha256=None,
+        outcome={
+            "acceptance": True,
+            "passed": list(EXPECTED_SUCCESSFUL_STAGE_ORDER),
+            "failed": [],
+            "unreached": [],
+        },
+        authorization={"state": "successful_closed", "attempt": 1, "ceiling": 3},
+        evidence_index_name="RC-OUTER-SHA256SUMS",
+    )
+    path = tmp_path / "campaign-ledger.jsonl"
+    path.write_text(json.dumps(entry, sort_keys=True) + "\n")
+
+    with pytest.raises(
+        orchestrate.OrchestrationError, match="campaign_ledger_schema_invalid"
+    ):
+        orchestrate.validate_campaign_ledger(path)

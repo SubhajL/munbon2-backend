@@ -5748,6 +5748,8 @@ def test_write_activation_body_arms_backend_before_frontend_and_rolls_back_front
         return browser
 
     monkeypatch.setattr(stage_suite, "_run_write_browser", run_browser)
+    monotonic_values = iter((10.0, 20.0, 20.1, 920.1))
+    monkeypatch.setattr(stage_suite.time, "monotonic", monotonic_values.__next__)
 
     steps = stage_suite._run_local_write_activation_authenticated(
         context,
@@ -5779,7 +5781,27 @@ def test_write_activation_body_arms_backend_before_frontend_and_rolls_back_front
         "rate-key-bound",
     ]
     assert steps["persisted_diff"] == {"diff": "accepted"}
+    expected_snapshot = {
+        "non_w2_digests": {},
+        "w2_submissions": [],
+        "w2_values": [],
+    }
+    assert (
+        steps["persist_snapshot_sha256"]
+        == hashlib.sha256(
+            (
+                json.dumps(expected_snapshot, separators=(",", ":"), sort_keys=True)
+                + "\n"
+            ).encode()
+        ).hexdigest()
+    )
     assert steps["rate_accounting"] == {"increment": 3}
+    assert steps["rate_state_after_browser"] == {
+        "configured_window_ms": 300000,
+        "minimum_elapsed_ms": 900000,
+        "snapshot_completed_monotonic_ms": 20100,
+        "snapshot": {},
+    }
     assert steps["active_after_rollback"] == {
         "submission_id": "d4c3b2a1-f6e5-4b7a-9d8c-1e0f2a3b4c5d",
         "levels_count": 41,
@@ -7811,6 +7833,67 @@ def test_verify_write_activation_restoration_rejects_invalid_readiness_evidence(
         )
 
 
+def test_verify_write_activation_restoration_returns_exact_process_baseline(
+    tmp_path, monkeypatch
+):
+    context = _write_ui_context(tmp_path)
+    expected_dark = {"dark": True}
+    expected_gates = {
+        "control_plan_reads": False,
+        "control_plan_evidence_reads": False,
+        "water_planning_v2": False,
+        "water_planning_submit": False,
+    }
+    processes = [
+        {
+            "name": name,
+            "status": "online",
+            "restarts": index,
+            "pid": 100 + index,
+            "memory_bytes": 1024 + index,
+            "cpu_percent": index / 10,
+        }
+        for index, name in enumerate(stage_suite.PROCESS_NAMES)
+    ]
+    readiness = {
+        name: {"status_code": 200, "status": "ready", "checks": {}}
+        for name in stage_suite.PROCESS_NAMES
+    }
+    listeners = [
+        {"address": "127.0.0.1", "port": port} for port in (3011, 3021, 3022, 3047)
+    ]
+    monkeypatch.setattr(stage_suite, "_pm2_json", lambda: "pm2")
+    monkeypatch.setattr(stage_suite, "project_pm2_state", lambda _value: processes)
+    monkeypatch.setattr(
+        stage_suite, "_actual_gate_environment", lambda _value: "environment"
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "collect_dark_runtime_contract",
+        lambda _environment, _release: expected_dark,
+    )
+    monkeypatch.setattr(stage_suite, "_listener_snapshot", lambda: listeners)
+    monkeypatch.setattr(
+        stage_suite, "frontend_process_environment", lambda *_args, **_kwargs: {}
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "project_frontend_activation_gates",
+        lambda _environment: expected_gates,
+    )
+    monkeypatch.setattr(stage_suite, "_readiness_snapshot", lambda: readiness)
+    monkeypatch.setattr(stage_suite, "_verify_frontend_source", lambda _context: None)
+
+    result = stage_suite._verify_write_activation_restoration(
+        context,
+        before_dark=expected_dark,
+        model_release={"commandable": False},
+        before_listeners=listeners,
+    )
+
+    assert result["processes"] == processes
+
+
 def test_run_local_write_activation_clears_stale_browser_result_before_source_check(
     tmp_path, monkeypatch
 ):
@@ -9581,3 +9664,2040 @@ def test_persist_only_rid_week_rejects_out_of_supported_range():
         stage_suite.StageGateError, match="persist_only_week_out_of_supported_range"
     ):
         stage_suite._persist_only_rid_week(date(2401, 11, 1))  # ending_year 2402
+
+
+def _rc_context(tmp_path):
+    evidence_root = tmp_path / "evidence"
+    evidence_root.mkdir()
+    runtime_env_dir = tmp_path / "runtime"
+    runtime_env_dir.mkdir()
+    harness_root = tmp_path / "harness"
+    harness_root.mkdir()
+    for name in stage_suite.HARNESS_ARTIFACTS:
+        (harness_root / name).write_text(f"fixture:{name}\n", encoding="utf-8")
+    owner_path = tmp_path / "owner.json"
+    owner_path.write_text(
+        json.dumps(
+            {
+                "architecture": "arm64",
+                "dependency_sha256": "c" * 64,
+                "frontend_sha": "b" * 40,
+                "machine": "munbon-control-plan-local",
+                "release_sha": "a" * 40,
+                "state": "ready",
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return stage_suite.StageContext(
+        release_sha="a" * 40,
+        frontend_sha="b" * 40,
+        repo_root=tmp_path / "repo",
+        frontend_root=tmp_path / "frontend",
+        harness_root=harness_root,
+        evidence_root=evidence_root,
+        runtime_env_dir=runtime_env_dir,
+        as_of_date=date(2026, 11, 2),
+        owner_path=owner_path,
+    )
+
+
+def _rc_preflight_checks():
+    return {
+        "evidence_root_empty": True,
+        "database_clean": True,
+        "rate_state_clean": True,
+        "actionable_commands": 0,
+        "sources_clean": True,
+        "runtime_dark": True,
+    }
+
+
+def _rc_stage_attempt(*, as_of_date="2026-11-02"):
+    preflight = {
+        "schema_version": 1,
+        "phase": "preflight",
+        "verdict": "PASS",
+        "release_sha": "a" * 40,
+        "frontend_sha": "b" * 40,
+        "dependency_sha256": "c" * 64,
+        "guest": {
+            "name": "munbon-control-plan-local",
+            "id": "01KZSKQ6FY4EVCCY94XGWZ9NDS",
+            "architecture": "arm64",
+            "machine_id": "f" * 32,
+        },
+        "as_of_date": "2026-11-02",
+        "checks": _rc_preflight_checks(),
+        "captured_at": "2026-11-02T01:02:03Z",
+    }
+    preflight_bytes = (json.dumps(preflight, indent=2, sort_keys=True) + "\n").encode()
+    return {
+        "preflight_sha256": hashlib.sha256(preflight_bytes).hexdigest(),
+        "dependency_sha256": "c" * 64,
+        "guest": preflight["guest"],
+        "as_of_date": as_of_date,
+    }
+
+
+def test_rc_database_preflight_requires_absent_application_schemas(
+    monkeypatch, tmp_path
+):
+    context = _rc_context(tmp_path)
+    captured = {}
+
+    def psql(_context, query):
+        captured["query"] = query
+        return "t\n"
+
+    monkeypatch.setattr(stage_suite, "_psql", psql)
+
+    assert stage_suite._rc_database_clean(context) is True
+    assert all(
+        f"to_regnamespace('{schema}') IS NULL" in captured["query"]
+        for schema in ("scheduler", "ros_gis", "water_planning", "gis")
+    )
+
+    monkeypatch.setattr(stage_suite, "_psql", lambda *_args: "f\n")
+    with pytest.raises(stage_suite.StageGateError, match="rc_database_not_clean"):
+        stage_suite._rc_database_clean(context)
+
+
+def test_rc_preflight_snapshot_proves_clean_sources_data_rate_runtime_and_listeners(
+    monkeypatch, tmp_path
+):
+    context = _rc_context(tmp_path)
+    events = []
+    monkeypatch.setattr(
+        stage_suite,
+        "_verify_source_checkouts",
+        lambda _context: events.append("sources"),
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_rc_database_clean",
+        lambda _context: events.append("database") or True,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_snapshot_planning_depth_rate_keys",
+        lambda _context: events.append("rate") or {},
+    )
+    monkeypatch.setattr(stage_suite, "_pm2_json", lambda: "[]")
+    monkeypatch.setattr(
+        stage_suite,
+        "_listener_snapshot",
+        lambda: [{"address": "127.0.0.1", "port": 3005}],
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_rc_configured_dark",
+        lambda _context: events.append("dark") or True,
+        raising=False,
+    )
+
+    assert stage_suite._rc_preflight_snapshot(context) == _rc_preflight_checks()
+    assert events == ["sources", "database", "rate", "dark"]
+
+
+def test_rc_source_preflight_rejects_untracked_execution_drift(monkeypatch, tmp_path):
+    context = _rc_context(tmp_path)
+    status_argv = []
+
+    def checked(code, argv, **_kwargs):
+        if code.endswith("_source_identity"):
+            return (
+                context.release_sha
+                if code.startswith("backend")
+                else context.frontend_sha
+            )
+        status_argv.append(argv)
+        return "?? services/scheduler/src/injected.py\n"
+
+    monkeypatch.setattr(stage_suite, "_run_checked", checked)
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="backend_source_identity_stale"
+    ):
+        stage_suite._verify_source_checkouts(context)
+
+    assert status_argv == [["git", "status", "--porcelain", "--untracked-files=all"]]
+
+
+@pytest.mark.parametrize(
+    ("dirty", "error"),
+    [
+        (
+            {"rate": {"planning-depth:write:subject": {"value": 1, "ttl_ms": 1}}},
+            "rc_rate_state_not_clean",
+        ),
+        ({"pm2": [{"name": "scheduler"}]}, "rc_runtime_not_clean"),
+        (
+            {"listeners": [{"address": "0.0.0.0", "port": 3022}]},
+            "rc_listener_state_not_clean",
+        ),
+        ({"dark": False}, "rc_runtime_not_dark"),
+    ],
+)
+def test_rc_preflight_snapshot_fails_closed_on_any_dirty_state(
+    monkeypatch, tmp_path, dirty, error
+):
+    context = _rc_context(tmp_path)
+    monkeypatch.setattr(stage_suite, "_verify_source_checkouts", lambda _context: None)
+    monkeypatch.setattr(
+        stage_suite, "_rc_database_clean", lambda _context: True, raising=False
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_snapshot_planning_depth_rate_keys",
+        lambda _context: dirty.get("rate", {}),
+    )
+    monkeypatch.setattr(
+        stage_suite, "_pm2_json", lambda: json.dumps(dirty.get("pm2", []))
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_listener_snapshot",
+        lambda: dirty.get("listeners", [{"address": "127.0.0.1", "port": 3005}]),
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_rc_configured_dark",
+        lambda _context: dirty.get("dark", True),
+        raising=False,
+    )
+
+    with pytest.raises(stage_suite.StageGateError, match=error):
+        stage_suite._rc_preflight_snapshot(context)
+
+
+def test_run_local_rc_preflight_writes_external_sanitized_state_only(
+    monkeypatch, tmp_path
+):
+    context = _rc_context(tmp_path)
+    monkeypatch.setattr(
+        stage_suite,
+        "_rc_preflight_snapshot",
+        lambda _context: _rc_preflight_checks(),
+        raising=False,
+    )
+
+    manifest = stage_suite.run_local_rc_preflight(
+        context,
+        dependency_sha256="c" * 64,
+        guest_id="01KZSKQ6FY4EVCCY94XGWZ9NDS",
+        expected_machine_id="f" * 32,
+    )
+
+    assert re.fullmatch(
+        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", manifest.pop("captured_at")
+    )
+    assert manifest == {
+        "schema_version": 1,
+        "phase": "preflight",
+        "verdict": "PASS",
+        "release_sha": "a" * 40,
+        "frontend_sha": "b" * 40,
+        "dependency_sha256": "c" * 64,
+        "guest": {
+            "name": "munbon-control-plan-local",
+            "id": "01KZSKQ6FY4EVCCY94XGWZ9NDS",
+            "architecture": "arm64",
+            "machine_id": "f" * 32,
+        },
+        "as_of_date": "2026-11-02",
+        "checks": _rc_preflight_checks(),
+    }
+    assert {path.name for path in context.evidence_root.iterdir()} == {
+        "RC-PREFLIGHT.json",
+        "SHA256SUMS",
+        "stage-state.json",
+    }
+    stored = json.loads(stage_suite._rc_preflight_path(context).read_text())
+    stored.pop("captured_at")
+    assert stored == manifest
+    internal = json.loads((context.evidence_root / "RC-PREFLIGHT.json").read_text())
+    internal.pop("captured_at")
+    assert internal == manifest
+    stage_suite._verify_checksum_entry(context.evidence_root / "RC-PREFLIGHT.json")
+    monkeypatch.setattr(stage_suite, "_verify_source_checkouts", lambda _context: None)
+    assert stage_suite._load_state(context)["completed"] == []
+
+
+def test_empty_rc_stage_state_rechecks_sources_before_the_first_stage(
+    monkeypatch, tmp_path
+):
+    context = _rc_context(tmp_path)
+    monkeypatch.setattr(
+        stage_suite,
+        "_rc_preflight_snapshot",
+        lambda _context: _rc_preflight_checks(),
+    )
+    stage_suite.run_local_rc_preflight(
+        context,
+        dependency_sha256="c" * 64,
+        guest_id="01KZSKQ6FY4EVCCY94XGWZ9NDS",
+        expected_machine_id="f" * 32,
+    )
+    source_checks = []
+    monkeypatch.setattr(
+        stage_suite,
+        "_verify_source_checkouts",
+        lambda checked_context: source_checks.append(checked_context),
+    )
+
+    assert stage_suite._load_state(context)["completed"] == []
+    assert source_checks == [context]
+
+
+def test_run_local_rc_preflight_rejects_existing_evidence_before_probes(
+    monkeypatch, tmp_path
+):
+    context = _rc_context(tmp_path)
+    (context.evidence_root / "stale.json").write_text("{}\n")
+    monkeypatch.setattr(
+        stage_suite,
+        "_rc_preflight_snapshot",
+        lambda _context: pytest.fail("preflight probes must not run"),
+        raising=False,
+    )
+
+    with pytest.raises(stage_suite.StageGateError, match="rc_evidence_not_clean"):
+        stage_suite.run_local_rc_preflight(
+            context,
+            dependency_sha256="c" * 64,
+            guest_id="01KZSKQ6FY4EVCCY94XGWZ9NDS",
+            expected_machine_id="f" * 32,
+        )
+
+
+def test_rc_configured_dark_reads_the_actual_model_release(monkeypatch, tmp_path):
+    context = _rc_context(tmp_path)
+    model_release = (
+        context.repo_root
+        / "services/flow-monitoring/data/model-releases/engineering-prior-v5-v1.json"
+    )
+    model_release.parent.mkdir(parents=True)
+    model_release.write_text('{"commandable": true}\n', encoding="utf-8")
+    environments = {
+        "flow": {"GATES_API_ENABLED": "false", "ALLOW_MACHINE_COMMANDS": "false"},
+        "scheduler": {
+            "CONTROL_EXECUTION_MODE": "disabled",
+            "CONTROL_READBACK_RECONCILIATION_MODE": "off",
+            "ALLOW_MACHINE_COMMANDS": "false",
+        },
+        "ros": {
+            "DAILY_REQUIREMENT_ENABLED": "false",
+            "DAILY_REQUIREMENT_STARTUP_CATCHUP_ENABLED": "false",
+            "DAILY_REQUIREMENT_SCHEDULE_ENABLED": "false",
+            "ALLOW_MACHINE_COMMANDS": "false",
+        },
+        "bff": {
+            "PLANNING_DEPTH_WRITES_ENABLED": "false",
+            "ALLOW_MACHINE_COMMANDS": "false",
+        },
+    }
+    monkeypatch.setattr(
+        stage_suite,
+        "_load_env_file",
+        lambda path: environments[path.stem],
+    )
+
+    with pytest.raises(stage_suite.StageGateError, match="rc_runtime_not_dark"):
+        stage_suite._rc_configured_dark(context)
+
+
+def test_run_local_rc_preflight_never_overwrites_an_existing_external_record(
+    monkeypatch, tmp_path
+):
+    context = _rc_context(tmp_path)
+    preflight_path = stage_suite._rc_preflight_path(context)
+    preflight_path.write_text('{"prior": true}\n', encoding="utf-8")
+    monkeypatch.setattr(
+        stage_suite,
+        "_rc_preflight_snapshot",
+        lambda _context: _rc_preflight_checks(),
+    )
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="rc_preflight_artifact_exists"
+    ):
+        stage_suite.run_local_rc_preflight(
+            context,
+            dependency_sha256="c" * 64,
+            guest_id="01KZSKQ6FY4EVCCY94XGWZ9NDS",
+            expected_machine_id="f" * 32,
+        )
+
+
+def _rc_cli_args(tmp_path, phase):
+    return [
+        "LOCAL-RC-1",
+        "--rc-phase",
+        phase,
+        "--release-sha",
+        "a" * 40,
+        "--frontend-sha",
+        "b" * 40,
+        "--dependency-sha256",
+        "c" * 64,
+        "--guest-id",
+        "01KZSKQ6FY4EVCCY94XGWZ9NDS",
+        "--expected-machine-id",
+        "f" * 32,
+        "--execution-kind",
+        "canonical",
+        "--repo-root",
+        str(tmp_path / "repo"),
+        "--frontend-root",
+        str(tmp_path / "frontend"),
+        "--evidence-root",
+        str(tmp_path / "evidence"),
+        "--runtime-env-dir",
+        str(tmp_path / "runtime"),
+        "--as-of-date",
+        "2026-11-02",
+    ]
+
+
+def _rc_stage_cli_args(tmp_path, stage="LOCAL-BASE-0"):
+    args = _rc_cli_args(tmp_path, "preflight")
+    args[0] = stage
+    del args[1:3]
+    for flag in ("--dependency-sha256", "--guest-id"):
+        index = args.index(flag)
+        del args[index : index + 2]
+    return args
+
+
+def _install_internal_rc_preflight(context):
+    record = _write_rc_preflight_record(context)
+    internal_path = context.evidence_root / "RC-PREFLIGHT.json"
+    stage_suite.write_stage_manifest(internal_path, record)
+    stage_suite._checksum_manifest(internal_path)
+    return record
+
+
+@pytest.fixture
+def rc_expected_machine(monkeypatch):
+    monkeypatch.setattr(stage_suite, "_actual_machine_id", lambda: "f" * 32)
+
+
+def test_rc_only_options_are_rejected_for_ordinary_stages(tmp_path):
+    args = _rc_cli_args(tmp_path, "preflight")
+    args[0] = "LOCAL-BASE-0"
+
+    with pytest.raises(SystemExit):
+        stage_suite._parse_args(args)
+
+
+@pytest.mark.parametrize(
+    "state_fault", ("missing", "corrupt", "checksum_missing", "noncanonical")
+)
+def test_rc_dispatched_stage_rejects_an_unproved_post_stage_state(
+    monkeypatch, tmp_path, rc_expected_machine, capsys, state_fault
+):
+    context = _rc_context(tmp_path)
+    _install_internal_rc_preflight(context)
+    stage_suite._save_state(context, [])
+
+    def pass_base(stage_context):
+        manifest = {
+            "stage": "LOCAL-BASE-0",
+            "verdict": "PASS",
+            "release_sha": stage_context.release_sha,
+            "frontend_sha": stage_context.frontend_sha,
+        }
+        target = stage_context.evidence_root / "LOCAL-BASE-0.json"
+        stage_suite.write_stage_manifest(target, manifest)
+        stage_suite._checksum_manifest(target)
+        state_path = stage_context.evidence_root / "stage-state.json"
+        if state_fault == "missing":
+            stage_suite._clear_checksum_artifact(
+                stage_context.evidence_root, state_path.name
+            )
+        elif state_fault == "corrupt":
+            state_path.write_text("{", encoding="utf-8")
+        elif state_fault == "checksum_missing":
+            entries = stage_suite._read_checksum_index(
+                stage_context.evidence_root / "SHA256SUMS"
+            )
+            entries.pop(state_path.name)
+            stage_suite._write_checksum_index(
+                stage_context.evidence_root / "SHA256SUMS", entries
+            )
+        else:
+            stage_suite.write_stage_manifest(
+                state_path,
+                {
+                    **stage_suite._stage_identity(stage_context),
+                    "completed": ["LOCAL-RTA-1"],
+                },
+            )
+            stage_suite._checksum_manifest(state_path)
+        return manifest
+
+    monkeypatch.setattr(stage_suite, "run_local_base", pass_base)
+
+    assert stage_suite.main(_rc_stage_cli_args(tmp_path)) == (
+        stage_suite.FAILURE_MANIFEST_EXIT_CODE
+    )
+    assert capsys.readouterr().err.splitlines() == [
+        "FAIL rc_stage_publication_rollback_failed"
+    ]
+    assert not (context.evidence_root / "LOCAL-BASE-0.json").exists()
+    assert not (context.evidence_root / "LOCAL-BASE-0-failure.json").exists()
+
+
+@pytest.mark.parametrize("binding_step", ("manifest", "checksum"))
+def test_rc_stage_binding_failure_keeps_the_prior_state_and_collectable_failure(
+    monkeypatch, tmp_path, rc_expected_machine, binding_step
+):
+    context = _rc_context(tmp_path)
+    _install_internal_rc_preflight(context)
+    stage_suite._save_state(context, [])
+
+    def pass_base(stage_context):
+        manifest = {
+            "stage": "LOCAL-BASE-0",
+            "verdict": "PASS",
+            "release_sha": stage_context.release_sha,
+            "frontend_sha": stage_context.frontend_sha,
+        }
+        target = stage_context.evidence_root / "LOCAL-BASE-0.json"
+        stage_suite.write_stage_manifest(target, manifest)
+        stage_suite._checksum_manifest(target)
+        stage_suite._save_state(stage_context, ["LOCAL-BASE-0"])
+        return manifest
+
+    original_write = stage_suite.write_stage_manifest
+    original_checksum = stage_suite._checksum_manifest
+
+    def fail_binding_manifest(path, payload):
+        if Path(path).name == "LOCAL-BASE-0.json" and "rc_attempt" in payload:
+            raise OSError("injected RC binding manifest failure")
+        return original_write(path, payload)
+
+    def fail_binding_checksum(path):
+        target = Path(path)
+        if target.name == "LOCAL-BASE-0.json":
+            payload = json.loads(target.read_text(encoding="utf-8"))
+            if "rc_attempt" in payload:
+                raise OSError("injected RC binding checksum failure")
+        return original_checksum(path)
+
+    monkeypatch.setattr(stage_suite, "run_local_base", pass_base)
+    monkeypatch.setattr(
+        stage_suite,
+        "write_stage_manifest",
+        fail_binding_manifest if binding_step == "manifest" else original_write,
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_checksum_manifest",
+        fail_binding_checksum if binding_step == "checksum" else original_checksum,
+    )
+
+    args = _rc_stage_cli_args(tmp_path)
+    args.extend(["--harness-root", str(context.harness_root)])
+
+    assert stage_suite.main(args) == 1
+    state = json.loads((context.evidence_root / "stage-state.json").read_text())
+    failure = json.loads(
+        (context.evidence_root / "LOCAL-BASE-0-failure.json").read_text()
+    )
+    assert state["completed"] == []
+    assert not (context.evidence_root / "LOCAL-BASE-0.json").exists()
+    assert failure["stage"] == "LOCAL-BASE-0"
+    assert failure["failed_gate"] == "rc_stage_attempt_identity_mismatch"
+    assert failure["rc_attempt"] == _rc_stage_attempt()
+    stage_suite._verify_checksum_entry(
+        context.evidence_root / "LOCAL-BASE-0-failure.json"
+    )
+
+
+@pytest.mark.parametrize("publication_step", ("state_manifest", "state_checksum"))
+def test_rc_stage_state_publication_failure_rolls_back_the_bound_pass(
+    monkeypatch, tmp_path, rc_expected_machine, publication_step
+):
+    context = _rc_context(tmp_path)
+    _install_internal_rc_preflight(context)
+    stage_suite._save_state(context, [])
+    state_path = context.evidence_root / "stage-state.json"
+    prior_state = state_path.read_bytes()
+
+    def pass_base(stage_context):
+        manifest = {
+            "stage": "LOCAL-BASE-0",
+            "verdict": "PASS",
+            "release_sha": stage_context.release_sha,
+            "frontend_sha": stage_context.frontend_sha,
+        }
+        target = stage_context.evidence_root / "LOCAL-BASE-0.json"
+        stage_suite.write_stage_manifest(target, manifest)
+        stage_suite._checksum_manifest(target)
+        stage_suite._save_state(stage_context, ["LOCAL-BASE-0"])
+        return manifest
+
+    original_write = stage_suite.write_stage_manifest
+    original_checksum = stage_suite._checksum_manifest
+
+    def fail_advanced_state_write(path, payload):
+        if Path(path).name == "stage-state.json" and payload.get("completed") == [
+            "LOCAL-BASE-0"
+        ]:
+            raise OSError("injected advanced state write failure")
+        return original_write(path, payload)
+
+    def fail_advanced_state_checksum(path):
+        target = Path(path)
+        if target.name == "stage-state.json":
+            payload = json.loads(target.read_text(encoding="utf-8"))
+            if payload.get("completed") == ["LOCAL-BASE-0"]:
+                raise OSError("injected advanced state checksum failure")
+        return original_checksum(path)
+
+    monkeypatch.setattr(stage_suite, "run_local_base", pass_base)
+    monkeypatch.setattr(
+        stage_suite,
+        "write_stage_manifest",
+        (
+            fail_advanced_state_write
+            if publication_step == "state_manifest"
+            else original_write
+        ),
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_checksum_manifest",
+        (
+            fail_advanced_state_checksum
+            if publication_step == "state_checksum"
+            else original_checksum
+        ),
+    )
+
+    args = _rc_stage_cli_args(tmp_path)
+    args.extend(["--harness-root", str(context.harness_root)])
+
+    assert stage_suite.main(args) == 1
+    assert state_path.read_bytes() == prior_state
+    assert not (context.evidence_root / "LOCAL-BASE-0.json").exists()
+    failure_path = context.evidence_root / "LOCAL-BASE-0-failure.json"
+    failure = json.loads(failure_path.read_text(encoding="utf-8"))
+    assert failure["rc_attempt"] == _rc_stage_attempt()
+    index = stage_suite._read_checksum_index(context.evidence_root / "SHA256SUMS")
+    assert index["stage-state.json"] == stage_suite._hash_file(state_path)
+    assert "LOCAL-BASE-0.json" not in index
+    assert index[failure_path.name] == stage_suite._hash_file(failure_path)
+
+
+def test_rc_stage_publication_rollback_failure_returns_exit_70(
+    monkeypatch, tmp_path, rc_expected_machine, capsys
+):
+    context = _rc_context(tmp_path)
+    _install_internal_rc_preflight(context)
+    stage_suite._save_state(context, [])
+
+    def pass_base(stage_context):
+        manifest = {
+            "stage": "LOCAL-BASE-0",
+            "verdict": "PASS",
+            "release_sha": stage_context.release_sha,
+            "frontend_sha": stage_context.frontend_sha,
+        }
+        target = stage_context.evidence_root / "LOCAL-BASE-0.json"
+        stage_suite.write_stage_manifest(target, manifest)
+        stage_suite._checksum_manifest(target)
+        stage_suite._save_state(stage_context, ["LOCAL-BASE-0"])
+        return manifest
+
+    original_write = stage_suite.write_stage_manifest
+    original_unlink = Path.unlink
+
+    def fail_advanced_state_write(path, payload):
+        if Path(path).name == "stage-state.json" and payload.get("completed") == [
+            "LOCAL-BASE-0"
+        ]:
+            raise OSError("injected advanced state write failure")
+        return original_write(path, payload)
+
+    def refuse_pass_rollback(path, *args, **kwargs):
+        if path.name == "LOCAL-BASE-0.json":
+            raise OSError("injected PASS rollback failure")
+        return original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(stage_suite, "run_local_base", pass_base)
+    monkeypatch.setattr(stage_suite, "write_stage_manifest", fail_advanced_state_write)
+    monkeypatch.setattr(Path, "unlink", refuse_pass_rollback)
+    args = _rc_stage_cli_args(tmp_path)
+    args.extend(["--harness-root", str(context.harness_root)])
+
+    assert stage_suite.main(args) == stage_suite.FAILURE_MANIFEST_EXIT_CODE
+    assert capsys.readouterr().err.splitlines() == [
+        "FAIL rc_stage_publication_rollback_failed"
+    ]
+    assert not (context.evidence_root / "LOCAL-BASE-0-failure.json").exists()
+
+
+@pytest.mark.parametrize("snapshot_failure", ("state_bytes", "checksum_index"))
+def test_rc_stage_publication_snapshot_failure_returns_exit_70_without_a_verdict(
+    monkeypatch, tmp_path, rc_expected_machine, capsys, snapshot_failure
+):
+    context = _rc_context(tmp_path)
+    _install_internal_rc_preflight(context)
+    stage_suite._save_state(context, [])
+
+    def pass_base(stage_context):
+        manifest = {
+            "stage": "LOCAL-BASE-0",
+            "verdict": "PASS",
+            "release_sha": stage_context.release_sha,
+            "frontend_sha": stage_context.frontend_sha,
+        }
+        target = stage_context.evidence_root / "LOCAL-BASE-0.json"
+        stage_suite.write_stage_manifest(target, manifest)
+        stage_suite._checksum_manifest(target)
+        stage_suite._save_state(stage_context, ["LOCAL-BASE-0"])
+        return manifest
+
+    original_read_bytes = Path.read_bytes
+    original_read_index = stage_suite._read_checksum_index
+
+    def fail_state_snapshot(path):
+        if (
+            path.name == "stage-state.json"
+            and (context.evidence_root / "LOCAL-BASE-0.json").exists()
+        ):
+            raise OSError("injected prior state snapshot failure")
+        return original_read_bytes(path)
+
+    def fail_index_snapshot(path):
+        if (
+            Path(path).name == "SHA256SUMS"
+            and (context.evidence_root / "LOCAL-BASE-0.json").exists()
+        ):
+            raise OSError("injected prior index snapshot failure")
+        return original_read_index(path)
+
+    monkeypatch.setattr(stage_suite, "run_local_base", pass_base)
+    if snapshot_failure == "state_bytes":
+        monkeypatch.setattr(Path, "read_bytes", fail_state_snapshot)
+    else:
+        monkeypatch.setattr(stage_suite, "_read_checksum_index", fail_index_snapshot)
+    args = _rc_stage_cli_args(tmp_path)
+    args.extend(["--harness-root", str(context.harness_root)])
+
+    assert stage_suite.main(args) == stage_suite.FAILURE_MANIFEST_EXIT_CODE
+    assert capsys.readouterr().err.splitlines() == [
+        "FAIL rc_stage_publication_rollback_failed"
+    ]
+    assert not (context.evidence_root / "LOCAL-BASE-0-failure.json").exists()
+
+
+@pytest.mark.parametrize("cleanup_failure", ("pass_unlink", "index_repair"))
+def test_rc_stage_binding_cleanup_failure_returns_exit_70_without_a_verdict(
+    monkeypatch, tmp_path, rc_expected_machine, capsys, cleanup_failure
+):
+    context = _rc_context(tmp_path)
+    _install_internal_rc_preflight(context)
+    stage_suite._save_state(context, [])
+
+    def pass_base(stage_context):
+        manifest = {
+            "stage": "LOCAL-BASE-0",
+            "verdict": "PASS",
+            "release_sha": stage_context.release_sha,
+            "frontend_sha": stage_context.frontend_sha,
+        }
+        target = stage_context.evidence_root / "LOCAL-BASE-0.json"
+        stage_suite.write_stage_manifest(target, manifest)
+        stage_suite._checksum_manifest(target)
+        stage_suite._save_state(stage_context, ["LOCAL-BASE-0"])
+        return manifest
+
+    original_write = stage_suite.write_stage_manifest
+    original_unlink = Path.unlink
+    original_write_index = stage_suite._write_checksum_index
+
+    def fail_binding_manifest(path, payload):
+        if Path(path).name == "LOCAL-BASE-0.json" and "rc_attempt" in payload:
+            raise OSError("injected RC binding failure")
+        return original_write(path, payload)
+
+    def refuse_pass_unlink(path, *args, **kwargs):
+        if path.name == "LOCAL-BASE-0.json":
+            raise OSError("injected PASS unlink failure")
+        return original_unlink(path, *args, **kwargs)
+
+    def refuse_index_repair(path, entries):
+        if "LOCAL-BASE-0.json" not in entries:
+            raise OSError("injected checksum-index repair failure")
+        return original_write_index(path, entries)
+
+    monkeypatch.setattr(stage_suite, "run_local_base", pass_base)
+    monkeypatch.setattr(stage_suite, "write_stage_manifest", fail_binding_manifest)
+    if cleanup_failure == "pass_unlink":
+        monkeypatch.setattr(Path, "unlink", refuse_pass_unlink)
+    else:
+        monkeypatch.setattr(stage_suite, "_write_checksum_index", refuse_index_repair)
+    args = _rc_stage_cli_args(tmp_path)
+    args.extend(["--harness-root", str(context.harness_root)])
+
+    assert stage_suite.main(args) == stage_suite.FAILURE_MANIFEST_EXIT_CODE
+    assert capsys.readouterr().err.splitlines() == [
+        "FAIL rc_stage_publication_rollback_failed"
+    ]
+    assert not (context.evidence_root / "LOCAL-BASE-0-failure.json").exists()
+
+
+@pytest.mark.parametrize(
+    ("interrupt_step", "interrupt"),
+    (
+        ("state_snapshot", KeyboardInterrupt()),
+        ("index_snapshot", SystemExit(31)),
+        ("state_write", KeyboardInterrupt()),
+        ("state_checksum", SystemExit(32)),
+    ),
+)
+def test_rc_stage_publication_interrupt_compensates_and_propagates_exactly(
+    monkeypatch, tmp_path, rc_expected_machine, interrupt_step, interrupt
+):
+    context = _rc_context(tmp_path)
+    _install_internal_rc_preflight(context)
+    stage_suite._save_state(context, [])
+    state_path = context.evidence_root / "stage-state.json"
+    prior_state = state_path.read_bytes()
+
+    def pass_base(stage_context):
+        manifest = {
+            "stage": "LOCAL-BASE-0",
+            "verdict": "PASS",
+            "release_sha": stage_context.release_sha,
+            "frontend_sha": stage_context.frontend_sha,
+        }
+        target = stage_context.evidence_root / "LOCAL-BASE-0.json"
+        stage_suite.write_stage_manifest(target, manifest)
+        stage_suite._checksum_manifest(target)
+        stage_suite._save_state(stage_context, ["LOCAL-BASE-0"])
+        return manifest
+
+    original_read_bytes = Path.read_bytes
+    original_read_index = stage_suite._read_checksum_index
+    original_write = stage_suite.write_stage_manifest
+    original_checksum = stage_suite._checksum_manifest
+    injected = [False]
+
+    def maybe_interrupt_state_snapshot(path):
+        if (
+            not injected[0]
+            and interrupt_step == "state_snapshot"
+            and path.name == "stage-state.json"
+            and (context.evidence_root / "LOCAL-BASE-0.json").exists()
+        ):
+            injected[0] = True
+            raise interrupt
+        return original_read_bytes(path)
+
+    def maybe_interrupt_index_snapshot(path):
+        if (
+            not injected[0]
+            and interrupt_step == "index_snapshot"
+            and Path(path).name == "SHA256SUMS"
+            and (context.evidence_root / "LOCAL-BASE-0.json").exists()
+        ):
+            injected[0] = True
+            raise interrupt
+        return original_read_index(path)
+
+    def maybe_interrupt_state_write(path, payload):
+        if (
+            not injected[0]
+            and interrupt_step == "state_write"
+            and Path(path).name == "stage-state.json"
+            and payload.get("completed") == ["LOCAL-BASE-0"]
+        ):
+            injected[0] = True
+            raise interrupt
+        return original_write(path, payload)
+
+    def maybe_interrupt_state_checksum(path):
+        if (
+            not injected[0]
+            and interrupt_step == "state_checksum"
+            and Path(path).name == "stage-state.json"
+            and json.loads(Path(path).read_text())["completed"] == ["LOCAL-BASE-0"]
+        ):
+            injected[0] = True
+            raise interrupt
+        return original_checksum(path)
+
+    monkeypatch.setattr(stage_suite, "run_local_base", pass_base)
+    monkeypatch.setattr(Path, "read_bytes", maybe_interrupt_state_snapshot)
+    monkeypatch.setattr(
+        stage_suite, "_read_checksum_index", maybe_interrupt_index_snapshot
+    )
+    monkeypatch.setattr(
+        stage_suite, "write_stage_manifest", maybe_interrupt_state_write
+    )
+    monkeypatch.setattr(
+        stage_suite, "_checksum_manifest", maybe_interrupt_state_checksum
+    )
+    args = _rc_stage_cli_args(tmp_path)
+    args.extend(["--harness-root", str(context.harness_root)])
+
+    with pytest.raises(BaseException) as caught:
+        stage_suite.main(args)
+
+    assert caught.value is interrupt
+    assert state_path.read_bytes() == prior_state
+    assert not (context.evidence_root / "LOCAL-BASE-0.json").exists()
+    assert not (context.evidence_root / "LOCAL-BASE-0-failure.json").exists()
+
+
+@pytest.mark.parametrize("interrupt", (KeyboardInterrupt(), SystemExit(33)))
+def test_rc_stage_compensation_interrupt_remains_authoritative(
+    monkeypatch, tmp_path, rc_expected_machine, interrupt
+):
+    context = _rc_context(tmp_path)
+    _install_internal_rc_preflight(context)
+    stage_suite._save_state(context, [])
+
+    def pass_base(stage_context):
+        manifest = {
+            "stage": "LOCAL-BASE-0",
+            "verdict": "PASS",
+            "release_sha": stage_context.release_sha,
+            "frontend_sha": stage_context.frontend_sha,
+        }
+        target = stage_context.evidence_root / "LOCAL-BASE-0.json"
+        stage_suite.write_stage_manifest(target, manifest)
+        stage_suite._checksum_manifest(target)
+        stage_suite._save_state(stage_context, ["LOCAL-BASE-0"])
+        return manifest
+
+    original_write = stage_suite.write_stage_manifest
+    original_unlink = Path.unlink
+    interrupted = [False]
+
+    def fail_advanced_state_write(path, payload):
+        if Path(path).name == "stage-state.json" and payload.get("completed") == [
+            "LOCAL-BASE-0"
+        ]:
+            raise OSError("injected state publication failure")
+        return original_write(path, payload)
+
+    def interrupt_compensation(path, *args, **kwargs):
+        if not interrupted[0] and path.name == "LOCAL-BASE-0.json":
+            interrupted[0] = True
+            raise interrupt
+        return original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(stage_suite, "run_local_base", pass_base)
+    monkeypatch.setattr(stage_suite, "write_stage_manifest", fail_advanced_state_write)
+    monkeypatch.setattr(Path, "unlink", interrupt_compensation)
+    args = _rc_stage_cli_args(tmp_path)
+    args.extend(["--harness-root", str(context.harness_root)])
+
+    with pytest.raises(BaseException) as caught:
+        stage_suite.main(args)
+
+    assert caught.value is interrupt
+    assert not (context.evidence_root / "LOCAL-BASE-0-failure.json").exists()
+
+
+def test_rc_dispatched_stage_failure_binds_the_exact_preflight_attempt(
+    monkeypatch, tmp_path, rc_expected_machine
+):
+    context = _rc_context(tmp_path)
+    _install_internal_rc_preflight(context)
+    monkeypatch.setattr(
+        stage_suite,
+        "run_local_base",
+        lambda _context: (_ for _ in ()).throw(
+            stage_suite.StageGateError("base_probe_failed")
+        ),
+    )
+
+    assert stage_suite.main(_rc_stage_cli_args(tmp_path)) == 1
+    failure = json.loads(
+        (context.evidence_root / "LOCAL-BASE-0-failure.json").read_text()
+    )
+    assert failure["rc_attempt"] == _rc_stage_attempt()
+    stage_suite._verify_checksum_entry(
+        context.evidence_root / "LOCAL-BASE-0-failure.json"
+    )
+
+
+def test_rc_dispatched_stage_rejects_date_drift_before_dispatch(
+    monkeypatch, tmp_path, rc_expected_machine
+):
+    context = _rc_context(tmp_path)
+    _install_internal_rc_preflight(context)
+    monkeypatch.setattr(
+        stage_suite,
+        "run_local_base",
+        lambda _context: pytest.fail("date drift must block stage dispatch"),
+    )
+    args = _rc_stage_cli_args(tmp_path)
+    args[args.index("--as-of-date") + 1] = "2026-11-03"
+
+    assert stage_suite.main(args) == 1
+    failure = json.loads(
+        (context.evidence_root / "LOCAL-BASE-0-failure.json").read_text()
+    )
+    assert failure["failed_gate"] == "rc_stage_attempt_identity_mismatch"
+    assert failure["rc_attempt"] == _rc_stage_attempt(as_of_date="2026-11-03")
+
+
+def test_rc_guest_parser_and_main_dispatch_preflight_without_changing_stage_order(
+    monkeypatch, tmp_path, rc_expected_machine
+):
+    (tmp_path / "evidence").mkdir()
+    captured = []
+    monkeypatch.setattr(
+        stage_suite,
+        "run_local_rc_preflight",
+        lambda context, **kwargs: captured.append((context, kwargs)),
+        raising=False,
+    )
+
+    assert stage_suite.STAGE_ORDER[-1] == "LOCAL-WRITE-ACT-1"
+    assert "LOCAL-RC-1" not in stage_suite.STAGE_ORDER
+    assert stage_suite.main(_rc_cli_args(tmp_path, "preflight")) == 0
+    assert len(captured) == 1
+    assert captured[0][1] == {
+        "dependency_sha256": "c" * 64,
+        "guest_id": "01KZSKQ6FY4EVCCY94XGWZ9NDS",
+        "expected_machine_id": "f" * 32,
+    }
+
+
+def test_rc_guest_rejects_machine_replacement_before_dispatch_or_evidence(
+    monkeypatch, tmp_path
+):
+    evidence_root = tmp_path / "evidence"
+    evidence_root.mkdir()
+    monkeypatch.setattr(
+        stage_suite,
+        "_actual_machine_id",
+        lambda: "e" * 32,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "run_local_rc_preflight",
+        lambda *_args, **_kwargs: pytest.fail("replacement must not dispatch"),
+    )
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="rc_guest_machine_identity_mismatch",
+    ):
+        stage_suite.main(_rc_cli_args(tmp_path, "preflight"))
+
+    assert list(evidence_root.iterdir()) == []
+
+
+def test_rc_preflight_failure_is_checksummed_without_fabricating_stage_state(
+    monkeypatch, tmp_path, rc_expected_machine
+):
+    context = _rc_context(tmp_path)
+    evidence_root = context.evidence_root
+    monkeypatch.setattr(
+        stage_suite,
+        "run_local_rc_preflight",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            stage_suite.StageGateError("rc_database_not_clean")
+        ),
+        raising=False,
+    )
+
+    args = _rc_cli_args(tmp_path, "preflight")
+    args.extend(["--harness-root", str(context.harness_root)])
+
+    assert stage_suite.main(args) == 1
+    failure = json.loads((evidence_root / "LOCAL-RC-1-failure.json").read_text())
+    assert failure == {
+        "stage": "LOCAL-RC-1",
+        "rc_phase": "preflight",
+        "verdict": "FAIL",
+        "release_sha": "a" * 40,
+        "frontend_sha": "b" * 40,
+        "dependency_sha256": "c" * 64,
+        "guest": {
+            "name": "munbon-control-plan-local",
+            "id": "01KZSKQ6FY4EVCCY94XGWZ9NDS",
+            "architecture": "arm64",
+            "machine_id": "f" * 32,
+        },
+        "harness_hashes": {
+            name: hashlib.sha256((context.harness_root / name).read_bytes()).hexdigest()
+            for name in stage_suite.HARNESS_ARTIFACTS
+        },
+        "as_of_date": "2026-11-02",
+        "failed_gate": "rc_database_not_clean",
+        "failed_at": failure["failed_at"],
+    }
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", failure["failed_at"])
+    assert not (evidence_root / "stage-state.json").exists()
+    stage_suite._verify_checksum_entry(evidence_root / "LOCAL-RC-1-failure.json")
+
+
+@pytest.mark.parametrize(
+    "cleanup_artifact", ("RC-PREFLIGHT.json", "stage-state.json", "SHA256SUMS")
+)
+def test_rc_preflight_publication_cleanup_failure_returns_exit_70(
+    monkeypatch, tmp_path, rc_expected_machine, capsys, cleanup_artifact
+):
+    context = _rc_context(tmp_path)
+    real_preflight = stage_suite.run_local_rc_preflight
+    external_path = stage_suite._rc_preflight_path(context)
+    original_write = stage_suite.write_stage_manifest
+    original_unlink = Path.unlink
+
+    monkeypatch.setattr(
+        stage_suite,
+        "_rc_preflight_snapshot",
+        lambda _context: _rc_preflight_checks(),
+    )
+
+    def run_preflight_with_owner(stage_context, **kwargs):
+        return real_preflight(
+            dataclasses.replace(stage_context, owner_path=context.owner_path), **kwargs
+        )
+
+    def fail_external_publication(path, payload):
+        if Path(path) == external_path:
+            raise OSError("injected external preflight publication failure")
+        return original_write(path, payload)
+
+    def refuse_cleanup(path, *args, **kwargs):
+        if path.name == cleanup_artifact:
+            raise OSError("injected preflight cleanup failure")
+        return original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(stage_suite, "run_local_rc_preflight", run_preflight_with_owner)
+    monkeypatch.setattr(stage_suite, "write_stage_manifest", fail_external_publication)
+    monkeypatch.setattr(Path, "unlink", refuse_cleanup)
+    args = _rc_cli_args(tmp_path, "preflight")
+    args.extend(["--harness-root", str(context.harness_root)])
+
+    assert stage_suite.main(args) == stage_suite.FAILURE_MANIFEST_EXIT_CODE
+    assert capsys.readouterr().err.splitlines() == [
+        "FAIL rc_preflight_publication_rollback_failed"
+    ]
+    assert not (context.evidence_root / "LOCAL-RC-1-failure.json").exists()
+
+
+@pytest.mark.parametrize("external_cleanup_fails", (False, True))
+def test_rc_preflight_post_write_failure_compensates_the_external_record(
+    monkeypatch, tmp_path, rc_expected_machine, capsys, external_cleanup_fails
+):
+    context = _rc_context(tmp_path)
+    real_preflight = stage_suite.run_local_rc_preflight
+    external_path = stage_suite._rc_preflight_path(context)
+    original_write = stage_suite.write_stage_manifest
+    original_unlink = Path.unlink
+
+    monkeypatch.setattr(
+        stage_suite,
+        "_rc_preflight_snapshot",
+        lambda _context: _rc_preflight_checks(),
+    )
+
+    def run_preflight_with_owner(stage_context, **kwargs):
+        return real_preflight(
+            dataclasses.replace(stage_context, owner_path=context.owner_path), **kwargs
+        )
+
+    def fail_after_external_write(path, payload):
+        result = original_write(path, payload)
+        if Path(path) == external_path:
+            raise OSError("injected post-write external publication failure")
+        return result
+
+    def maybe_refuse_external_cleanup(path, *args, **kwargs):
+        if external_cleanup_fails and path == external_path:
+            raise OSError("injected external preflight cleanup failure")
+        return original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(stage_suite, "run_local_rc_preflight", run_preflight_with_owner)
+    monkeypatch.setattr(stage_suite, "write_stage_manifest", fail_after_external_write)
+    monkeypatch.setattr(Path, "unlink", maybe_refuse_external_cleanup)
+    args = _rc_cli_args(tmp_path, "preflight")
+    args.extend(["--harness-root", str(context.harness_root)])
+
+    result = stage_suite.main(args)
+
+    if external_cleanup_fails:
+        assert result == stage_suite.FAILURE_MANIFEST_EXIT_CODE
+        assert capsys.readouterr().err.splitlines() == [
+            "FAIL rc_preflight_publication_rollback_failed"
+        ]
+        assert not (context.evidence_root / "LOCAL-RC-1-failure.json").exists()
+        return
+
+    assert result == 1
+    assert not external_path.exists()
+    assert {path.name for path in context.evidence_root.iterdir()} == {
+        "LOCAL-RC-1-failure.json",
+        "SHA256SUMS",
+    }
+    stage_suite._verify_checksum_entry(
+        context.evidence_root / "LOCAL-RC-1-failure.json"
+    )
+
+
+def test_rc_preflight_failure_without_complete_harness_identity_returns_exit_70(
+    monkeypatch, tmp_path, rc_expected_machine, capsys
+):
+    context = _rc_context(tmp_path)
+    (context.harness_root / stage_suite.HARNESS_ARTIFACTS[0]).unlink()
+    monkeypatch.setattr(
+        stage_suite,
+        "run_local_rc_preflight",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            stage_suite.StageGateError("rc_database_not_clean")
+        ),
+    )
+    args = _rc_cli_args(tmp_path, "preflight")
+    args.extend(["--harness-root", str(context.harness_root)])
+
+    assert stage_suite.main(args) == stage_suite.FAILURE_MANIFEST_EXIT_CODE
+    assert capsys.readouterr().err.splitlines() == [
+        "FAIL rc_preflight_failure_harness_identity_unavailable"
+    ]
+    assert not (context.evidence_root / "LOCAL-RC-1-failure.json").exists()
+
+
+def test_rc_preflight_interrupt_propagates_without_any_verdict(
+    monkeypatch, tmp_path, rc_expected_machine
+):
+    evidence_root = tmp_path / "evidence"
+    evidence_root.mkdir()
+    interrupt = KeyboardInterrupt()
+    monkeypatch.setattr(
+        stage_suite,
+        "run_local_rc_preflight",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(interrupt),
+        raising=False,
+    )
+
+    with pytest.raises(KeyboardInterrupt) as caught:
+        stage_suite.main(_rc_cli_args(tmp_path, "preflight"))
+
+    assert caught.value is interrupt
+    assert list(evidence_root.iterdir()) == []
+
+
+def _rc_dark_contract():
+    return {
+        "flow_gates_api": False,
+        "scheduler_execution": "disabled",
+        "scheduler_readback": "off",
+        "scheduler_scada_configured": False,
+        "ros_manual_producer": False,
+        "ros_startup_producer": False,
+        "ros_recurring_producer": False,
+        "ros_source_configured": False,
+        "planning_depth_writes": False,
+        "machine_commands_configured": False,
+        "model_release_commandable": False,
+        "control_plan_reads_visible": False,
+        "planning_depth_writes_visible": False,
+    }
+
+
+def _rc_processes():
+    return [
+        {
+            "name": name,
+            "status": "online",
+            "restarts": index,
+            "pid": 100 + index,
+            "memory_bytes": 1024 + index,
+            "cpu_percent": index / 10,
+        }
+        for index, name in enumerate(stage_suite.PROCESS_NAMES)
+    ]
+
+
+def _rc_readiness():
+    return {
+        name: {"status_code": 200, "status": "ready", "checks": {}}
+        for name in stage_suite.PROCESS_NAMES
+    }
+
+
+def _rc_runtime_proof():
+    return {
+        "verified": True,
+        "processes": _rc_processes(),
+        "processes_online": sorted(stage_suite.PROCESS_NAMES),
+        "listeners": [
+            {"address": "127.0.0.1", "port": port} for port in (3011, 3021, 3022, 3047)
+        ],
+        "dark_contract_after": _rc_dark_contract(),
+        "final_activation_gates": {
+            "control_plan_reads": False,
+            "control_plan_evidence_reads": False,
+            "water_planning_v2": False,
+            "water_planning_submit": False,
+        },
+        "readiness": _rc_readiness(),
+    }
+
+
+def _write_rc_guest_state(context):
+    snapshot = {
+        "non_w2_digests": {"scheduler.control_command_outbox": "0" * 32},
+        "w2_submissions": [],
+        "w2_values": [],
+    }
+    manifests = {}
+    for stage in stage_suite.STAGE_ORDER:
+        steps = {}
+        if stage == "LOCAL-PERSIST-ONLY-1":
+            steps["operator_principal"] = {"subject": "operator-persist"}
+        if stage == "LOCAL-WRITE-ACT-1":
+            write_rate_key = stage_suite._planning_depth_rate_key("operator-write")
+            steps = {
+                "operator_principal": {"subject": "operator-write"},
+                "runtime_restoration": _rc_runtime_proof(),
+                "persist_snapshot_sha256": stage_suite._canonical_json_sha256(snapshot),
+                "rate_state_after_browser": {
+                    "configured_window_ms": 300000,
+                    "minimum_elapsed_ms": 900000,
+                    "snapshot_completed_monotonic_ms": 20100,
+                    "snapshot": {
+                        write_rate_key: {"value": 3, "ttl_ms": 6000},
+                    },
+                },
+                "active_after_rollback": {
+                    "submission_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+                    "levels_count": 41,
+                    "zones_covered": [f"01-{zone:02d}" for zone in range(1, 7)],
+                },
+                "persisted_diff": {
+                    "w2_submissions_added": [
+                        "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+                        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+                    ]
+                },
+            }
+        manifest = {
+            "stage": stage,
+            "verdict": "PASS",
+            "release_sha": context.release_sha,
+            "frontend_sha": context.frontend_sha,
+            "completed_at": "2026-11-02T01:02:03Z",
+            "rc_attempt": _rc_stage_attempt(),
+            "steps": steps,
+        }
+        path = context.evidence_root / f"{stage}.json"
+        stage_suite.write_stage_manifest(path, manifest)
+        stage_suite._checksum_manifest(path)
+        manifests[stage] = manifest
+    stage_suite._save_state(context, list(stage_suite.STAGE_ORDER))
+    return manifests, snapshot
+
+
+def _write_rc_preflight_record(context):
+    record = {
+        "schema_version": 1,
+        "phase": "preflight",
+        "verdict": "PASS",
+        "release_sha": context.release_sha,
+        "frontend_sha": context.frontend_sha,
+        "dependency_sha256": "c" * 64,
+        "guest": {
+            "name": "munbon-control-plan-local",
+            "id": "01KZSKQ6FY4EVCCY94XGWZ9NDS",
+            "architecture": "arm64",
+            "machine_id": "f" * 32,
+        },
+        "as_of_date": "2026-11-02",
+        "checks": _rc_preflight_checks(),
+        "captured_at": "2026-11-02T01:02:03Z",
+    }
+    stage_suite.write_stage_manifest(stage_suite._rc_preflight_path(context), record)
+    return record
+
+
+@pytest.mark.parametrize("mutation", ("missing", "date"))
+def test_rc_load_stage_manifests_rejects_attempt_lineage_drift(
+    monkeypatch, tmp_path, mutation
+):
+    context = _rc_context(tmp_path)
+    _install_internal_rc_preflight(context)
+    _write_rc_guest_state(context)
+    stage_path = context.evidence_root / "LOCAL-BASE-0.json"
+    manifest = json.loads(stage_path.read_text())
+    if mutation == "missing":
+        manifest.pop("rc_attempt")
+    else:
+        manifest["rc_attempt"]["as_of_date"] = "2026-11-03"
+    stage_suite.write_stage_manifest(stage_path, manifest)
+    stage_suite._checksum_manifest(stage_path)
+    monkeypatch.setattr(stage_suite, "_verify_source_checkouts", lambda _context: None)
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="rc_finalize_stage_attempt_invalid",
+    ):
+        stage_suite._rc_load_stage_manifests(context)
+
+
+def test_rc_final_snapshot_proves_runtime_history_and_expected_rate_keys(
+    monkeypatch, tmp_path
+):
+    context = _rc_context(tmp_path)
+    manifests, snapshot = _write_rc_guest_state(context)
+    runtime = _rc_runtime_proof()
+    rate_state = {}
+    monkeypatch.setattr(
+        stage_suite,
+        "_verify_write_activation_restoration",
+        lambda *_args, **_kwargs: runtime,
+    )
+    monkeypatch.setattr(
+        stage_suite, "_take_persist_snapshot", lambda _context: snapshot
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_snapshot_planning_depth_rate_keys",
+        lambda _context: rate_state,
+    )
+    monkeypatch.setattr(stage_suite, "_read_json", lambda _path: {"commandable": False})
+    monotonic_values = iter((920.0, 921.0))
+    monkeypatch.setattr(stage_suite.time, "monotonic", lambda: next(monotonic_values))
+
+    result = stage_suite._rc_final_snapshot(context, manifests)
+
+    assert result == {
+        "verdict": "PASS",
+        "completed": list(stage_suite.STAGE_ORDER),
+        "runtime_dark": True,
+        "processes_stable": True,
+        "readiness_green": True,
+        "listeners_accepted": True,
+        "immutable_history": True,
+        "proof": {
+            "processes": runtime["processes"],
+            "dark_contract": runtime["dark_contract_after"],
+            "frontend_activation_gates": runtime["final_activation_gates"],
+            "readiness": runtime["readiness"],
+            "listeners": runtime["listeners"],
+            "persist_snapshot_sha256": stage_suite._canonical_json_sha256(snapshot),
+            "rate_state": rate_state,
+            "rate_minimum_elapsed_ms": 900000,
+            "rate_snapshot_started_monotonic_ms": 920000,
+            "rate_snapshot_completed_monotonic_ms": 921000,
+            "write_activation_manifest_sha256": hashlib.sha256(
+                (context.evidence_root / "LOCAL-WRITE-ACT-1.json").read_bytes()
+            ).hexdigest(),
+        },
+    }
+
+
+def test_rc_final_snapshot_accepts_a_surviving_key_at_the_elapsed_decay_bound(
+    monkeypatch, tmp_path
+):
+    context = _rc_context(tmp_path)
+    manifests, snapshot = _write_rc_guest_state(context)
+    write_key = stage_suite._planning_depth_rate_key("operator-write")
+    reference = manifests["LOCAL-WRITE-ACT-1"]["steps"]["rate_state_after_browser"]
+    reference["minimum_elapsed_ms"] = 1000
+    reference["snapshot_completed_monotonic_ms"] = 20000
+    write_path = context.evidence_root / "LOCAL-WRITE-ACT-1.json"
+    stage_suite.write_stage_manifest(write_path, manifests["LOCAL-WRITE-ACT-1"])
+    stage_suite._checksum_manifest(write_path)
+    monkeypatch.setattr(
+        stage_suite,
+        "_verify_write_activation_restoration",
+        lambda *_args, **_kwargs: _rc_runtime_proof(),
+    )
+    monkeypatch.setattr(
+        stage_suite, "_take_persist_snapshot", lambda _context: snapshot
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_snapshot_planning_depth_rate_keys",
+        lambda _context: {write_key: {"value": 3, "ttl_ms": 5000}},
+    )
+    monkeypatch.setattr(stage_suite, "_read_json", lambda _path: {"commandable": False})
+    monotonic_values = iter((21.0, 22.0))
+    monkeypatch.setattr(stage_suite.time, "monotonic", lambda: next(monotonic_values))
+
+    result = stage_suite._rc_final_snapshot(context, manifests)
+
+    assert result["proof"]["rate_state"] == {write_key: {"value": 3, "ttl_ms": 5000}}
+    assert result["proof"]["rate_minimum_elapsed_ms"] == 1000
+    assert result["proof"]["rate_snapshot_started_monotonic_ms"] == 21000
+    assert result["proof"]["rate_snapshot_completed_monotonic_ms"] == 22000
+
+
+def test_rc_final_snapshot_rejects_ttl_above_the_true_final_elapsed_bound(
+    monkeypatch, tmp_path
+):
+    context = _rc_context(tmp_path)
+    manifests, snapshot = _write_rc_guest_state(context)
+    write_key = stage_suite._planning_depth_rate_key("operator-write")
+    reference = manifests["LOCAL-WRITE-ACT-1"]["steps"]["rate_state_after_browser"]
+    reference["minimum_elapsed_ms"] = 1000
+    reference["snapshot_completed_monotonic_ms"] = 20000
+    write_path = context.evidence_root / "LOCAL-WRITE-ACT-1.json"
+    stage_suite.write_stage_manifest(write_path, manifests["LOCAL-WRITE-ACT-1"])
+    stage_suite._checksum_manifest(write_path)
+    monkeypatch.setattr(
+        stage_suite,
+        "_verify_write_activation_restoration",
+        lambda *_args, **_kwargs: _rc_runtime_proof(),
+    )
+    monkeypatch.setattr(
+        stage_suite, "_take_persist_snapshot", lambda _context: snapshot
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_snapshot_planning_depth_rate_keys",
+        lambda _context: {write_key: {"value": 3, "ttl_ms": 4000}},
+    )
+    monkeypatch.setattr(stage_suite, "_read_json", lambda _path: {"commandable": False})
+    monotonic_values = iter((23.0, 24.0))
+    monkeypatch.setattr(stage_suite.time, "monotonic", lambda: next(monotonic_values))
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="rc_finalize_rate_state_invalid"
+    ):
+        stage_suite._rc_final_snapshot(context, manifests)
+
+
+@pytest.mark.parametrize(
+    ("monotonic_values", "accepted"),
+    (
+        ((21.0, 22.0), False),
+        ((25.0, 27.0), False),
+        ((26.0, 27.0), True),
+        ((27.0, 28.0), True),
+    ),
+)
+def test_rc_final_snapshot_accepts_a_missing_key_only_after_natural_expiry(
+    monkeypatch, tmp_path, monotonic_values, accepted
+):
+    context = _rc_context(tmp_path)
+    manifests, snapshot = _write_rc_guest_state(context)
+    reference = manifests["LOCAL-WRITE-ACT-1"]["steps"]["rate_state_after_browser"]
+    reference["minimum_elapsed_ms"] = 1000
+    reference["snapshot_completed_monotonic_ms"] = 20000
+    write_path = context.evidence_root / "LOCAL-WRITE-ACT-1.json"
+    stage_suite.write_stage_manifest(write_path, manifests["LOCAL-WRITE-ACT-1"])
+    stage_suite._checksum_manifest(write_path)
+    monkeypatch.setattr(
+        stage_suite,
+        "_verify_write_activation_restoration",
+        lambda *_args, **_kwargs: _rc_runtime_proof(),
+    )
+    monkeypatch.setattr(
+        stage_suite, "_take_persist_snapshot", lambda _context: snapshot
+    )
+    monkeypatch.setattr(
+        stage_suite, "_snapshot_planning_depth_rate_keys", lambda _context: {}
+    )
+    monkeypatch.setattr(stage_suite, "_read_json", lambda _path: {"commandable": False})
+    moments = iter(monotonic_values)
+    monkeypatch.setattr(stage_suite.time, "monotonic", lambda: next(moments))
+
+    if not accepted:
+        with pytest.raises(
+            stage_suite.StageGateError, match="rc_finalize_rate_state_invalid"
+        ):
+            stage_suite._rc_final_snapshot(context, manifests)
+        return
+
+    result = stage_suite._rc_final_snapshot(context, manifests)
+
+    assert result["proof"]["rate_state"] == {}
+    assert result["proof"]["rate_snapshot_started_monotonic_ms"] == int(
+        monotonic_values[0] * 1000
+    )
+    assert result["proof"]["rate_snapshot_completed_monotonic_ms"] == int(
+        monotonic_values[1] * 1000
+    )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "error"),
+    [
+        ("process", "rc_finalize_process_stability_invalid"),
+        ("history", "rc_finalize_immutable_history_invalid"),
+        ("rate", "rc_finalize_rate_state_invalid"),
+    ],
+)
+def test_rc_final_snapshot_rejects_runtime_history_or_rate_drift(
+    monkeypatch, tmp_path, mutation, error
+):
+    context = _rc_context(tmp_path)
+    manifests, snapshot = _write_rc_guest_state(context)
+    runtime = _rc_runtime_proof()
+    if mutation == "process":
+        runtime["processes"][0]["pid"] += 1
+    if mutation == "history":
+        snapshot = {**snapshot, "w2_submissions": [{"unexpected": True}]}
+    rate_state = {}
+    if mutation == "rate":
+        rate_state[stage_suite._planning_depth_rate_key("other-operator")] = {
+            "value": 1,
+            "ttl_ms": 1000,
+        }
+    monkeypatch.setattr(
+        stage_suite,
+        "_verify_write_activation_restoration",
+        lambda *_args, **_kwargs: runtime,
+    )
+    monkeypatch.setattr(
+        stage_suite, "_take_persist_snapshot", lambda _context: snapshot
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_snapshot_planning_depth_rate_keys",
+        lambda _context: rate_state,
+    )
+    monkeypatch.setattr(stage_suite, "_read_json", lambda _path: {"commandable": False})
+    monkeypatch.setattr(stage_suite.time, "monotonic", lambda: 920.1)
+
+    with pytest.raises(stage_suite.StageGateError, match=error):
+        stage_suite._rc_final_snapshot(context, manifests)
+
+
+@pytest.mark.parametrize(
+    "rate_state",
+    [
+        lambda key: {key: {"value": 4, "ttl_ms": 1000}},
+        lambda key: {key: {"value": 3, "ttl_ms": 1}},
+        lambda key: {key: {"value": 3, "ttl_ms": 300001}},
+    ],
+)
+def test_rc_final_snapshot_rejects_counter_or_ttl_drift(
+    monkeypatch, tmp_path, rate_state
+):
+    context = _rc_context(tmp_path)
+    manifests, snapshot = _write_rc_guest_state(context)
+    write_key = stage_suite._planning_depth_rate_key("operator-write")
+    monkeypatch.setattr(
+        stage_suite,
+        "_verify_write_activation_restoration",
+        lambda *_args, **_kwargs: _rc_runtime_proof(),
+    )
+    monkeypatch.setattr(
+        stage_suite, "_take_persist_snapshot", lambda _context: snapshot
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_snapshot_planning_depth_rate_keys",
+        lambda _context: rate_state(write_key),
+    )
+    monkeypatch.setattr(stage_suite, "_read_json", lambda _path: {"commandable": False})
+    monkeypatch.setattr(stage_suite.time, "monotonic", lambda: 920.1)
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="rc_finalize_rate_state_invalid"
+    ):
+        stage_suite._rc_final_snapshot(context, manifests)
+
+
+def test_run_local_rc_finalize_embeds_preflight_and_writes_checksummed_rc_evidence(
+    monkeypatch, tmp_path
+):
+    context = _rc_context(tmp_path)
+    manifests, _snapshot = _write_rc_guest_state(context)
+    preflight = _write_rc_preflight_record(context)
+    final = {
+        "verdict": "PASS",
+        "completed": list(stage_suite.STAGE_ORDER),
+        "runtime_dark": True,
+        "processes_stable": True,
+        "readiness_green": True,
+        "listeners_accepted": True,
+        "immutable_history": True,
+        "proof": {"bounded": True},
+    }
+    monkeypatch.setattr(stage_suite, "_verify_source_checkouts", lambda _context: None)
+    monkeypatch.setattr(
+        stage_suite,
+        "_rc_final_snapshot",
+        lambda _context, loaded: (
+            final if loaded == manifests else pytest.fail("wrong stage manifests")
+        ),
+        raising=False,
+    )
+
+    manifest = stage_suite.run_local_rc_finalize(
+        context,
+        dependency_sha256="c" * 64,
+        guest_id="01KZSKQ6FY4EVCCY94XGWZ9NDS",
+        expected_machine_id="f" * 32,
+    )
+
+    assert manifest["preflight"] == {
+        "verdict": "PASS",
+        **_rc_preflight_checks(),
+        "record": preflight,
+        "record_sha256": hashlib.sha256(
+            (json.dumps(preflight, indent=2, sort_keys=True) + "\n").encode()
+        ).hexdigest(),
+    }
+    assert manifest["final"] == final
+    summary = json.loads((context.evidence_root / "RC-SUMMARY.json").read_text())
+    assert summary["passed"] == [*stage_suite.STAGE_ORDER, "LOCAL-RC-1"]
+    assert summary["campaign_ledger_eligible"] is False
+    assert summary["aws_actions_authorized"] is False
+    stage_suite._verify_checksum_entry(context.evidence_root / "LOCAL-RC-1.json")
+    stage_suite._verify_checksum_entry(context.evidence_root / "RC-SUMMARY.json")
+    assert not stage_suite._rc_preflight_path(context).exists()
+
+
+def test_run_local_rc_finalize_rejects_incomplete_stage_state(monkeypatch, tmp_path):
+    context = _rc_context(tmp_path)
+    _write_rc_preflight_record(context)
+    monkeypatch.setattr(stage_suite, "_verify_source_checkouts", lambda _context: None)
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="rc_finalize_stage_state_incomplete"
+    ):
+        stage_suite.run_local_rc_finalize(
+            context,
+            dependency_sha256="c" * 64,
+            guest_id="01KZSKQ6FY4EVCCY94XGWZ9NDS",
+            expected_machine_id="f" * 32,
+        )
+
+
+def test_run_local_rc_finalize_rejects_preflight_identity_drift(monkeypatch, tmp_path):
+    context = _rc_context(tmp_path)
+    _write_rc_guest_state(context)
+    preflight_path = stage_suite._rc_preflight_path(context)
+    record = _write_rc_preflight_record(context)
+    record["dependency_sha256"] = "d" * 64
+    stage_suite.write_stage_manifest(preflight_path, record)
+    monkeypatch.setattr(stage_suite, "_verify_source_checkouts", lambda _context: None)
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="rc_finalize_preflight_invalid"
+    ):
+        stage_suite.run_local_rc_finalize(
+            context,
+            dependency_sha256="c" * 64,
+            guest_id="01KZSKQ6FY4EVCCY94XGWZ9NDS",
+            expected_machine_id="f" * 32,
+        )
+
+
+def test_run_local_rc_finalize_rejects_noncanonical_preflight_bytes(
+    monkeypatch, tmp_path
+):
+    context = _rc_context(tmp_path)
+    _write_rc_guest_state(context)
+    record = _write_rc_preflight_record(context)
+    stage_suite._rc_preflight_path(context).write_text(
+        json.dumps(record, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(stage_suite, "_verify_source_checkouts", lambda _context: None)
+    monkeypatch.setattr(
+        stage_suite,
+        "_rc_final_snapshot",
+        lambda *_args: pytest.fail("noncanonical preflight must fail before probes"),
+    )
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="rc_finalize_preflight_invalid"
+    ):
+        stage_suite.run_local_rc_finalize(
+            context,
+            dependency_sha256="c" * 64,
+            guest_id="01KZSKQ6FY4EVCCY94XGWZ9NDS",
+            expected_machine_id="f" * 32,
+        )
+
+
+def test_rc_process_identity_rejects_boolean_restart_count():
+    processes = _rc_processes()
+    processes[0]["restarts"] = True
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="rc_finalize_process_stability_invalid"
+    ):
+        stage_suite._rc_process_identity(processes)
+
+
+def test_run_local_rc_finalize_rolls_back_pass_artifacts_when_preflight_cleanup_fails(
+    monkeypatch, tmp_path
+):
+    context = _rc_context(tmp_path)
+    manifests, _snapshot = _write_rc_guest_state(context)
+    _write_rc_preflight_record(context)
+    final = {
+        "verdict": "PASS",
+        "completed": list(stage_suite.STAGE_ORDER),
+        "runtime_dark": True,
+        "processes_stable": True,
+        "readiness_green": True,
+        "listeners_accepted": True,
+        "immutable_history": True,
+        "proof": {"bounded": True},
+    }
+    monkeypatch.setattr(stage_suite, "_verify_source_checkouts", lambda _context: None)
+    monkeypatch.setattr(
+        stage_suite,
+        "_rc_final_snapshot",
+        lambda _context, loaded: (
+            final if loaded == manifests else pytest.fail("wrong stage manifests")
+        ),
+    )
+    preflight_path = stage_suite._rc_preflight_path(context)
+    original_unlink = Path.unlink
+
+    def fail_preflight_unlink(path, *args, **kwargs):
+        if path == preflight_path:
+            raise OSError("injected preflight cleanup failure")
+        return original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", fail_preflight_unlink)
+
+    with pytest.raises(OSError, match="injected preflight cleanup failure"):
+        stage_suite.run_local_rc_finalize(
+            context,
+            dependency_sha256="c" * 64,
+            guest_id="01KZSKQ6FY4EVCCY94XGWZ9NDS",
+            expected_machine_id="f" * 32,
+        )
+
+    assert preflight_path.exists()
+    assert not (context.evidence_root / "LOCAL-RC-1.json").exists()
+    assert not (context.evidence_root / "RC-SUMMARY.json").exists()
+    checksum_entries = stage_suite._read_checksum_index(
+        context.evidence_root / "SHA256SUMS"
+    )
+    assert "LOCAL-RC-1.json" not in checksum_entries
+    assert "RC-SUMMARY.json" not in checksum_entries
+
+
+def _prepare_rc_finalize_main(monkeypatch, tmp_path):
+    context = _rc_context(tmp_path)
+    manifests, _snapshot = _write_rc_guest_state(context)
+    _write_rc_preflight_record(context)
+    final = {
+        "verdict": "PASS",
+        "completed": list(stage_suite.STAGE_ORDER),
+        "runtime_dark": True,
+        "processes_stable": True,
+        "readiness_green": True,
+        "listeners_accepted": True,
+        "immutable_history": True,
+        "proof": {"bounded": True},
+    }
+    real_finalize = stage_suite.run_local_rc_finalize
+    monkeypatch.setattr(stage_suite, "_verify_source_checkouts", lambda _context: None)
+    monkeypatch.setattr(
+        stage_suite,
+        "_rc_final_snapshot",
+        lambda _context, loaded: (
+            final if loaded == manifests else pytest.fail("wrong stage manifests")
+        ),
+    )
+
+    def run_finalize_with_owner(stage_context, **kwargs):
+        return real_finalize(
+            dataclasses.replace(stage_context, owner_path=context.owner_path), **kwargs
+        )
+
+    monkeypatch.setattr(stage_suite, "run_local_rc_finalize", run_finalize_with_owner)
+    args = _rc_cli_args(tmp_path, "finalize")
+    args.extend(["--harness-root", str(context.harness_root)])
+    return context, args
+
+
+@pytest.mark.parametrize(
+    "publication_leg",
+    (
+        "rc_write",
+        "rc_checksum",
+        "summary_write",
+        "summary_checksum",
+        "preflight_unlink",
+    ),
+)
+def test_rc_finalize_publication_failure_publishes_only_a_collectable_failure(
+    monkeypatch, tmp_path, rc_expected_machine, publication_leg
+):
+    context, args = _prepare_rc_finalize_main(monkeypatch, tmp_path)
+    original_write = stage_suite.write_stage_manifest
+    original_checksum = stage_suite._checksum_manifest
+    original_unlink = Path.unlink
+    external_path = stage_suite._rc_preflight_path(context)
+
+    def fail_after_success_write(path, payload):
+        result = original_write(path, payload)
+        name = Path(path).name
+        if (publication_leg, name) in {
+            ("rc_write", "LOCAL-RC-1.json"),
+            ("summary_write", "RC-SUMMARY.json"),
+        }:
+            raise OSError(f"injected {publication_leg} failure")
+        return result
+
+    def fail_after_success_checksum(path):
+        result = original_checksum(path)
+        name = Path(path).name
+        if (publication_leg, name) in {
+            ("rc_checksum", "LOCAL-RC-1.json"),
+            ("summary_checksum", "RC-SUMMARY.json"),
+        }:
+            raise OSError(f"injected {publication_leg} failure")
+        return result
+
+    def fail_preflight_unlink(path, *args, **kwargs):
+        if publication_leg == "preflight_unlink" and path == external_path:
+            raise OSError("injected external preflight unlink failure")
+        return original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(stage_suite, "write_stage_manifest", fail_after_success_write)
+    monkeypatch.setattr(stage_suite, "_checksum_manifest", fail_after_success_checksum)
+    monkeypatch.setattr(Path, "unlink", fail_preflight_unlink)
+
+    assert stage_suite.main(args) == 1
+    assert external_path.exists()
+    assert not (context.evidence_root / "LOCAL-RC-1.json").exists()
+    assert not (context.evidence_root / "RC-SUMMARY.json").exists()
+    index = stage_suite._read_checksum_index(context.evidence_root / "SHA256SUMS")
+    assert "LOCAL-RC-1.json" not in index
+    assert "RC-SUMMARY.json" not in index
+    failure_path = context.evidence_root / "LOCAL-RC-1-failure.json"
+    stage_suite._verify_checksum_entry(failure_path)
+
+
+@pytest.mark.parametrize("cleanup_artifact", ("LOCAL-RC-1.json", "RC-SUMMARY.json"))
+def test_rc_finalize_unproved_publication_cleanup_returns_exit_70(
+    monkeypatch, tmp_path, rc_expected_machine, capsys, cleanup_artifact
+):
+    context, args = _prepare_rc_finalize_main(monkeypatch, tmp_path)
+    original_checksum = stage_suite._checksum_manifest
+    original_clear = stage_suite._clear_checksum_artifact
+
+    def fail_summary_checksum(path):
+        if Path(path).name == "RC-SUMMARY.json":
+            raise OSError("injected summary checksum failure")
+        return original_checksum(path)
+
+    def fail_success_cleanup(root, name):
+        if name == cleanup_artifact:
+            raise OSError("injected finalize cleanup failure")
+        return original_clear(root, name)
+
+    monkeypatch.setattr(stage_suite, "_checksum_manifest", fail_summary_checksum)
+    monkeypatch.setattr(stage_suite, "_clear_checksum_artifact", fail_success_cleanup)
+
+    assert stage_suite.main(args) == stage_suite.FAILURE_MANIFEST_EXIT_CODE
+    assert capsys.readouterr().err.splitlines() == [
+        "FAIL rc_finalize_publication_rollback_failed"
+    ]
+    assert not (context.evidence_root / "LOCAL-RC-1-failure.json").exists()
+
+
+@pytest.mark.parametrize("interrupt", (KeyboardInterrupt(), SystemExit(34)))
+def test_rc_finalize_compensation_interrupt_propagates_exactly(
+    monkeypatch, tmp_path, rc_expected_machine, interrupt
+):
+    context, args = _prepare_rc_finalize_main(monkeypatch, tmp_path)
+    original_checksum = stage_suite._checksum_manifest
+    interrupted = [False]
+
+    def fail_summary_checksum(path):
+        if Path(path).name == "RC-SUMMARY.json":
+            raise OSError("injected summary checksum failure")
+        return original_checksum(path)
+
+    def interrupt_cleanup(_root, _name):
+        if not interrupted[0]:
+            interrupted[0] = True
+            raise interrupt
+        return None
+
+    monkeypatch.setattr(stage_suite, "_checksum_manifest", fail_summary_checksum)
+    monkeypatch.setattr(stage_suite, "_clear_checksum_artifact", interrupt_cleanup)
+
+    with pytest.raises(BaseException) as caught:
+        stage_suite.main(args)
+
+    assert caught.value is interrupt
+    assert isinstance(caught.value.__cause__, OSError)
+    assert not (context.evidence_root / "LOCAL-RC-1-failure.json").exists()
+
+
+def test_rc_finalize_parser_dispatches_exact_identity(
+    monkeypatch, tmp_path, rc_expected_machine
+):
+    (tmp_path / "evidence").mkdir()
+    captured = []
+    monkeypatch.setattr(
+        stage_suite,
+        "run_local_rc_finalize",
+        lambda context, **kwargs: captured.append((context, kwargs)),
+        raising=False,
+    )
+
+    assert stage_suite.main(_rc_cli_args(tmp_path, "finalize")) == 0
+    assert captured[0][1] == {
+        "dependency_sha256": "c" * 64,
+        "guest_id": "01KZSKQ6FY4EVCCY94XGWZ9NDS",
+        "expected_machine_id": "f" * 32,
+    }
+
+
+def test_rc_finalize_failure_preserves_external_preflight(
+    monkeypatch, tmp_path, rc_expected_machine
+):
+    context = _rc_context(tmp_path)
+    preflight_path = stage_suite._rc_preflight_path(context)
+    preflight_path.write_text('{"preserve": true}\n')
+    monkeypatch.setattr(
+        stage_suite,
+        "run_local_rc_finalize",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            stage_suite.StageGateError("rc_finalize_stage_state_incomplete")
+        ),
+        raising=False,
+    )
+
+    assert stage_suite.main(_rc_cli_args(tmp_path, "finalize")) == 1
+    assert preflight_path.read_text() == '{"preserve": true}\n'
+    failure = json.loads(
+        (context.evidence_root / "LOCAL-RC-1-failure.json").read_text()
+    )
+    assert failure["failed_gate"] == "rc_finalize_stage_state_incomplete"
+
+
+@pytest.mark.parametrize("interrupt", [KeyboardInterrupt(), SystemExit(17)])
+def test_rc_finalize_interrupt_preserves_preflight_without_verdict(
+    monkeypatch, tmp_path, interrupt, rc_expected_machine
+):
+    context = _rc_context(tmp_path)
+    preflight_path = stage_suite._rc_preflight_path(context)
+    preflight_path.write_text('{"preserve": true}\n')
+    monkeypatch.setattr(
+        stage_suite,
+        "run_local_rc_finalize",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(interrupt),
+        raising=False,
+    )
+
+    with pytest.raises(BaseException) as caught:
+        stage_suite.main(_rc_cli_args(tmp_path, "finalize"))
+
+    assert caught.value is interrupt
+    assert preflight_path.read_text() == '{"preserve": true}\n'
+    assert list(context.evidence_root.iterdir()) == []

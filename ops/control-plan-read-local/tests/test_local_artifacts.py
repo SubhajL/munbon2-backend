@@ -4,6 +4,7 @@ import os
 import re
 import subprocess
 import sys
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -276,8 +277,9 @@ def test_every_completed_stage_is_added_to_the_checksum_index():
 def test_stage_suite_uses_the_v5_hydraulic_release():
     body = (LOCAL_DIR / "run-stage-suite.py").read_text(encoding="utf-8")
 
-    assert body.count("engineering-prior-v5-v1.json") == 6
-    assert "engineering-prior-v3-v1.json" not in body
+    assert set(re.findall(r"engineering-prior-v\d+-v1\.json", body)) == {
+        "engineering-prior-v5-v1.json"
+    }
 
 
 def test_read_browser_runner_covers_dark_visible_and_panel_failure_scenarios():
@@ -1036,7 +1038,6 @@ def test_all_stages_runbook_locks_local_before_aws_and_documents_current_command
     body = (
         REPO_ROOT / "docs/operations/CONTROL_PLAN_ALL_STAGES_LOCAL_ACCEPTANCE.md"
     ).read_text(encoding="utf-8")
-    documented_candidate_commands = 18
     level_two_headings = [
         (line_number, match.group(1).strip())
         for line_number, line in enumerate(body.splitlines())
@@ -1086,8 +1087,8 @@ def test_all_stages_runbook_locks_local_before_aws_and_documents_current_command
         ("LOCAL-WRITE-FOUNDATION-1", "Implemented; prior SHA passed"),
         ("LOCAL-WRITE-UI-1", "Implemented; latest campaign passed"),
         ("LOCAL-PERSIST-ONLY-1", "Implemented; latest campaign passed"),
-        ("LOCAL-WRITE-ACT-1", "Planned; not yet implemented"),
-        ("LOCAL-RC-1", "Required before AWS"),
+        ("LOCAL-WRITE-ACT-1", "Implemented in source; not yet accepted"),
+        ("LOCAL-RC-1", "Implemented in source; not yet accepted"),
     ]
 
     for required in (
@@ -1108,7 +1109,18 @@ def test_all_stages_runbook_locks_local_before_aws_and_documents_current_command
         "orchestrate.py run-stage --stage LOCAL-WRITE-FOUNDATION-1",
         "orchestrate.py run-stage --stage LOCAL-WRITE-UI-1",
         "orchestrate.py run-stage --stage LOCAL-PERSIST-ONLY-1",
+        "orchestrate.py run-stage --stage LOCAL-WRITE-ACT-1",
         "orchestrate.py collect",
+        "orchestrate.py run-rc",
+        "orchestrate.py collect-rc",
+        "orchestrate.py collect-rc-partial-failure",
+        "RC-SHA256SUMS",
+        "RC-OUTER-SHA256SUMS",
+        "RC-PARTIAL-SHA256SUMS",
+        "RC-PARTIAL-OUTER-SHA256SUMS",
+        "acceptance_evidence=false",
+        "campaign_ledger_eligible=false",
+        "does not authorize guest creation, replacement, repair, deployment, activation, or AWS action",
         "munbon-control-plan-rehearsal",
         "orchestrate.py provision-rehearsal",
         "orchestrate.py run-rehearsal-stage --stage LOCAL-BASE-0",
@@ -1129,19 +1141,35 @@ def test_all_stages_runbook_locks_local_before_aws_and_documents_current_command
         "run-write-browser.js",
     ):
         assert required in body
-    assert (
-        body.count('--release-sha "$accepted_backend_sha"')
-        == documented_candidate_commands
-    )
-    assert (
-        body.count('--frontend-sha "$accepted_frontend_sha"')
-        == documented_candidate_commands
+    assert Counter(
+        re.findall(
+            r"^python3 ops/control-plan-read-local/orchestrate\.py ([a-z-]+)\b",
+            body,
+            flags=re.MULTILINE,
+        )
+    ) == Counter(
+        {
+            "build-dependencies": 1,
+            "provision-rehearsal": 1,
+            "run-rehearsal-stage": 3,
+            "collect-rehearsal": 1,
+            "collect-rehearsal-partial-failure": 1,
+            "collect-rehearsal-bootstrap-failure": 1,
+            "provision": 1,
+            "collect-bootstrap-failure": 1,
+            "run-stage": 10,
+            "run-rc": 1,
+            "collect-rc": 1,
+            "collect-rc-partial-failure": 1,
+            "collect": 1,
+        }
     )
     assert body.count('--as-of-date "$rehearsal_as_of_date"') == 5
     for required in (
         "accepted_frontend_sha=REPLACE_WITH_ACCEPTED_40_CHARACTER_FRONTEND_SHA",
         "Historical frontend SHAs below are evidence identities, not reusable defaults.",
-        "All nine current local acceptance stages are implemented",
+        "All ten current local acceptance stages are implemented in source",
+        "Neither `LOCAL-WRITE-ACT-1` nor `LOCAL-RC-1` has been run or accepted",
         "The current candidate has genuine 9/9 local acceptance evidence",
         "2026-08-20-nine-stage-orbstack-7f032c4c-attempt-1",
         "7f032c4c20e7f9cdd443d64f7adbeb37342ff190",
