@@ -1036,6 +1036,9 @@ def test_all_stages_runbook_locks_local_before_aws_and_documents_current_command
         REPO_ROOT / "docs/operations/CONTROL_PLAN_ALL_STAGES_LOCAL_ACCEPTANCE.md"
     ).read_text(encoding="utf-8")
     documented_candidate_commands = 18
+    current_result = body.split("## Current local result\n", maxsplit=1)[1].split(
+        "\n### Historical three-stage result", maxsplit=1
+    )[0]
 
     for required in (
         "LOCAL-BASE-0",
@@ -1089,22 +1092,45 @@ def test_all_stages_runbook_locks_local_before_aws_and_documents_current_command
         "accepted_frontend_sha=REPLACE_WITH_ACCEPTED_40_CHARACTER_FRONTEND_SHA",
         "Historical frontend SHAs below are evidence identities, not reusable defaults.",
         "All nine current local acceptance stages are implemented",
-        "No current candidate has genuine 9/9 acceptance evidence.",
-        "A fresh exact-SHA rehearsal and canonical campaign require separate authorization.",
+        "The current candidate has genuine 9/9 local acceptance evidence",
+        "2026-08-20-nine-stage-orbstack-7f032c4c-attempt-1",
+        "7f032c4c20e7f9cdd443d64f7adbeb37342ff190",
+        "01M0F27Z1GZQ7SQF07XH9M3VQT",
+        "903602d8ae622c5de72ffa31c705782ae663dfd6dc9a53d4450c6aa5e0c1bbef",
+        "585467a896065b42a40982eb08c1f3447e1b5439928bcca50fc471a7595e51aa",
+        "successful_closed",
+        "Another rehearsal or canonical campaign requires a new separate authorization.",
         "A rehearsal grant does not authorize canonical guest replacement",
         "Provisioning already collects and finalizes this bundle automatically",
         "only the ordered `LOCAL-BASE-0 → LOCAL-RTA-1 → LOCAL-AC-1` prefix",
         "cannot satisfy `successful_closed`",
         "Guest replacement, deployment, and activation remain separately authorized actions.",
         "Every authorized campaign outcome, success or failure, must extend the campaign",
-        "genuine 9/9 evidence from one pristine authorized guest, a separately authorized",
-        "passing `LOCAL-RC-1`, and separate promotion and AWS authorization.",
+        "This 9/9 result grants no",
+        "still requires a separately authorized passing `LOCAL-RC-1`",
+        "promotion and AWS authorization.",
     ):
         assert required in body
     assert "accepted_frontend_sha=fbd4ce4df0bb0476b7cd402ac1a4e180a91a7792" not in body
+    assert "No current candidate has genuine 9/9 acceptance evidence." not in body
     assert "before implementing `LOCAL-WRITE-UI-1`" not in body
     assert (
         "Only genuine 9/9 evidence from one pristine authorized guest may extend"
         not in body
     )
     assert "2ee640c5eed939b68035c7695a4c129570e9ca5a" not in body
+    for required in (
+        "**9 passed / 0 failed /\n0 unreached**",
+        "2026-08-20-nine-stage-orbstack-7f032c4c-attempt-1",
+        "7f032c4c20e7f9cdd443d64f7adbeb37342ff190",
+        "067b3e22401854f8c6d6db42dc0c5c1872fca6f8",
+        "89a26cbd783b21037acd3ce2f1e116f0e69ba8ea0d1667be8b6fda22a1aef7ab",
+        "01M0F27Z1GZQ7SQF07XH9M3VQT",
+        "attempt 1 of 1",
+        "failed and unreached stages: none",
+        "final visibility, submit, execution, authority, and write flags: false",
+        "../munbon-control-plan-9of9-evidence/2026-08-20-nine-stage-orbstack-7f032c4c-attempt-1/",
+        "903602d8ae622c5de72ffa31c705782ae663dfd6dc9a53d4450c6aa5e0c1bbef",
+        "585467a896065b42a40982eb08c1f3447e1b5439928bcca50fc471a7595e51aa",
+    ):
+        assert required in current_result

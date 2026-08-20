@@ -1773,9 +1773,14 @@ def test_checked_in_campaign_ledger_is_valid():
     ledger = (
         MODULE_PATH.parents[2] / "docs/operations/control-plan-campaign-ledger.jsonl"
     )
+    historical_prefix = b"\n".join(ledger.read_bytes().splitlines()[:2]) + b"\n"
+
+    assert hashlib.sha256(historical_prefix).hexdigest() == (
+        "45970d9a2240eb2090a7958d9add373fb5ec4ef6068b38d04ae4ac22ce4f4261"
+    )
 
     assert hashlib.sha256(ledger.read_bytes()).hexdigest() == (
-        "45970d9a2240eb2090a7958d9add373fb5ec4ef6068b38d04ae4ac22ce4f4261"
+        "18c2b4a6168b2f547ea873bcc8dee0a88450416d0998b75752ffc7196eb2d741"
     )
 
     entries = orchestrate.validate_campaign_ledger(ledger)
@@ -1824,6 +1829,21 @@ def test_checked_in_campaign_ledger_is_valid():
             },
             "entry_sha256": "fe2cb916578a1c6ded0c4087f99be832639b3f72af74fcf35ae5f98c9b03f810",
         },
+        {
+            "campaign_id": "2026-08-20-nine-stage-orbstack-7f032c4c-attempt-1",
+            "candidate_sha256": "7d2cb9a50b1c80896a4c5892deeb3b612227c5aa32e5e7f8c6934e98a29eee11",
+            "guest": {
+                "architecture": "arm64",
+                "id": "01M0F27Z1GZQ7SQF07XH9M3VQT",
+                "name": "munbon-control-plan-local",
+            },
+            "evidence": {
+                "index_name": "OUTER-SHA256SUMS",
+                "index_sha256": "903602d8ae622c5de72ffa31c705782ae663dfd6dc9a53d4450c6aa5e0c1bbef",
+                "ref": "../munbon-control-plan-9of9-evidence/2026-08-20-nine-stage-orbstack-7f032c4c-attempt-1",
+            },
+            "entry_sha256": "585467a896065b42a40982eb08c1f3447e1b5439928bcca50fc471a7595e51aa",
+        },
     ]
 
     assert [entry["outcome"] for entry in entries] == [
@@ -1839,10 +1859,17 @@ def test_checked_in_campaign_ledger_is_valid():
             "failed": [orchestrate.STAGE_ORDER[2]],
             "unreached": list(orchestrate.STAGE_ORDER[3:]),
         },
+        {
+            "acceptance": True,
+            "passed": list(orchestrate.STAGE_ORDER),
+            "failed": [],
+            "unreached": [],
+        },
     ]
     assert [entry["authorization"] for entry in entries] == [
         {"state": "historical_closed", "attempt": None, "ceiling": None},
         {"state": "exhausted", "attempt": 3, "ceiling": 3},
+        {"state": "successful_closed", "attempt": 1, "ceiling": 1},
     ]
 
 

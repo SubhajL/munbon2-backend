@@ -535,3 +535,70 @@ No production file is externally allowlisted. No DeepSeek request will be made. 
 - Primary formal g-check confirms the receipt byte stream matches the builder algorithm: both use GNU `sha256sum` lines for the same flat wheel directory in bytewise filename order, and both SHA-256 the complete newline-terminated stream. The test also pins the exact four-service order, receipt syntax, sorted filenames, counts, and lock equality. No runtime logic, requirements, ledger, workflow, guest, or authority changed.
 - RepoPrompt's external review provider was attempted twice and returned its account usage-limit boundary before producing a review. This is recorded as unavailable review infrastructure, not a passing review. The independent Terra review plus primary full-gate review is the formal fallback disposition for this bounded data refresh.
 - Final gates: 538 full harness tests passed; Black, Ruff, Python compileall, and diff whitespace checks passed. Formal disposition: no actionable P0, P1, or P2 remains.
+
+## 2026-08-20 13:16 ICT — Revalidated DREP and rehearsal authority
+
+- RepoPrompt revalidated the remaining runtime path from the fixed rehearsal through canonical 9/9 and ledger closure. No additional source change was required before rehearsal; `orchestrate.py` remained the authoritative entry point and all runtime/authority work stayed PRIMARY-owned.
+- g2 classification remained Q1/PRIMARY with DeepSeek budget `0`: guest replacement, runtime evidence, immutable RID weeks, authorization, and failure interpretation were prohibited delegation slices. The local-only `g2-doctor` passed; no external proposal or tool round was authorized or used.
+- Backend `HEAD == main == origin/main == 7f032c4c20e7f9cdd443d64f7adbeb37342ff190`; the clean frontend candidate matched Smart CMS `origin/main` at `067b3e22401854f8c6d6db42dc0c5c1872fca6f8`. The exact dependency archive remained mode 0600, size 1616258735 bytes, SHA-256 `89a26cbd783b21037acd3ce2f1e116f0e69ba8ea0d1667be8b6fda22a1aef7ab`, and independently passed full archive/input validation.
+- The active rehearsal grant was pinned to Bangkok date `2026-08-20`, derived scopes `2026-W34`, `2026-R42`, and `2026-R43`, and fresh evidence destinations under the external 9/9 evidence root. It granted no canonical replacement, deployment, activation, AWS, production, ledger, RC, or additional-stage authority.
+
+## 2026-08-20 13:31 ICT — Non-authoritative three-stage rehearsal passed
+
+- Provisioned exactly one fresh Debian 12 ARM64 isolated rehearsal guest, `munbon-control-plan-rehearsal` ID `01M0EX2FYE4XX511KHB5MCBDP8`, from the exact candidates and dependency closure.
+- Ran `LOCAL-BASE-0`, `LOCAL-RTA-1`, and `LOCAL-AC-1` in strict order on the same guest and database for `2026-08-20`. All three stages passed; no failure manifest exists; all activation, visibility, write, and submit flags were restored dark.
+- Rehearsal state and summary remained `execution_kind=rehearsal` and `acceptance_evidence=false`, with the six later canonical stages explicitly unreached.
+- Atomically collected `/Users/subhajlimanond/dev/munbon-control-plan-9of9-evidence/rehearsal-7f032c4c20e7-2026-08-20`. Both rehearsal checksum layers verify; `REHEARSAL-OUTER-SHA256SUMS` has SHA-256 `4eb8c8709f931c8146ea99d261f5b029cee3ba98ef0631d332a440ae2b07117a`.
+
+## 2026-08-20 13:43 ICT — Canonical retirement stable-ID tool failure and guarded recovery
+
+- Immediately before retirement, live inventory, owner, stage state, guest checksum index, and the frozen historical host archive all matched preserved guest `munbon-control-plan-local` ID `01KZSKQ6FY4EVCCY94XGWZ9NDS`. Historical host `OUTER-SHA256SUMS` retained SHA-256 `34b952b660ec230ab2d9049b60f6dd8496561ce6e2860b377124c8ae48947ecd`.
+- OrbStack panicked at `delete.go:141` for forced-running, forced-stopped, and interactive deletion by stable ID. The guest remained preserved and was explicitly stopped by the exact ID.
+- After the user separately authorized a narrow fallback, a fresh guard proved the unique stopped ID/name/shape mapping. Deletion by the validated name succeeded, and a post-read proved both the old ID and canonical name absent. No unrelated guest was touched.
+
+## 2026-08-20 15:10 ICT — Fresh canonical campaign passed 9/9 and strict collection
+
+- Provisioned exactly one fresh Debian 12 ARM64 isolated canonical guest, `munbon-control-plan-local` ID `01M0F27Z1GZQ7SQF07XH9M3VQT`. Owner and provisioning state bind backend `7f032c4c20e7f9cdd443d64f7adbeb37342ff190`, frontend `067b3e22401854f8c6d6db42dc0c5c1872fca6f8`, dependency SHA-256 `89a26cbd783b21037acd3ce2f1e116f0e69ba8ea0d1667be8b6fda22a1aef7ab`, and a fresh empty evidence stream.
+- Ran all nine `STAGE_ORDER` stages individually on the same guest/database for authorized Bangkok date `2026-08-20`. Every stage emitted PASS; no failure manifest, reprovisioning, retry, or in-place repair occurred.
+- Strict `collect` atomically published `/Users/subhajlimanond/dev/munbon-control-plan-9of9-evidence/2026-08-20-nine-stage-orbstack-7f032c4c-attempt-1`. Inner `SHA256SUMS` and outer `OUTER-SHA256SUMS` independently verify all nine manifests, stage state, two GO-read screenshots, and the WRITE-UI browser result. The outer-index file SHA-256 is `903602d8ae622c5de72ffa31c705782ae663dfd6dc9a53d4450c6aa5e0c1bbef`.
+- The successful guest and frozen external archive remain preserved. This 9/9 result grants no RC, deployment, activation, AWS, production, or future campaign authority.
+
+## 2026-08-20 15:24 ICT — Ledger closure TDD, gates, and QCHECK
+
+- Created isolated worktree `/Users/subhajlimanond/dev/munbon2-backend-9of9-ledger-closure` on branch `ops/9of9-ledger-closure` from exact `origin/main` `7f032c4c20e7f9cdd443d64f7adbeb37342ff190`.
+- RED changed only `test_checked_in_campaign_ledger_is_valid`; `/tmp/munbon-9of9-gate.jd0ldB/venv/bin/python -m pytest -q ops/control-plan-read-local/tests/test_orchestrate.py::test_checked_in_campaign_ledger_is_valid` failed because the ledger still had historical SHA-256 `45970d9a2240eb2090a7958d9add373fb5ec4ef6068b38d04ae4ac22ce4f4261` instead of the evidence-derived three-row SHA-256 `18c2b4a6168b2f547ea873bcc8dee0a88450416d0998b75752ffc7196eb2d741`.
+- GREEN appended exactly one canonical JSONL row. The first two lines retain their exact prefix SHA-256 `45970d9a2240eb2090a7958d9add373fb5ec4ef6068b38d04ae4ac22ce4f4261`; row 3 chains from `fe2cb916578a1c6ded0c4087f99be832639b3f72af74fcf35ae5f98c9b03f810`, has entry SHA-256 `585467a896065b42a40982eb08c1f3447e1b5439928bcca50fc471a7595e51aa`, and records `successful_closed`, attempt 1 of 1, with exact 9/0/0 outcome.
+- A second RED pinned corrected current-result runbook text and failed on the stale no-9/9 claim. GREEN records the current success, retains the exhausted attempt as historical, and preserves separate rehearsal/canonical, RC, deployment, activation, AWS, production, and promotion authority boundaries.
+- Independent QCHECK reported no actionable P0/P1/P2 and independently recomputed the ledger append, chain, outcome, and test sensitivity. Its only residual note is that source review cannot replace preservation of the referenced external archive.
+- Final gates after remediation: 538 full harness tests passed; the two affected tests passed three consecutive times; Black, Ruff, Python compileall, ledger CLI validation, checksum validation, and diff whitespace checks passed.
+
+## Review (2026-08-20 15:24 ICT) - working-tree
+
+### Reviewed
+- Repo: `/Users/subhajlimanond/dev/munbon2-backend-9of9-ledger-closure`
+- Branch: `ops/9of9-ledger-closure`
+- Scope: working tree at base `7f032c4c20e7f9cdd443d64f7adbeb37342ff190`
+- Commands Run: bounded working-tree diff/status; `validate-campaign-ledger`; focused RED/GREEN pytest; 538-test full harness; three consecutive affected-test runs; Black; Ruff; compileall; `git diff --check`; inner/outer evidence checksum verification
+
+### Findings
+CRITICAL
+- No findings.
+
+HIGH
+- No findings.
+
+MEDIUM
+- Initial formal review found one authority regression: removal of the explicit separate-authorization rule for another rehearsal/canonical campaign. Remediated by restoring an exact denial and pinning it in the runbook test.
+
+LOW
+- Initial formal review found that the checked-in test lacked an independent two-line historical-prefix digest and that runbook checks were document-wide substrings. Remediated with the exact prefix oracle and a scoped current-result block covering all candidate, guest, outcome, evidence, dark-state, and authorization values.
+
+### Open Questions / Assumptions
+- No open code or documentation question remains. The referenced external evidence archive must remain preserved at its recorded path; its bytes are not committed to Git.
+
+### Recommended Tests / Validation
+- Completed: 538 full harness tests, affected tests three consecutive times, ledger CLI validation, Black, Ruff, compileall, diff whitespace, and both canonical evidence checksum layers.
+
+### Rollout Notes
+- Formal re-review reports no remaining actionable P0, P1, or P2 findings.
+- The successful guest and external evidence are preserved. This PR grants no `LOCAL-RC-1`, deployment, activation, AWS, production, promotion, or future rehearsal/canonical authority.
