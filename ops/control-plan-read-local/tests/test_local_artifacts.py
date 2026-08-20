@@ -1036,9 +1036,58 @@ def test_all_stages_runbook_locks_local_before_aws_and_documents_current_command
         REPO_ROOT / "docs/operations/CONTROL_PLAN_ALL_STAGES_LOCAL_ACCEPTANCE.md"
     ).read_text(encoding="utf-8")
     documented_candidate_commands = 18
+    level_two_headings = [
+        (line_number, match.group(1).strip())
+        for line_number, line in enumerate(body.splitlines())
+        if (
+            match := re.fullmatch(
+                r" {0,3}##\s+(.+?)(?:\s+#+)?\s*",
+                line,
+            )
+        )
+    ]
+    promotion_headings = [
+        line_number
+        for line_number, title in level_two_headings
+        if title == "Promotion sequence"
+    ]
+    provision_headings = [
+        line_number for line_number, title in level_two_headings if title == "Provision"
+    ]
+    assert len(promotion_headings) == 1
+    assert len(provision_headings) == 1
+    assert promotion_headings[0] < provision_headings[0]
+    promotion_table = body.splitlines()[
+        promotion_headings[0] + 1 : provision_headings[0]
+    ]
+    promotion_rows = []
+    for line in promotion_table:
+        if not line.lstrip().startswith("|") or "LOCAL-" not in line:
+            continue
+        match = re.fullmatch(
+            r" {0,3}\|\s*[^|]+?\s*\|\s*`(?P<stage>LOCAL-[A-Z0-9-]+)`\s*"
+            r"\|\s*(?P<status>[^|]+?)\s*\|\s*",
+            line,
+        )
+        assert match is not None
+        promotion_rows.append((match.group("stage"), match.group("status")))
     current_result = body.split("## Current local result\n", maxsplit=1)[1].split(
         "\n### Historical three-stage result", maxsplit=1
     )[0]
+
+    assert promotion_rows == [
+        ("LOCAL-BASE-0", "Implemented and passed"),
+        ("LOCAL-RTA-1", "Implemented and passed"),
+        ("LOCAL-AC-1", "Implemented and passed"),
+        ("LOCAL-READ-ACT-1", "Implemented and passed"),
+        ("LOCAL-EVIDENCE-1", "Implemented and passed"),
+        ("LOCAL-GO-READ-1", "Implemented and passed"),
+        ("LOCAL-WRITE-FOUNDATION-1", "Implemented; prior SHA passed"),
+        ("LOCAL-WRITE-UI-1", "Implemented; latest campaign passed"),
+        ("LOCAL-PERSIST-ONLY-1", "Implemented; latest campaign passed"),
+        ("LOCAL-WRITE-ACT-1", "Planned; not yet implemented"),
+        ("LOCAL-RC-1", "Required before AWS"),
+    ]
 
     for required in (
         "LOCAL-BASE-0",
