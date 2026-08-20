@@ -260,9 +260,9 @@ def test_campaign_ledger_ci_fetches_and_requires_the_base_commit():
 def test_every_completed_stage_is_added_to_the_checksum_index():
     body = (LOCAL_DIR / "run-stage-suite.py").read_text(encoding="utf-8")
 
-    # Nine PASS manifests plus the pre-validation browser result and any
+    # Ten PASS manifests plus the pre-validation browser result and any
     # failure manifest are all checksum-bound.
-    assert body.count("_checksum_manifest(target)") == 11
+    assert body.count("_checksum_manifest(target)") == 12
     assert "_checksum_manifest(path)" in body
     assert "_verify_checksum_entry" in body
     assert "_save_state(context, list(STAGE_ORDER[:5]))" in body
@@ -270,12 +270,13 @@ def test_every_completed_stage_is_added_to_the_checksum_index():
     assert "_save_state(context, list(STAGE_ORDER[:7]))" in body
     assert "_save_state(context, list(STAGE_ORDER[:8]))" in body
     assert "_save_state(context, list(STAGE_ORDER[:9]))" in body
+    assert "_save_state(context, list(STAGE_ORDER))" in body
 
 
 def test_stage_suite_uses_the_v5_hydraulic_release():
     body = (LOCAL_DIR / "run-stage-suite.py").read_text(encoding="utf-8")
 
-    assert body.count("engineering-prior-v5-v1.json") == 5
+    assert body.count("engineering-prior-v5-v1.json") == 6
     assert "engineering-prior-v3-v1.json" not in body
 
 

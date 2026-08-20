@@ -19,12 +19,16 @@ const {
   navigationSteps,
   classifyProductRequest,
   isForbiddenWrite,
+  installResponseBoundary,
+  proveDarkAndLogout,
+  loginAndCaptureToken,
   authorizedRequestInit,
   validateControlPath,
   writeControlFile,
 } = require("../run-write-browser.js");
 
 const ORIGIN = "http://127.0.0.1:9999";
+const AUTH_REFRESH_PATH = "/api/auth/refresh";
 const SUBMIT_PATH =
   "/api/smart-water-backend/water-planning/planning-depth-submissions";
 const ACTIVE_PATH =
@@ -87,6 +91,368 @@ test("isForbiddenWrite ignores the harness's own auth traffic", () => {
     }),
     false,
   );
+});
+
+test("request boundary records mutation attempts even without responses", () => {
+  const handlers = {};
+  const context = { on: (event, handler) => (handlers[event] = handler) };
+  const inventory = {
+    writeExpected: false,
+    mutations: [],
+    mutationAttempts: [],
+    forbiddenWrites: [],
+  };
+  installResponseBoundary(context, inventory, () => null);
+
+  for (const method of ["POST", "PATCH"]) {
+    handlers.request({
+      url: () => `${ORIGIN}${SUBMIT_PATH}`,
+      method: () => method,
+    });
+  }
+
+  assert.deepEqual(inventory.mutationAttempts, [
+    `POST ${SUBMIT_PATH}`,
+    `PATCH ${SUBMIT_PATH}`,
+  ]);
+  assert.deepEqual(inventory.mutations, []);
+});
+
+test("dark proof logs out even when its rendered assertion fails", async () => {
+  let logoutCalls = 0;
+  const renderedFailure = new Error("dark_submit_affordance_visible");
+
+  await assert.rejects(
+    () =>
+      proveDarkAndLogout(
+        {},
+        {},
+        "access-token",
+        async () => {
+          throw renderedFailure;
+        },
+        {
+          prove: async () => {
+            logoutCalls += 1;
+            return { logout_status: 200, refresh_reuse_status: 401 };
+          },
+        },
+      ),
+    renderedFailure,
+  );
+  assert.equal(logoutCalls, 1);
+});
+
+test("dark login cleanup runs after accepted login navigation fails", async () => {
+  const navigationFailure = new Error("dark_login_navigation_failed");
+  const cleanupTokens = [];
+  const response = {
+    status: () => 200,
+    json: async () => ({ data: { accessToken: "captured-access-token" } }),
+  };
+  const page = {
+    waitForResponse: () => Promise.resolve(response),
+    goto: async () => {},
+    fill: async () => {},
+    click: async () => {},
+    waitForURL: async () => {
+      throw navigationFailure;
+    },
+  };
+
+  await assert.rejects(
+    () =>
+      loginAndCaptureToken(page, ORIGIN, "operator@example.com", "password", {
+        onAcceptedFailure: async (accessToken) => cleanupTokens.push(accessToken),
+      }),
+    navigationFailure,
+  );
+  assert.deepEqual(cleanupTokens, ["captured-access-token"]);
+});
+
+test("dark login cleanup preserves an accepted response parsing failure", async () => {
+  const parsingFailure = new Error("dark_login_response_invalid");
+  let cleanupCalls = 0;
+  const response = {
+    status: () => 200,
+    json: async () => {
+      throw parsingFailure;
+    },
+  };
+  const page = {
+    waitForResponse: () => Promise.resolve(response),
+    goto: async () => {},
+    fill: async () => {},
+    click: async () => {},
+    waitForURL: async () => assert.fail("navigation after invalid login response"),
+  };
+
+  await assert.rejects(
+    () =>
+      loginAndCaptureToken(page, ORIGIN, "operator@example.com", "password", {
+        onAcceptedFailure: async (accessToken) => {
+          cleanupCalls += 1;
+          assert.equal(accessToken, null);
+          throw new Error("cleanup_failed");
+        },
+      }),
+    parsingFailure,
+  );
+  assert.equal(cleanupCalls, 1);
+});
+
+test("dark login arms the correlated mount-refresh waiter before submit and body parsing", async () => {
+  const events = [];
+  let refreshPredicate;
+  let resolveRefresh;
+  let requestHandler;
+  const preAcceptedRequest = { timing: () => ({ startTime: 1 }) };
+  const postAcceptedRequest = { timing: () => ({ startTime: Date.now() + 1000 }) };
+  const preAcceptedRefreshResponse = {
+    url: () => `${ORIGIN}${AUTH_REFRESH_PATH}`,
+    request: () => preAcceptedRequest,
+    status: () => 200,
+  };
+  const postAcceptedRefreshResponse = {
+    url: () => `${ORIGIN}${AUTH_REFRESH_PATH}`,
+    request: () => postAcceptedRequest,
+    status: () => 200,
+  };
+  const refreshSettled = new Promise((resolve) => {
+    resolveRefresh = resolve;
+  });
+  let loginPredicate;
+  const loginResponse = {
+    url: () => `${ORIGIN}/api/auth/login`,
+    request: () => ({ method: () => "POST" }),
+    status: () => 200,
+    json: async () => {
+      events.push("login-body-parse-started");
+      assert.equal(refreshPredicate(preAcceptedRefreshResponse), false);
+      assert.equal(refreshPredicate(postAcceptedRefreshResponse), true);
+      resolveRefresh(postAcceptedRefreshResponse);
+      await Promise.resolve();
+      return { data: { accessToken: "captured-access-token" } };
+    },
+  };
+  let responseWait = 0;
+  const page = {
+    waitForResponse: (predicate) => {
+      responseWait += 1;
+      if (responseWait === 1) {
+        loginPredicate = predicate;
+        return Promise.resolve(loginResponse);
+      }
+      events.push("refresh-wait-armed");
+      refreshPredicate = predicate;
+      return refreshSettled;
+    },
+    goto: async () => {},
+    fill: async () => {},
+    click: async () => {
+      events.push("login-submitted");
+      assert.equal(typeof refreshPredicate, "function");
+      if (requestHandler) requestHandler(preAcceptedRequest);
+      assert.equal(refreshPredicate(preAcceptedRefreshResponse), false);
+      assert.equal(loginPredicate(loginResponse), true);
+      if (requestHandler) requestHandler(postAcceptedRequest);
+    },
+    on: (event, handler) => {
+      if (event === "request") requestHandler = handler;
+    },
+    off: () => {},
+    waitForURL: async () => {
+      events.push("navigation-settled");
+    },
+  };
+
+  const token = await loginAndCaptureToken(
+    page,
+    ORIGIN,
+    "operator@example.com",
+    "password",
+    { onAcceptedFailure: async () => assert.fail("cleanup after valid refresh") },
+  );
+
+  assert.equal(token, "captured-access-token");
+  assert.equal(responseWait, 2);
+  assert.deepEqual(events, [
+    "refresh-wait-armed",
+    "login-submitted",
+    "login-body-parse-started",
+    "navigation-settled",
+  ]);
+});
+
+test("dark login starts its refresh timeout only after login acceptance", async () => {
+  let refreshPredicate;
+  let resolveRefresh;
+  let requestHandler;
+  const refreshRequest = { timing: () => ({ startTime: Date.now() + 1000 }) };
+  const refreshResponse = {
+    url: () => `${ORIGIN}${AUTH_REFRESH_PATH}`,
+    request: () => refreshRequest,
+    status: () => 200,
+  };
+  const refreshSettled = new Promise((resolve) => {
+    resolveRefresh = resolve;
+  });
+  const loginResponse = {
+    status: () => 200,
+    json: async () => {
+      if (requestHandler) requestHandler(refreshRequest);
+      assert.equal(refreshPredicate(refreshResponse), true);
+      resolveRefresh(refreshResponse);
+      return { data: { accessToken: "captured-access-token" } };
+    },
+  };
+  let responseWait = 0;
+  const page = {
+    waitForResponse: (predicate, options = {}) => {
+      responseWait += 1;
+      if (responseWait === 1) return Promise.resolve(loginResponse);
+      refreshPredicate = predicate;
+      if (options.timeout > 0) {
+        return new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("pre_accept_refresh_timeout")), 5),
+        );
+      }
+      return refreshSettled;
+    },
+    goto: async () => new Promise((resolve) => setTimeout(resolve, 20)),
+    fill: async () => {},
+    click: async () => {},
+    on: (event, handler) => {
+      if (event === "request") requestHandler = handler;
+    },
+    off: () => {},
+    waitForURL: async () => {},
+  };
+
+  const token = await loginAndCaptureToken(
+    page,
+    ORIGIN,
+    "operator@example.com",
+    "password",
+    {
+      onAcceptedFailure: async () => assert.fail("cleanup after valid refresh"),
+      refreshTimeoutMs: 5,
+    },
+  );
+
+  assert.equal(token, "captured-access-token");
+});
+
+test("dark login bounds a missing post-accept refresh", async () => {
+  const cleanupTokens = [];
+  const loginResponse = {
+    status: () => 200,
+    json: async () => ({ data: { accessToken: "captured-access-token" } }),
+  };
+  let responseWait = 0;
+  const page = {
+    waitForResponse: () => {
+      responseWait += 1;
+      return responseWait === 1
+        ? Promise.resolve(loginResponse)
+        : new Promise(() => {});
+    },
+    goto: async () => {},
+    fill: async () => {},
+    click: async () => {},
+    on: () => {},
+    off: () => {},
+    waitForURL: async () => {},
+  };
+
+  await assert.rejects(
+    Promise.race([
+      loginAndCaptureToken(page, ORIGIN, "operator@example.com", "password", {
+        onAcceptedFailure: async (token) => cleanupTokens.push(token),
+        refreshTimeoutMs: 5,
+      }),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("test_deadline")), 100),
+      ),
+    ]),
+    /mount_refresh_missing/,
+  );
+  assert.deepEqual(cleanupTokens, ["captured-access-token"]);
+});
+
+test("dark login guards mount-refresh rejection before navigation can fail", async () => {
+  const navigationFailure = new Error("dark_login_navigation_failed");
+  const cleanupTokens = [];
+  let rejectionGuarded = false;
+  const refreshSettled = new Promise(() => {});
+  const originalCatch = refreshSettled.catch.bind(refreshSettled);
+  const originalThen = refreshSettled.then.bind(refreshSettled);
+  refreshSettled.catch = (handler) => {
+    rejectionGuarded = true;
+    return originalCatch(handler);
+  };
+  refreshSettled.then = (onFulfilled, onRejected) => {
+    if (typeof onRejected === "function") rejectionGuarded = true;
+    return originalThen(onFulfilled, onRejected);
+  };
+  const loginResponse = {
+    status: () => 200,
+    json: async () => ({ data: { accessToken: "captured-access-token" } }),
+  };
+  let responseWait = 0;
+  const page = {
+    waitForResponse: () => {
+      responseWait += 1;
+      return responseWait === 1 ? Promise.resolve(loginResponse) : refreshSettled;
+    },
+    goto: async () => {},
+    fill: async () => {},
+    click: async () => {},
+    waitForURL: async () => {
+      assert.equal(rejectionGuarded, true);
+      throw navigationFailure;
+    },
+  };
+
+  await assert.rejects(
+    () =>
+      loginAndCaptureToken(page, ORIGIN, "operator@example.com", "password", {
+        onAcceptedFailure: async (token) => cleanupTokens.push(token),
+      }),
+    navigationFailure,
+  );
+  assert.deepEqual(cleanupTokens, ["captured-access-token"]);
+});
+
+test("dark login still fails and cleans up when the mount refresh is missing", async () => {
+  const missingRefresh = new Error("mount_refresh_missing");
+  const cleanupTokens = [];
+  const loginResponse = {
+    status: () => 200,
+    json: async () => ({ data: { accessToken: "captured-access-token" } }),
+  };
+  let responseWait = 0;
+  const page = {
+    waitForResponse: () => {
+      responseWait += 1;
+      return responseWait === 1
+        ? Promise.resolve(loginResponse)
+        : Promise.reject(missingRefresh);
+    },
+    goto: async () => {},
+    fill: async () => {},
+    click: async () => {},
+    waitForURL: async () => {},
+  };
+
+  await assert.rejects(
+    () =>
+      loginAndCaptureToken(page, ORIGIN, "operator@example.com", "password", {
+        onAcceptedFailure: async (token) => cleanupTokens.push(token),
+      }),
+    missingRefresh,
+  );
+  assert.deepEqual(cleanupTokens, ["captured-access-token"]);
 });
 
 test("isForbiddenWrite fires ONLY on a successful write when none was expected", () => {
@@ -425,6 +791,35 @@ test("pageOriginLogout uses a relative same-origin credentialed POST", async () 
         method: "POST",
         credentials: "same-origin",
         headers: { Authorization: `Bearer ${accessToken}` },
+      },
+    },
+  ]);
+});
+
+test("pageOriginLogout attempts cookie-only cleanup when token parsing failed", async () => {
+  const requests = [];
+  const page = {
+    evaluate: async (callback, argument) => {
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = async (url, init) => {
+        requests.push({ url, init });
+        return { status: 204 };
+      };
+      try {
+        return await callback(argument);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    },
+  };
+
+  assert.equal(await pageOriginLogout(page, null), 204);
+  assert.deepEqual(requests, [
+    {
+      url: "/api/auth/logout",
+      init: {
+        method: "POST",
+        credentials: "same-origin",
       },
     },
   ]);

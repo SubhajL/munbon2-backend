@@ -7,11 +7,13 @@ import argparse
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
+import errno
 from http.cookiejar import CookieJar
 import hashlib
 from hmac import compare_digest
 import importlib.util
 import json
+import math
 import os
 from pathlib import Path
 import signal
@@ -52,6 +54,7 @@ STAGE_ORDER = (
     "LOCAL-WRITE-FOUNDATION-1",
     "LOCAL-WRITE-UI-1",
     "LOCAL-PERSIST-ONLY-1",
+    "LOCAL-WRITE-ACT-1",
 )
 WRITE_UI_DIAGNOSTIC_STAGE = "LOCAL-WRITE-UI-DIAGNOSTIC"
 FAILURE_MANIFEST_EXIT_CODE = 70
@@ -2532,6 +2535,164 @@ def _login_operator(
     )
 
 
+@contextmanager
+def _fresh_write_activation_operator_session(
+    context: StageContext,
+    verifier,
+    *,
+    expected_subject: str,
+):
+    fresh_client = LocalHttpClient()
+    refresh_cookie: str | None = None
+
+    def cleanup_session(
+        *,
+        strict: bool,
+        primary: BaseException | None,
+        evidence: dict | None = None,
+    ) -> None:
+        cleanup_errors: list[BaseException] = []
+        try:
+            logout_result = _operator_logout(
+                fresh_client,
+                refresh_cookie,
+                strict=strict,
+                error_code="write_activation_fresh_operator_logout_failed",
+            )
+            if isinstance(logout_result, BaseException):
+                cleanup_errors.append(logout_result)
+            elif logout_result is False:
+                cleanup_errors.append(
+                    StageGateError("write_activation_fresh_operator_logout_failed")
+                )
+        except BaseException as exc:
+            cleanup_errors.append(exc)
+
+        reuse_evidence = None
+        try:
+            reuse_evidence = _assert_operator_refresh_reuse_rejected(
+                fresh_client,
+                refresh_cookie,
+            )
+            if not isinstance(reuse_evidence, dict):
+                cleanup_errors.append(
+                    StageGateError("write_activation_fresh_operator_cleanup_unproved")
+                )
+        except BaseException as exc:
+            cleanup_errors.append(exc)
+
+        primary_interrupt = (
+            primary if isinstance(primary, (KeyboardInterrupt, SystemExit)) else None
+        )
+        cleanup_interrupt = next(
+            (
+                error
+                for error in cleanup_errors
+                if isinstance(error, (KeyboardInterrupt, SystemExit))
+            ),
+            None,
+        )
+        interrupt = primary_interrupt or cleanup_interrupt
+        if interrupt is not None:
+            if cleanup_errors:
+                setattr(
+                    interrupt,
+                    "session_cleanup",
+                    {
+                        "logout_attempted": True,
+                        "refresh_reuse_attempted": True,
+                        "proved": False,
+                    },
+                )
+                raise interrupt
+            if evidence is not None:
+                evidence["logout"] = {"accepted": True}
+                evidence["refresh_revoked"] = reuse_evidence
+            return
+        if cleanup_errors:
+            cleanup_error = StageGateError(
+                "write_activation_fresh_operator_cleanup_unproved"
+            )
+            cause = primary if primary is not None else cleanup_errors[0]
+            raise cleanup_error from cause
+        if evidence is not None:
+            evidence["logout"] = {"accepted": True}
+            evidence["refresh_revoked"] = reuse_evidence
+
+    try:
+        try:
+            fresh_access_token, refresh_cookie, login_evidence = _login_operator(
+                context,
+                fresh_client,
+                verifier,
+            )
+        except BaseException as primary:
+            try:
+                refresh_cookie = fresh_client.refresh_cookie()
+            except BaseException:
+                refresh_cookie = None
+            if refresh_cookie:
+                record = {
+                    "phase": "login",
+                    "probe_outcome": "not_started",
+                    "failed_gate": _safe_error_code(primary),
+                }
+                cleanup_session(strict=False, primary=primary, evidence=record)
+                setattr(primary, "rollback_session_record", record)
+            raise
+
+        principal_evidence: dict | None = None
+        try:
+            principal = fresh_client.request(
+                "GET",
+                "http://127.0.0.1:3021/api/v1/auth/principal",
+                bearer=fresh_access_token,
+            )
+            principal_evidence = validate_w1_principal_result(
+                principal.status,
+                principal.body,
+                principal.headers,
+            )
+        except BaseException as primary:
+            record = {
+                "phase": "principal",
+                "probe_outcome": "not_started",
+                "failed_gate": _safe_error_code(primary),
+                "login": login_evidence,
+            }
+            if principal_evidence is not None:
+                record["principal"] = principal_evidence
+            cleanup_session(strict=False, primary=primary, evidence=record)
+            setattr(primary, "rollback_session_record", record)
+            raise
+        if principal_evidence["subject"] != expected_subject:
+            primary = StageGateError("write_activation_operator_subject_changed")
+            record = {
+                "phase": "principal",
+                "probe_outcome": "not_started",
+                "failed_gate": _safe_error_code(primary),
+                "login": login_evidence,
+                "principal": principal_evidence,
+            }
+            cleanup_session(strict=False, primary=primary, evidence=record)
+            setattr(primary, "rollback_session_record", record)
+            raise primary
+        evidence = {
+            "login": login_evidence,
+            "principal": principal_evidence,
+        }
+
+        try:
+            yield fresh_client, fresh_access_token, evidence
+        except BaseException as primary:
+            cleanup_session(strict=False, primary=primary, evidence=evidence)
+            setattr(primary, "rollback_session_record", dict(evidence))
+            raise
+        cleanup_session(strict=True, primary=None, evidence=evidence)
+    except BaseException:
+        raise
+
+
 def _validate_flow_publication(result: HttpResult, *, requirement_run_id: str) -> dict:
     try:
         records = result.body["records"]
@@ -4660,6 +4821,20 @@ def _persist_only_rid_week(as_of_date: date) -> tuple[str, str]:
     return week_start.isoformat(), f"{ending_year:04d}-R{persist_week:02d}"
 
 
+def _write_activation_rid_week(as_of_date: date) -> tuple[str, str]:
+    _, write_key = _write_ui_rid_week(as_of_date)
+    ending_year = int(write_key[:4])
+    if not (
+        PERSIST_ONLY_MIN_ENDING_YEAR <= ending_year <= PERSIST_ONLY_MAX_ENDING_YEAR
+    ):
+        raise StageGateError("write_activation_week_out_of_supported_range")
+    write_week = int(write_key[6:])
+    activation_week = write_week + 2 if write_week <= 51 else 51
+    year_start = date(ending_year - 1, 11, 1)
+    week_start = year_start + timedelta(days=7 * (activation_week - 1))
+    return week_start.isoformat(), f"{ending_year:04d}-R{activation_week:02d}"
+
+
 def _write_ui_client_submission_id(release_sha: str, week_key: str, drill: str) -> str:
     return str(uuid5(WRITE_UI_NAMESPACE, f"{release_sha}:{week_key}:{drill}"))
 
@@ -4733,6 +4908,52 @@ def _is_uuid_value(value: object) -> bool:
     return True
 
 
+def _write_browser_request_matches(
+    request: object,
+    *,
+    base_depth: float,
+    expected_active_submission_id: str | None,
+) -> bool:
+    if not isinstance(request, dict) or set(request) != {
+        "schema_version",
+        "project_key",
+        "calendar_system",
+        "week_key",
+        "week_date",
+        "client_submission_id",
+        "expected_active_submission_id",
+        "levels",
+    }:
+        return False
+    try:
+        UUID(str(request["client_submission_id"]))
+        date.fromisoformat(request["week_date"])
+        levels = request["levels"]
+        if (
+            type(request["schema_version"]) is not int
+            or request["schema_version"] != 2
+            or request["project_key"] != "mun-bon"
+            or request["calendar_system"] != "rid-irrigation-v1"
+            or not re.fullmatch(
+                r"[0-9]{4}-R(?:0[1-9]|[1-4][0-9]|5[0-3])", request["week_key"]
+            )
+            or request["expected_active_submission_id"] != expected_active_submission_id
+            or not isinstance(levels, list)
+            or len(levels) != 6
+        ):
+            return False
+        return levels == [
+            {
+                "area_type": "zone",
+                "area_id": f"01-{zone:02d}",
+                "planning_depth_mm": base_depth + 10.0 * (zone - 1),
+            }
+            for zone in range(1, 7)
+        ]
+    except (TypeError, ValueError):
+        return False
+
+
 def collect_write_browser_predicate_codes(body: Any) -> tuple[str, ...]:
     failures: list[str] = []
 
@@ -4749,6 +4970,8 @@ def collect_write_browser_predicate_codes(body: Any) -> tuple[str, ...]:
         "correct_result",
         "conflict_result",
         "conflict_reconciliation",
+        "request_identity",
+        "roster_provenance",
         "field_team_result",
         "outage_result",
         "logout_result",
@@ -4768,6 +4991,8 @@ def collect_write_browser_predicate_codes(body: Any) -> tuple[str, ...]:
     correct = sections["correct_result"]
     conflict = sections["conflict_result"]
     reconciliation = sections["conflict_reconciliation"]
+    request_identity = sections["request_identity"]
+    roster_provenance = sections["roster_provenance"]
     field_team = sections["field_team_result"]
     outage = sections["outage_result"]
     logout = sections["logout_result"]
@@ -4803,6 +5028,43 @@ def collect_write_browser_predicate_codes(body: Any) -> tuple[str, ...]:
     check(
         "correct_status_not_201",
         lambda: _is_strict_status(correct["status"], 201),
+    )
+    check(
+        "create_request_identity_invalid",
+        lambda: _write_browser_request_matches(
+            request_identity["create"],
+            base_depth=250.0,
+            expected_active_submission_id=None,
+        ),
+    )
+    check(
+        "correct_request_identity_invalid",
+        lambda: _write_browser_request_matches(
+            request_identity["correct"],
+            base_depth=260.0,
+            expected_active_submission_id=str(create["submission_id"]),
+        ),
+    )
+    check(
+        "request_identity_scope_mismatch",
+        lambda: (
+            request_identity["create"]["week_key"],
+            request_identity["create"]["week_date"],
+        )
+        == (
+            request_identity["correct"]["week_key"],
+            request_identity["correct"]["week_date"],
+        ),
+    )
+    check(
+        "roster_dataset_version_invalid",
+        lambda: type(roster_provenance["dataset_version_id"]) is int
+        and roster_provenance["dataset_version_id"] > 0,
+    )
+    check(
+        "roster_source_hash_invalid",
+        lambda: isinstance(roster_provenance["source_hash"], str)
+        and bool(re.fullmatch(r"[0-9a-f]{64}", roster_provenance["source_hash"])),
     )
     check(
         "conflict_status_not_409",
@@ -4961,6 +5223,8 @@ def validate_write_browser_result(body: Any) -> dict:
     correct = body["correct_result"]
     conflict = body["conflict_result"]
     reconciliation = body["conflict_reconciliation"]
+    request_identity = body["request_identity"]
+    roster_provenance = body["roster_provenance"]
     field_team = body["field_team_result"]
     outage = body["outage_result"]
     logout = body["logout_result"]
@@ -4985,6 +5249,24 @@ def validate_write_browser_result(body: Any) -> dict:
         "conflict_reconciliation": {
             "status": reconciliation["status"],
             "submission_id": str(reconciliation["submission_id"]),
+        },
+        "request_identity": {
+            "create": {
+                **request_identity["create"],
+                "levels": [
+                    dict(level) for level in request_identity["create"]["levels"]
+                ],
+            },
+            "correct": {
+                **request_identity["correct"],
+                "levels": [
+                    dict(level) for level in request_identity["correct"]["levels"]
+                ],
+            },
+        },
+        "roster_provenance": {
+            "dataset_version_id": roster_provenance["dataset_version_id"],
+            "source_hash": roster_provenance["source_hash"],
         },
         # Every field below echoes an OBSERVED value. Emitting a literal
         # `True` that a preceding check happens to guarantee is structurally
@@ -5032,20 +5314,32 @@ def validate_write_browser_result(body: Any) -> dict:
     }
 
 
-def _persist_write_browser_result(context: StageContext, body: Any) -> Path:
+def _persist_write_browser_result(
+    context: StageContext,
+    body: Any,
+    *,
+    stage: str = "LOCAL-WRITE-UI-1",
+) -> Path:
+    if stage not in {"LOCAL-WRITE-UI-1", "LOCAL-WRITE-ACT-1"}:
+        raise StageGateError("write_browser_stage_invalid")
     validate_evidence_payload(body)
-    target = context.evidence_root / "LOCAL-WRITE-UI-1-browser-result.json"
+    target = context.evidence_root / f"{stage}-browser-result.json"
     write_stage_manifest(target, body)
     _checksum_manifest(target)
     return target
 
 
-def _accept_write_browser_output(context: StageContext, stdout: str) -> dict:
+def _accept_write_browser_output(
+    context: StageContext,
+    stdout: str,
+    *,
+    stage: str = "LOCAL-WRITE-UI-1",
+) -> dict:
     try:
         body = json.loads(stdout)
     except json.JSONDecodeError as exc:
         raise StageGateError("write_browser_output_invalid") from exc
-    _persist_write_browser_result(context, body)
+    _persist_write_browser_result(context, body, stage=stage)
     return validate_write_browser_result(body)
 
 
@@ -5094,7 +5388,8 @@ def _write_browser_environment(
     base_env = {
         name: value
         for name, value in os.environ.items()
-        if name not in _NODE_PRELOAD_ENV_VARS and name != "LOCAL_WRITE_UI_DIAGNOSTIC"
+        if name not in _NODE_PRELOAD_ENV_VARS
+        and name not in {"LOCAL_WRITE_UI_DIAGNOSTIC", "LOCAL_WRITE_UI_DARK_PROBE"}
     }
     return {
         **base_env,
@@ -5109,6 +5404,74 @@ def _write_browser_environment(
         "LOCAL_WRITE_UI_READY_FILE": str(ready_path),
         "LOCAL_WRITE_UI_OUTAGE_RELEASE_FILE": str(release_path),
     }
+
+
+def validate_write_dark_browser_result(body: Any) -> dict[str, Any]:
+    expected_keys = {
+        "path",
+        "submit_absent",
+        "forbidden_write_count",
+        "forbidden_writes",
+        "mutation_attempt_count",
+        "mutation_attempts",
+        "total_mutations",
+        "logout_status",
+        "refresh_reuse_status",
+    }
+    if (
+        not isinstance(body, dict)
+        or set(body) != expected_keys
+        or body["path"] != WATER_PLANNING_PATH
+        or body["submit_absent"] is not True
+        or type(body["forbidden_write_count"]) is not int
+        or body["forbidden_write_count"] != 0
+        or body["forbidden_writes"] != []
+        or type(body["mutation_attempt_count"]) is not int
+        or body["mutation_attempt_count"] != 0
+        or body["mutation_attempts"] != []
+        or type(body["total_mutations"]) is not int
+        or body["total_mutations"] != 0
+        or not _is_strict_status_in(body["logout_status"], {200, 204})
+        or not _is_strict_status(body["refresh_reuse_status"], 401)
+    ):
+        raise StageGateError("write_activation_frontend_not_dark")
+    return {
+        "path": body["path"],
+        "submit_absent": body["submit_absent"],
+        "forbidden_write_count": body["forbidden_write_count"],
+        "mutation_attempt_count": body["mutation_attempt_count"],
+        "total_mutations": body["total_mutations"],
+        "logout_status": body["logout_status"],
+        "refresh_reuse_status": body["refresh_reuse_status"],
+    }
+
+
+def _run_write_dark_browser(context: StageContext) -> dict[str, Any]:
+    week_date, week_key = _write_activation_rid_week(context.as_of_date)
+    coordination_root = context.evidence_root.resolve()
+    environment = _write_browser_environment(
+        context,
+        week_key=week_key,
+        week_date=week_date,
+        ready_path=coordination_root / ".write-ui-ready",
+        release_path=coordination_root / ".write-ui-outage-release",
+    )
+    environment["LOCAL_WRITE_UI_DARK_PROBE"] = "1"
+    stdout = _run_checked(
+        "write_activation_dark_browser",
+        [
+            str(NODE_ROOT / "bin/node"),
+            str(context.harness_root / "run-write-browser.js"),
+        ],
+        cwd=context.harness_root,
+        env=environment,
+        timeout=180,
+    )
+    try:
+        body = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise StageGateError("write_activation_frontend_not_dark") from exc
+    return validate_write_dark_browser_result(body)
 
 
 def _restore_scheduler() -> None:
@@ -5198,6 +5561,9 @@ def _drive_write_browser(
     ready_path: Path,
     release_path: Path,
     state: dict[str, bool],
+    *,
+    stage: str = "LOCAL-WRITE-UI-1",
+    healthy_boundary_probe: Callable[[], None] | None = None,
 ) -> dict:
     process = None
     # stderr goes to a spill FILE, not a pipe. Nothing drains the pipes until
@@ -5236,6 +5602,8 @@ def _drive_write_browser(
             if time.monotonic() >= deadline:
                 raise StageGateError("write_browser_ready_timeout")
             time.sleep(0.1)
+        if healthy_boundary_probe is not None:
+            healthy_boundary_probe()
         # The browser has finished every healthy-path drill and is parked. Only
         # now is it safe to take the scheduler down: with it stopped, the BFF
         # cannot resolve an operator principal, so planning-depth reads become
@@ -5262,7 +5630,7 @@ def _drive_write_browser(
                 "FAIL write_browser: ",
             )
             raise StageGateError(safe_code or "write_browser_failed")
-        return _accept_write_browser_output(context, stdout)
+        return _accept_write_browser_output(context, stdout, stage=stage)
     except OSError as exc:
         raise StageGateError("write_browser_process_failed") from exc
     finally:
@@ -5279,6 +5647,8 @@ def _run_write_browser(
     *,
     week_key: str,
     week_date: str,
+    stage: str = "LOCAL-WRITE-UI-1",
+    healthy_boundary_probe: Callable[[], None] | None = None,
 ) -> dict:
     coordination_root = context.evidence_root.resolve()
     ready_path = coordination_root / ".write-ui-ready"
@@ -5296,9 +5666,20 @@ def _run_write_browser(
     )
     state = {"scheduler_stopped": False}
     try:
-        result = _drive_write_browser(
-            context, environment, ready_path, release_path, state
-        )
+        if stage == "LOCAL-WRITE-UI-1":
+            result = _drive_write_browser(
+                context, environment, ready_path, release_path, state
+            )
+        else:
+            result = _drive_write_browser(
+                context,
+                environment,
+                ready_path,
+                release_path,
+                state,
+                stage=stage,
+                healthy_boundary_probe=healthy_boundary_probe,
+            )
     except Exception as primary:
         # A real (non-interrupt) failure: restore the scheduler, attach the
         # report so it rides into the failure manifest, and if the restore ALSO
@@ -5337,6 +5718,846 @@ def _run_write_browser(
         raise error
     result["scheduler_restoration"] = report
     return result
+
+
+def _probe_write_activation_frontend() -> dict[str, Any]:
+    try:
+        with urlopen(
+            Request(
+                "http://127.0.0.1:9999/smart-water/dashboard",
+                method="GET",
+            ),
+            timeout=10,
+        ) as response:
+            return {
+                "status_code": response.status,
+                "path": urlsplit(response.geturl()).path,
+            }
+    except (HTTPError, URLError, TimeoutError) as exc:
+        raise StageGateError("write_activation_frontend_drift") from exc
+
+
+def _observe_write_activation_stability(
+    *,
+    duration_seconds: int,
+    interval_seconds: int,
+    readiness_probe: Callable[[], dict[str, dict]] | None = None,
+    pm2_probe: Callable[[], list[dict]] | None = None,
+    listener_probe: Callable[[], list[dict]] | None = None,
+    frontend_probe: Callable[[], dict[str, Any]] | None = None,
+    monotonic: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+) -> dict[str, Any]:
+    if (
+        duration_seconds < 0
+        or interval_seconds <= 0
+        or duration_seconds % interval_seconds != 0
+    ):
+        raise StageGateError("write_activation_stability_window_invalid")
+    if readiness_probe is None:
+        readiness_probe = _readiness_snapshot
+    if pm2_probe is None:
+
+        def pm2_probe() -> list[dict]:
+            return project_pm2_state(_pm2_json())
+
+    if listener_probe is None:
+        listener_probe = _listener_snapshot
+    if frontend_probe is None:
+        frontend_probe = _probe_write_activation_frontend
+
+    samples = []
+    baseline_completed_at = None
+    baseline_identity = None
+    baseline_listeners = None
+    for elapsed in range(0, duration_seconds + 1, interval_seconds):
+        if baseline_completed_at is not None:
+            sleep(max(0.0, baseline_completed_at + elapsed - monotonic()))
+        readiness = readiness_probe()
+        pm2 = pm2_probe()
+        listeners = listener_probe()
+        if set(readiness) != set(PROCESS_NAMES) or any(
+            not isinstance(item, dict)
+            or item.get("status_code") != 200
+            or item.get("status") != "ready"
+            or not isinstance(item.get("checks"), dict)
+            for item in readiness.values()
+        ):
+            raise StageGateError("write_activation_readiness_drift")
+        identity = [
+            (item["name"], item["status"], item["restarts"], item["pid"])
+            for item in pm2
+        ]
+        required_online = [
+            item["name"]
+            for item in pm2
+            if item["name"] in PROCESS_NAMES and item["status"] == "online"
+        ]
+        if sorted(required_online) != sorted(PROCESS_NAMES):
+            raise StageGateError("write_activation_process_not_online")
+        if sorted(item["name"] for item in pm2) != sorted(PROCESS_NAMES):
+            raise StageGateError("write_activation_process_inventory_unexpected")
+        if unexpected_non_loopback_listeners(listeners):
+            raise StageGateError("write_activation_listener_exposed")
+        frontend = frontend_probe()
+        completed_at = monotonic()
+        if baseline_completed_at is None:
+            baseline_completed_at = completed_at
+        observed_elapsed = completed_at - baseline_completed_at
+        if frontend != {
+            "status_code": 200,
+            "path": "/smart-water/dashboard",
+        }:
+            raise StageGateError("write_activation_frontend_drift")
+        if observed_elapsed + 1e-6 < elapsed:
+            raise StageGateError("write_activation_stability_window_short")
+        if baseline_identity is None:
+            baseline_identity = identity
+            baseline_listeners = listeners
+        elif identity != baseline_identity:
+            raise StageGateError("write_activation_restart_or_process_drift")
+        if listeners != baseline_listeners:
+            raise StageGateError("write_activation_listener_drift")
+        samples.append(
+            {
+                "scheduled_elapsed_seconds": elapsed,
+                "observed_elapsed_seconds": observed_elapsed,
+                "readiness": readiness,
+                "pm2": pm2,
+                "listeners": listeners,
+                "frontend": frontend,
+            }
+        )
+    observed_duration = monotonic() - baseline_completed_at
+    if observed_duration + 1e-6 < duration_seconds:
+        raise StageGateError("write_activation_stability_window_short")
+    result = {
+        "duration_seconds": duration_seconds,
+        "observed_duration_seconds": observed_duration,
+        "interval_seconds": interval_seconds,
+        "sample_count": len(samples),
+        "samples": samples,
+    }
+    validate_evidence_payload(result)
+    return result
+
+
+def _verify_bff_write_flag_dark() -> None:
+    pm2_json = _pm2_json()
+    actual_environment = _actual_gate_environment(pm2_json)
+    flag_name = "PLANNING_DEPTH_WRITES_ENABLED"
+
+    def strict_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError
+            result[key] = value
+        return result
+
+    try:
+        projected = json.loads(actual_environment, object_pairs_hook=strict_object)
+        if type(projected) is not list:
+            raise ValueError
+        bff_entries = 0
+        for item in projected:
+            if type(item) is not dict or set(item) != {"name", "pm2_env"}:
+                raise ValueError
+            name = item["name"]
+            if name not in PROCESS_NAMES:
+                raise ValueError
+            pm2_environment = item["pm2_env"]
+            if type(pm2_environment) is not dict:
+                raise ValueError
+            process_environment = pm2_environment.get("env")
+            if type(process_environment) is not dict or any(
+                type(key) is not str or type(value) is not str
+                for key, value in process_environment.items()
+            ):
+                raise ValueError
+            flattened_flag = pm2_environment.get(flag_name)
+            if flattened_flag is not None and (
+                type(flattened_flag) is not str
+                or flattened_flag != process_environment.get(flag_name)
+            ):
+                raise ValueError
+            if name == "bff-water-planning":
+                bff_entries += 1
+                if process_environment.get(flag_name) != "false":
+                    raise ValueError
+            elif flag_name in process_environment:
+                raise ValueError
+        if bff_entries != 1:
+            raise ValueError
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise StageGateError("write_activation_bff_still_armed") from exc
+
+
+def _verify_bff_fail_safe_stopped() -> None:
+    readiness_url = READINESS_URLS.get("bff-water-planning")
+
+    def fail() -> None:
+        raise StageGateError("write_activation_bff_stop_not_verified")
+
+    try:
+        if not isinstance(readiness_url, str):
+            fail()
+        readiness_endpoint = urlsplit(readiness_url)
+        if (
+            readiness_endpoint.scheme != "http"
+            or readiness_endpoint.hostname not in {"127.0.0.1", "localhost", "::1"}
+            or readiness_endpoint.port != 3022
+            or readiness_endpoint.path != "/ready"
+            or readiness_endpoint.query
+            or readiness_endpoint.fragment
+        ):
+            fail()
+
+        expected_inventory = sorted(
+            (
+                name,
+                "stopped" if name == "bff-water-planning" else "online",
+            )
+            for name in PROCESS_NAMES
+        )
+        for sample in range(3):
+            pm2_projection = project_pm2_state(_pm2_json())
+            if type(pm2_projection) is not list:
+                fail()
+            if any(type(process) is not dict for process in pm2_projection):
+                fail()
+            observed_inventory = sorted(
+                (process.get("name"), process.get("status"))
+                for process in pm2_projection
+            )
+            if observed_inventory != expected_inventory:
+                fail()
+
+            listeners = _listener_snapshot()
+            if type(listeners) is not list:
+                fail()
+            for listener in listeners:
+                if (
+                    type(listener) is not dict
+                    or not isinstance(listener.get("address"), str)
+                    or type(listener.get("port")) is not int
+                ):
+                    fail()
+                if listener["port"] == 3022:
+                    fail()
+
+            request = Request(readiness_url, method="GET")
+            try:
+                with urlopen(request, timeout=5):
+                    fail()
+            except HTTPError:
+                fail()
+            except URLError as exc:
+                reason = exc.reason
+                reason_text = str(reason).strip().casefold()
+                if not (
+                    isinstance(reason, ConnectionRefusedError)
+                    or getattr(reason, "errno", None) == errno.ECONNREFUSED
+                    or reason_text == "connection refused"
+                ):
+                    fail()
+            except (OSError, TimeoutError, TypeError, ValueError):
+                fail()
+            if sample < 2:
+                time.sleep(1.0)
+    except Exception as exc:
+        raise StageGateError("write_activation_bff_stop_not_verified") from exc
+
+
+def _disarm_bff_guarded(
+    context: StageContext,
+    *,
+    behavioral_dark_probe: Callable[[], Any],
+    attempts: int = 3,
+    backoff_seconds: float = 5.0,
+) -> dict[str, Any]:
+    report: dict[str, Any] = {
+        "attempts": 0,
+        "dark": False,
+        "stopped": False,
+        "failed_gate": None,
+    }
+    first_failure: Exception | None = None
+    pending_interrupt: BaseException | None = None
+
+    for attempt in range(1, attempts + 1):
+        report["attempts"] = attempt
+        try:
+            _restart_bff_with_flag(context, enabled=False)
+            _verify_bff_write_flag_dark()
+            behavioral_dark_probe()
+        except Exception as exc:
+            if _safe_error_code(exc) in {
+                "write_activation_fresh_operator_cleanup_unproved",
+                "write_activation_rollback_session_evidence_incomplete",
+            }:
+                first_failure = exc
+                break
+            if first_failure is None:
+                first_failure = exc
+            if attempt < attempts:
+                try:
+                    time.sleep(backoff_seconds)
+                except BaseException as sleep_interrupt:
+                    pending_interrupt = sleep_interrupt
+                    break
+            continue
+        except BaseException as interrupt:
+            pending_interrupt = interrupt
+            break
+        else:
+            report["dark"] = True
+            return report
+
+    if first_failure is not None:
+        report["failed_gate"] = _safe_error_code(first_failure)
+
+    stop_error: Exception | None = None
+    stop_interrupt: BaseException | None = None
+    try:
+        _run_checked(
+            "write_activation_bff_fail_safe_stop",
+            _pm2_command("stop", "bff-water-planning"),
+            timeout=30,
+        )
+    except Exception as caught_stop_error:
+        stop_error = caught_stop_error
+    except BaseException as interrupt:
+        stop_interrupt = interrupt
+
+    stop_verification_interrupt: BaseException | None = None
+    try:
+        if _verify_bff_fail_safe_stopped() is not None:
+            raise StageGateError("write_activation_bff_stop_not_verified")
+    except Exception as verification_error:
+        if report["failed_gate"] is None:
+            report["failed_gate"] = _safe_error_code(
+                first_failure or stop_error or verification_error
+            )
+    except BaseException as interrupt:
+        stop_verification_interrupt = interrupt
+    else:
+        report["stopped"] = True
+
+    if report["failed_gate"] is None and first_failure is None:
+        if stop_error is not None:
+            report["failed_gate"] = _safe_error_code(stop_error)
+        elif stop_interrupt is not None:
+            report["failed_gate"] = _safe_error_code(stop_interrupt)
+        elif stop_verification_interrupt is not None:
+            report["failed_gate"] = _safe_error_code(stop_verification_interrupt)
+
+    if pending_interrupt is not None:
+        setattr(pending_interrupt, "disarm_report", report)
+        raise pending_interrupt
+    if stop_interrupt is not None:
+        setattr(stop_interrupt, "disarm_report", report)
+        raise stop_interrupt
+    if stop_verification_interrupt is not None:
+        setattr(stop_verification_interrupt, "disarm_report", report)
+        raise stop_verification_interrupt
+    return report
+
+
+def _restore_write_activation_dark(
+    context: StageContext,
+    *,
+    bff_dark_probe: Callable[[], Any],
+) -> dict[str, Any]:
+    report: dict[str, Any] = {
+        "frontend_dark_build": False,
+        "frontend_dark_rendered": False,
+        "bff_dark": False,
+        "scheduler_restored": False,
+        "restored": False,
+        "failed_gate": None,
+    }
+    pending_interrupt: BaseException | None = None
+
+    def record_failure(exc: BaseException) -> None:
+        nonlocal pending_interrupt
+        if report["failed_gate"] is None:
+            report["failed_gate"] = _safe_error_code(exc)
+        if not isinstance(exc, Exception) and pending_interrupt is None:
+            pending_interrupt = exc
+
+    try:
+        _build_frontend(
+            context,
+            control_plan_reads=False,
+            water_planning_v2=False,
+            water_planning_submit=False,
+            run_tests=False,
+            build_label="write-activation-restored",
+        )
+        report["frontend_dark_build"] = True
+    except BaseException as exc:
+        record_failure(exc)
+    if report["frontend_dark_build"]:
+        try:
+            with _frontend_server(
+                context,
+                control_plan_reads=False,
+                water_planning_v2=False,
+                water_planning_submit=False,
+                server_label="write-activation-restored",
+            ):
+                report["frontend_dark_evidence"] = _run_write_dark_browser(context)
+                report["frontend_dark_rendered"] = True
+        except BaseException as exc:
+            record_failure(exc)
+    try:
+        disarm = _disarm_bff_guarded(
+            context,
+            behavioral_dark_probe=bff_dark_probe,
+        )
+        report["bff_disarm"] = disarm
+        report["bff_dark"] = disarm["dark"] is True
+        if not report["bff_dark"] and report["failed_gate"] is None:
+            failed_gate = disarm.get("failed_gate")
+            if isinstance(failed_gate, str) and failed_gate:
+                report["failed_gate"] = failed_gate
+    except BaseException as exc:
+        disarm = getattr(exc, "disarm_report", None)
+        if not isinstance(disarm, dict):
+            disarm = {
+                "attempts": 0,
+                "dark": False,
+                "stopped": False,
+                "failed_gate": _safe_error_code(exc),
+            }
+        report["bff_disarm"] = disarm
+        report["bff_dark"] = disarm.get("dark") is True
+        if not report["bff_dark"] and report["failed_gate"] is None:
+            failed_gate = disarm.get("failed_gate")
+            if isinstance(failed_gate, str) and failed_gate:
+                report["failed_gate"] = failed_gate
+        record_failure(exc)
+    try:
+        scheduler = _restore_scheduler_guarded()
+        report["scheduler_restored"] = scheduler["restored"] is True
+        if not report["scheduler_restored"] and report["failed_gate"] is None:
+            report["failed_gate"] = scheduler["failed_gate"]
+    except BaseException as exc:
+        record_failure(exc)
+    report["restored"] = (
+        report["frontend_dark_build"]
+        and report["frontend_dark_rendered"]
+        and report["bff_dark"]
+        and report["scheduler_restored"]
+    )
+    if pending_interrupt is not None:
+        setattr(pending_interrupt, "restoration", report)
+        raise pending_interrupt
+    return report
+
+
+def _verify_write_activation_restoration(
+    context: StageContext,
+    *,
+    before_dark: dict[str, Any],
+    model_release: dict[str, Any],
+    before_listeners: list[dict],
+) -> dict[str, Any]:
+    after_pm2_json = _pm2_json()
+    after_processes = project_pm2_state(after_pm2_json)
+    expected_inventory = sorted((name, "online") for name in PROCESS_NAMES)
+    observed_inventory = sorted(
+        (item.get("name"), item.get("status")) for item in after_processes
+    )
+    if observed_inventory != expected_inventory:
+        raise StageGateError("write_activation_process_restoration_failed")
+    required_online = [
+        item["name"]
+        for item in after_processes
+        if item["name"] in PROCESS_NAMES and item["status"] == "online"
+    ]
+    if sorted(required_online) != sorted(PROCESS_NAMES):
+        raise StageGateError("write_activation_process_restoration_failed")
+    after_dark = collect_dark_runtime_contract(
+        _actual_gate_environment(after_pm2_json),
+        model_release,
+    )
+    if after_dark != before_dark:
+        raise StageGateError("write_activation_dark_contract_not_restored")
+    after_listeners = _listener_snapshot()
+    if after_listeners != before_listeners:
+        raise StageGateError("write_activation_listener_restoration_failed")
+    if unexpected_non_loopback_listeners(after_listeners):
+        raise StageGateError("write_activation_listener_exposed")
+    final_activation_gates = project_frontend_activation_gates(
+        frontend_process_environment(
+            context.runtime_env_dir,
+            control_plan_reads=False,
+            control_plan_evidence_reads=False,
+            water_planning_v2=False,
+            water_planning_submit=False,
+        )
+    )
+    expected_gates = {
+        "control_plan_reads": False,
+        "control_plan_evidence_reads": False,
+        "water_planning_v2": False,
+        "water_planning_submit": False,
+    }
+    if final_activation_gates != expected_gates:
+        raise StageGateError("write_activation_frontend_not_dark")
+    readiness = _readiness_snapshot()
+    if (
+        type(readiness) is not dict
+        or set(readiness) != set(PROCESS_NAMES)
+        or any(
+            type(value) is not dict
+            or type(value.get("status_code")) is not int
+            or value.get("status_code") != 200
+            or value.get("status") != "ready"
+            or type(value.get("checks")) is not dict
+            for value in readiness.values()
+        )
+    ):
+        raise StageGateError("write_activation_readiness_restoration_failed")
+    _verify_frontend_source(context)
+    return {
+        "verified": True,
+        "processes_online": sorted(required_online),
+        "listeners": after_listeners,
+        "dark_contract_after": after_dark,
+        "final_activation_gates": final_activation_gates,
+        "readiness": readiness,
+    }
+
+
+def _run_local_write_activation_authenticated(
+    context: StageContext,
+    client,
+    token: str,
+    login_evidence: dict,
+    *,
+    verifier,
+) -> dict[str, Any]:
+    week_date, week_key = _write_activation_rid_week(context.as_of_date)
+    model_release = _read_json(
+        context.repo_root
+        / "services/flow-monitoring/data/model-releases/engineering-prior-v5-v1.json"
+    )
+    before_pm2_json = _pm2_json()
+    before_dark = collect_dark_runtime_contract(
+        _actual_gate_environment(before_pm2_json),
+        model_release,
+    )
+    before_listeners = _listener_snapshot()
+    before_snapshot = _take_persist_snapshot(context)
+    before_rate = _snapshot_planning_depth_rate_keys(context)
+    before_rate_completed_at = time.monotonic()
+    rollback_operator_sessions: list[dict[str, Any]] = []
+    steps: dict[str, Any] = {
+        "login": login_evidence,
+        "frontend_source": _verify_frontend_source(context),
+        "target_week": {"week_date": week_date, "week_key": week_key},
+        "target_week_clean": assert_persist_target_week_clean(
+            before_snapshot, week_key
+        ),
+        "dark_contract_before": before_dark,
+        "listeners_before": before_listeners,
+        "rollback_operator_sessions": rollback_operator_sessions,
+    }
+    steps["write_flag_dark"] = validate_write_flag_is_dark(
+        _load_env_file(context.runtime_env_dir / "bff.env").get(
+            "PLANNING_DEPTH_WRITES_ENABLED", ""
+        )
+    )
+    principal = client.request(
+        "GET",
+        "http://127.0.0.1:3021/api/v1/auth/principal",
+        bearer=token,
+    )
+    steps["operator_principal"] = validate_w1_principal_result(
+        principal.status,
+        principal.body,
+        principal.headers,
+    )
+    dark_probe = client.request(
+        "POST",
+        W2_V2_BASE,
+        payload=_build_dark_probe_request_v2(
+            week_date=week_date,
+            week_key=week_key,
+            client_submission_id=_write_ui_client_submission_id(
+                context.release_sha, week_key, "write-activation-dark-gate"
+            ),
+        ),
+        bearer=token,
+    )
+    steps["initial_dark_gate"] = validate_w2_write_disabled_result(
+        dark_probe.status,
+        dark_probe.body,
+        dark_probe.headers,
+    )
+    after_rate: dict | None = None
+    after_rate_started_at: float | None = None
+
+    def capture_rate_after_browser() -> None:
+        nonlocal after_rate, after_rate_started_at
+        after_rate_started_at = time.monotonic()
+        after_rate = _snapshot_planning_depth_rate_keys(context)
+
+    def capture_bff_dark_probe(fresh_client, fresh_token: str) -> dict:
+        restored_probe = fresh_client.request(
+            "POST",
+            W2_V2_BASE,
+            payload=_build_dark_probe_request_v2(
+                week_date=week_date,
+                week_key=week_key,
+                client_submission_id=_write_ui_client_submission_id(
+                    context.release_sha, week_key, "write-activation-restored-gate"
+                ),
+            ),
+            bearer=fresh_token,
+        )
+        evidence = validate_w2_write_disabled_result(
+            restored_probe.status,
+            restored_probe.body,
+            restored_probe.headers,
+        )
+        steps["restored_dark_gate"] = evidence
+        return evidence
+
+    def record_rollback_session(
+        session_evidence: dict | None,
+        *,
+        probe_outcome: str | None = None,
+        failed_gate: str | None = None,
+        prebuilt_record: dict | None = None,
+        primary_error: BaseException | None = None,
+    ) -> None:
+        record = dict(
+            prebuilt_record
+            if prebuilt_record is not None
+            else session_evidence if isinstance(session_evidence, dict) else {}
+        )
+        if prebuilt_record is not None:
+            phase = record.get("phase")
+            expected_keys = {
+                "phase",
+                "probe_outcome",
+                "failed_gate",
+                "logout",
+                "refresh_revoked",
+            }
+            if phase == "principal":
+                expected_keys.update({"login", "principal"})
+            incomplete = (
+                set(record) != expected_keys
+                or phase not in {"login", "principal"}
+                or record.get("probe_outcome") != "not_started"
+                or not isinstance(record.get("failed_gate"), str)
+                or record.get("logout") != {"accepted": True}
+                or not isinstance(record.get("refresh_revoked"), dict)
+            )
+            if phase == "principal":
+                incomplete = incomplete or not isinstance(record.get("login"), dict)
+                incomplete = incomplete or not isinstance(record.get("principal"), dict)
+        else:
+            incomplete = (
+                set(record) != {"login", "principal", "logout", "refresh_revoked"}
+                or not isinstance(record.get("login"), dict)
+                or not isinstance(record.get("principal"), dict)
+                or record.get("logout") != {"accepted": True}
+                or not isinstance(record.get("refresh_revoked"), dict)
+                or probe_outcome not in {"accepted", "failed", "interrupted"}
+                or (probe_outcome != "accepted" and not isinstance(failed_gate, str))
+            )
+        if incomplete:
+            if isinstance(primary_error, (KeyboardInterrupt, SystemExit)):
+                setattr(
+                    primary_error,
+                    "rollback_session_evidence",
+                    {"complete": False},
+                )
+                return
+            raise StageGateError(
+                "write_activation_rollback_session_evidence_incomplete"
+            )
+        if prebuilt_record is None:
+            record["probe_outcome"] = probe_outcome
+            if probe_outcome != "accepted":
+                record["failed_gate"] = failed_gate
+        rollback_operator_sessions.append(record)
+
+    def capture_bff_dark_probe_with_fresh_session() -> dict:
+        session_evidence: dict | None = None
+        probe_error: BaseException | None = None
+        probe_result: dict | None = None
+        try:
+            with _fresh_write_activation_operator_session(
+                context,
+                verifier,
+                expected_subject=steps["operator_principal"]["subject"],
+            ) as (fresh_client, fresh_token, current_session_evidence):
+                session_evidence = current_session_evidence
+                steps["rollback_operator_session"] = session_evidence
+                try:
+                    probe_result = capture_bff_dark_probe(fresh_client, fresh_token)
+                except BaseException as exc:
+                    probe_error = exc
+                    raise
+        except BaseException as cleanup_error:
+            attached_record = getattr(cleanup_error, "rollback_session_record", None)
+            if isinstance(attached_record, dict) and probe_error is None:
+                record_rollback_session(
+                    None,
+                    prebuilt_record=attached_record,
+                    primary_error=cleanup_error,
+                )
+            elif probe_error is not None and cleanup_error is probe_error:
+                outcome = (
+                    "interrupted"
+                    if isinstance(probe_error, (KeyboardInterrupt, SystemExit))
+                    else "failed"
+                )
+                record_rollback_session(
+                    session_evidence,
+                    probe_outcome=outcome,
+                    failed_gate=_safe_error_code(probe_error),
+                    primary_error=probe_error,
+                )
+            raise
+        record_rollback_session(session_evidence, probe_outcome="accepted")
+        return probe_result
+
+    def rollback_session_snapshot() -> list[dict[str, Any]]:
+        return [dict(record) for record in rollback_operator_sessions]
+
+    def restore_after_armed_window() -> dict[str, Any]:
+        try:
+            restoration = _restore_write_activation_dark(
+                context,
+                bff_dark_probe=capture_bff_dark_probe_with_fresh_session,
+            )
+        except BaseException as exc:
+            restoration = getattr(exc, "restoration", None)
+            if isinstance(restoration, dict):
+                restoration["rollback_operator_sessions"] = rollback_session_snapshot()
+            raise
+        restoration["rollback_operator_sessions"] = rollback_session_snapshot()
+        return restoration
+
+    try:
+        _restart_bff_with_flag(context, enabled=True)
+        steps["armed_frontend_build"] = _build_frontend(
+            context,
+            control_plan_reads=False,
+            water_planning_v2=True,
+            water_planning_submit=True,
+            run_tests=False,
+            build_label="write-activation-armed",
+        )
+        with _frontend_server(
+            context,
+            control_plan_reads=False,
+            water_planning_v2=True,
+            water_planning_submit=True,
+            server_label="write-activation-armed",
+        ):
+            steps["write_browser"] = _run_write_browser(
+                context,
+                week_key=week_key,
+                week_date=week_date,
+                stage="LOCAL-WRITE-ACT-1",
+                healthy_boundary_probe=capture_rate_after_browser,
+            )
+            steps["stability"] = _observe_write_activation_stability(
+                duration_seconds=900,
+                interval_seconds=30,
+            )
+    except BaseException as primary:
+        restoration = restore_after_armed_window()
+        setattr(primary, "restoration", restoration)
+        if isinstance(primary, Exception) and not restoration["restored"]:
+            combined = StageGateError(
+                f"{_safe_error_code(primary)}_and_write_activation_restore_failed"
+            )
+            combined.restoration = restoration
+            raise combined from primary
+        raise
+
+    restoration = restore_after_armed_window()
+    if not restoration["restored"]:
+        error = StageGateError("write_activation_restoration_failed")
+        error.restoration = restoration
+        raise error
+    steps["restoration"] = restoration
+    steps["restored_write_flag"] = validate_write_flag_is_dark(
+        _load_env_file(context.runtime_env_dir / "bff.env").get(
+            "PLANNING_DEPTH_WRITES_ENABLED", ""
+        )
+    )
+    with _fresh_write_activation_operator_session(
+        context,
+        verifier,
+        expected_subject=steps["operator_principal"]["subject"],
+    ) as (readback_client, readback_token, session_evidence):
+        steps["readback_operator_session"] = session_evidence
+        active_after_rollback = readback_client.request(
+            "GET",
+            (
+                f"{W2_V2_BASE}/active?project_key=mun-bon&"
+                f"calendar_system=rid-irrigation-v1&week_key={week_key}"
+            ),
+            bearer=readback_token,
+        )
+        steps["active_after_rollback"] = validate_w2_active_result(
+            active_after_rollback.status,
+            active_after_rollback.body,
+            active_after_rollback.headers,
+            submission_id=steps["write_browser"]["correct_result"]["submission_id"],
+            expected_count=PERSIST_ONLY_EXPECTED_VALUE_COUNT,
+            expected_zone_depths={
+                f"01-{zone:02d}": 260.0 + 10.0 * (zone - 1) for zone in range(1, 7)
+            },
+        )
+    steps["runtime_restoration"] = _verify_write_activation_restoration(
+        context,
+        before_dark=before_dark,
+        model_release=model_release,
+        before_listeners=before_listeners,
+    )
+    after_snapshot = _take_persist_snapshot(context)
+    if after_rate is None:
+        raise StageGateError("write_activation_rate_snapshot_missing")
+    if after_rate_started_at is None:
+        raise StageGateError("write_activation_rate_snapshot_missing")
+    elapsed_ms = _rate_snapshot_elapsed_ms(
+        before_rate_completed_at, after_rate_started_at
+    )
+    steps["persisted_diff"] = validate_write_activation_diff(
+        before_snapshot,
+        after_snapshot,
+        browser_result=steps["write_browser"],
+        target_week_key=week_key,
+        target_week_date=week_date,
+        expected_submitted_by=steps["operator_principal"]["subject"],
+    )
+    rate_accounting = validate_persist_only_rate_accounting(
+        before_rate,
+        after_rate,
+        expected_increment=3,
+        configured_window_ms=_planning_depth_write_window_ms(context),
+        elapsed_ms=elapsed_ms,
+        expected_operator_key=_planning_depth_rate_key(
+            steps["operator_principal"]["subject"]
+        ),
+    )
+    if "operator_rate_key" in rate_accounting:
+        rate_accounting["elapsed_ms"] = elapsed_ms
+    steps["rate_accounting"] = rate_accounting
+    steps["aws_actions"] = False
+    return steps
 
 
 def _assert_operator_refresh_reuse_rejected(client, refresh_token: str) -> dict:
@@ -5599,6 +6820,21 @@ RATE_KEY_PATTERN = "bff-water-planning:rate:planning_depth.submit:*"
 _RATE_KEY_RE = re.compile(
     r"bff-water-planning:rate:planning_depth\.submit:[0-9a-f]{64}"
 )
+# Allow only a small boundary-measurement margin when proving that an old
+# Redis window could have expired between the two atomic snapshots.
+_RATE_ELAPSED_MEASUREMENT_TOLERANCE_MS = 100.0
+
+
+def _planning_depth_rate_key(subject: str) -> str:
+    if not isinstance(subject, str) or not subject:
+        raise StageGateError("persist_only_rate_subject_invalid")
+    try:
+        digest = hashlib.sha256(subject.encode("utf-8")).hexdigest()
+    except (UnicodeEncodeError, TypeError) as exc:
+        raise StageGateError("persist_only_rate_subject_invalid") from exc
+    return "bff-water-planning:rate:planning_depth.submit:" + digest
+
+
 # One EVAL == one atomic Redis read. Each triple is emitted as key<TAB>value<TAB>
 # pttl on its own line so an integer counter can never be confused for a blank
 # line, and a missing/nil value is impossible for these keys.
@@ -5612,6 +6848,10 @@ _RATE_SNAPSHOT_LUA = (
     "end "
     "return table.concat(out, '\\n')"
 )
+
+
+def _rate_snapshot_elapsed_ms(started_at: float, ended_at: float) -> float:
+    return max(0.0, (ended_at - started_at) * 1000.0)
 
 
 def _sql_string_literal(value: str) -> str:
@@ -5856,6 +7096,215 @@ def validate_persist_only_diff(
     }
 
 
+def _canonical_write_request_document(request: dict) -> tuple[str, str]:
+    levels = []
+    for level in sorted(
+        request["levels"],
+        key=lambda item: (item["area_type"], item["area_id"]),
+    ):
+        levels.append(
+            {
+                "area_id": level["area_id"],
+                "area_type": level["area_type"],
+                "planning_depth_mm": f'{float(level["planning_depth_mm"]):.3f}',
+            }
+        )
+    text = json.dumps(
+        {
+            "calendar_system": request["calendar_system"],
+            "levels": levels,
+            "project_key": request["project_key"],
+            "schema_version": request["schema_version"],
+            "week_date": request["week_date"],
+            "week_key": request["week_key"],
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return text, hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _canonical_write_expanded_sha256(rows: list[dict]) -> str:
+    value = [
+        {
+            "planning_depth_mm": f'{float(row["planning_depth_mm"]):.3f}',
+            "section_id": row["section_id"],
+            "source_area_id": row["source_area_id"],
+            "source_kind": row["source_kind"],
+            "zone_id": row["zone_id"],
+        }
+        for row in sorted(rows, key=lambda row: row["section_id"])
+    ]
+    text = json.dumps(
+        value,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def validate_write_activation_diff(
+    before: dict,
+    after: dict,
+    *,
+    browser_result: dict,
+    target_week_key: str,
+    target_week_date: str,
+    expected_submitted_by: str,
+) -> dict:
+    before_digests = before["non_w2_digests"]
+    after_digests = after["non_w2_digests"]
+    if before_digests != after_digests:
+        raise StageGateError("write_activation_side_effect_detected")
+
+    before_submissions = {row["submission_id"]: row for row in before["w2_submissions"]}
+    after_submissions = {row["submission_id"]: row for row in after["w2_submissions"]}
+    if any(
+        after_submissions.get(key) != row for key, row in before_submissions.items()
+    ):
+        raise StageGateError("write_activation_w2_existing_mutated")
+
+    try:
+        create_id = str(UUID(str(browser_result["create_result"]["submission_id"])))
+        correct_id = str(UUID(str(browser_result["correct_result"]["submission_id"])))
+        create_request = browser_result["request_identity"]["create"]
+        correct_request = browser_result["request_identity"]["correct"]
+        roster_provenance = browser_result["roster_provenance"]
+        roster_dataset_version_id = roster_provenance["dataset_version_id"]
+        roster_source_hash = roster_provenance["source_hash"]
+        create_document, create_request_sha256 = _canonical_write_request_document(
+            create_request
+        )
+        correct_document, correct_request_sha256 = _canonical_write_request_document(
+            correct_request
+        )
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+        raise StageGateError("write_activation_w2_shape_unexpected") from exc
+    if (
+        not _write_browser_request_matches(
+            create_request,
+            base_depth=250.0,
+            expected_active_submission_id=None,
+        )
+        or not _write_browser_request_matches(
+            correct_request,
+            base_depth=260.0,
+            expected_active_submission_id=create_id,
+        )
+        or create_request["week_key"] != target_week_key
+        or correct_request["week_key"] != target_week_key
+        or create_request["week_date"] != target_week_date
+        or correct_request["week_date"] != target_week_date
+        or create_request["client_submission_id"]
+        == correct_request["client_submission_id"]
+        or type(roster_dataset_version_id) is not int
+        or roster_dataset_version_id < 1
+        or not isinstance(roster_source_hash, str)
+        or not re.fullmatch(r"[0-9a-f]{64}", roster_source_hash)
+        or not isinstance(expected_submitted_by, str)
+        or not expected_submitted_by
+    ):
+        raise StageGateError("write_activation_w2_shape_unexpected")
+    new_submission_ids = set(after_submissions) - set(before_submissions)
+    if create_id == correct_id or new_submission_ids != {create_id, correct_id}:
+        raise StageGateError("write_activation_w2_shape_unexpected")
+
+    for submission_id, supersedes, request, request_document, request_sha256 in (
+        (
+            create_id,
+            None,
+            create_request,
+            create_document,
+            create_request_sha256,
+        ),
+        (
+            correct_id,
+            create_id,
+            correct_request,
+            correct_document,
+            correct_request_sha256,
+        ),
+    ):
+        row = after_submissions[submission_id]
+        client_submission_id = row.get("client_submission_id")
+        try:
+            canonical_client_id = str(UUID(str(client_submission_id)))
+        except (TypeError, ValueError, AttributeError) as exc:
+            raise StageGateError("write_activation_w2_shape_unexpected") from exc
+        if (
+            canonical_client_id != client_submission_id
+            or client_submission_id != request["client_submission_id"]
+            or row.get("project_key") != "mun-bon"
+            or row.get("calendar_system") != "rid-irrigation-v1"
+            or row.get("week_key") != target_week_key
+            or row.get("week_date") != target_week_date
+            or row.get("schema_version") != 2
+            or row.get("supersedes_submission_id") != supersedes
+            or row.get("submitted_by") != expected_submitted_by
+            or row.get("roster_dataset_version_id") != roster_dataset_version_id
+            or row.get("roster_source_hash") != roster_source_hash
+            or row.get("request_document_text") != request_document
+            or row.get("request_sha256") != request_sha256
+            or not isinstance(row.get("expanded_sha256"), str)
+            or not re.fullmatch(r"[0-9a-f]{64}", row["expanded_sha256"])
+        ):
+            raise StageGateError("write_activation_w2_shape_unexpected")
+    if (
+        after_submissions[create_id]["expanded_sha256"]
+        == after_submissions[correct_id]["expanded_sha256"]
+    ):
+        raise StageGateError("write_activation_w2_shape_unexpected")
+
+    def value_key(row: dict) -> tuple:
+        return (row["submission_id"], row["section_id"])
+
+    before_values = {value_key(row): row for row in before["w2_values"]}
+    after_values = {value_key(row): row for row in after["w2_values"]}
+    if any(after_values.get(key) != row for key, row in before_values.items()):
+        raise StageGateError("write_activation_w2_existing_mutated")
+    new_value_keys = set(after_values) - set(before_values)
+    grouped: dict[str, list[dict]] = {create_id: [], correct_id: []}
+    for key in new_value_keys:
+        if key[0] not in grouped:
+            raise StageGateError("write_activation_w2_shape_unexpected")
+        grouped[key[0]].append(after_values[key])
+    if len(new_value_keys) != 2 * PERSIST_ONLY_EXPECTED_VALUE_COUNT or any(
+        len(rows) != PERSIST_ONLY_EXPECTED_VALUE_COUNT for rows in grouped.values()
+    ):
+        raise StageGateError("write_activation_w2_shape_unexpected")
+
+    expected_depths = (
+        {f"01-{zone:02d}": 250.0 + 10.0 * (zone - 1) for zone in range(1, 7)},
+        {f"01-{zone:02d}": 260.0 + 10.0 * (zone - 1) for zone in range(1, 7)},
+    )
+    try:
+        _assert_expanded_values(grouped[create_id], expected_depths[0])
+        _assert_expanded_values(grouped[correct_id], expected_depths[1])
+        if after_submissions[create_id][
+            "expanded_sha256"
+        ] != _canonical_write_expanded_sha256(grouped[create_id]) or after_submissions[
+            correct_id
+        ][
+            "expanded_sha256"
+        ] != _canonical_write_expanded_sha256(
+            grouped[correct_id]
+        ):
+            raise StageGateError("write_activation_w2_shape_unexpected")
+    except StageGateError as exc:
+        raise StageGateError("write_activation_w2_shape_unexpected") from exc
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+        raise StageGateError("write_activation_w2_shape_unexpected") from exc
+
+    return {
+        "non_w2_tables_unchanged": len(after_digests),
+        "w2_submissions_added": sorted(new_submission_ids),
+        "w2_values_added": len(new_value_keys),
+        "supersedes_chain": {create_id: None, correct_id: create_id},
+    }
+
+
 def _parse_rate_key_snapshot(raw: str) -> dict:
     snapshot: dict[str, dict[str, int]] = {}
     for line in raw.split("\n"):
@@ -5931,40 +7380,145 @@ def assert_persist_target_week_clean(before_snapshot: dict, week_key: str) -> di
     return {"clean": True, "week_key": week_key}
 
 
+def _planning_depth_write_window_ms(context: StageContext) -> int:
+    try:
+        configured = _load_env_file(context.runtime_env_dir / "bff.env").get(
+            "PLANNING_DEPTH_WRITE_WINDOW_SECONDS"
+        )
+    except StageGateError as exc:
+        raise StageGateError("planning_depth_write_window_invalid") from exc
+    raw = "300" if configured is None else configured.strip()
+    try:
+        if not re.fullmatch(r"[+-]?[0-9]+", raw):
+            raise ValueError
+        seconds = int(raw, 10)
+        if seconds <= 0:
+            raise ValueError
+    except (TypeError, ValueError) as exc:
+        raise StageGateError("planning_depth_write_window_invalid") from exc
+    return seconds * 1000
+
+
 def validate_persist_only_rate_accounting(
-    before: dict, after: dict, *, expected_increment: int = 2
+    before: dict,
+    after: dict,
+    *,
+    expected_increment: int = 2,
+    configured_window_ms: int = 300000,
+    elapsed_ms: int | float = 0,
+    expected_operator_key: str | None = None,
 ) -> dict:
+    error = "persist_only_rate_side_effect_detected"
+    if (
+        isinstance(configured_window_ms, bool)
+        or not isinstance(configured_window_ms, int)
+        or configured_window_ms <= 0
+    ):
+        raise StageGateError(error)
+    if isinstance(elapsed_ms, bool) or not isinstance(elapsed_ms, (int, float)):
+        raise StageGateError("persist_only_rate_elapsed_invalid")
+    try:
+        elapsed_value = float(elapsed_ms)
+    except (OverflowError, TypeError, ValueError) as exc:
+        raise StageGateError("persist_only_rate_elapsed_invalid") from exc
+    if not math.isfinite(elapsed_value) or elapsed_value < 0:
+        raise StageGateError("persist_only_rate_elapsed_invalid")
+    if expected_operator_key is not None and (
+        not isinstance(expected_operator_key, str)
+        or _RATE_KEY_RE.fullmatch(expected_operator_key) is None
+    ):
+        raise StageGateError(error)
+
+    def positive_ttl(entry: Any) -> int:
+        ttl_ms = entry.get("ttl_ms") if isinstance(entry, dict) else None
+        if isinstance(ttl_ms, bool) or not isinstance(ttl_ms, int) or ttl_ms <= 0:
+            raise StageGateError(error)
+        return ttl_ms
+
+    def current_ttl(entry: Any) -> int:
+        ttl_ms = positive_ttl(entry)
+        if ttl_ms > configured_window_ms:
+            raise StageGateError(error)
+        return ttl_ms
+
+    def rate_value(entry: Any) -> int:
+        value = entry.get("value") if isinstance(entry, dict) else None
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise StageGateError(error)
+        return value
+
+    keys = set(before) | set(after)
+    if any(
+        not isinstance(key, str) or _RATE_KEY_RE.fullmatch(key) is None for key in keys
+    ):
+        raise StageGateError(error)
+
+    current_ttls = {key: current_ttl(entry) for key, entry in after.items()}
     operator_keys = []
-    for key in set(before) | set(after):
+    for key in keys:
         prior = before.get(key)
         current = after.get(key)
         if current is None:
-            # A key present only before must have expired (finite TTL); a
-            # persistent key that vanished is an unexplained side effect.
-            if prior is not None and prior["ttl_ms"] >= 0:
-                continue
-            raise StageGateError("persist_only_rate_side_effect_detected")
-        if prior is None:
-            is_operator = current["value"] == expected_increment
-        elif current["value"] == prior["value"]:
+            # A key present only before must have had an expiring window; a
+            # persistent or missing TTL cannot prove that it naturally expired.
+            prior_ttl_ms = positive_ttl(prior)
+            if prior_ttl_ms > elapsed_value + _RATE_ELAPSED_MEASUREMENT_TOLERANCE_MS:
+                raise StageGateError(error)
             continue
-        else:
-            # Either the counter incremented by the write count, or the prior
-            # window expired and a fresh one recorded exactly the write count.
-            is_operator = current["value"] == prior["value"] + expected_increment or (
-                current["value"] == expected_increment and prior["ttl_ms"] >= 0
-            )
-        if not (is_operator and _RATE_KEY_RE.fullmatch(key)):
-            raise StageGateError("persist_only_rate_side_effect_detected")
-        operator_keys.append(key)
-    if len(operator_keys) != 1:
-        raise StageGateError("persist_only_rate_side_effect_detected")
+
+        current_value = rate_value(current)
+        ttl_ms = current_ttls[key]
+        if prior is None:
+            if current_value != expected_increment:
+                raise StageGateError(error)
+            operator_keys.append(key)
+            continue
+
+        prior_value = rate_value(prior)
+        prior_ttl_ms = positive_ttl(prior)
+        if current_value == prior_value:
+            if (
+                ttl_ms
+                > max(0.0, prior_ttl_ms - elapsed_value)
+                + _RATE_ELAPSED_MEASUREMENT_TOLERANCE_MS
+            ):
+                raise StageGateError(error)
+            if ttl_ms > prior_ttl_ms:
+                raise StageGateError(error)
+            continue
+
+        if current_value == prior_value + expected_increment:
+            if (
+                ttl_ms
+                > max(0.0, prior_ttl_ms - elapsed_value)
+                + _RATE_ELAPSED_MEASUREMENT_TOLERANCE_MS
+            ):
+                raise StageGateError(error)
+            if ttl_ms > prior_ttl_ms:
+                raise StageGateError(error)
+            operator_keys.append(key)
+            continue
+
+        # A reset is only credible when the old window had a finite positive
+        # TTL that could have elapsed between the atomic snapshots, and the
+        # new counter starts at exactly the expected increment.
+        if current_value == expected_increment:
+            if prior_ttl_ms > elapsed_value + _RATE_ELAPSED_MEASUREMENT_TOLERANCE_MS:
+                raise StageGateError(error)
+            operator_keys.append(key)
+            continue
+        raise StageGateError(error)
+
+    if len(operator_keys) != 1 or (
+        expected_operator_key is not None and operator_keys[0] != expected_operator_key
+    ):
+        raise StageGateError(error)
     return {"operator_rate_key": operator_keys[0], "increment": expected_increment}
 
 
 def _operator_logout(
     client, refresh_cookie: str, *, strict: bool, error_code: str
-) -> None:
+) -> bool | BaseException:
     try:
         logout = client.request(
             "POST",
@@ -5973,21 +7527,81 @@ def _operator_logout(
         )
     except BaseException as exc:
         if not strict:
-            return
+            return exc
         if not isinstance(exc, Exception):
             raise
         raise StageGateError(error_code) from exc
     if strict and logout.status not in {200, 204}:
         raise StageGateError(error_code)
+    return logout.status in {200, 204}
 
 
-def _persist_only_logout(client, refresh_cookie: str, *, strict: bool) -> None:
-    _operator_logout(
+def _persist_only_logout(
+    client, refresh_cookie: str, *, strict: bool
+) -> bool | BaseException:
+    return _operator_logout(
         client,
         refresh_cookie,
         strict=strict,
         error_code="persist_only_operator_logout_failed",
     )
+
+
+def _cleanup_initial_operator_session(
+    client,
+    refresh_cookie: str,
+    *,
+    logout: Callable[[], Any],
+    primary: BaseException,
+    error_code: str,
+) -> None:
+    cleanup_errors: list[BaseException] = []
+    try:
+        logout_result = logout()
+        if isinstance(logout_result, BaseException):
+            cleanup_errors.append(logout_result)
+        elif logout_result is False:
+            cleanup_errors.append(StageGateError(error_code))
+    except BaseException as exc:
+        cleanup_errors.append(exc)
+
+    try:
+        reuse_evidence = _assert_operator_refresh_reuse_rejected(
+            client,
+            refresh_cookie,
+        )
+        if not isinstance(reuse_evidence, dict):
+            cleanup_errors.append(StageGateError(error_code))
+    except BaseException as exc:
+        cleanup_errors.append(exc)
+
+    primary_interrupt = (
+        primary if isinstance(primary, (KeyboardInterrupt, SystemExit)) else None
+    )
+    cleanup_interrupt = next(
+        (
+            error
+            for error in cleanup_errors
+            if isinstance(error, (KeyboardInterrupt, SystemExit))
+        ),
+        None,
+    )
+    interrupt = primary_interrupt or cleanup_interrupt
+    if interrupt is not None:
+        if cleanup_errors:
+            setattr(
+                interrupt,
+                "session_cleanup",
+                {
+                    "logout_attempted": True,
+                    "refresh_reuse_attempted": True,
+                    "proved": False,
+                },
+            )
+        raise interrupt
+    if cleanup_errors:
+        cleanup_error = StageGateError(error_code)
+        raise cleanup_error from primary
 
 
 def _persist_only_body(
@@ -6003,12 +7617,23 @@ def _persist_only_body(
             "PLANNING_DEPTH_WRITES_ENABLED", ""
         )
     )
+    principal = client.request(
+        "GET",
+        "http://127.0.0.1:3021/api/v1/auth/principal",
+        bearer=token,
+    )
+    steps["operator_principal"] = validate_w1_principal_result(
+        principal.status,
+        principal.body,
+        principal.headers,
+    )
 
     before_snapshot = _take_persist_snapshot(context)
     steps["target_week_clean"] = assert_persist_target_week_clean(
         before_snapshot, week_key
     )
     before_rate = _snapshot_planning_depth_rate_keys(context)
+    before_rate_completed_at = time.monotonic()
 
     bff_restored = False
     try:
@@ -6063,7 +7688,11 @@ def _persist_only_body(
     )
 
     after_snapshot = _take_persist_snapshot(context)
+    after_rate_started_at = time.monotonic()
     after_rate = _snapshot_planning_depth_rate_keys(context)
+    elapsed_ms = _rate_snapshot_elapsed_ms(
+        before_rate_completed_at, after_rate_started_at
+    )
 
     steps["persist_only_diff"] = validate_persist_only_diff(
         before_snapshot,
@@ -6076,8 +7705,15 @@ def _persist_only_body(
         correct_zone_depths=_zone_depths_from_request(correct_request),
     )
     steps["rate_accounting"] = validate_persist_only_rate_accounting(
-        before_rate, after_rate
+        before_rate,
+        after_rate,
+        configured_window_ms=_planning_depth_write_window_ms(context),
+        elapsed_ms=elapsed_ms,
+        expected_operator_key=_planning_depth_rate_key(
+            steps["operator_principal"]["subject"]
+        ),
     )
+    steps["rate_accounting"]["elapsed_ms"] = elapsed_ms
     steps["aws_actions"] = False
 
     return {
@@ -6100,13 +7736,44 @@ def run_local_persist_only(context: StageContext) -> dict:
         "local_persist_only_bearer_verifier",
     )
     client = LocalHttpClient()
-    token, refresh_cookie, login_evidence = _login_operator(context, client, verifier)
+    try:
+        token, refresh_cookie, login_evidence = _login_operator(
+            context, client, verifier
+        )
+    except BaseException as primary:
+        try:
+            recovered_refresh_cookie = client.refresh_cookie()
+        except BaseException:
+            recovered_refresh_cookie = None
+        if isinstance(recovered_refresh_cookie, str) and recovered_refresh_cookie:
+            _cleanup_initial_operator_session(
+                client,
+                recovered_refresh_cookie,
+                logout=lambda: _persist_only_logout(
+                    client,
+                    recovered_refresh_cookie,
+                    strict=False,
+                ),
+                primary=primary,
+                error_code="persist_only_initial_operator_cleanup_unproved",
+            )
+        raise
     # Outer boundary starting right after login: any failure downstream still
     # logs out (best-effort, no masking); a clean run logs out strictly.
     try:
         manifest = _persist_only_body(context, client, token, login_evidence)
-    except BaseException:
-        _persist_only_logout(client, refresh_cookie, strict=False)
+    except BaseException as primary:
+        _cleanup_initial_operator_session(
+            client,
+            refresh_cookie,
+            logout=lambda: _persist_only_logout(
+                client,
+                refresh_cookie,
+                strict=False,
+            ),
+            primary=primary,
+            error_code="persist_only_initial_operator_cleanup_unproved",
+        )
         raise
     _persist_only_logout(client, refresh_cookie, strict=True)
 
@@ -6117,6 +7784,97 @@ def run_local_persist_only(context: StageContext) -> dict:
     _checksum_manifest(target)
     _save_state(context, list(STAGE_ORDER[:9]))
     print("PASS LOCAL-PERSIST-ONLY-1")
+    return manifest
+
+
+def run_local_write_activation(context: StageContext) -> dict:
+    state = _load_state(context)
+    validate_stage_transition(tuple(state["completed"]), "LOCAL-WRITE-ACT-1")
+    _clear_checksum_artifact(
+        context.evidence_root,
+        "LOCAL-WRITE-ACT-1-browser-result.json",
+    )
+    _verify_frontend_source(context)
+
+    verifier = _load_harness_module(
+        context,
+        "verify_bearer.py",
+        "local_write_activation_bearer_verifier",
+    )
+    client = LocalHttpClient()
+    try:
+        token, refresh_cookie, login_evidence = _login_operator(
+            context,
+            client,
+            verifier,
+        )
+    except BaseException as primary:
+        try:
+            recovered_refresh_cookie = client.refresh_cookie()
+        except BaseException:
+            recovered_refresh_cookie = None
+        if isinstance(recovered_refresh_cookie, str) and recovered_refresh_cookie:
+            _cleanup_initial_operator_session(
+                client,
+                recovered_refresh_cookie,
+                logout=lambda: _operator_logout(
+                    client,
+                    recovered_refresh_cookie,
+                    strict=False,
+                    error_code="write_activation_operator_logout_failed",
+                ),
+                primary=primary,
+                error_code="write_activation_initial_operator_cleanup_unproved",
+            )
+        raise
+    try:
+        steps = _run_local_write_activation_authenticated(
+            context,
+            client,
+            token,
+            login_evidence,
+            verifier=verifier,
+        )
+    except BaseException as primary:
+        _cleanup_initial_operator_session(
+            client,
+            refresh_cookie,
+            logout=lambda: _operator_logout(
+                client,
+                refresh_cookie,
+                strict=False,
+                error_code="write_activation_operator_logout_failed",
+            ),
+            primary=primary,
+            error_code="write_activation_initial_operator_cleanup_unproved",
+        )
+        raise
+    _operator_logout(
+        client,
+        refresh_cookie,
+        strict=True,
+        error_code="write_activation_operator_logout_failed",
+    )
+    steps["refresh_revoked"] = _assert_operator_refresh_reuse_rejected(
+        client,
+        refresh_cookie,
+    )
+
+    manifest = {
+        "stage": "LOCAL-WRITE-ACT-1",
+        "verdict": "PASS",
+        "release_sha": context.release_sha,
+        "frontend_sha": context.frontend_sha,
+        "completed_at": _utc_timestamp(),
+        "steps": steps,
+    }
+    validate_evidence_payload(manifest)
+    target = context.evidence_root / "LOCAL-WRITE-ACT-1.json"
+    clear_failure_manifest(context.evidence_root, "LOCAL-WRITE-ACT-1")
+    write_stage_manifest(target, manifest)
+    _checksum_manifest(target)
+    _save_state(context, list(STAGE_ORDER))
+    print("PASS LOCAL-WRITE-ACT-1")
     return manifest
 
 
@@ -6206,8 +7964,12 @@ def main(argv: list[str] | None = None) -> int:
                 run_local_write_ui(context, diagnostic=True)
             else:
                 run_local_write_ui(context)
-        else:
+        elif args.stage == "LOCAL-PERSIST-ONLY-1":
             run_local_persist_only(context)
+        elif args.stage == "LOCAL-WRITE-ACT-1":
+            run_local_write_activation(context)
+        else:
+            raise StageGateError("stage_dispatch_invalid")
     except Exception as exc:
         # Only Exception is a stage verdict. An operator interrupt
         # (KeyboardInterrupt/SystemExit) is NOT: it propagates with standard

@@ -32,6 +32,15 @@ EXPECTED_SUCCESSFUL_STAGE_ORDER = (
 )
 
 
+def test_live_stage_order_extends_frozen_ledger_v1_order():
+    assert orchestrate.CAMPAIGN_LEDGER_V1_STAGE_ORDER == EXPECTED_SUCCESSFUL_STAGE_ORDER
+    assert orchestrate.STAGE_ORDER == (
+        *EXPECTED_SUCCESSFUL_STAGE_ORDER,
+        "LOCAL-WRITE-ACT-1",
+    )
+    assert orchestrate.REHEARSAL_STAGE_ORDER == EXPECTED_SUCCESSFUL_STAGE_ORDER[:3]
+
+
 def test_build_machine_command_uses_native_arm64_and_both_isolation_flags():
     command = orchestrate.build_machine_command(orchestrate.MachineSpec())
 
@@ -546,6 +555,7 @@ def _write_complete_acceptance_evidence(destination: Path) -> dict:
     artifacts = {
         "stage-state.json": json.dumps(state, sort_keys=True).encode() + b"\n",
         "LOCAL-WRITE-UI-1-browser-result.json": b'{"browser":"accepted"}\n',
+        "LOCAL-WRITE-ACT-1-browser-result.json": b'{"browser":"accepted"}\n',
         "LOCAL-GO-READ-1-live.png": b"live-png",
         "LOCAL-GO-READ-1-outage.png": b"outage-png",
     }
@@ -588,7 +598,7 @@ def _write_acceptance_checksums(destination: Path) -> None:
     )
 
 
-def test_finalize_evidence_collection_requires_complete_checksum_bound_9_of_9(
+def test_finalize_evidence_collection_requires_complete_checksum_bound_10_of_10(
     tmp_path,
 ):
     destination = tmp_path / "evidence"
@@ -1002,7 +1012,7 @@ def test_finalize_partial_failure_collection_requires_ordered_prefix_and_identit
         "failed_gate": "manual_requirement_run_not_accepted",
         "passed": 2,
         "failed": 1,
-        "unreached": 6,
+        "unreached": 7,
     }
     outer = (destination / "PARTIAL-OUTER-SHA256SUMS").read_text().splitlines()
     summary = json.loads((destination / "PARTIAL-SUMMARY.json").read_text())
@@ -1247,9 +1257,9 @@ def _campaign_ledger_entry(
             if outcome is not None
             else {
                 "acceptance": False,
-                "passed": list(orchestrate.STAGE_ORDER[:2]),
-                "failed": [orchestrate.STAGE_ORDER[2]],
-                "unreached": list(orchestrate.STAGE_ORDER[3:]),
+                "passed": list(orchestrate.CAMPAIGN_LEDGER_V1_STAGE_ORDER[:2]),
+                "failed": [orchestrate.CAMPAIGN_LEDGER_V1_STAGE_ORDER[2]],
+                "unreached": list(orchestrate.CAMPAIGN_LEDGER_V1_STAGE_ORDER[3:]),
             }
         ),
         "authorization": (
@@ -1297,7 +1307,9 @@ def test_validate_campaign_ledger_accepts_complete_successful_closed_entry(tmp_p
     path = tmp_path / "campaign-ledger.jsonl"
     path.write_text(json.dumps(entry, sort_keys=True) + "\n")
 
-    assert orchestrate.STAGE_ORDER == EXPECTED_SUCCESSFUL_STAGE_ORDER
+    assert orchestrate.CAMPAIGN_LEDGER_V1_STAGE_ORDER == (
+        EXPECTED_SUCCESSFUL_STAGE_ORDER
+    )
     assert orchestrate.validate_campaign_ledger(path) == [entry]
 
 
@@ -1849,19 +1861,19 @@ def test_checked_in_campaign_ledger_is_valid():
     assert [entry["outcome"] for entry in entries] == [
         {
             "acceptance": False,
-            "passed": list(orchestrate.STAGE_ORDER[:7]),
-            "failed": [orchestrate.STAGE_ORDER[7]],
-            "unreached": [orchestrate.STAGE_ORDER[8]],
+            "passed": list(orchestrate.CAMPAIGN_LEDGER_V1_STAGE_ORDER[:7]),
+            "failed": [orchestrate.CAMPAIGN_LEDGER_V1_STAGE_ORDER[7]],
+            "unreached": [orchestrate.CAMPAIGN_LEDGER_V1_STAGE_ORDER[8]],
         },
         {
             "acceptance": False,
-            "passed": list(orchestrate.STAGE_ORDER[:2]),
-            "failed": [orchestrate.STAGE_ORDER[2]],
-            "unreached": list(orchestrate.STAGE_ORDER[3:]),
+            "passed": list(orchestrate.CAMPAIGN_LEDGER_V1_STAGE_ORDER[:2]),
+            "failed": [orchestrate.CAMPAIGN_LEDGER_V1_STAGE_ORDER[2]],
+            "unreached": list(orchestrate.CAMPAIGN_LEDGER_V1_STAGE_ORDER[3:]),
         },
         {
             "acceptance": True,
-            "passed": list(orchestrate.STAGE_ORDER),
+            "passed": list(orchestrate.CAMPAIGN_LEDGER_V1_STAGE_ORDER),
             "failed": [],
             "unreached": [],
         },
@@ -2454,6 +2466,29 @@ def test_run_stage_omits_as_of_date_when_not_pinned(monkeypatch):
     orchestrate.run_stage("LOCAL-PERSIST-ONLY-1", "a" * 40, "b" * 40)
 
     assert "--as-of-date" not in captured["argv"]
+
+
+def test_run_stage_uses_extended_timeout_only_for_write_activation(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(orchestrate, "_machine_state", lambda: "ready")
+
+    def record(code, argv, **kwargs):
+        if code in {"stage_provision_state", "stage_machine_owner"}:
+            return _capture_ready_stage_command(code, argv, captured)
+        if code == "stage_terminal_failure":
+            return ""
+        captured["stage_code"] = code
+        captured["timeout"] = kwargs["timeout"]
+        return ""
+
+    monkeypatch.setattr(orchestrate, "_run_checked", record)
+
+    orchestrate.run_stage("LOCAL-WRITE-ACT-1", "a" * 40, "b" * 40)
+
+    assert captured == {
+        "stage_code": "local_write_act_1",
+        "timeout": 7200,
+    }
 
 
 def test_run_stage_surfaces_failure_manifest_publication_exit(monkeypatch):

@@ -50,7 +50,10 @@ function classifyProductRequest(url, method) {
   if (p.startsWith("/api/auth/")) return "auth";
   if (p.startsWith("/_next/")) return "framework";
   if (p === "/login" || p === "/") return "document";
-  if (p.startsWith(`${W2_BASE}/`) && (m === "POST" || m === "PUT" || m === "DELETE")) {
+  if (
+    p.startsWith(`${W2_BASE}/`) &&
+    ["POST", "PUT", "PATCH", "DELETE"].includes(m)
+  ) {
     return "mutation";
   }
   if (p.startsWith(`${W2_BASE}/`) && m === "GET") return "read";
@@ -114,6 +117,13 @@ function writeControlFile(target, value) {
  * operator 200 could overwrite the 403 that IS the denial proof.
  */
 function installResponseBoundary(context, inventory, resolveBucket) {
+  context.on("request", (request) => {
+    const pathname = new URL(request.url()).pathname;
+    const method = request.method();
+    if (classifyProductRequest(request.url(), method) === "mutation") {
+      inventory.mutationAttempts.push(`${method} ${pathname}`);
+    }
+  });
   context.on("response", (response) => {
     const request = response.request();
     const pathname = new URL(response.url()).pathname;
@@ -145,32 +155,135 @@ async function waitForControlFile(target, timeoutMs) {
 
 /** Log in through the real form and capture the access token the app itself
  * stores (login body -> data.accessToken, lib/auth/contract.ts:143). */
-async function loginAndCaptureToken(page, frontendUrl, email, password) {
-  const pending = page.waitForResponse(
-    (r) => new URL(r.url()).pathname === "/api/auth/login" && r.request().method() === "POST",
-  );
-  await page.goto(`${frontendUrl}/login`);
-  await page.fill('input[name="email"]', email);
-  await page.fill('input[name="password"]', password);
-  await page.click('button[type="submit"]');
-  const response = await pending;
-  assert(response.status() === 200, "login_not_accepted");
-  const body = await response.json();
-  const token = body?.data?.accessToken;
-  assert(typeof token === "string" && token.length > 0, "access_token_not_captured");
-  await page.waitForURL("**/smart-water/**", { timeout: 15000 });
-  // The auth context silently refreshes on mount (auth-context.tsx), and central
-  // auth ROTATES the refresh cookie on every refresh. Wait for that first
-  // refresh to COMPLETE before any further full-page navigation: a second
-  // navigation whose mount-refresh races the still-in-flight first one on the
-  // same rotating token permanently signs the session out (AuthGuard then
-  // bounces to /login and the planning-depth reads never fire) — #165.
-  await page
-    .waitForResponse((r) => new URL(r.url()).pathname === AUTH_REFRESH_PATH, {
-      timeout: 15000,
-    })
-    .catch(() => null);
-  return token;
+async function loginAndCaptureToken(
+  page,
+  frontendUrl,
+  email,
+  password,
+  options = {},
+) {
+  const {
+    onAcceptedFailure,
+    refreshTimeoutMs: configuredRefreshTimeoutMs = 15000,
+  } = options || {};
+  const refreshTimeoutMs =
+    Number.isFinite(configuredRefreshTimeoutMs) && configuredRefreshTimeoutMs >= 0
+      ? configuredRefreshTimeoutMs
+      : 15000;
+  let acceptedLoginObserved = false;
+  let refreshFailure = null;
+  let accessToken = null;
+  let refreshTimeoutHandle = null;
+  let refreshComplete = false;
+  const eligibleRefreshRequests = new Set();
+  const clearRefreshTimeout = () => {
+    if (refreshTimeoutHandle !== null) {
+      clearTimeout(refreshTimeoutHandle);
+      refreshTimeoutHandle = null;
+    }
+  };
+  const loginPredicate = (response) => {
+    try {
+      const matches =
+        new URL(response.url()).pathname === "/api/auth/login" &&
+        response.request().method() === "POST";
+      if (matches && response.status() === 200) {
+        acceptedLoginObserved = true;
+      }
+      return matches;
+    } catch {
+      return false;
+    }
+  };
+  const pending = page.waitForResponse(loginPredicate);
+  const observesRequests = typeof page.on === "function";
+  const onRequest = (request) => {
+    if (!acceptedLoginObserved) return;
+    eligibleRefreshRequests.add(request);
+  };
+  const refreshPredicate = (response) => {
+    try {
+      if (new URL(response.url()).pathname !== AUTH_REFRESH_PATH) return false;
+      if (!observesRequests) return acceptedLoginObserved;
+      return eligibleRefreshRequests.has(response.request());
+    } catch {
+      return false;
+    }
+  };
+  let refreshSettled;
+  try {
+    if (observesRequests) page.on("request", onRequest);
+    refreshSettled = Promise.resolve(
+      page.waitForResponse(refreshPredicate, { timeout: 0 }),
+    ).then(
+      (response) => {
+        refreshComplete = true;
+        if (observesRequests && !refreshPredicate(response)) {
+          refreshFailure = new Error("mount_refresh_missing");
+          clearRefreshTimeout();
+          return null;
+        }
+        clearRefreshTimeout();
+        return response;
+      },
+      (error) => {
+        refreshComplete = true;
+        refreshFailure = error;
+        clearRefreshTimeout();
+        return null;
+      },
+    );
+    await page.goto(`${frontendUrl}/login`);
+    await page.fill('input[name="email"]', email);
+    await page.fill('input[name="password"]', password);
+    await page.click('button[type="submit"]');
+    const response = await pending;
+    assert(response.status() === 200, "login_not_accepted");
+    acceptedLoginObserved = true;
+    const refreshDeadline = refreshComplete
+      ? null
+      : new Promise((resolve) => {
+          refreshTimeoutHandle = setTimeout(() => resolve(null), refreshTimeoutMs);
+        });
+    const body = await response.json();
+    const token = body?.data?.accessToken;
+    assert(typeof token === "string" && token.length > 0, "access_token_not_captured");
+    accessToken = token;
+    // The auth context silently refreshes on mount (auth-context.tsx), and central
+    // auth ROTATES the refresh cookie on every refresh. Wait for that first
+    // refresh to COMPLETE before any further full-page navigation: a second
+    // navigation whose mount-refresh races the still-in-flight first one on the
+    // same rotating token permanently signs the session out (AuthGuard then
+    // bounces to /login and the planning-depth reads never fire) — #165.
+    await page.waitForURL("**/smart-water/**", { timeout: 15000 });
+    const refreshResponse = refreshComplete
+      ? await refreshSettled
+      : await Promise.race([refreshSettled, refreshDeadline]);
+    if (
+      (refreshResponse === null || typeof refreshResponse === "undefined") &&
+      typeof onAcceptedFailure === "function"
+    ) {
+      throw refreshFailure?.message === "mount_refresh_missing"
+        ? refreshFailure
+        : new Error("mount_refresh_missing");
+    }
+    return accessToken;
+  } catch (error) {
+    if (acceptedLoginObserved && typeof onAcceptedFailure === "function") {
+      try {
+        await onAcceptedFailure(accessToken);
+      } catch {
+        // Preserve the accepted-login failure as the authoritative diagnosis.
+      }
+    }
+    throw error;
+  } finally {
+    clearRefreshTimeout();
+    if (observesRequests && typeof page.off === "function") {
+      page.off("request", onRequest);
+    }
+    eligibleRefreshRequests.clear();
+  }
 }
 
 /** Render the planning-depth panel and report what the operator can actually
@@ -334,15 +447,20 @@ async function submitProbe(page, token, { weekKey, weekDate, submitPath }) {
 }
 
 async function pageOriginLogout(page, accessToken) {
+  const init = {
+    method: "POST",
+    credentials: "same-origin",
+  };
+  const requestInit =
+    typeof accessToken === "string" && accessToken.length > 0
+      ? authorizedRequestInit(accessToken, init)
+      : init;
   return page.evaluate(
     async (init) => {
       const response = await fetch("/api/auth/logout", init);
       return response.status;
     },
-    authorizedRequestInit(accessToken, {
-      method: "POST",
-      credentials: "same-origin",
-    }),
+    requestInit,
   );
 }
 
@@ -475,6 +593,31 @@ async function provePageOriginLogout(context, page, accessToken, deps = {}) {
   if (captureError) throw captureError;
   const reuseStatus = await probe(refreshValue);
   return { logout_status: logoutStatus, refresh_reuse_status: reuseStatus };
+}
+
+async function proveDarkAndLogout(
+  context,
+  page,
+  accessToken,
+  runRenderedProof,
+  deps = {},
+) {
+  const { prove = provePageOriginLogout } = deps;
+  let renderedProof = null;
+  let logoutProof = null;
+  let firstError = null;
+  try {
+    renderedProof = await runRenderedProof();
+  } catch (error) {
+    firstError = error;
+  }
+  try {
+    logoutProof = await prove(context, page, accessToken);
+  } catch (error) {
+    firstError = firstError || error;
+  }
+  if (firstError) throw firstError;
+  return { ...renderedProof, ...logoutProof };
 }
 
 /** Navigate to a protected page and report where the browser ACTUALLY ended up.
@@ -660,7 +803,9 @@ async function landingPathAfter(page, frontendUrl, { reload = false } = {}) {
 module.exports = {
   recordPlanningRead,
   makePlanningFetchWrapper,
+  loginAndCaptureToken,
   provePageOriginLogout,
+  proveDarkAndLogout,
   proveBothOperatorLogouts,
   pageOriginLogout,
   browserFailureCode,
@@ -671,6 +816,7 @@ module.exports = {
   navigationSteps,
   classifyProductRequest,
   isForbiddenWrite,
+  installResponseBoundary,
   authorizedRequestInit,
   validateControlPath,
   writeControlFile,
@@ -698,10 +844,12 @@ if (require.main === module) {
       ".write-ui-outage-release",
       evidenceRoot,
     );
+    const darkProbe = process.env.LOCAL_WRITE_UI_DARK_PROBE === "1";
     const inventory = {
       phase: "healthy",
       writeExpected: false,
       mutations: [],
+      mutationAttempts: [],
       forbiddenWrites: [],
       observed: {
         healthy: { roster_status: null, active_status: null },
@@ -725,23 +873,95 @@ if (require.main === module) {
       const page = await primaryContext.newPage();
 
       checkpoint = "primary-login";
-      const token = await loginAndCaptureToken(page, frontendUrl, email, password);
+      const token = await loginAndCaptureToken(
+        page,
+        frontendUrl,
+        email,
+        password,
+        darkProbe
+          ? {
+              onAcceptedFailure: (accessToken) =>
+                provePageOriginLogout(primaryContext, page, accessToken),
+            }
+          : undefined,
+      );
+
+      if (darkProbe) {
+        const darkResult = await proveDarkAndLogout(
+          primaryContext,
+          page,
+          token,
+          async () => {
+            checkpoint = "verify-dark-submit-affordance";
+            const response = await page.goto(`${frontendUrl}${WATER_PLANNING_PATH}`, {
+              waitUntil: "networkidle",
+              timeout: 30000,
+            });
+            assert(
+              response !== null && response.status() === 200,
+              "dark_route_missing",
+            );
+            const submitCount = await page
+              .getByRole("button", { name: SUBMIT_BUTTON_NAME, exact: true })
+              .count();
+            const proof = {
+              path: new URL(page.url()).pathname,
+              submit_absent: submitCount === 0,
+              forbidden_write_count: inventory.forbiddenWrites.length,
+              forbidden_writes: inventory.forbiddenWrites,
+              mutation_attempt_count: inventory.mutationAttempts.length,
+              mutation_attempts: inventory.mutationAttempts,
+              total_mutations: inventory.mutations.length,
+            };
+            assert(proof.path === WATER_PLANNING_PATH, "dark_route_redirected");
+            assert(proof.submit_absent, "dark_submit_affordance_visible");
+            assert(
+              proof.forbidden_write_count === 0,
+              "dark_forbidden_write_observed",
+            );
+            assert(proof.mutation_attempt_count === 0, "dark_mutation_attempted");
+            assert(proof.total_mutations === 0, "dark_mutation_observed");
+            return proof;
+          },
+        );
+        Object.assign(result, darkResult);
+        await closeContext(primaryContext);
+        await browser.close();
+        process.stdout.write(JSON.stringify(result));
+        return;
+      }
 
       checkpoint = "verify-submit-affordance";
       const healthyPanel = await readPanelAffordance(page, frontendUrl);
       assert(healthyPanel.submit_absent === false, "submit_affordance_not_visible");
+      const rosterProjection = await planningDepthRead(page, token, ROSTER_PATH);
+      assert(rosterProjection.status === 200, "roster_projection_not_200");
+      assert(
+        Number.isInteger(rosterProjection.body?.dataset_version_id) &&
+          rosterProjection.body.dataset_version_id > 0,
+        "roster_dataset_version_invalid",
+      );
+      assert(
+        /^[0-9a-f]{64}$/.test(rosterProjection.body?.source_hash || ""),
+        "roster_source_hash_invalid",
+      );
+      result.roster_provenance = {
+        dataset_version_id: rosterProjection.body.dataset_version_id,
+        source_hash: rosterProjection.body.source_hash,
+      };
 
       checkpoint = "create-submission";
       inventory.writeExpected = true;
+      const createRequest = planningDepthSubmission({
+        weekKey,
+        weekDate,
+        activeId: null,
+        base: 250.0,
+      });
       const createResponse = await planningDepthWrite(
         page,
         token,
-        planningDepthSubmission({
-          weekKey,
-          weekDate,
-          activeId: null,
-          base: 250.0,
-        }),
+        createRequest,
         SUBMIT_PATH,
       );
       assert(createResponse.status === 201, "create_not_201");
@@ -793,21 +1013,26 @@ if (require.main === module) {
       );
 
       checkpoint = "correct-submission";
+      const correctRequest = planningDepthSubmission({
+        weekKey,
+        weekDate,
+        activeId: result.active_readback.submission_id,
+        base: 260.0,
+      });
       const correctResponse = await planningDepthWrite(
         page2,
         token2,
-        planningDepthSubmission({
-          weekKey,
-          weekDate,
-          activeId: result.active_readback.submission_id,
-          base: 260.0,
-        }),
+        correctRequest,
         SUBMIT_PATH,
       );
       assert(correctResponse.status === 201, "correct_not_201");
       result.correct_result = {
         status: correctResponse.status,
         submission_id: correctResponse.body.submissionId,
+      };
+      result.request_identity = {
+        create: createRequest,
+        correct: correctRequest,
       };
 
       checkpoint = "stale-conflict";

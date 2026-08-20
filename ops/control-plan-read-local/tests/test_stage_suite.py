@@ -1,4 +1,5 @@
 import ast
+from contextlib import contextmanager
 import dataclasses
 from datetime import date, timedelta
 import importlib.util
@@ -2851,9 +2852,11 @@ class _ScriptedClient:
     def __init__(self, responses):
         self._responses = list(responses)
         self.calls = []
+        self.bearers = []
 
     def request(self, method, url, *, payload=None, bearer=None, **kwargs):
         self.calls.append((method, url, payload))
+        self.bearers.append(bearer)
         if not self._responses:
             raise AssertionError(f"unscripted request: {method} {url}")
         return self._responses.pop(0)
@@ -3228,26 +3231,66 @@ def _write_browser_evidence():
     (planning-depth-roster/route.ts:79-80); and ANY upstream failure collapses to
     502, never 503 (upstream-guard.ts:48-58).
     """
+    create_submission_id = "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"
+    correct_submission_id = "d4c3b2a1-f6e5-4b7a-9d8c-1e0f2a3b4c5d"
+    create_request = {
+        "schema_version": 2,
+        "project_key": "mun-bon",
+        "calendar_system": "rid-irrigation-v1",
+        "week_key": "2027-R02",
+        "week_date": "2026-11-08",
+        "client_submission_id": "33333333-3333-4333-8333-333333333333",
+        "expected_active_submission_id": None,
+        "levels": [
+            {
+                "area_type": "zone",
+                "area_id": f"01-{zone:02d}",
+                "planning_depth_mm": 250.0 + 10.0 * (zone - 1),
+            }
+            for zone in range(1, 7)
+        ],
+    }
+    correct_request = {
+        **create_request,
+        "client_submission_id": "44444444-4444-4444-8444-444444444444",
+        "expected_active_submission_id": create_submission_id,
+        "levels": [
+            {
+                "area_type": "zone",
+                "area_id": f"01-{zone:02d}",
+                "planning_depth_mm": 260.0 + 10.0 * (zone - 1),
+            }
+            for zone in range(1, 7)
+        ],
+    }
     return {
         "create_result": {
             "status": 201,
-            "submission_id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+            "submission_id": create_submission_id,
             "replayed": False,
         },
         "active_readback": {
             "status": 200,
-            "submission_id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+            "submission_id": create_submission_id,
             "levels_count": 41,
             "distinct_depths": [250.0, 260.0, 270.0, 280.0, 290.0, 300.0],
         },
         "correct_result": {
             "status": 201,
-            "submission_id": "d4c3b2a1-f6e5-4b7a-9d8c-1e0f2a3b4c5d",
+            "submission_id": correct_submission_id,
         },
         "conflict_result": {"status": 409},
         "conflict_reconciliation": {
             "status": 200,
-            "submission_id": "d4c3b2a1-f6e5-4b7a-9d8c-1e0f2a3b4c5d",
+            "submission_id": correct_submission_id,
+        },
+        "request_identity": {
+            "create": create_request,
+            "correct": correct_request,
+        },
+        "roster_provenance": {
+            "dataset_version_id": 7,
+            "source_hash": "a" * 64,
         },
         "field_team_result": {
             "roster_status": 403,
@@ -3298,6 +3341,13 @@ def test_validate_write_browser_result_accepts_truthful_write_evidence():
     assert result["create_result"]["submission_id"] is not None
     assert result["active_readback"]["levels_count"] == 41
     assert result["conflict_result"]["status"] == 409
+    assert result["request_identity"]["correct"]["expected_active_submission_id"] == (
+        result["create_result"]["submission_id"]
+    )
+    assert result["roster_provenance"] == {
+        "dataset_version_id": 7,
+        "source_hash": "a" * 64,
+    }
     assert result["request_inventory"]["forbidden_write_count"] == 0
     assert result["field_team_result"]["roster_status"] == 403
     assert result["outage_result"]["roster_status"] == 502
@@ -5130,8 +5180,10 @@ def test_write_ui_namespace_differs_from_write_foundation():
 
 
 def test_stage_order_includes_persist_only_after_write_ui():
-    assert stage_suite.STAGE_ORDER[-1] == "LOCAL-PERSIST-ONLY-1"
-    assert stage_suite.STAGE_ORDER[-2] == "LOCAL-WRITE-UI-1"
+    assert stage_suite.STAGE_ORDER[-3:-1] == (
+        "LOCAL-WRITE-UI-1",
+        "LOCAL-PERSIST-ONLY-1",
+    )
 
 
 def test_stage_transition_accepts_persist_only_after_all_eight_prior_stages():
@@ -5164,6 +5216,2898 @@ def test_stage_transition_rejects_persist_only_without_write_ui():
             ),
             "LOCAL-PERSIST-ONLY-1",
         )
+
+
+# --- LOCAL-WRITE-ACT-1 ---
+
+
+def test_stage_order_includes_write_activation_after_persist_only():
+    assert stage_suite.STAGE_ORDER[-2:] == (
+        "LOCAL-PERSIST-ONLY-1",
+        "LOCAL-WRITE-ACT-1",
+    )
+
+
+def test_stage_transition_requires_all_nine_predecessors_for_write_activation():
+    stage_suite.validate_stage_transition(
+        tuple(stage_suite.STAGE_ORDER[:9]), "LOCAL-WRITE-ACT-1"
+    )
+
+    with pytest.raises(stage_suite.StageGateError, match="stage_transition_invalid"):
+        stage_suite.validate_stage_transition(
+            tuple(stage_suite.STAGE_ORDER[:8]), "LOCAL-WRITE-ACT-1"
+        )
+
+
+def test_write_activation_rid_week_is_distinct_from_ui_and_persist_scopes():
+    start = date(2026, 1, 1)
+
+    for day_offset in range(366):
+        operational_date = start + timedelta(days=day_offset)
+        scopes = {
+            stage_suite._write_ui_rid_week(operational_date),
+            stage_suite._persist_only_rid_week(operational_date),
+            stage_suite._write_activation_rid_week(operational_date),
+        }
+        assert len(scopes) == 3
+
+
+def test_write_ui_and_write_activation_browser_results_use_separate_artifacts(tmp_path):
+    context = _write_ui_context(tmp_path)
+    evidence = _write_browser_evidence()
+
+    write_ui = stage_suite._persist_write_browser_result(context, evidence)
+    write_act = stage_suite._persist_write_browser_result(
+        context,
+        evidence,
+        stage="LOCAL-WRITE-ACT-1",
+    )
+
+    assert write_ui.name == "LOCAL-WRITE-UI-1-browser-result.json"
+    assert write_act.name == "LOCAL-WRITE-ACT-1-browser-result.json"
+    assert write_ui.read_bytes() == write_act.read_bytes()
+
+
+def test_write_activation_stability_requires_31_ordered_samples_over_900_seconds():
+    now = [0.0]
+    pm2 = [
+        {
+            "name": name,
+            "status": "online",
+            "restarts": 1,
+            "pid": index + 10,
+            "memory_bytes": 1024,
+            "cpu_percent": 0,
+        }
+        for index, name in enumerate(stage_suite.PROCESS_NAMES)
+    ]
+    listeners = [{"address": "127.0.0.1", "port": 3022}]
+
+    def monotonic():
+        return now[0]
+
+    def sleep(seconds):
+        now[0] += seconds
+
+    result = stage_suite._observe_write_activation_stability(
+        duration_seconds=900,
+        interval_seconds=30,
+        readiness_probe=lambda: {
+            name: {"status_code": 200, "status": "ready", "checks": {}}
+            for name in stage_suite.PROCESS_NAMES
+        },
+        pm2_probe=lambda: pm2,
+        listener_probe=lambda: listeners,
+        frontend_probe=lambda: {
+            "status_code": 200,
+            "path": "/smart-water/dashboard",
+        },
+        monotonic=monotonic,
+        sleep=sleep,
+    )
+
+    assert result == {
+        "duration_seconds": 900,
+        "observed_duration_seconds": 900.0,
+        "interval_seconds": 30,
+        "sample_count": 31,
+        "samples": [
+            {
+                "scheduled_elapsed_seconds": elapsed,
+                "observed_elapsed_seconds": float(elapsed),
+                "readiness": {
+                    name: {"status_code": 200, "status": "ready", "checks": {}}
+                    for name in stage_suite.PROCESS_NAMES
+                },
+                "pm2": pm2,
+                "listeners": listeners,
+                "frontend": {
+                    "status_code": 200,
+                    "path": "/smart-water/dashboard",
+                },
+            }
+            for elapsed in range(0, 901, 30)
+        ],
+    }
+
+
+def test_write_activation_stability_rejects_frontend_probe_failure():
+    pm2 = [
+        {
+            "name": name,
+            "status": "online",
+            "restarts": 1,
+            "pid": index + 10,
+        }
+        for index, name in enumerate(stage_suite.PROCESS_NAMES)
+    ]
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_activation_frontend_drift",
+    ):
+        stage_suite._observe_write_activation_stability(
+            duration_seconds=0,
+            interval_seconds=30,
+            readiness_probe=lambda: {
+                name: {"status_code": 200, "status": "ready", "checks": {}}
+                for name in stage_suite.PROCESS_NAMES
+            },
+            pm2_probe=lambda: pm2,
+            listener_probe=lambda: [],
+            frontend_probe=lambda: {
+                "status_code": 503,
+                "path": "/smart-water/dashboard",
+            },
+            monotonic=lambda: 0.0,
+            sleep=lambda _seconds: None,
+        )
+
+
+def test_write_activation_stability_anchors_window_after_slow_baseline_probe():
+    now = [0.0]
+    frontend_calls = [0]
+    pm2 = [
+        {
+            "name": name,
+            "status": "online",
+            "restarts": 1,
+            "pid": index + 10,
+        }
+        for index, name in enumerate(stage_suite.PROCESS_NAMES)
+    ]
+
+    def frontend_probe():
+        if frontend_calls[0] == 0:
+            now[0] += 120.0
+        frontend_calls[0] += 1
+        return {"status_code": 200, "path": "/smart-water/dashboard"}
+
+    result = stage_suite._observe_write_activation_stability(
+        duration_seconds=900,
+        interval_seconds=30,
+        readiness_probe=lambda: {
+            name: {"status_code": 200, "status": "ready", "checks": {}}
+            for name in stage_suite.PROCESS_NAMES
+        },
+        pm2_probe=lambda: pm2,
+        listener_probe=lambda: [],
+        frontend_probe=frontend_probe,
+        monotonic=lambda: now[0],
+        sleep=lambda seconds: now.__setitem__(0, now[0] + seconds),
+    )
+
+    assert result["observed_duration_seconds"] == 900.0
+    assert now[0] == 1020.0
+
+
+def test_write_activation_stability_rejects_unexpected_pm2_process():
+    pm2 = [
+        {
+            "name": name,
+            "status": "online",
+            "restarts": 1,
+            "pid": index + 10,
+        }
+        for index, name in enumerate(stage_suite.PROCESS_NAMES)
+    ]
+    pm2.append(
+        {"name": "unexpected-worker", "status": "online", "restarts": 0, "pid": 99}
+    )
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_activation_process_inventory_unexpected",
+    ):
+        stage_suite._observe_write_activation_stability(
+            duration_seconds=0,
+            interval_seconds=30,
+            readiness_probe=lambda: {
+                name: {"status_code": 200, "status": "ready", "checks": {}}
+                for name in stage_suite.PROCESS_NAMES
+            },
+            pm2_probe=lambda: pm2,
+            listener_probe=lambda: [],
+            frontend_probe=lambda: {
+                "status_code": 200,
+                "path": "/smart-water/dashboard",
+            },
+            monotonic=lambda: 0.0,
+            sleep=lambda _seconds: None,
+        )
+
+
+def test_validate_write_dark_browser_result_requires_rendered_dark_affordance():
+    result = stage_suite.validate_write_dark_browser_result(
+        {
+            "path": "/smart-water/dashboard",
+            "submit_absent": True,
+            "forbidden_write_count": 0,
+            "forbidden_writes": [],
+            "mutation_attempt_count": 0,
+            "mutation_attempts": [],
+            "total_mutations": 0,
+            "logout_status": 200,
+            "refresh_reuse_status": 401,
+        }
+    )
+
+    assert result == {
+        "path": "/smart-water/dashboard",
+        "submit_absent": True,
+        "forbidden_write_count": 0,
+        "mutation_attempt_count": 0,
+        "total_mutations": 0,
+        "logout_status": 200,
+        "refresh_reuse_status": 401,
+    }
+
+
+def test_validate_write_dark_browser_result_rejects_rendered_submit():
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_activation_frontend_not_dark",
+    ):
+        stage_suite.validate_write_dark_browser_result(
+            {
+                "path": "/smart-water/dashboard",
+                "submit_absent": False,
+                "forbidden_write_count": 0,
+                "forbidden_writes": [],
+                "mutation_attempt_count": 0,
+                "mutation_attempts": [],
+                "total_mutations": 0,
+                "logout_status": 200,
+                "refresh_reuse_status": 401,
+            }
+        )
+
+
+def test_write_activation_stability_rejects_unready_sample():
+    pm2 = [
+        {
+            "name": name,
+            "status": "online",
+            "restarts": 1,
+            "pid": index + 10,
+            "memory_bytes": 1024,
+            "cpu_percent": 0,
+        }
+        for index, name in enumerate(stage_suite.PROCESS_NAMES)
+    ]
+    readiness = {
+        name: {"status_code": 200, "status": "ready", "checks": {}}
+        for name in stage_suite.PROCESS_NAMES
+    }
+    readiness["scheduler"] = {
+        "status_code": 503,
+        "status": "not_ready",
+        "checks": {},
+    }
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_activation_readiness_drift",
+    ):
+        stage_suite._observe_write_activation_stability(
+            duration_seconds=0,
+            interval_seconds=30,
+            readiness_probe=lambda: readiness,
+            pm2_probe=lambda: pm2,
+            listener_probe=lambda: [],
+            monotonic=lambda: 0.0,
+            sleep=lambda _seconds: None,
+        )
+
+
+def test_write_activation_stability_rejects_duplicate_required_process():
+    pm2 = [
+        {
+            "name": name,
+            "status": "online",
+            "restarts": 1,
+            "pid": index + 10,
+            "memory_bytes": 1024,
+            "cpu_percent": 0,
+        }
+        for index, name in enumerate(stage_suite.PROCESS_NAMES)
+    ]
+    pm2.append({**pm2[0], "pid": 999})
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_activation_process_not_online",
+    ):
+        stage_suite._observe_write_activation_stability(
+            duration_seconds=0,
+            interval_seconds=30,
+            readiness_probe=lambda: {
+                name: {"status_code": 200, "status": "ready", "checks": {}}
+                for name in stage_suite.PROCESS_NAMES
+            },
+            pm2_probe=lambda: pm2,
+            listener_probe=lambda: [],
+            monotonic=lambda: 0.0,
+            sleep=lambda _seconds: None,
+        )
+
+
+def _patch_write_activation_body(monkeypatch, context, events, client):
+    before_snapshot = {
+        "non_w2_digests": {},
+        "w2_submissions": [],
+        "w2_values": [],
+    }
+    snapshots = iter((before_snapshot, before_snapshot))
+    rate_call_count = [0]
+
+    def snapshot_rate(_ctx):
+        label = "before" if rate_call_count[0] == 0 else "after"
+        rate_call_count[0] += 1
+        events.append(f"rate:{label}")
+        return {}
+
+    monkeypatch.setattr(
+        stage_suite,
+        "_write_activation_rid_week",
+        lambda _date: ("2026-11-15", "2027-R03"),
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_load_env_file",
+        lambda _path: {"PLANNING_DEPTH_WRITES_ENABLED": "false"},
+    )
+    monkeypatch.setattr(
+        stage_suite, "_take_persist_snapshot", lambda _ctx: next(snapshots)
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_snapshot_planning_depth_rate_keys",
+        snapshot_rate,
+    )
+    monkeypatch.setattr(stage_suite, "_read_json", lambda _path: {"commandable": False})
+    monkeypatch.setattr(stage_suite, "_pm2_json", lambda: "[]")
+    monkeypatch.setattr(
+        stage_suite,
+        "collect_dark_runtime_contract",
+        lambda _pm2, _release: {"dark": True},
+    )
+    monkeypatch.setattr(stage_suite, "_listener_snapshot", lambda: [])
+    monkeypatch.setattr(
+        stage_suite,
+        "_restart_bff_with_flag",
+        lambda _ctx, *, enabled: events.append(f"bff:{enabled}"),
+    )
+
+    def disarm_bff(_ctx, *, behavioral_dark_probe):
+        events.append("bff:False")
+        behavioral_dark_probe()
+        return {
+            "attempts": 1,
+            "dark": True,
+            "stopped": False,
+            "failed_gate": None,
+        }
+
+    monkeypatch.setattr(
+        stage_suite,
+        "_disarm_bff_guarded",
+        disarm_bff,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_restore_scheduler_guarded",
+        lambda: events.append("scheduler:restore")
+        or {"attempts": 1, "restored": True, "failed_gate": None},
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_build_frontend",
+        lambda _ctx, **kwargs: events.append(
+            "frontend:armed" if kwargs["water_planning_submit"] else "frontend:dark"
+        )
+        or {"build": "PASS"},
+    )
+
+    class FrontendServer:
+        def __init__(self, dark):
+            self.dark = dark
+
+        def __enter__(self):
+            events.append("frontend:dark-enter" if self.dark else "frontend:enter")
+
+        def __exit__(self, *_args):
+            events.append("frontend:dark-exit" if self.dark else "frontend:exit")
+
+    monkeypatch.setattr(
+        stage_suite,
+        "_frontend_server",
+        lambda *_args, **kwargs: FrontendServer(
+            kwargs.get("server_label") == "write-activation-restored"
+        ),
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_run_write_dark_browser",
+        lambda _ctx: events.append("frontend:dark-browser") or {"submit_absent": True},
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_observe_write_activation_stability",
+        lambda **_kwargs: events.append("stability") or {"sample_count": 31},
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "validate_write_activation_diff",
+        lambda *_args, **_kwargs: {"diff": "accepted"},
+    )
+
+    def validate_rate(*_args, expected_increment=2, expected_operator_key, **_kwargs):
+        expected_key = (
+            "bff-water-planning:rate:planning_depth.submit:"
+            + hashlib.sha256(b"operator-1").hexdigest()
+        )
+        assert expected_operator_key == expected_key
+        events.append("rate-key-bound")
+        return {"increment": expected_increment}
+
+    monkeypatch.setattr(
+        stage_suite,
+        "validate_persist_only_rate_accounting",
+        validate_rate,
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_verify_write_activation_restoration",
+        lambda *_args, **_kwargs: {"verified": True},
+    )
+    monkeypatch.setattr(stage_suite, "_verify_frontend_source", lambda _ctx: {})
+
+    session_count = [0]
+
+    @contextmanager
+    def fresh_session(_context, _verifier, *, expected_subject):
+        session_count[0] += 1
+        session_number = session_count[0]
+        evidence = {
+            "login": {"status": 200, "claims": "valid"},
+            "principal": {"subject": expected_subject},
+        }
+        events.append(f"reauth:{session_number}")
+        try:
+            yield client, f"fresh-token-{session_number}", evidence
+        finally:
+            evidence["logout"] = {"accepted": True}
+            evidence["refresh_revoked"] = {"revoked": True}
+            events.append(f"revoke:{session_number}")
+
+    monkeypatch.setattr(
+        stage_suite,
+        "_fresh_write_activation_operator_session",
+        fresh_session,
+        raising=False,
+    )
+    return before_snapshot
+
+
+def test_write_activation_body_arms_backend_before_frontend_and_rolls_back_frontend_first(
+    tmp_path, monkeypatch
+):
+    context = _write_ui_context(tmp_path)
+    events = []
+    client = _ScriptedClient(
+        [
+            _FakeResponse(
+                200,
+                {"subject": "operator-1", "effective_roles": ["operator"]},
+            ),
+            _FakeResponse(503, {"detail": "planning_depth_writes_disabled"}),
+            _FakeResponse(503, {"detail": "planning_depth_writes_disabled"}),
+            _FakeResponse(
+                200,
+                {
+                    "submission_id": "d4c3b2a1-f6e5-4b7a-9d8c-1e0f2a3b4c5d",
+                    "levels": _expanded_levels(
+                        {
+                            f"01-{zone:02d}": 260.0 + 10.0 * (zone - 1)
+                            for zone in range(1, 7)
+                        }
+                    ),
+                },
+            ),
+        ]
+    )
+    _patch_write_activation_body(monkeypatch, context, events, client)
+    browser = _write_browser_evidence()
+
+    def run_browser(*_args, healthy_boundary_probe=None, **_kwargs):
+        events.append("browser")
+        if healthy_boundary_probe is not None:
+            healthy_boundary_probe()
+        return browser
+
+    monkeypatch.setattr(stage_suite, "_run_write_browser", run_browser)
+
+    steps = stage_suite._run_local_write_activation_authenticated(
+        context,
+        client,
+        "token",
+        {"login": "accepted"},
+        verifier=object(),
+    )
+
+    assert events == [
+        "rate:before",
+        "bff:True",
+        "frontend:armed",
+        "frontend:enter",
+        "browser",
+        "rate:after",
+        "stability",
+        "frontend:exit",
+        "frontend:dark",
+        "frontend:dark-enter",
+        "frontend:dark-browser",
+        "frontend:dark-exit",
+        "bff:False",
+        "reauth:1",
+        "revoke:1",
+        "scheduler:restore",
+        "reauth:2",
+        "revoke:2",
+        "rate-key-bound",
+    ]
+    assert steps["persisted_diff"] == {"diff": "accepted"}
+    assert steps["rate_accounting"] == {"increment": 3}
+    assert steps["active_after_rollback"] == {
+        "submission_id": "d4c3b2a1-f6e5-4b7a-9d8c-1e0f2a3b4c5d",
+        "levels_count": 41,
+        "zones_covered": [f"01-{zone:02d}" for zone in range(1, 7)],
+    }
+    assert client.calls[-1] == (
+        "GET",
+        (
+            f"{stage_suite.W2_V2_BASE}/active?project_key=mun-bon&"
+            "calendar_system=rid-irrigation-v1&week_key=2027-R03"
+        ),
+        None,
+    )
+    assert steps["aws_actions"] is False
+    assert steps["rollback_operator_session"]["logout"] == {"accepted": True}
+    assert steps["rollback_operator_session"]["refresh_revoked"] == {"revoked": True}
+    assert steps["readback_operator_session"]["refresh_revoked"] == {"revoked": True}
+    assert client.bearers == [
+        "token",
+        "token",
+        "fresh-token-1",
+        "fresh-token-2",
+    ]
+
+
+def test_write_activation_rollback_reauthenticates_each_disarm_attempt(
+    tmp_path, monkeypatch
+):
+    context = _write_ui_context(tmp_path)
+    events = []
+    client = _ScriptedClient(
+        [
+            _FakeResponse(
+                200,
+                {"subject": "operator-1", "effective_roles": ["operator"]},
+            ),
+            _FakeResponse(503, {"detail": "planning_depth_writes_disabled"}),
+            _FakeResponse(401, {"detail": "access_token_expired"}),
+            _FakeResponse(503, {"detail": "planning_depth_writes_disabled"}),
+            _FakeResponse(
+                200,
+                {
+                    "submission_id": "d4c3b2a1-f6e5-4b7a-9d8c-1e0f2a3b4c5d",
+                    "levels": _expanded_levels(
+                        {
+                            f"01-{zone:02d}": 260.0 + 10.0 * (zone - 1)
+                            for zone in range(1, 7)
+                        }
+                    ),
+                },
+            ),
+        ]
+    )
+    _patch_write_activation_body(monkeypatch, context, events, client)
+
+    def retry_disarm(_context, *, behavioral_dark_probe):
+        try:
+            behavioral_dark_probe()
+        except stage_suite.StageGateError:
+            pass
+        behavioral_dark_probe()
+        return {
+            "attempts": 2,
+            "dark": True,
+            "stopped": False,
+            "failed_gate": None,
+        }
+
+    monkeypatch.setattr(stage_suite, "_disarm_bff_guarded", retry_disarm)
+
+    def run_browser(*_args, healthy_boundary_probe=None, **_kwargs):
+        if healthy_boundary_probe is not None:
+            healthy_boundary_probe()
+        return _write_browser_evidence()
+
+    monkeypatch.setattr(stage_suite, "_run_write_browser", run_browser)
+
+    steps = stage_suite._run_local_write_activation_authenticated(
+        context,
+        client,
+        "token",
+        {"login": "accepted"},
+        verifier=object(),
+    )
+
+    assert client.bearers == [
+        "token",
+        "token",
+        "fresh-token-1",
+        "fresh-token-2",
+        "fresh-token-3",
+    ]
+    assert [
+        {
+            "probe_outcome": session["probe_outcome"],
+            "failed_gate": session.get("failed_gate"),
+            "subject": session["principal"]["subject"],
+            "logout": session["logout"],
+            "refresh_revoked": session["refresh_revoked"],
+        }
+        for session in steps["rollback_operator_sessions"]
+    ] == [
+        {
+            "probe_outcome": "failed",
+            "failed_gate": "w2_write_disabled_result_not_accepted",
+            "subject": "operator-1",
+            "logout": {"accepted": True},
+            "refresh_revoked": {"revoked": True},
+        },
+        {
+            "probe_outcome": "accepted",
+            "failed_gate": None,
+            "subject": "operator-1",
+            "logout": {"accepted": True},
+            "refresh_revoked": {"revoked": True},
+        },
+    ]
+
+
+@pytest.mark.parametrize("failure_phase", ("login", "principal"))
+def test_write_activation_rollback_retains_proved_preyield_session_before_retry(
+    tmp_path, monkeypatch, failure_phase
+):
+    context = _write_ui_context(tmp_path)
+    events = []
+    client = _ScriptedClient(
+        [
+            _FakeResponse(
+                200,
+                {"subject": "operator-1", "effective_roles": ["operator"]},
+            ),
+            _FakeResponse(503, {"detail": "planning_depth_writes_disabled"}),
+            _FakeResponse(503, {"detail": "planning_depth_writes_disabled"}),
+            _FakeResponse(
+                200,
+                {
+                    "submission_id": "d4c3b2a1-f6e5-4b7a-9d8c-1e0f2a3b4c5d",
+                    "levels": _expanded_levels(
+                        {
+                            f"01-{zone:02d}": 260.0 + 10.0 * (zone - 1)
+                            for zone in range(1, 7)
+                        }
+                    ),
+                },
+            ),
+        ]
+    )
+    _patch_write_activation_body(monkeypatch, context, events, client)
+    session_count = [0]
+    failed_gate = (
+        "operator_login_not_accepted"
+        if failure_phase == "login"
+        else "write_activation_operator_subject_changed"
+    )
+    preyield_record = {
+        "phase": failure_phase,
+        "probe_outcome": "not_started",
+        "failed_gate": failed_gate,
+        "logout": {"accepted": True},
+        "refresh_revoked": {"refresh_reuse_status": 401, "revoked": True},
+    }
+    if failure_phase == "principal":
+        preyield_record.update(
+            {
+                "login": {"status": 200, "claims": "valid"},
+                "principal": {
+                    "subject": "different-operator",
+                    "effective_roles": ["operator"],
+                },
+            }
+        )
+
+    @contextmanager
+    def preyield_failure_then_session(_context, _verifier, *, expected_subject):
+        session_count[0] += 1
+        if session_count[0] == 1:
+            error = stage_suite.StageGateError(failed_gate)
+            error.rollback_session_record = dict(preyield_record)
+            raise error
+        evidence = {
+            "login": {"status": 200, "claims": "valid"},
+            "principal": {"subject": expected_subject},
+        }
+        try:
+            yield client, f"fresh-token-{session_count[0]}", evidence
+        finally:
+            evidence["logout"] = {"accepted": True}
+            evidence["refresh_revoked"] = {"revoked": True}
+
+    def retry_disarm(_context, *, behavioral_dark_probe):
+        with pytest.raises(stage_suite.StageGateError, match=failed_gate):
+            behavioral_dark_probe()
+        behavioral_dark_probe()
+        return {
+            "attempts": 2,
+            "dark": True,
+            "stopped": False,
+            "failed_gate": None,
+        }
+
+    def run_browser(*_args, healthy_boundary_probe=None, **_kwargs):
+        if healthy_boundary_probe is not None:
+            healthy_boundary_probe()
+        return _write_browser_evidence()
+
+    monkeypatch.setattr(
+        stage_suite,
+        "_fresh_write_activation_operator_session",
+        preyield_failure_then_session,
+    )
+    monkeypatch.setattr(stage_suite, "_disarm_bff_guarded", retry_disarm)
+    monkeypatch.setattr(stage_suite, "_run_write_browser", run_browser)
+
+    steps = stage_suite._run_local_write_activation_authenticated(
+        context,
+        client,
+        "token",
+        {"login": "accepted"},
+        verifier=object(),
+    )
+
+    assert steps["rollback_operator_sessions"][0] == preyield_record
+    assert steps["rollback_operator_sessions"][1]["probe_outcome"] == "accepted"
+    assert steps["rollback_operator_sessions"][1]["principal"] == {
+        "subject": "operator-1"
+    }
+    assert session_count == [3]
+
+
+def test_write_activation_failure_retains_every_rollback_session_in_restoration(
+    tmp_path, monkeypatch
+):
+    context = _write_ui_context(tmp_path)
+    events = []
+    client = _ScriptedClient(
+        [
+            _FakeResponse(
+                200,
+                {"subject": "operator-1", "effective_roles": ["operator"]},
+            ),
+            _FakeResponse(503, {"detail": "planning_depth_writes_disabled"}),
+            _FakeResponse(401, {"detail": "access_token_expired"}),
+            _FakeResponse(401, {"detail": "access_token_expired"}),
+        ]
+    )
+    _patch_write_activation_body(monkeypatch, context, events, client)
+
+    def failed_disarm(_context, *, behavioral_dark_probe):
+        failures = []
+        for _attempt in range(2):
+            try:
+                behavioral_dark_probe()
+            except stage_suite.StageGateError as exc:
+                failures.append(str(exc))
+        assert failures == [
+            "w2_write_disabled_result_not_accepted",
+            "w2_write_disabled_result_not_accepted",
+        ]
+        return {
+            "attempts": 2,
+            "dark": False,
+            "stopped": True,
+            "failed_gate": failures[0],
+        }
+
+    monkeypatch.setattr(stage_suite, "_disarm_bff_guarded", failed_disarm)
+    monkeypatch.setattr(
+        stage_suite,
+        "_run_write_browser",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            stage_suite.StageGateError("injected_browser_failure")
+        ),
+    )
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="injected_browser_failure_and_write_activation_restore_failed",
+    ) as exc_info:
+        stage_suite._run_local_write_activation_authenticated(
+            context,
+            client,
+            "token",
+            {"login": "accepted"},
+            verifier=object(),
+        )
+
+    assert [
+        {
+            "probe_outcome": session["probe_outcome"],
+            "failed_gate": session["failed_gate"],
+            "subject": session["principal"]["subject"],
+            "logout": session["logout"],
+            "refresh_revoked": session["refresh_revoked"],
+        }
+        for session in exc_info.value.restoration["rollback_operator_sessions"]
+    ] == [
+        {
+            "probe_outcome": "failed",
+            "failed_gate": "w2_write_disabled_result_not_accepted",
+            "subject": "operator-1",
+            "logout": {"accepted": True},
+            "refresh_revoked": {"revoked": True},
+        },
+        {
+            "probe_outcome": "failed",
+            "failed_gate": "w2_write_disabled_result_not_accepted",
+            "subject": "operator-1",
+            "logout": {"accepted": True},
+            "refresh_revoked": {"revoked": True},
+        },
+    ]
+
+
+@pytest.mark.parametrize("invalid_evidence", ("missing_logout", "unexpected_field"))
+def test_write_activation_rejects_incomplete_or_unsafe_rollback_session_evidence(
+    tmp_path, monkeypatch, invalid_evidence
+):
+    context = _write_ui_context(tmp_path)
+    events = []
+    client = _ScriptedClient(
+        [
+            _FakeResponse(
+                200,
+                {"subject": "operator-1", "effective_roles": ["operator"]},
+            ),
+            _FakeResponse(503, {"detail": "planning_depth_writes_disabled"}),
+            _FakeResponse(503, {"detail": "planning_depth_writes_disabled"}),
+            _FakeResponse(
+                200,
+                {
+                    "submission_id": "d4c3b2a1-f6e5-4b7a-9d8c-1e0f2a3b4c5d",
+                    "levels": _expanded_levels(
+                        {
+                            f"01-{zone:02d}": 260.0 + 10.0 * (zone - 1)
+                            for zone in range(1, 7)
+                        }
+                    ),
+                },
+            ),
+        ]
+    )
+    _patch_write_activation_body(monkeypatch, context, events, client)
+    session_count = [0]
+
+    @contextmanager
+    def incomplete_first_session(_context, _verifier, *, expected_subject):
+        session_count[0] += 1
+        evidence = {
+            "login": {"status": 200, "claims": "valid"},
+            "principal": {"subject": expected_subject},
+        }
+        yield client, f"fresh-token-{session_count[0]}", evidence
+        if session_count[0] > 1 or invalid_evidence == "unexpected_field":
+            evidence["logout"] = {"accepted": True}
+        if session_count[0] == 1 and invalid_evidence == "unexpected_field":
+            evidence["access_token"] = "must-not-enter-evidence"
+        evidence["refresh_revoked"] = {"revoked": True}
+
+    def run_browser(*_args, healthy_boundary_probe=None, **_kwargs):
+        if healthy_boundary_probe is not None:
+            healthy_boundary_probe()
+        return _write_browser_evidence()
+
+    monkeypatch.setattr(
+        stage_suite,
+        "_fresh_write_activation_operator_session",
+        incomplete_first_session,
+    )
+    monkeypatch.setattr(stage_suite, "_run_write_browser", run_browser)
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_activation_restoration_failed",
+    ) as exc_info:
+        stage_suite._run_local_write_activation_authenticated(
+            context,
+            client,
+            "token",
+            {"login": "accepted"},
+            verifier=object(),
+        )
+
+    assert (
+        exc_info.value.restoration["failed_gate"]
+        == "write_activation_rollback_session_evidence_incomplete"
+    )
+    assert exc_info.value.restoration["rollback_operator_sessions"] == []
+
+
+def test_write_activation_rejects_preyield_principal_record_without_principal(
+    tmp_path, monkeypatch
+):
+    context = _write_ui_context(tmp_path)
+    events = []
+    client = _ScriptedClient(
+        [
+            _FakeResponse(
+                200,
+                {"subject": "operator-1", "effective_roles": ["operator"]},
+            ),
+            _FakeResponse(503, {"detail": "planning_depth_writes_disabled"}),
+        ]
+    )
+    _patch_write_activation_body(monkeypatch, context, events, client)
+
+    @contextmanager
+    def incomplete_principal_session(*_args, **_kwargs):
+        error = stage_suite.StageGateError("w1_principal_result_not_accepted")
+        error.rollback_session_record = {
+            "phase": "principal",
+            "probe_outcome": "not_started",
+            "failed_gate": "w1_principal_result_not_accepted",
+            "login": {"status": 200, "claims": "valid"},
+            "logout": {"accepted": True},
+            "refresh_revoked": {"refresh_reuse_status": 401, "revoked": True},
+        }
+        raise error
+        yield
+
+    def run_browser(*_args, healthy_boundary_probe=None, **_kwargs):
+        if healthy_boundary_probe is not None:
+            healthy_boundary_probe()
+        return _write_browser_evidence()
+
+    monkeypatch.setattr(
+        stage_suite,
+        "_fresh_write_activation_operator_session",
+        incomplete_principal_session,
+    )
+    monkeypatch.setattr(stage_suite, "_run_write_browser", run_browser)
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_activation_restoration_failed",
+    ) as exc_info:
+        stage_suite._run_local_write_activation_authenticated(
+            context,
+            client,
+            "token",
+            {"login": "accepted"},
+            verifier=object(),
+        )
+
+    assert (
+        exc_info.value.restoration["failed_gate"]
+        == "write_activation_rollback_session_evidence_incomplete"
+    )
+    assert exc_info.value.restoration["rollback_operator_sessions"] == []
+
+
+def test_write_activation_restoration_report_survives_fresh_logout_failure(
+    tmp_path, monkeypatch
+):
+    context = _write_ui_context(tmp_path)
+    events = []
+    client = _ScriptedClient(
+        [
+            _FakeResponse(
+                200,
+                {"subject": "operator-1", "effective_roles": ["operator"]},
+            ),
+            _FakeResponse(503, {"detail": "planning_depth_writes_disabled"}),
+            _FakeResponse(503, {"detail": "planning_depth_writes_disabled"}),
+        ]
+    )
+    _patch_write_activation_body(monkeypatch, context, events, client)
+
+    def build_frontend(_context, **kwargs):
+        if kwargs["water_planning_submit"]:
+            return {"build": "PASS"}
+        raise stage_suite.StageGateError("frontend_restore_failed")
+
+    @contextmanager
+    def logout_failing_session(_context, _verifier, *, expected_subject):
+        evidence = {"principal": {"subject": expected_subject}}
+        yield client, "fresh-token", evidence
+        raise stage_suite.StageGateError(
+            "write_activation_fresh_operator_logout_failed"
+        )
+
+    def contain_logout_failure(_context, *, behavioral_dark_probe):
+        try:
+            behavioral_dark_probe()
+        except stage_suite.StageGateError as exc:
+            return {
+                "attempts": 1,
+                "dark": False,
+                "stopped": True,
+                "failed_gate": str(exc),
+            }
+        return {
+            "attempts": 1,
+            "dark": True,
+            "stopped": False,
+            "failed_gate": None,
+        }
+
+    def run_browser(*_args, healthy_boundary_probe=None, **_kwargs):
+        if healthy_boundary_probe is not None:
+            healthy_boundary_probe()
+        return _write_browser_evidence()
+
+    monkeypatch.setattr(stage_suite, "_build_frontend", build_frontend)
+    monkeypatch.setattr(
+        stage_suite,
+        "_fresh_write_activation_operator_session",
+        logout_failing_session,
+    )
+    monkeypatch.setattr(stage_suite, "_disarm_bff_guarded", contain_logout_failure)
+    monkeypatch.setattr(stage_suite, "_run_write_browser", run_browser)
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_activation_restoration_failed",
+    ) as exc_info:
+        stage_suite._run_local_write_activation_authenticated(
+            context,
+            client,
+            "token",
+            {"login": "accepted"},
+            verifier=object(),
+        )
+
+    assert exc_info.value.restoration["failed_gate"] == "frontend_restore_failed"
+    assert exc_info.value.restoration["bff_disarm"]["stopped"] is True
+    assert exc_info.value.restoration["scheduler_restored"] is True
+
+
+def test_write_activation_body_restores_dark_after_browser_failure(
+    tmp_path, monkeypatch
+):
+    context = _write_ui_context(tmp_path)
+    events = []
+    client = _ScriptedClient(
+        [
+            _FakeResponse(
+                200,
+                {"subject": "operator-1", "effective_roles": ["operator"]},
+            ),
+            _FakeResponse(503, {"detail": "planning_depth_writes_disabled"}),
+            _FakeResponse(503, {"detail": "planning_depth_writes_disabled"}),
+        ]
+    )
+    _patch_write_activation_body(monkeypatch, context, events, client)
+
+    def fail_browser(*_args, **_kwargs):
+        events.append("browser")
+        raise stage_suite.StageGateError("injected_browser_failure")
+
+    monkeypatch.setattr(stage_suite, "_run_write_browser", fail_browser)
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="injected_browser_failure",
+    ) as exc_info:
+        stage_suite._run_local_write_activation_authenticated(
+            context,
+            client,
+            "token",
+            {"login": "accepted"},
+            verifier=object(),
+        )
+
+    assert events == [
+        "rate:before",
+        "bff:True",
+        "frontend:armed",
+        "frontend:enter",
+        "browser",
+        "frontend:exit",
+        "frontend:dark",
+        "frontend:dark-enter",
+        "frontend:dark-browser",
+        "frontend:dark-exit",
+        "bff:False",
+        "reauth:1",
+        "revoke:1",
+        "scheduler:restore",
+    ]
+    assert exc_info.value.restoration == {
+        "frontend_dark_build": True,
+        "frontend_dark_rendered": True,
+        "frontend_dark_evidence": {"submit_absent": True},
+        "bff_disarm": {
+            "attempts": 1,
+            "dark": True,
+            "stopped": False,
+            "failed_gate": None,
+        },
+        "bff_dark": True,
+        "scheduler_restored": True,
+        "restored": True,
+        "failed_gate": None,
+        "rollback_operator_sessions": [
+            {
+                "login": {"status": 200, "claims": "valid"},
+                "principal": {"subject": "operator-1"},
+                "logout": {"accepted": True},
+                "refresh_revoked": {"revoked": True},
+                "probe_outcome": "accepted",
+            }
+        ],
+    }
+
+
+def _patch_fresh_write_activation_session(monkeypatch, *, subject="operator-1"):
+    client = _ScriptedClient(
+        [
+            _FakeResponse(
+                200,
+                {"subject": subject, "effective_roles": ["operator"]},
+            )
+        ]
+    )
+    cleanup = []
+    monkeypatch.setattr(stage_suite, "LocalHttpClient", lambda: client)
+    monkeypatch.setattr(
+        stage_suite,
+        "_login_operator",
+        lambda *_args: (
+            "fresh-access-token",
+            "fresh-refresh-token",
+            {"status": 200, "claims": "valid"},
+        ),
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_operator_logout",
+        lambda _client, refresh, *, strict, error_code: cleanup.append(
+            (refresh, strict, error_code)
+        ),
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_assert_operator_refresh_reuse_rejected",
+        lambda _client, refresh: cleanup.append(("reuse", refresh))
+        or {"refresh_reuse_status": 401, "revoked": True},
+    )
+    return client, cleanup
+
+
+def test_fresh_write_activation_operator_session_uses_and_revokes_new_session(
+    tmp_path, monkeypatch
+):
+    context = _write_ui_context(tmp_path)
+    client, cleanup = _patch_fresh_write_activation_session(monkeypatch)
+
+    with stage_suite._fresh_write_activation_operator_session(
+        context,
+        object(),
+        expected_subject="operator-1",
+    ) as (fresh_client, token, evidence):
+        assert fresh_client is client
+        assert token == "fresh-access-token"
+
+    assert evidence == {
+        "login": {"status": 200, "claims": "valid"},
+        "principal": {
+            "subject": "operator-1",
+            "effective_roles": ["operator"],
+        },
+        "logout": {"accepted": True},
+        "refresh_revoked": {"refresh_reuse_status": 401, "revoked": True},
+    }
+    assert cleanup == [
+        (
+            "fresh-refresh-token",
+            True,
+            "write_activation_fresh_operator_logout_failed",
+        ),
+        ("reuse", "fresh-refresh-token"),
+    ]
+
+
+def test_fresh_write_activation_operator_session_preserves_operation_failure(
+    tmp_path, monkeypatch
+):
+    context = _write_ui_context(tmp_path)
+    _client, cleanup = _patch_fresh_write_activation_session(monkeypatch)
+
+    evidence = None
+    with pytest.raises(stage_suite.StageGateError, match="injected_fresh_operation"):
+        with stage_suite._fresh_write_activation_operator_session(
+            context,
+            object(),
+            expected_subject="operator-1",
+        ) as (_fresh_client, _token, evidence):
+            raise stage_suite.StageGateError("injected_fresh_operation")
+
+    assert evidence["logout"] == {"accepted": True}
+    assert evidence["refresh_revoked"] == {
+        "refresh_reuse_status": 401,
+        "revoked": True,
+    }
+    assert cleanup == [
+        (
+            "fresh-refresh-token",
+            False,
+            "write_activation_fresh_operator_logout_failed",
+        ),
+        ("reuse", "fresh-refresh-token"),
+    ]
+
+
+def test_fresh_write_activation_operator_session_rejects_subject_drift_and_cleans_up(
+    tmp_path, monkeypatch
+):
+    context = _write_ui_context(tmp_path)
+    _client, cleanup = _patch_fresh_write_activation_session(
+        monkeypatch,
+        subject="different-operator",
+    )
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_activation_operator_subject_changed",
+    ):
+        with stage_suite._fresh_write_activation_operator_session(
+            context,
+            object(),
+            expected_subject="operator-1",
+        ):
+            pytest.fail("session yielded after subject drift")
+
+    assert cleanup == [
+        (
+            "fresh-refresh-token",
+            False,
+            "write_activation_fresh_operator_logout_failed",
+        ),
+        ("reuse", "fresh-refresh-token"),
+    ]
+
+
+@pytest.mark.parametrize("failed_cleanup_leg", ("logout", "reuse"))
+def test_fresh_write_activation_operator_session_rejects_unproved_cleanup(
+    tmp_path, monkeypatch, failed_cleanup_leg
+):
+    context = _write_ui_context(tmp_path)
+    _client, _cleanup = _patch_fresh_write_activation_session(monkeypatch)
+    calls = []
+    primary = stage_suite.StageGateError("injected_fresh_operation")
+
+    def logout(_client, refresh, *, strict, error_code):
+        calls.append(("logout", refresh, strict, error_code))
+        if failed_cleanup_leg == "logout":
+            raise stage_suite.StageGateError("logout_not_accepted")
+
+    def prove_reuse(_client, refresh):
+        calls.append(("reuse", refresh))
+        if failed_cleanup_leg == "reuse":
+            raise stage_suite.StageGateError("refresh_reuse_not_rejected")
+        return {"refresh_reuse_status": 401, "revoked": True}
+
+    monkeypatch.setattr(stage_suite, "_operator_logout", logout)
+    monkeypatch.setattr(
+        stage_suite,
+        "_assert_operator_refresh_reuse_rejected",
+        prove_reuse,
+    )
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_activation_fresh_operator_cleanup_unproved",
+    ) as exc_info:
+        with stage_suite._fresh_write_activation_operator_session(
+            context,
+            object(),
+            expected_subject="operator-1",
+        ):
+            raise primary
+
+    assert exc_info.value.__cause__ is primary
+    assert [call[0] for call in calls] == ["logout", "reuse"]
+
+
+def test_fresh_write_activation_operator_session_cleans_accepted_login_failure(
+    tmp_path, monkeypatch
+):
+    context = _write_ui_context(tmp_path)
+    cleanup = []
+
+    class AcceptedLoginClient:
+        def refresh_cookie(self):
+            return "accepted-refresh-token"
+
+    monkeypatch.setattr(stage_suite, "LocalHttpClient", AcceptedLoginClient)
+    monkeypatch.setattr(
+        stage_suite,
+        "_login_operator",
+        lambda *_args: (_ for _ in ()).throw(
+            stage_suite.StageGateError("operator_login_not_accepted")
+        ),
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_operator_logout",
+        lambda _client, refresh, *, strict, error_code: cleanup.append(
+            (refresh, strict, error_code)
+        ),
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_assert_operator_refresh_reuse_rejected",
+        lambda _client, refresh: cleanup.append(("reuse", refresh))
+        or {"refresh_reuse_status": 401, "revoked": True},
+    )
+
+    with pytest.raises(stage_suite.StageGateError, match="operator_login_not_accepted"):
+        with stage_suite._fresh_write_activation_operator_session(
+            context,
+            object(),
+            expected_subject="operator-1",
+        ):
+            pytest.fail("session yielded after invalid login")
+
+    assert cleanup == [
+        (
+            "accepted-refresh-token",
+            False,
+            "write_activation_fresh_operator_logout_failed",
+        ),
+        ("reuse", "accepted-refresh-token"),
+    ]
+
+
+@pytest.mark.parametrize("failure_phase", ("login", "principal"))
+def test_fresh_write_activation_operator_session_attaches_proved_preyield_record(
+    tmp_path, monkeypatch, failure_phase
+):
+    context = _write_ui_context(tmp_path)
+
+    class AcceptedSessionClient:
+        def request(self, *_args, **_kwargs):
+            return _FakeResponse(
+                200,
+                {"subject": "different-operator", "effective_roles": ["operator"]},
+            )
+
+        def refresh_cookie(self):
+            return "accepted-refresh-token"
+
+    primary = stage_suite.StageGateError("operator_login_not_accepted")
+    monkeypatch.setattr(stage_suite, "LocalHttpClient", AcceptedSessionClient)
+    if failure_phase == "login":
+        monkeypatch.setattr(
+            stage_suite,
+            "_login_operator",
+            lambda *_args: (_ for _ in ()).throw(primary),
+        )
+    else:
+        monkeypatch.setattr(
+            stage_suite,
+            "_login_operator",
+            lambda *_args: (
+                "fresh-access-token",
+                "accepted-refresh-token",
+                {"status": 200, "claims": "valid"},
+            ),
+        )
+    monkeypatch.setattr(stage_suite, "_operator_logout", lambda *_a, **_k: True)
+    monkeypatch.setattr(
+        stage_suite,
+        "_assert_operator_refresh_reuse_rejected",
+        lambda *_args: {"refresh_reuse_status": 401, "revoked": True},
+    )
+
+    with pytest.raises(stage_suite.StageGateError) as exc_info:
+        with stage_suite._fresh_write_activation_operator_session(
+            context,
+            object(),
+            expected_subject="operator-1",
+        ):
+            pytest.fail("pre-yield failure reached the operation body")
+
+    expected = {
+        "phase": failure_phase,
+        "probe_outcome": "not_started",
+        "failed_gate": (
+            "operator_login_not_accepted"
+            if failure_phase == "login"
+            else "write_activation_operator_subject_changed"
+        ),
+        "logout": {"accepted": True},
+        "refresh_revoked": {"refresh_reuse_status": 401, "revoked": True},
+    }
+    if failure_phase == "principal":
+        expected.update(
+            {
+                "login": {"status": 200, "claims": "valid"},
+                "principal": {
+                    "subject": "different-operator",
+                    "effective_roles": ["operator"],
+                },
+            }
+        )
+    assert exc_info.value.rollback_session_record == expected
+
+
+@pytest.mark.parametrize("interrupt_type", (KeyboardInterrupt, SystemExit))
+@pytest.mark.parametrize("interrupt_phase", ("operation", "logout", "reuse"))
+def test_write_activation_restoration_preserves_interrupt_after_failed_session_cleanup(
+    tmp_path, monkeypatch, interrupt_type, interrupt_phase
+):
+    context = _write_ui_context(tmp_path)
+    _client, _cleanup = _patch_fresh_write_activation_session(monkeypatch)
+    events = []
+    pending_interrupt = interrupt_type(f"injected_{interrupt_phase}_interrupt")
+
+    def logout(_client, _refresh, *, strict, error_code):
+        events.append("logout")
+        if interrupt_phase == "logout":
+            raise pending_interrupt
+        return interrupt_phase != "operation"
+
+    def prove_reuse(_client, _refresh):
+        events.append("reuse")
+        if interrupt_phase == "reuse":
+            raise pending_interrupt
+        return {"refresh_reuse_status": 401, "revoked": True}
+
+    @contextmanager
+    def dark_server(*_args, **_kwargs):
+        yield
+
+    def behavioral_probe():
+        with stage_suite._fresh_write_activation_operator_session(
+            context,
+            object(),
+            expected_subject="operator-1",
+        ):
+            if interrupt_phase == "operation":
+                raise pending_interrupt
+
+    monkeypatch.setattr(stage_suite, "_operator_logout", logout)
+    monkeypatch.setattr(
+        stage_suite,
+        "_assert_operator_refresh_reuse_rejected",
+        prove_reuse,
+    )
+    monkeypatch.setattr(stage_suite, "_build_frontend", lambda *_a, **_k: {})
+    monkeypatch.setattr(stage_suite, "_frontend_server", dark_server)
+    monkeypatch.setattr(
+        stage_suite,
+        "_run_write_dark_browser",
+        lambda _context: {"submit_absent": True},
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_restart_bff_with_flag",
+        lambda *_a, **_k: events.append("bff-restart"),
+    )
+    monkeypatch.setattr(stage_suite, "_verify_bff_write_flag_dark", lambda: None)
+    monkeypatch.setattr(
+        stage_suite,
+        "_run_checked",
+        lambda *_a, **_k: events.append("bff-stop") or "",
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_verify_bff_fail_safe_stopped",
+        lambda: events.append("bff-stop-verified"),
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_restore_scheduler_guarded",
+        lambda: events.append("scheduler-restored")
+        or {"attempts": 1, "restored": True, "failed_gate": None},
+    )
+
+    with pytest.raises(interrupt_type) as exc_info:
+        stage_suite._restore_write_activation_dark(
+            context,
+            bff_dark_probe=behavioral_probe,
+        )
+
+    assert exc_info.value is pending_interrupt
+    assert exc_info.value.session_cleanup == {
+        "logout_attempted": True,
+        "refresh_reuse_attempted": True,
+        "proved": False,
+    }
+    assert exc_info.value.restoration["bff_disarm"]["stopped"] is True
+    assert exc_info.value.restoration["scheduler_restored"] is True
+    assert events.count("logout") == 1
+    assert events.count("reuse") == 1
+    assert events[-3:] == ["bff-stop", "bff-stop-verified", "scheduler-restored"]
+
+
+@pytest.mark.parametrize("interrupt_type", (KeyboardInterrupt, SystemExit))
+@pytest.mark.parametrize("cleanup_proved", (True, False))
+def test_authenticated_write_activation_rollback_never_masks_operation_interrupt(
+    tmp_path, monkeypatch, interrupt_type, cleanup_proved
+):
+    context = _write_ui_context(tmp_path)
+    events = []
+    pending_interrupt = interrupt_type("injected_behavioral_interrupt")
+    initial_client = _ScriptedClient(
+        [
+            _FakeResponse(
+                200,
+                {"subject": "operator-1", "effective_roles": ["operator"]},
+            ),
+            _FakeResponse(503, {"detail": "planning_depth_writes_disabled"}),
+        ]
+    )
+    real_disarm = stage_suite._disarm_bff_guarded
+    real_fresh_session = stage_suite._fresh_write_activation_operator_session
+    _patch_write_activation_body(
+        monkeypatch,
+        context,
+        events,
+        initial_client,
+    )
+    monkeypatch.setattr(stage_suite, "_disarm_bff_guarded", real_disarm)
+    monkeypatch.setattr(
+        stage_suite,
+        "_fresh_write_activation_operator_session",
+        real_fresh_session,
+    )
+
+    class InterruptingFreshClient:
+        def __init__(self):
+            self.request_count = 0
+
+        def request(self, *_args, **_kwargs):
+            self.request_count += 1
+            if self.request_count == 1:
+                return _FakeResponse(
+                    200,
+                    {"subject": "operator-1", "effective_roles": ["operator"]},
+                )
+            raise pending_interrupt
+
+        def refresh_cookie(self):
+            return "fresh-refresh-token"
+
+    fresh_login_count = [0]
+
+    def login(*_args):
+        fresh_login_count[0] += 1
+        return (
+            f"fresh-token-{fresh_login_count[0]}",
+            "fresh-refresh-token",
+            {"status": 200, "claims": "valid"},
+        )
+
+    def run_browser(*_args, healthy_boundary_probe=None, **_kwargs):
+        if healthy_boundary_probe is not None:
+            healthy_boundary_probe()
+        return _write_browser_evidence()
+
+    monkeypatch.setattr(stage_suite, "LocalHttpClient", InterruptingFreshClient)
+    monkeypatch.setattr(stage_suite, "_login_operator", login)
+    monkeypatch.setattr(
+        stage_suite,
+        "_operator_logout",
+        lambda *_args, **_kwargs: events.append("logout") or cleanup_proved,
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_assert_operator_refresh_reuse_rejected",
+        lambda *_args: events.append("reuse")
+        or {"refresh_reuse_status": 401, "revoked": True},
+    )
+    monkeypatch.setattr(stage_suite, "_run_write_browser", run_browser)
+    monkeypatch.setattr(stage_suite, "_verify_bff_write_flag_dark", lambda: None)
+    monkeypatch.setattr(stage_suite.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        stage_suite,
+        "_run_checked",
+        lambda *_args, **_kwargs: events.append("bff-stop") or "",
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_verify_bff_fail_safe_stopped",
+        lambda: events.append("bff-stop-verified"),
+    )
+
+    with pytest.raises(interrupt_type) as exc_info:
+        stage_suite._run_local_write_activation_authenticated(
+            context,
+            initial_client,
+            "token",
+            {"login": "accepted"},
+            verifier=object(),
+        )
+
+    assert exc_info.value is pending_interrupt
+    assert fresh_login_count == [1]
+    assert exc_info.value.restoration["bff_disarm"]["stopped"] is True
+    assert exc_info.value.restoration["scheduler_restored"] is True
+    if cleanup_proved:
+        assert exc_info.value.restoration["rollback_operator_sessions"] == [
+            {
+                "login": {"status": 200, "claims": "valid"},
+                "principal": {
+                    "subject": "operator-1",
+                    "effective_roles": ["operator"],
+                },
+                "logout": {"accepted": True},
+                "refresh_revoked": {
+                    "refresh_reuse_status": 401,
+                    "revoked": True,
+                },
+                "probe_outcome": "interrupted",
+                "failed_gate": f"unexpected_{interrupt_type.__name__}",
+            }
+        ]
+    else:
+        assert exc_info.value.session_cleanup["proved"] is False
+        assert exc_info.value.restoration["rollback_operator_sessions"] == []
+    assert events.count("logout") == 1
+    assert events.count("reuse") == 1
+    assert events[-3:] == ["bff-stop", "bff-stop-verified", "scheduler:restore"]
+
+
+def test_write_activation_reauth_failure_still_runs_fail_safe_restoration(
+    tmp_path, monkeypatch
+):
+    context = _write_ui_context(tmp_path)
+    events = []
+    client = _ScriptedClient(
+        [
+            _FakeResponse(
+                200,
+                {"subject": "operator-1", "effective_roles": ["operator"]},
+            ),
+            _FakeResponse(503, {"detail": "planning_depth_writes_disabled"}),
+        ]
+    )
+    _patch_write_activation_body(monkeypatch, context, events, client)
+
+    def run_browser(*_args, healthy_boundary_probe=None, **_kwargs):
+        if healthy_boundary_probe is not None:
+            healthy_boundary_probe()
+        return _write_browser_evidence()
+
+    @contextmanager
+    def fail_fresh_session(*_args, **_kwargs):
+        raise stage_suite.StageGateError("write_activation_fresh_login_failed")
+        yield
+
+    monkeypatch.setattr(stage_suite, "_run_write_browser", run_browser)
+    monkeypatch.setattr(
+        stage_suite,
+        "_fresh_write_activation_operator_session",
+        fail_fresh_session,
+    )
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_activation_restoration_failed",
+    ) as exc_info:
+        stage_suite._run_local_write_activation_authenticated(
+            context,
+            client,
+            "token",
+            {"login": "accepted"},
+            verifier=object(),
+        )
+
+    assert "frontend:dark" in events
+    assert "bff:False" in events
+    assert "scheduler:restore" in events
+    assert exc_info.value.restoration["bff_dark"] is False
+    assert (
+        exc_info.value.restoration["failed_gate"]
+        == "write_activation_fresh_login_failed"
+    )
+
+
+def test_restore_write_activation_dark_attempts_bff_after_frontend_failure(
+    tmp_path, monkeypatch
+):
+    context = _write_ui_context(tmp_path)
+    calls = []
+
+    def fail_frontend(*_args, **_kwargs):
+        calls.append("frontend")
+        raise stage_suite.StageGateError("frontend_restore_failed")
+
+    monkeypatch.setattr(stage_suite, "_build_frontend", fail_frontend)
+    monkeypatch.setattr(
+        stage_suite,
+        "_frontend_server",
+        lambda *_args, **_kwargs: pytest.fail("dark server after failed build"),
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_disarm_bff_guarded",
+        lambda _context, *, behavioral_dark_probe: calls.append("bff:False")
+        or behavioral_dark_probe()
+        or {
+            "attempts": 1,
+            "dark": True,
+            "stopped": False,
+            "failed_gate": None,
+        },
+        raising=False,
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_restore_scheduler_guarded",
+        lambda: calls.append("scheduler")
+        or {"attempts": 1, "restored": True, "failed_gate": None},
+    )
+
+    assert stage_suite._restore_write_activation_dark(
+        context,
+        bff_dark_probe=lambda: None,
+    ) == {
+        "frontend_dark_build": False,
+        "frontend_dark_rendered": False,
+        "bff_disarm": {
+            "attempts": 1,
+            "dark": True,
+            "stopped": False,
+            "failed_gate": None,
+        },
+        "bff_dark": True,
+        "scheduler_restored": True,
+        "restored": False,
+        "failed_gate": "frontend_restore_failed",
+    }
+    assert calls == ["frontend", "bff:False", "scheduler"]
+
+
+def test_verify_bff_write_flag_dark_uses_actual_process_environment(monkeypatch):
+    calls = []
+    monkeypatch.setattr(stage_suite, "_pm2_json", lambda: "pm2-json")
+    monkeypatch.setattr(
+        stage_suite,
+        "_actual_gate_environment",
+        lambda pm2_json: calls.append(pm2_json)
+        or json.dumps(
+            [
+                {
+                    "name": "bff-water-planning",
+                    "pm2_env": {"env": {"PLANNING_DEPTH_WRITES_ENABLED": "false"}},
+                }
+            ]
+        ),
+    )
+
+    assert stage_suite._verify_bff_write_flag_dark() is None
+    assert calls == ["pm2-json"]
+
+
+@pytest.mark.parametrize("runtime_value", ("true", None))
+def test_verify_bff_write_flag_dark_rejects_armed_or_unverifiable_runtime(
+    monkeypatch, runtime_value
+):
+    environment = {}
+    if runtime_value is not None:
+        environment["PLANNING_DEPTH_WRITES_ENABLED"] = runtime_value
+    monkeypatch.setattr(stage_suite, "_pm2_json", lambda: "pm2-json")
+    monkeypatch.setattr(
+        stage_suite,
+        "_actual_gate_environment",
+        lambda _pm2_json: json.dumps(
+            [
+                {
+                    "name": "bff-water-planning",
+                    "pm2_env": {"env": environment},
+                }
+            ]
+        ),
+    )
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_activation_bff_still_armed",
+    ):
+        stage_suite._verify_bff_write_flag_dark()
+
+
+def test_verify_bff_write_flag_dark_rejects_missing_running_bff(monkeypatch):
+    monkeypatch.setattr(stage_suite, "_pm2_json", lambda: "pm2-json")
+    monkeypatch.setattr(
+        stage_suite,
+        "_actual_gate_environment",
+        lambda _pm2_json: "[]",
+    )
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_activation_bff_still_armed",
+    ):
+        stage_suite._verify_bff_write_flag_dark()
+
+
+def test_disarm_bff_guarded_marks_dark_only_after_runtime_verification(
+    tmp_path, monkeypatch
+):
+    context = _write_ui_context(tmp_path)
+    calls = []
+    monkeypatch.setattr(
+        stage_suite,
+        "_restart_bff_with_flag",
+        lambda _context, *, enabled: calls.append(f"restart:{enabled}"),
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_verify_bff_write_flag_dark",
+        lambda: calls.append("verify"),
+        raising=False,
+    )
+
+    assert stage_suite._disarm_bff_guarded(
+        context,
+        behavioral_dark_probe=lambda: calls.append("behavior"),
+    ) == {
+        "attempts": 1,
+        "dark": True,
+        "stopped": False,
+        "failed_gate": None,
+    }
+    assert calls == ["restart:False", "verify", "behavior"]
+
+
+def test_disarm_bff_guarded_stops_process_when_runtime_flag_stays_armed(
+    tmp_path, monkeypatch
+):
+    context = _write_ui_context(tmp_path)
+    calls = []
+    monkeypatch.setattr(
+        stage_suite,
+        "_restart_bff_with_flag",
+        lambda _context, *, enabled: calls.append(f"restart:{enabled}"),
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_verify_bff_write_flag_dark",
+        lambda: (_ for _ in ()).throw(
+            stage_suite.StageGateError("write_activation_bff_still_armed")
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(stage_suite.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        stage_suite,
+        "_run_checked",
+        lambda label, command, **_kwargs: calls.append((label, command)) or "",
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_verify_bff_fail_safe_stopped",
+        lambda: calls.append("verify-stopped"),
+        raising=False,
+    )
+
+    result = stage_suite._disarm_bff_guarded(
+        context,
+        behavioral_dark_probe=lambda: pytest.fail(
+            "behavioral probe after failed process verification"
+        ),
+        attempts=2,
+    )
+
+    assert result == {
+        "attempts": 2,
+        "dark": False,
+        "stopped": True,
+        "failed_gate": "write_activation_bff_still_armed",
+    }
+    assert calls[:2] == ["restart:False", "restart:False"]
+    assert calls[2] == (
+        "write_activation_bff_fail_safe_stop",
+        stage_suite._pm2_command("stop", "bff-water-planning"),
+    )
+    assert calls[3] == "verify-stopped"
+
+
+def test_disarm_bff_guarded_stops_after_behavioral_darkness_failure(
+    tmp_path, monkeypatch
+):
+    context = _write_ui_context(tmp_path)
+    calls = []
+    monkeypatch.setattr(
+        stage_suite,
+        "_restart_bff_with_flag",
+        lambda _context, *, enabled: calls.append(f"restart:{enabled}"),
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_verify_bff_write_flag_dark",
+        lambda: calls.append("verify-env"),
+    )
+
+    def reject_behavioral_darkness():
+        calls.append("verify-behavior")
+        raise stage_suite.StageGateError("write_activation_bff_behavior_still_armed")
+
+    monkeypatch.setattr(stage_suite.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        stage_suite,
+        "_run_checked",
+        lambda label, command, **_kwargs: calls.append((label, command)) or "",
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_verify_bff_fail_safe_stopped",
+        lambda: calls.append("verify-stopped"),
+        raising=False,
+    )
+
+    assert stage_suite._disarm_bff_guarded(
+        context,
+        behavioral_dark_probe=reject_behavioral_darkness,
+        attempts=2,
+    ) == {
+        "attempts": 2,
+        "dark": False,
+        "stopped": True,
+        "failed_gate": "write_activation_bff_behavior_still_armed",
+    }
+    assert calls == [
+        "restart:False",
+        "verify-env",
+        "verify-behavior",
+        "restart:False",
+        "verify-env",
+        "verify-behavior",
+        (
+            "write_activation_bff_fail_safe_stop",
+            stage_suite._pm2_command("stop", "bff-water-planning"),
+        ),
+        "verify-stopped",
+    ]
+
+
+def test_disarm_bff_guarded_does_not_trust_an_unverified_stop(tmp_path, monkeypatch):
+    context = _write_ui_context(tmp_path)
+    monkeypatch.setattr(
+        stage_suite,
+        "_restart_bff_with_flag",
+        lambda _context, *, enabled: None,
+    )
+    monkeypatch.setattr(stage_suite, "_verify_bff_write_flag_dark", lambda: None)
+    monkeypatch.setattr(stage_suite, "_run_checked", lambda *_args, **_kwargs: "")
+    monkeypatch.setattr(
+        stage_suite,
+        "_verify_bff_fail_safe_stopped",
+        lambda: (_ for _ in ()).throw(
+            stage_suite.StageGateError("write_activation_bff_stop_not_verified")
+        ),
+        raising=False,
+    )
+
+    def reject_behavioral_darkness():
+        raise stage_suite.StageGateError("write_activation_bff_behavior_still_armed")
+
+    assert stage_suite._disarm_bff_guarded(
+        context,
+        behavioral_dark_probe=reject_behavioral_darkness,
+        attempts=1,
+    ) == {
+        "attempts": 1,
+        "dark": False,
+        "stopped": False,
+        "failed_gate": "write_activation_bff_behavior_still_armed",
+    }
+
+
+def test_verify_bff_fail_safe_stopped_rejects_a_still_online_process(monkeypatch):
+    monkeypatch.setattr(stage_suite, "_pm2_json", lambda: "pm2-json")
+    monkeypatch.setattr(
+        stage_suite,
+        "project_pm2_state",
+        lambda _value: [
+            {
+                "name": "bff-water-planning",
+                "status": "online",
+                "restarts": 0,
+                "pid": 123,
+                "memory_bytes": 1,
+                "cpu_percent": 0,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_listener_snapshot",
+        lambda: [{"address": "127.0.0.1", "port": 3022}],
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "urlopen",
+        lambda *_args, **_kwargs: pytest.fail("readiness after online PM2 verdict"),
+    )
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_activation_bff_stop_not_verified",
+    ):
+        stage_suite._verify_bff_fail_safe_stopped()
+
+
+def _fail_safe_pm2_inventory(*bff_entries):
+    return [
+        {
+            "name": name,
+            "status": "online",
+            "restarts": 0,
+            "pid": index + 100,
+            "memory_bytes": 1,
+            "cpu_percent": 0,
+        }
+        for index, name in enumerate(stage_suite.PROCESS_NAMES)
+        if name != "bff-water-planning"
+    ] + list(bff_entries)
+
+
+@pytest.mark.parametrize(
+    "bff_entries",
+    (
+        (),
+        ({"name": "bff-water-planning", "status": "launching"},),
+        ({"name": "bff-water-planning", "status": "stopping"},),
+        ({"name": "bff-water-planning", "status": "errored"},),
+        (
+            {"name": "bff-water-planning", "status": "stopped"},
+            {"name": "bff-water-planning", "status": "stopped"},
+        ),
+    ),
+)
+def test_verify_bff_fail_safe_stopped_rejects_nonterminal_or_duplicate_inventory(
+    monkeypatch, bff_entries
+):
+    monkeypatch.setattr(stage_suite, "_pm2_json", lambda: "pm2-json")
+    monkeypatch.setattr(
+        stage_suite,
+        "project_pm2_state",
+        lambda _value: _fail_safe_pm2_inventory(*bff_entries),
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_listener_snapshot",
+        lambda: pytest.fail("listener probe after invalid PM2 inventory"),
+    )
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_activation_bff_stop_not_verified",
+    ):
+        stage_suite._verify_bff_fail_safe_stopped()
+
+
+def test_verify_bff_fail_safe_stopped_rejects_a_restart_during_quiet_period(
+    monkeypatch,
+):
+    pm2_observations = iter(
+        (
+            _fail_safe_pm2_inventory(
+                {"name": "bff-water-planning", "status": "stopped"}
+            ),
+            _fail_safe_pm2_inventory(
+                {"name": "bff-water-planning", "status": "online"}
+            ),
+        )
+    )
+    monkeypatch.setattr(stage_suite, "_pm2_json", lambda: "pm2-json")
+    monkeypatch.setattr(
+        stage_suite,
+        "project_pm2_state",
+        lambda _value: next(pm2_observations),
+    )
+    monkeypatch.setattr(stage_suite, "_listener_snapshot", lambda: [])
+    monkeypatch.setattr(
+        stage_suite,
+        "urlopen",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            stage_suite.URLError(ConnectionRefusedError())
+        ),
+    )
+    monkeypatch.setattr(stage_suite.time, "sleep", lambda _seconds: None)
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_activation_bff_stop_not_verified",
+    ):
+        stage_suite._verify_bff_fail_safe_stopped()
+
+
+def test_verify_bff_fail_safe_stopped_requires_three_quiet_terminal_samples(
+    monkeypatch,
+):
+    observations = []
+    monkeypatch.setattr(
+        stage_suite,
+        "_pm2_json",
+        lambda: observations.append("pm2") or "pm2-json",
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "project_pm2_state",
+        lambda _value: _fail_safe_pm2_inventory(
+            {"name": "bff-water-planning", "status": "stopped"}
+        ),
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_listener_snapshot",
+        lambda: observations.append("listeners") or [],
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "urlopen",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            stage_suite.URLError(ConnectionRefusedError())
+        ),
+    )
+    monkeypatch.setattr(
+        stage_suite.time,
+        "sleep",
+        lambda seconds: observations.append(f"sleep:{seconds}"),
+    )
+
+    stage_suite._verify_bff_fail_safe_stopped()
+
+    assert observations == [
+        "pm2",
+        "listeners",
+        "sleep:1.0",
+        "pm2",
+        "listeners",
+        "sleep:1.0",
+        "pm2",
+        "listeners",
+    ]
+
+
+def test_disarm_bff_guarded_accepts_a_later_verified_retry(tmp_path, monkeypatch):
+    context = _write_ui_context(tmp_path)
+    calls = []
+    verdicts = iter((False, True))
+
+    monkeypatch.setattr(
+        stage_suite,
+        "_restart_bff_with_flag",
+        lambda _context, *, enabled: calls.append(f"restart:{enabled}"),
+    )
+
+    def verify():
+        calls.append("verify")
+        if next(verdicts) is False:
+            raise stage_suite.StageGateError("write_activation_bff_still_armed")
+
+    monkeypatch.setattr(
+        stage_suite,
+        "_verify_bff_write_flag_dark",
+        verify,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        stage_suite.time, "sleep", lambda _seconds: calls.append("sleep")
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_run_checked",
+        lambda *_args, **_kwargs: pytest.fail("fail-safe stop after verified retry"),
+    )
+
+    assert stage_suite._disarm_bff_guarded(
+        context,
+        behavioral_dark_probe=lambda: calls.append("behavior"),
+        attempts=2,
+    ) == {
+        "attempts": 2,
+        "dark": True,
+        "stopped": False,
+        "failed_gate": None,
+    }
+    assert calls == [
+        "restart:False",
+        "verify",
+        "sleep",
+        "restart:False",
+        "verify",
+        "behavior",
+    ]
+
+
+@pytest.mark.parametrize(
+    "sticky_error_code",
+    (
+        "write_activation_fresh_operator_cleanup_unproved",
+        "write_activation_rollback_session_evidence_incomplete",
+    ),
+)
+def test_disarm_bff_guarded_cannot_clear_unproved_session_cleanup(
+    tmp_path, monkeypatch, sticky_error_code
+):
+    context = _write_ui_context(tmp_path)
+    calls = []
+    probe_attempts = [0]
+
+    monkeypatch.setattr(
+        stage_suite,
+        "_restart_bff_with_flag",
+        lambda _context, *, enabled: calls.append(f"restart:{enabled}"),
+    )
+    monkeypatch.setattr(stage_suite, "_verify_bff_write_flag_dark", lambda: None)
+    monkeypatch.setattr(stage_suite.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        stage_suite,
+        "_run_checked",
+        lambda *_args, **_kwargs: calls.append("fail-safe-stop") or "",
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_verify_bff_fail_safe_stopped",
+        lambda: calls.append("stop-verified"),
+    )
+
+    def behavioral_probe():
+        probe_attempts[0] += 1
+        if probe_attempts[0] == 1:
+            raise stage_suite.StageGateError(sticky_error_code)
+        calls.append("later-dark-proof")
+
+    report = stage_suite._disarm_bff_guarded(
+        context,
+        behavioral_dark_probe=behavioral_probe,
+        attempts=3,
+        backoff_seconds=0,
+    )
+
+    assert report["dark"] is False
+    assert report["stopped"] is True
+    assert report["failed_gate"] == sticky_error_code
+    assert "later-dark-proof" not in calls
+    assert calls[-2:] == ["fail-safe-stop", "stop-verified"]
+
+
+def test_restore_write_activation_dark_reports_fail_safe_stop_and_runs_scheduler(
+    tmp_path, monkeypatch
+):
+    context = _write_ui_context(tmp_path)
+    calls = []
+    disarm_report = {
+        "attempts": 3,
+        "dark": False,
+        "stopped": True,
+        "failed_gate": "write_activation_bff_still_armed",
+    }
+    monkeypatch.setattr(stage_suite, "_build_frontend", lambda *_args, **_kwargs: None)
+
+    class DarkServer:
+        def __enter__(self):
+            return None
+
+        def __exit__(self, *_args):
+            return None
+
+    monkeypatch.setattr(
+        stage_suite, "_frontend_server", lambda *_args, **_kwargs: DarkServer()
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_run_write_dark_browser",
+        lambda _context: {"submit_absent": True},
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_disarm_bff_guarded",
+        lambda _context, *, behavioral_dark_probe: calls.append("bff")
+        or behavioral_dark_probe()
+        or disarm_report,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_restore_scheduler_guarded",
+        lambda: calls.append("scheduler")
+        or {"attempts": 1, "restored": True, "failed_gate": None},
+    )
+
+    assert stage_suite._restore_write_activation_dark(
+        context,
+        bff_dark_probe=lambda: None,
+    ) == {
+        "frontend_dark_build": True,
+        "frontend_dark_rendered": True,
+        "frontend_dark_evidence": {"submit_absent": True},
+        "bff_disarm": disarm_report,
+        "bff_dark": False,
+        "scheduler_restored": True,
+        "restored": False,
+        "failed_gate": "write_activation_bff_still_armed",
+    }
+    assert calls == ["bff", "scheduler"]
+
+
+@pytest.mark.parametrize("interrupt_leg", ("frontend", "bff"))
+def test_restore_write_activation_dark_defers_interrupt_until_all_legs_attempted(
+    tmp_path, monkeypatch, interrupt_leg
+):
+    context = _write_ui_context(tmp_path)
+    calls = []
+
+    def build(*_args, **_kwargs):
+        calls.append("frontend")
+        if interrupt_leg == "frontend":
+            raise KeyboardInterrupt
+
+    def disarm(_context, *, behavioral_dark_probe):
+        calls.append("bff:False")
+        if interrupt_leg == "bff":
+            raise KeyboardInterrupt
+        behavioral_dark_probe()
+        return {
+            "attempts": 1,
+            "dark": True,
+            "stopped": False,
+            "failed_gate": None,
+        }
+
+    class DarkServer:
+        def __enter__(self):
+            return None
+
+        def __exit__(self, *_args):
+            return None
+
+    monkeypatch.setattr(stage_suite, "_build_frontend", build)
+    monkeypatch.setattr(
+        stage_suite, "_frontend_server", lambda *_args, **_kwargs: DarkServer()
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_run_write_dark_browser",
+        lambda _context: {"submit_absent": True},
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_disarm_bff_guarded",
+        disarm,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_restore_scheduler_guarded",
+        lambda: calls.append("scheduler")
+        or {"attempts": 1, "restored": True, "failed_gate": None},
+    )
+
+    with pytest.raises(KeyboardInterrupt) as exc_info:
+        stage_suite._restore_write_activation_dark(
+            context,
+            bff_dark_probe=lambda: None,
+        )
+
+    assert calls == ["frontend", "bff:False", "scheduler"]
+    assert exc_info.value.restoration["scheduler_restored"] is True
+
+
+def test_verify_write_activation_restoration_rejects_listener_drift(
+    tmp_path, monkeypatch
+):
+    context = _write_ui_context(tmp_path)
+    monkeypatch.setattr(stage_suite, "_pm2_json", lambda: "pm2")
+    monkeypatch.setattr(
+        stage_suite,
+        "project_pm2_state",
+        lambda _value: [
+            {"name": name, "status": "online"} for name in stage_suite.PROCESS_NAMES
+        ],
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_actual_gate_environment",
+        lambda _value: "environment",
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "collect_dark_runtime_contract",
+        lambda _environment, _release: {"dark": True},
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_listener_snapshot",
+        lambda: [{"address": "127.0.0.1", "port": 9999}],
+    )
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_activation_listener_restoration_failed",
+    ):
+        stage_suite._verify_write_activation_restoration(
+            context,
+            before_dark={"dark": True},
+            model_release={"commandable": False},
+            before_listeners=[],
+        )
+
+
+@pytest.mark.parametrize(
+    "extra_process",
+    (
+        {"name": "unexpected-water-process", "status": "online"},
+        {"name": stage_suite.PROCESS_NAMES[0], "status": "stopped"},
+    ),
+)
+def test_verify_write_activation_restoration_rejects_non_exact_pm2_inventory(
+    tmp_path, monkeypatch, extra_process
+):
+    context = _write_ui_context(tmp_path)
+    expected_dark = {"dark": True}
+    expected_gates = {
+        "control_plan_reads": False,
+        "control_plan_evidence_reads": False,
+        "water_planning_v2": False,
+        "water_planning_submit": False,
+    }
+    monkeypatch.setattr(stage_suite, "_pm2_json", lambda: "pm2")
+    monkeypatch.setattr(
+        stage_suite,
+        "project_pm2_state",
+        lambda _value: [
+            {"name": name, "status": "online"} for name in stage_suite.PROCESS_NAMES
+        ]
+        + [extra_process],
+    )
+    monkeypatch.setattr(
+        stage_suite, "_actual_gate_environment", lambda _value: "environment"
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "collect_dark_runtime_contract",
+        lambda _environment, _release: expected_dark,
+    )
+    monkeypatch.setattr(stage_suite, "_listener_snapshot", lambda: [])
+    monkeypatch.setattr(
+        stage_suite, "frontend_process_environment", lambda *_args, **_kwargs: {}
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "project_frontend_activation_gates",
+        lambda _environment: expected_gates,
+    )
+    monkeypatch.setattr(stage_suite, "_readiness_snapshot", lambda: {})
+    monkeypatch.setattr(stage_suite, "_verify_frontend_source", lambda _context: {})
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_activation_process_restoration_failed",
+    ):
+        stage_suite._verify_write_activation_restoration(
+            context,
+            before_dark=expected_dark,
+            model_release={"commandable": False},
+            before_listeners=[],
+        )
+
+
+@pytest.mark.parametrize(
+    "mutate_readiness",
+    (
+        lambda readiness: readiness.pop(stage_suite.PROCESS_NAMES[0]),
+        lambda readiness: readiness.update(
+            {"unexpected-water-process": readiness[stage_suite.PROCESS_NAMES[0]]}
+        ),
+        lambda readiness: readiness[stage_suite.PROCESS_NAMES[0]].update(
+            {"status_code": 503}
+        ),
+        lambda readiness: readiness[stage_suite.PROCESS_NAMES[0]].update(
+            {"status": "not_ready"}
+        ),
+        lambda readiness: readiness[stage_suite.PROCESS_NAMES[0]].update(
+            {"checks": "not-a-dict"}
+        ),
+    ),
+)
+def test_verify_write_activation_restoration_rejects_invalid_readiness_evidence(
+    tmp_path, monkeypatch, mutate_readiness
+):
+    context = _write_ui_context(tmp_path)
+    expected_dark = {"dark": True}
+    expected_gates = {
+        "control_plan_reads": False,
+        "control_plan_evidence_reads": False,
+        "water_planning_v2": False,
+        "water_planning_submit": False,
+    }
+    readiness = {
+        name: {"status_code": 200, "status": "ready", "checks": {}}
+        for name in stage_suite.PROCESS_NAMES
+    }
+    mutate_readiness(readiness)
+    monkeypatch.setattr(stage_suite, "_pm2_json", lambda: "pm2")
+    monkeypatch.setattr(
+        stage_suite,
+        "project_pm2_state",
+        lambda _value: [
+            {"name": name, "status": "online"} for name in stage_suite.PROCESS_NAMES
+        ],
+    )
+    monkeypatch.setattr(
+        stage_suite, "_actual_gate_environment", lambda _value: "environment"
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "collect_dark_runtime_contract",
+        lambda _environment, _release: expected_dark,
+    )
+    monkeypatch.setattr(stage_suite, "_listener_snapshot", lambda: [])
+    monkeypatch.setattr(
+        stage_suite, "frontend_process_environment", lambda *_args, **_kwargs: {}
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "project_frontend_activation_gates",
+        lambda _environment: expected_gates,
+    )
+    monkeypatch.setattr(stage_suite, "_readiness_snapshot", lambda: readiness)
+    monkeypatch.setattr(stage_suite, "_verify_frontend_source", lambda _context: {})
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_activation_readiness_restoration_failed",
+    ):
+        stage_suite._verify_write_activation_restoration(
+            context,
+            before_dark=expected_dark,
+            model_release={"commandable": False},
+            before_listeners=[],
+        )
+
+
+def test_run_local_write_activation_clears_stale_browser_result_before_source_check(
+    tmp_path, monkeypatch
+):
+    context = _write_ui_context(tmp_path)
+    target = stage_suite._persist_write_browser_result(
+        context,
+        _write_browser_evidence(),
+        stage="LOCAL-WRITE-ACT-1",
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_load_state",
+        lambda _context: {"completed": list(stage_suite.STAGE_ORDER[:9])},
+    )
+
+    def stop_before_login(_context):
+        raise stage_suite.StageGateError("frontend_source_identity_stale")
+
+    monkeypatch.setattr(stage_suite, "_verify_frontend_source", stop_before_login)
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="frontend_source_identity_stale",
+    ):
+        stage_suite.run_local_write_activation(context)
+
+    assert not target.exists()
+    assert target.name not in stage_suite._read_checksum_index(
+        context.evidence_root / "SHA256SUMS"
+    )
+
+
+def test_run_local_write_activation_cleans_accepted_initial_login_failure(
+    tmp_path, monkeypatch
+):
+    context = _write_ui_context(tmp_path)
+    cleanup = []
+
+    class AcceptedLoginClient:
+        def refresh_cookie(self):
+            return "accepted-initial-refresh-token"
+
+    monkeypatch.setattr(
+        stage_suite,
+        "_load_state",
+        lambda _context: {"completed": list(stage_suite.STAGE_ORDER[:9])},
+    )
+    monkeypatch.setattr(stage_suite, "_verify_frontend_source", lambda _context: {})
+    monkeypatch.setattr(stage_suite, "_load_harness_module", lambda *_args: object())
+    monkeypatch.setattr(stage_suite, "LocalHttpClient", AcceptedLoginClient)
+    monkeypatch.setattr(
+        stage_suite,
+        "_login_operator",
+        lambda *_args: (_ for _ in ()).throw(
+            stage_suite.StageGateError("operator_login_not_accepted")
+        ),
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_operator_logout",
+        lambda _client, refresh, *, strict, error_code: cleanup.append(
+            (refresh, strict, error_code)
+        ),
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_assert_operator_refresh_reuse_rejected",
+        lambda _client, refresh: cleanup.append(("reuse", refresh))
+        or {"refresh_reuse_status": 401, "revoked": True},
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_run_local_write_activation_authenticated",
+        lambda *_args, **_kwargs: pytest.fail("authenticated body after failed login"),
+    )
+
+    with pytest.raises(stage_suite.StageGateError, match="operator_login_not_accepted"):
+        stage_suite.run_local_write_activation(context)
+
+    assert cleanup == [
+        (
+            "accepted-initial-refresh-token",
+            False,
+            "write_activation_operator_logout_failed",
+        ),
+        ("reuse", "accepted-initial-refresh-token"),
+    ]
+
+
+@pytest.mark.parametrize("failure_point", ("accepted_login", "post_login"))
+def test_run_local_write_activation_rejects_unproved_initial_session_cleanup(
+    tmp_path, monkeypatch, failure_point
+):
+    context = _write_ui_context(tmp_path)
+    cleanup = []
+    primary = stage_suite.StageGateError(f"injected_{failure_point}_failure")
+
+    class AcceptedLoginClient:
+        def refresh_cookie(self):
+            return "accepted-initial-refresh-token"
+
+    monkeypatch.setattr(
+        stage_suite,
+        "_load_state",
+        lambda _context: {"completed": list(stage_suite.STAGE_ORDER[:9])},
+    )
+    monkeypatch.setattr(stage_suite, "_verify_frontend_source", lambda _context: {})
+    monkeypatch.setattr(stage_suite, "_load_harness_module", lambda *_args: object())
+    monkeypatch.setattr(stage_suite, "LocalHttpClient", AcceptedLoginClient)
+    if failure_point == "accepted_login":
+        monkeypatch.setattr(
+            stage_suite,
+            "_login_operator",
+            lambda *_args: (_ for _ in ()).throw(primary),
+        )
+    else:
+        monkeypatch.setattr(
+            stage_suite,
+            "_login_operator",
+            lambda *_args: (
+                "access-token",
+                "accepted-initial-refresh-token",
+                {"login": "accepted"},
+            ),
+        )
+    monkeypatch.setattr(
+        stage_suite,
+        "_run_local_write_activation_authenticated",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(primary),
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_operator_logout",
+        lambda _client, refresh, *, strict, error_code: cleanup.append(
+            ("logout", refresh, strict, error_code)
+        )
+        or False,
+    )
+
+    def reject_reuse(_client, refresh):
+        cleanup.append(("reuse", refresh))
+        raise stage_suite.StageGateError("operator_refresh_reuse_not_rejected")
+
+    monkeypatch.setattr(
+        stage_suite,
+        "_assert_operator_refresh_reuse_rejected",
+        reject_reuse,
+    )
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_activation_initial_operator_cleanup_unproved",
+    ) as exc_info:
+        stage_suite.run_local_write_activation(context)
+
+    assert exc_info.value.__cause__ is primary
+    assert [call[0] for call in cleanup] == ["logout", "reuse"]
+
+
+def test_run_local_write_activation_preserves_post_login_failure_after_proved_cleanup(
+    tmp_path, monkeypatch
+):
+    context = _write_ui_context(tmp_path)
+    cleanup = []
+    primary = stage_suite.StageGateError("injected_post_login_failure")
+
+    monkeypatch.setattr(
+        stage_suite,
+        "_load_state",
+        lambda _context: {"completed": list(stage_suite.STAGE_ORDER[:9])},
+    )
+    monkeypatch.setattr(stage_suite, "_verify_frontend_source", lambda _context: {})
+    monkeypatch.setattr(stage_suite, "_load_harness_module", lambda *_args: object())
+    monkeypatch.setattr(stage_suite, "LocalHttpClient", object)
+    monkeypatch.setattr(
+        stage_suite,
+        "_login_operator",
+        lambda *_args: (
+            "access-token",
+            "accepted-initial-refresh-token",
+            {"login": "accepted"},
+        ),
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_run_local_write_activation_authenticated",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(primary),
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_operator_logout",
+        lambda _client, refresh, *, strict, error_code: cleanup.append(
+            ("logout", refresh, strict, error_code)
+        )
+        or True,
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_assert_operator_refresh_reuse_rejected",
+        lambda _client, refresh: cleanup.append(("reuse", refresh))
+        or {"refresh_reuse_status": 401, "revoked": True},
+    )
+
+    with pytest.raises(stage_suite.StageGateError) as exc_info:
+        stage_suite.run_local_write_activation(context)
+
+    assert exc_info.value is primary
+    assert [call[0] for call in cleanup] == ["logout", "reuse"]
+
+
+def test_run_local_write_activation_persists_manifest_and_full_state(
+    tmp_path, monkeypatch
+):
+    context = _write_ui_context(tmp_path)
+    client = _RecordingLogoutClient(status=200)
+    saved = []
+    authenticated_calls = []
+    verifier = object()
+    monkeypatch.setattr(
+        stage_suite,
+        "_load_state",
+        lambda _context: {"completed": list(stage_suite.STAGE_ORDER[:9])},
+    )
+    monkeypatch.setattr(stage_suite, "_verify_frontend_source", lambda _context: {})
+    monkeypatch.setattr(stage_suite, "_load_harness_module", lambda *_args: verifier)
+    monkeypatch.setattr(stage_suite, "LocalHttpClient", lambda: client)
+    monkeypatch.setattr(
+        stage_suite,
+        "_login_operator",
+        lambda *_args: ("token", "refresh-cookie", {"login": "accepted"}),
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_run_local_write_activation_authenticated",
+        lambda *args, **kwargs: authenticated_calls.append((args, kwargs))
+        or {"activation": "accepted"},
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_assert_operator_refresh_reuse_rejected",
+        lambda *_args: {"revoked": True},
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_save_state",
+        lambda _context, completed: saved.append(completed),
+    )
+
+    manifest = stage_suite.run_local_write_activation(context)
+
+    assert manifest["stage"] == "LOCAL-WRITE-ACT-1"
+    assert manifest["verdict"] == "PASS"
+    assert manifest["steps"] == {
+        "activation": "accepted",
+        "refresh_revoked": {"revoked": True},
+    }
+    assert saved == [list(stage_suite.STAGE_ORDER)]
+    assert client.logout_calls == [{"refreshToken": "refresh-cookie"}]
+    assert authenticated_calls[0][1] == {"verifier": verifier}
+    target = context.evidence_root / "LOCAL-WRITE-ACT-1.json"
+    assert json.loads(target.read_text(encoding="utf-8")) == manifest
+    stage_suite._verify_checksum_entry(target)
+
+
+def test_main_dispatches_write_activation_distinct_from_persist_only(
+    tmp_path, monkeypatch
+):
+    calls = []
+    args = SimpleNamespace(
+        stage="LOCAL-WRITE-ACT-1",
+        release_sha="8" * 40,
+        frontend_sha="9" * 40,
+        repo_root=tmp_path / "repo",
+        frontend_root=tmp_path / "frontend",
+        harness_root=tmp_path / "harness",
+        evidence_root=tmp_path / "evidence",
+        runtime_env_dir=tmp_path / "runtime",
+        as_of_date=date(2026, 8, 20),
+        execution_kind="canonical",
+        diagnostic=False,
+    )
+    monkeypatch.setattr(stage_suite, "_parse_args", lambda _argv: args)
+    monkeypatch.setattr(
+        stage_suite,
+        "run_local_write_activation",
+        lambda context: calls.append(("activation", context.as_of_date)),
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "run_local_persist_only",
+        lambda _context: pytest.fail(
+            "persist-only dispatch must not receive WRITE-ACT"
+        ),
+    )
+
+    assert stage_suite.main([]) == 0
+    assert calls == [("activation", date(2026, 8, 20))]
 
 
 # --- R1: receipt-bound persist-only diff ---
@@ -5284,6 +8228,225 @@ def test_validate_persist_only_diff_accepts_exact_two_receipt_bound_submissions(
         PERSIST_CORRECT_ID: PERSIST_CREATE_ID,
     }
     assert result["non_w2_tables_unchanged"] == len(PERSIST_NON_W2_DIGESTS)
+
+
+def _write_activation_valid_case():
+    before, after, _kwargs = _persist_only_valid_case()
+    browser = _write_browser_evidence()
+    create_request = browser["request_identity"]["create"]
+    correct_request = browser["request_identity"]["correct"]
+
+    def request_document(request):
+        value = {
+            "calendar_system": request["calendar_system"],
+            "levels": [
+                {
+                    "area_id": level["area_id"],
+                    "area_type": level["area_type"],
+                    "planning_depth_mm": f'{level["planning_depth_mm"]:.3f}',
+                }
+                for level in sorted(
+                    request["levels"],
+                    key=lambda level: (level["area_type"], level["area_id"]),
+                )
+            ],
+            "project_key": request["project_key"],
+            "schema_version": request["schema_version"],
+            "week_date": request["week_date"],
+            "week_key": request["week_key"],
+        }
+        return json.dumps(
+            value,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+
+    def expanded_sha(rows):
+        value = [
+            {
+                "planning_depth_mm": f'{row["planning_depth_mm"]:.3f}',
+                "section_id": row["section_id"],
+                "source_area_id": row["source_area_id"],
+                "source_kind": row["source_kind"],
+                "zone_id": row["zone_id"],
+            }
+            for row in sorted(rows, key=lambda row: row["section_id"])
+        ]
+        text = json.dumps(
+            value,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        return hashlib.sha256(text.encode()).hexdigest()
+
+    create_document = request_document(create_request)
+    correct_document = request_document(correct_request)
+    after["w2_submissions"][0].update(
+        {
+            "client_submission_id": create_request["client_submission_id"],
+            "request_document_text": create_document,
+            "request_sha256": hashlib.sha256(create_document.encode()).hexdigest(),
+        }
+    )
+    after["w2_submissions"][1].update(
+        {
+            "client_submission_id": correct_request["client_submission_id"],
+            "request_document_text": correct_document,
+            "request_sha256": hashlib.sha256(correct_document.encode()).hexdigest(),
+        }
+    )
+    after["w2_values"] = _persist_value_rows(
+        PERSIST_CREATE_ID, PERSIST_CREATE_DEPTHS
+    ) + _persist_value_rows(
+        PERSIST_CORRECT_ID,
+        {f"01-{zone:02d}": 260.0 + 10.0 * (zone - 1) for zone in range(1, 7)},
+    )
+    after["w2_submissions"][0]["expanded_sha256"] = expanded_sha(
+        [row for row in after["w2_values"] if row["submission_id"] == PERSIST_CREATE_ID]
+    )
+    after["w2_submissions"][1]["expanded_sha256"] = expanded_sha(
+        [
+            row
+            for row in after["w2_values"]
+            if row["submission_id"] == PERSIST_CORRECT_ID
+        ]
+    )
+    browser["create_result"]["submission_id"] = PERSIST_CREATE_ID
+    browser["active_readback"]["submission_id"] = PERSIST_CREATE_ID
+    browser["correct_result"]["submission_id"] = PERSIST_CORRECT_ID
+    browser["conflict_reconciliation"]["submission_id"] = PERSIST_CORRECT_ID
+    browser["request_identity"]["correct"][
+        "expected_active_submission_id"
+    ] = PERSIST_CREATE_ID
+    return before, after, browser
+
+
+def test_validate_write_activation_diff_accepts_exact_browser_mutations():
+    before, after, browser = _write_activation_valid_case()
+
+    result = stage_suite.validate_write_activation_diff(
+        before,
+        after,
+        browser_result=browser,
+        target_week_key=PERSIST_TARGET_WEEK_KEY,
+        target_week_date=PERSIST_TARGET_WEEK_DATE,
+        expected_submitted_by="operator-1",
+    )
+
+    assert result == {
+        "non_w2_tables_unchanged": len(PERSIST_NON_W2_DIGESTS),
+        "w2_submissions_added": [PERSIST_CREATE_ID, PERSIST_CORRECT_ID],
+        "w2_values_added": 82,
+        "supersedes_chain": {
+            PERSIST_CREATE_ID: None,
+            PERSIST_CORRECT_ID: PERSIST_CREATE_ID,
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    ("field", "substitute"),
+    (
+        ("client_submission_id", "55555555-5555-4555-8555-555555555555"),
+        ("submitted_by", "operator-2"),
+        ("roster_dataset_version_id", 8),
+        ("roster_source_hash", "b" * 64),
+        ("request_sha256", "c" * 64),
+        ("expanded_sha256", "d" * 64),
+    ),
+)
+def test_validate_write_activation_diff_rejects_valid_looking_substituted_binding(
+    field, substitute
+):
+    before, after, browser = _write_activation_valid_case()
+    after["w2_submissions"][0][field] = substitute
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_activation_w2_shape_unexpected",
+    ):
+        stage_suite.validate_write_activation_diff(
+            before,
+            after,
+            browser_result=browser,
+            target_week_key=PERSIST_TARGET_WEEK_KEY,
+            target_week_date=PERSIST_TARGET_WEEK_DATE,
+            expected_submitted_by="operator-1",
+        )
+
+
+def test_validate_write_activation_diff_rejects_non_w2_side_effect():
+    before, after, browser = _write_activation_valid_case()
+    after["non_w2_digests"]["scheduler.control_command_outbox"] = "9" * 32
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_activation_side_effect_detected",
+    ):
+        stage_suite.validate_write_activation_diff(
+            before,
+            after,
+            browser_result=browser,
+            target_week_key=PERSIST_TARGET_WEEK_KEY,
+            target_week_date=PERSIST_TARGET_WEEK_DATE,
+            expected_submitted_by="operator-1",
+        )
+
+
+def test_validate_write_activation_diff_rejects_broken_supersede_chain():
+    before, after, browser = _write_activation_valid_case()
+    after["w2_submissions"][1]["supersedes_submission_id"] = None
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_activation_w2_shape_unexpected",
+    ):
+        stage_suite.validate_write_activation_diff(
+            before,
+            after,
+            browser_result=browser,
+            target_week_key=PERSIST_TARGET_WEEK_KEY,
+            target_week_date=PERSIST_TARGET_WEEK_DATE,
+            expected_submitted_by="operator-1",
+        )
+
+
+def test_validate_write_activation_diff_rejects_non_string_hash_as_stage_error():
+    before, after, browser = _write_activation_valid_case()
+    after["w2_submissions"][0]["roster_source_hash"] = 7
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_activation_w2_shape_unexpected",
+    ):
+        stage_suite.validate_write_activation_diff(
+            before,
+            after,
+            browser_result=browser,
+            target_week_key=PERSIST_TARGET_WEEK_KEY,
+            target_week_date=PERSIST_TARGET_WEEK_DATE,
+            expected_submitted_by="operator-1",
+        )
+
+
+def test_validate_write_activation_diff_rejects_corrupt_request_document():
+    before, after, browser = _write_activation_valid_case()
+    after["w2_submissions"][0]["request_document_text"] = "{}"
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="write_activation_w2_shape_unexpected",
+    ):
+        stage_suite.validate_write_activation_diff(
+            before,
+            after,
+            browser_result=browser,
+            target_week_key=PERSIST_TARGET_WEEK_KEY,
+            target_week_date=PERSIST_TARGET_WEEK_DATE,
+            expected_submitted_by="operator-1",
+        )
 
 
 def test_validate_persist_only_diff_rejects_ros_digest_change():
@@ -5623,9 +8786,340 @@ def test_rate_accounting_accepts_expired_then_reset_window():
     before = {_OP_KEY: {"value": 9, "ttl_ms": 50}}
     after = {_OP_KEY: {"value": 2, "ttl_ms": 60000}}
 
-    result = stage_suite.validate_persist_only_rate_accounting(before, after)
+    result = stage_suite.validate_persist_only_rate_accounting(
+        before,
+        after,
+        elapsed_ms=50,
+    )
 
     assert result["operator_rate_key"] == _OP_KEY
+
+
+def test_rate_accounting_rejects_operator_reset_before_prior_ttl_elapsed():
+    before = {_OP_KEY: {"value": 9, "ttl_ms": 60000}}
+    after = {_OP_KEY: {"value": 2, "ttl_ms": 300000}}
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="persist_only_rate_side_effect_detected"
+    ):
+        stage_suite.validate_persist_only_rate_accounting(
+            before,
+            after,
+            elapsed_ms=1000,
+        )
+
+
+def test_rate_accounting_rejects_side_key_disappearance_before_ttl_elapsed():
+    before = {
+        _OP_KEY: {"value": 5, "ttl_ms": 60000},
+        _OTHER_OP_KEY: {"value": 3, "ttl_ms": 60000},
+    }
+    after = {_OP_KEY: {"value": 7, "ttl_ms": 55000}}
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="persist_only_rate_side_effect_detected"
+    ):
+        stage_suite.validate_persist_only_rate_accounting(
+            before,
+            after,
+            elapsed_ms=1000,
+        )
+
+
+def test_rate_accounting_accepts_side_key_disappearance_after_ttl_elapsed():
+    before = {
+        _OP_KEY: {"value": 5, "ttl_ms": 60000},
+        _OTHER_OP_KEY: {"value": 3, "ttl_ms": 50},
+    }
+    after = {_OP_KEY: {"value": 7, "ttl_ms": 55000}}
+
+    result = stage_suite.validate_persist_only_rate_accounting(
+        before,
+        after,
+        elapsed_ms=50,
+    )
+
+    assert result == {"operator_rate_key": _OP_KEY, "increment": 2}
+
+
+@pytest.mark.parametrize("elapsed_ms", (-1, float("inf"), float("nan"), "1000"))
+def test_rate_accounting_rejects_invalid_elapsed_time(elapsed_ms):
+    with pytest.raises(
+        stage_suite.StageGateError, match="persist_only_rate_elapsed_invalid"
+    ):
+        stage_suite.validate_persist_only_rate_accounting(
+            {},
+            {_OP_KEY: {"value": 2, "ttl_ms": 60000}},
+            elapsed_ms=elapsed_ms,
+        )
+
+
+@pytest.mark.parametrize("ttl_ms", (-2, -1, 0, 300001))
+@pytest.mark.parametrize("before", ({}, {_OP_KEY: {"value": 9, "ttl_ms": 50}}))
+def test_rate_accounting_rejects_invalid_current_operator_ttl(before, ttl_ms):
+    after = {_OP_KEY: {"value": 2, "ttl_ms": ttl_ms}}
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="persist_only_rate_side_effect_detected"
+    ):
+        stage_suite.validate_persist_only_rate_accounting(
+            before,
+            after,
+            configured_window_ms=300000,
+        )
+
+
+@pytest.mark.parametrize("current_ttl_ms", (-1, 61000))
+def test_rate_accounting_rejects_persistent_or_renewed_same_window(
+    current_ttl_ms,
+):
+    before = {_OP_KEY: {"value": 5, "ttl_ms": 60000}}
+    after = {_OP_KEY: {"value": 7, "ttl_ms": current_ttl_ms}}
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="persist_only_rate_side_effect_detected"
+    ):
+        stage_suite.validate_persist_only_rate_accounting(
+            before,
+            after,
+            configured_window_ms=300000,
+        )
+
+
+def test_rate_accounting_rejects_renewed_unchanged_side_key():
+    before = {
+        _OP_KEY: {"value": 5, "ttl_ms": 60000},
+        _OTHER_OP_KEY: {"value": 3, "ttl_ms": 60000},
+    }
+    after = {
+        _OP_KEY: {"value": 7, "ttl_ms": 55000},
+        _OTHER_OP_KEY: {"value": 3, "ttl_ms": 61000},
+    }
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="persist_only_rate_side_effect_detected"
+    ):
+        stage_suite.validate_persist_only_rate_accounting(
+            before,
+            after,
+            configured_window_ms=300000,
+        )
+
+
+@pytest.mark.parametrize(
+    ("before", "after"),
+    (
+        (
+            {_OP_KEY: {"value": 5, "ttl_ms": 300000}},
+            {_OP_KEY: {"value": 7, "ttl_ms": 250000}},
+        ),
+        (
+            {
+                _OP_KEY: {"value": 5, "ttl_ms": 300000},
+                _OTHER_OP_KEY: {"value": 3, "ttl_ms": 300000},
+            },
+            {
+                _OP_KEY: {"value": 7, "ttl_ms": 100000},
+                _OTHER_OP_KEY: {"value": 3, "ttl_ms": 250000},
+            },
+        ),
+    ),
+)
+def test_rate_accounting_rejects_surviving_window_ttl_above_elapsed_bound(
+    before,
+    after,
+):
+    with pytest.raises(
+        stage_suite.StageGateError, match="persist_only_rate_side_effect_detected"
+    ):
+        stage_suite.validate_persist_only_rate_accounting(
+            before,
+            after,
+            elapsed_ms=200000,
+        )
+
+
+def test_rate_accounting_accepts_surviving_window_ttl_at_elapsed_bound():
+    before = {_OP_KEY: {"value": 5, "ttl_ms": 300000}}
+    after = {_OP_KEY: {"value": 7, "ttl_ms": 100100}}
+
+    result = stage_suite.validate_persist_only_rate_accounting(
+        before,
+        after,
+        elapsed_ms=200000,
+    )
+
+    assert result == {"operator_rate_key": _OP_KEY, "increment": 2}
+
+
+def test_planning_depth_rate_key_uses_the_principal_subject_hash():
+    subject = "operator-1"
+
+    assert stage_suite._planning_depth_rate_key(subject) == (
+        "bff-water-planning:rate:planning_depth.submit:"
+        + hashlib.sha256(subject.encode("utf-8")).hexdigest()
+    )
+
+
+def test_rate_accounting_rejects_another_operator_increment_after_target_expiry():
+    expected_operator_key = stage_suite._planning_depth_rate_key("operator-1")
+    other_operator_key = stage_suite._planning_depth_rate_key("operator-2")
+    before = {
+        expected_operator_key: {"value": 9, "ttl_ms": 50},
+        other_operator_key: {"value": 5, "ttl_ms": 60000},
+    }
+    after = {other_operator_key: {"value": 8, "ttl_ms": 59900}}
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="persist_only_rate_side_effect_detected"
+    ):
+        stage_suite.validate_persist_only_rate_accounting(
+            before,
+            after,
+            expected_increment=3,
+            elapsed_ms=100,
+            expected_operator_key=expected_operator_key,
+        )
+
+
+def test_persist_only_body_binds_rate_accounting_to_verified_principal(
+    monkeypatch, tmp_path
+):
+    context = _write_ui_context(tmp_path)
+    subject = "operator-1"
+    expected_operator_key = (
+        "bff-water-planning:rate:planning_depth.submit:"
+        + hashlib.sha256(subject.encode("utf-8")).hexdigest()
+    )
+    client = _ScriptedClient(
+        [
+            _FakeResponse(200, {"subject": subject, "effective_roles": ["operator"]}),
+            _FakeResponse(201, {"submission_id": "create-id"}),
+            _FakeResponse(201, {"submission_id": "correct-id"}),
+        ]
+    )
+    snapshots = iter(
+        [
+            {"non_w2_digests": {}, "w2_submissions": [], "w2_values": []},
+            {"non_w2_digests": {}, "w2_submissions": [], "w2_values": []},
+        ]
+    )
+    rate_snapshots = iter([{}, {expected_operator_key: {"value": 2, "ttl_ms": 1000}}])
+    requests = iter(
+        [
+            {
+                "levels": [{"area_id": "01-01", "planning_depth_mm": "260.000"}],
+                "client_submission_id": "create-client-id",
+            },
+            {
+                "levels": [{"area_id": "01-01", "planning_depth_mm": "270.000"}],
+                "client_submission_id": "correct-client-id",
+            },
+        ]
+    )
+    events = []
+
+    monkeypatch.setattr(stage_suite, "_persist_only_rid_week", lambda _date: ("d", "w"))
+    monkeypatch.setattr(
+        stage_suite,
+        "_load_env_file",
+        lambda _path: {"PLANNING_DEPTH_WRITES_ENABLED": "false"},
+    )
+    monkeypatch.setattr(
+        stage_suite, "_take_persist_snapshot", lambda _ctx: next(snapshots)
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "assert_persist_target_week_clean",
+        lambda *_args: {"clean": True},
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_snapshot_planning_depth_rate_keys",
+        lambda _ctx: next(rate_snapshots),
+    )
+    monkeypatch.setattr(stage_suite.time, "monotonic", lambda: 1.0)
+    monkeypatch.setattr(
+        stage_suite, "_restart_bff_with_flag", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_build_planning_depth_request_v2",
+        lambda **_kwargs: next(requests),
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "validate_w1_principal_result",
+        lambda status, body, headers: events.append("principal-verified")
+        or {"subject": body["subject"]},
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "validate_w2_submission_result",
+        lambda _status, body, _headers, **_kwargs: body,
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "validate_persist_only_diff",
+        lambda *_args, **_kwargs: {"diff": "accepted"},
+    )
+    monkeypatch.setattr(
+        stage_suite, "_planning_depth_write_window_ms", lambda _ctx: 300000
+    )
+
+    def validate_rate(*_args, expected_operator_key, **_kwargs):
+        assert expected_operator_key == (
+            "bff-water-planning:rate:planning_depth.submit:"
+            + hashlib.sha256(subject.encode("utf-8")).hexdigest()
+        )
+        events.append("rate-key-bound")
+        return {"operator_rate_key": expected_operator_key, "increment": 2}
+
+    monkeypatch.setattr(
+        stage_suite,
+        "validate_persist_only_rate_accounting",
+        validate_rate,
+    )
+
+    manifest = stage_suite._persist_only_body(
+        context,
+        client,
+        "operator-token",
+        {"login": "accepted"},
+    )
+
+    assert client.calls[0] == (
+        "GET",
+        "http://127.0.0.1:3021/api/v1/auth/principal",
+        None,
+    )
+    assert client.bearers[0] == "operator-token"
+    assert manifest["steps"]["operator_principal"] == {"subject": subject}
+    assert events == ["principal-verified", "rate-key-bound"]
+
+
+def test_planning_depth_write_window_ms_reads_runtime_configuration(tmp_path):
+    context = _write_ui_context(tmp_path)
+    (context.runtime_env_dir / "bff.env").write_text(
+        "PLANNING_DEPTH_WRITE_WINDOW_SECONDS=45\n"
+    )
+
+    assert stage_suite._planning_depth_write_window_ms(context) == 45000
+
+
+@pytest.mark.parametrize("configured_value", ("0", "-1", "not-an-integer"))
+def test_planning_depth_write_window_ms_rejects_invalid_configuration(
+    tmp_path, configured_value
+):
+    context = _write_ui_context(tmp_path)
+    (context.runtime_env_dir / "bff.env").write_text(
+        f"PLANNING_DEPTH_WRITE_WINDOW_SECONDS={configured_value}\n"
+    )
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="planning_depth_write_window_invalid"
+    ):
+        stage_suite._planning_depth_write_window_ms(context)
 
 
 def test_rate_accounting_rejects_two_changed_keys():
@@ -5853,17 +9347,125 @@ def _persist_only_context(tmp_path):
 def test_run_persist_only_logs_out_when_body_fails(monkeypatch, tmp_path):
     client = _RecordingLogoutClient(status=200)
     _patch_persist_only_scaffold(monkeypatch, client)
+    cleanup = []
 
     def failing_body(ctx, c, token, evidence):
         raise stage_suite.StageGateError("injected_body_failure")
 
     monkeypatch.setattr(stage_suite, "_persist_only_body", failing_body)
+    monkeypatch.setattr(
+        stage_suite,
+        "_assert_operator_refresh_reuse_rejected",
+        lambda _client, refresh: cleanup.append(("reuse", refresh))
+        or {"refresh_reuse_status": 401, "revoked": True},
+    )
 
     with pytest.raises(stage_suite.StageGateError, match="injected_body_failure"):
         stage_suite.run_local_persist_only(_persist_only_context(tmp_path))
 
     # the primary error propagated AND the session was still torn down once
     assert client.logout_calls == [{"refreshToken": "refresh-cookie"}]
+    assert cleanup == [("reuse", "refresh-cookie")]
+
+
+def test_run_persist_only_cleans_accepted_initial_login_failure(monkeypatch, tmp_path):
+    cleanup = []
+
+    class AcceptedLoginClient:
+        def refresh_cookie(self):
+            return "accepted-persist-refresh-token"
+
+    monkeypatch.setattr(
+        stage_suite,
+        "_load_state",
+        lambda _context: {"completed": list(stage_suite.STAGE_ORDER[:8])},
+    )
+    monkeypatch.setattr(stage_suite, "validate_stage_transition", lambda *_args: None)
+    monkeypatch.setattr(stage_suite, "_load_harness_module", lambda *_args: object())
+    monkeypatch.setattr(stage_suite, "LocalHttpClient", AcceptedLoginClient)
+    monkeypatch.setattr(
+        stage_suite,
+        "_login_operator",
+        lambda *_args: (_ for _ in ()).throw(
+            stage_suite.StageGateError("operator_login_not_accepted")
+        ),
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_persist_only_logout",
+        lambda _client, refresh, *, strict: cleanup.append((refresh, strict)),
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_assert_operator_refresh_reuse_rejected",
+        lambda _client, refresh: cleanup.append(("reuse", refresh))
+        or {"refresh_reuse_status": 401, "revoked": True},
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_persist_only_body",
+        lambda *_args: pytest.fail("persist body after failed login"),
+    )
+
+    with pytest.raises(stage_suite.StageGateError, match="operator_login_not_accepted"):
+        stage_suite.run_local_persist_only(_persist_only_context(tmp_path))
+
+    assert cleanup == [
+        ("accepted-persist-refresh-token", False),
+        ("reuse", "accepted-persist-refresh-token"),
+    ]
+
+
+@pytest.mark.parametrize("failure_point", ("accepted_login", "post_login"))
+def test_run_persist_only_rejects_unproved_initial_session_cleanup(
+    monkeypatch, tmp_path, failure_point
+):
+    context = _persist_only_context(tmp_path)
+    cleanup = []
+    primary = stage_suite.StageGateError(f"injected_{failure_point}_failure")
+
+    class AcceptedLoginClient:
+        def refresh_cookie(self):
+            return "accepted-persist-refresh-token"
+
+    client = AcceptedLoginClient()
+    _patch_persist_only_scaffold(monkeypatch, client)
+    if failure_point == "accepted_login":
+        monkeypatch.setattr(
+            stage_suite,
+            "_login_operator",
+            lambda *_args: (_ for _ in ()).throw(primary),
+        )
+    monkeypatch.setattr(
+        stage_suite,
+        "_persist_only_body",
+        lambda *_args: (_ for _ in ()).throw(primary),
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_persist_only_logout",
+        lambda _client, refresh, *, strict: cleanup.append(("logout", refresh, strict))
+        or False,
+    )
+
+    def reject_reuse(_client, refresh):
+        cleanup.append(("reuse", refresh))
+        raise stage_suite.StageGateError("operator_refresh_reuse_not_rejected")
+
+    monkeypatch.setattr(
+        stage_suite,
+        "_assert_operator_refresh_reuse_rejected",
+        reject_reuse,
+    )
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="persist_only_initial_operator_cleanup_unproved",
+    ) as exc_info:
+        stage_suite.run_local_persist_only(context)
+
+    assert exc_info.value.__cause__ is primary
+    assert [call[0] for call in cleanup] == ["logout", "reuse"]
 
 
 def test_run_write_ui_logs_out_when_post_login_body_fails(monkeypatch, tmp_path):
