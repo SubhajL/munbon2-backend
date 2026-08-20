@@ -1057,3 +1057,45 @@ LOW
 - On the unchanged clean-review source/test candidate, the complete affected gate passed three consecutive times. Rounds 1, 2, and 3 each passed the complete Python harness with `818 passed` and the complete Node harness with `51 passed`.
 - Final static/integrity pass: Black left all eleven Python files unchanged; Ruff passed; `py_compile` passed; every harness JavaScript file passed `node --check`; `git diff --check` passed.
 - The candidate remains local source evidence only. No guest command, AWS action, deployment, activation, `LOCAL-WRITE-ACT-1`, or `LOCAL-RC-1` acceptance was run or claimed.
+
+## Path 2 delivery and local-main landing (2026-08-21)
+
+- Conventional Commit `75408f8f8c83c48bccc5b9e64c67b8124281cdd3` (`feat(ops): add local release candidate lifecycle`) was pushed over the SSH-only origin `git@github.com:SubhajL/munbon2-backend.git`.
+- PR #194 matched that exact head, targeted `main`, and GitHub reported it mergeable. Hosted jobs failed before meaningful execution or remained queued under the standing billing-lock policy; they were treated as unavailable, not called passing, and were not inspected, retried, or awaited.
+- The already-authorized admin merge completed at exact merge commit `fa588d285932569147038ff8209961b8cf965dd4`. Primary local `main` fast-forwarded cleanly to that exact SHA.
+- Path 2 is source-delivered only. No guest command, AWS action, deployment, activation, `LOCAL-WRITE-ACT-1`, or `LOCAL-RC-1` acceptance was run or claimed.
+
+## Path 4 documentation implementation (2026-08-21)
+
+- Reused the existing owned `test/local-write-act-1` worktree/branch and fast-forwarded it to the Path 2 merge SHA. No new branch or worktree was created, no reset was used, and the local formal-review exports remain preserved outside Git.
+- Primary RED added a focused runbook contract requiring the exact Path 1/Path 2 PR, candidate, merge, gate, and formal-review identities plus explicit runtime/authority exclusions. The expected RED was the absent `Source delivery status` section.
+- The runbook now records Path 1 PR #193 (`86f7bc293277277010a64a2751d56fbeeb9e4172` → `3e038caec2909665266905aa00beff5e78299dc0`) and Path 2 PR #194 (`75408f8f8c83c48bccc5b9e64c67b8124281cdd3` → `fa588d285932569147038ff8209961b8cf965dd4`). It distinguishes local source gates/formal review from runtime acceptance and grants no guest, AWS, promotion, deployment, activation, post-deployment, or rollback authority.
+- Historical compatibility remains explicit: the campaign ledger stays frozen at nine stages; neither the ten-stage live order nor the outer `LOCAL-RC-1` wrapper redefines historical 9/9 rows.
+- Focused GREEN: both `all_stages_runbook` tests passed. Full local gates and formal g-check remain required before the separate Path 4 documentation PR.
+- Fresh complete Path 4 candidate gate: Python harness `819 passed`; Node harness `51 passed`; Black left all eleven Python files unchanged; Ruff, `py_compile`, every harness JavaScript syntax check, and `git diff --check` passed. These are local source/documentation gates only.
+
+## Review (2026-08-21T03:50:03+07:00) - Path 4 formal g-check
+
+- Fresh deep snapshot `2026-08-21/0348` reviewed the complete Path 4 runbook, focused executable wording test, and Coding Log patch against base/HEAD `fa588d285932569147038ff8209961b8cf965dd4` in formal chat `untitled-chat-553455`.
+- CRITICAL/HIGH/MEDIUM: none. The reviewer confirmed the exact Path 1/Path 2 identities and gate/review facts, the separation of source evidence from runtime acceptance, the complete authority exclusions, and preserved frozen nine-stage meaning.
+- P2 non-blocking regression hardening: the test required that the ledger remain frozen at nine stages but did not pin the follow-on guarantee that neither the ten-stage live order nor the `LOCAL-RC-1` wrapper redefines historical 9/9 rows.
+- Primary disposition: accepted and remediated test-only. The focused contract now requires the complete historical-compatibility sentence; both `all_stages_runbook` tests pass. Production and runbook text were unchanged by the remediation.
+- Snapshot `0348` was clean for commit/PR before the test-only hardening. A focused repeat review is required to close the updated candidate; no live acceptance is inferred or required.
+
+## Review (2026-08-21T03:51:38+07:00) - Path 4 focused repeat g-check
+
+- Snapshot `2026-08-21/0350` confirmed the prior P2 was resolved: the executable wording test now pins that neither the ten-stage live order nor `LOCAL-RC-1` redefines existing historical 9/9 rows.
+- P1 factual chronology finding: the Path 2 delivery and Path 4 implementation headings used minute-level timestamps later than the snapshot that already contained them. The event descriptions were correct, but those times were not reliable.
+- Primary disposition: accepted and remediated documentation-only. Both headings now use the known Bangkok calendar date without inventing an event time. A focused repeat formal review remains required; no runtime acceptance is inferred.
+
+## Review (2026-08-21T03:52:32+07:00) - Path 4 clean repeat formal g-check
+
+- Snapshot `2026-08-21/0352` confirmed the chronology remediation and complete Path 4 runbook/test/log diff.
+- CRITICAL/HIGH/MEDIUM/LOW: none. The reviewer found the established-date headings, actual review timestamp, exact source-delivery identities, hardened frozen-ledger contract, and acceptance/authority boundary factually consistent.
+- Snapshot `0352` is formal g-check clean for commit/PR. No live acceptance is inferred, claimed, or required.
+
+## Path 4 post-review stability gate (2026-08-21)
+
+- On the unchanged clean-review documentation/test candidate, rounds 1, 2, and 3 each passed the complete Python harness with `819 passed` and the complete Node harness with `51 passed`.
+- Final static/integrity pass: Black left all eleven Python files unchanged; Ruff passed; `py_compile` passed; every harness JavaScript file passed `node --check`; `git diff --check` passed.
+- The Path 4 candidate remains documentation/source evidence only. No guest, AWS, promotion, deployment, activation, post-deployment, rollback, `LOCAL-WRITE-ACT-1`, or `LOCAL-RC-1` acceptance action was run or claimed.
