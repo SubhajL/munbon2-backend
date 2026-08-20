@@ -351,3 +351,407 @@ LOW
 
 ### Primary disposition
 - Accepted as non-blocking LOW hardening. The test intentionally locks the repository's canonical leading-pipe ATX table format; the exact staged ordered rows prove the current runbook cannot retain either stale cell in that contract. No current defect or authority expansion remains.
+
+## Path 3 landed and housekeeping closed (2026-08-20T17:46:00+07:00)
+
+- PR: `#192` at reviewed head `8f3feb6d27c8a4f2fdb5a9ed4a6dad1150ddf91b`.
+- Hosted checks: uniformly unavailable before executable steps under the standing billing-lock policy; not called passing.
+- Merge: admin merge commit `306dc401b87bca924142923ac343506b076e4364`; local `main` fast-forwarded and verified equal to `origin/main`.
+- Branch cleanup proof: local and remote tips `c25c734d...`, `6b3970d2...`, and `435f6e49...` each had zero commits outside `origin/main`, were ancestors of it, and were not checked out. Exact local/remote branches `ops/9of9-canonical-campaign`, `ops/9of9-ledger-closure`, and `ops/9of9-python-closure-refresh` were deleted.
+- Temporary environment proof: `/tmp/munbon-9of9-gate.jd0ldB` resolved exactly to `/private/tmp/munbon-9of9-gate.jd0ldB`, was a current-user-owned directory, not a symlink or mount, measured 338 MB, and had no open process. It was removed depth-first and verified absent.
+- Protected state: no guest command was issued; canonical guest `01M0F27Z1GZQ7SQF07XH9M3VQT`, rehearsal guest `01M0EX2FYE4XX511KHB5MCBDP8`, diagnostic guest `01KZKJMR2PG4Z4X7DYHDYTEX0C`, and all evidence archives remain untouched.
+- Path 1 branch: `test/local-write-act-1` from exact merged main `306dc401b87bca924142923ac343506b076e4364`.
+
+## Path 1 review remediation resumed (2026-08-20T19:01:00+07:00)
+
+- Working root/branch/base: `/Users/subhajlimanond/dev/munbon2-backend-path3-write-act-rc`, `test/local-write-act-1`, `306dc401b87bca924142923ac343506b076e4364`. The existing dirty worktree and all unrelated worktrees were preserved; `origin` remained SSH-only.
+- Original focused RED: `pytest -q ops/control-plan-read-local/tests/test_stage_suite.py -k 'write_activation or disarm_bff'` failed only because `_verify_bff_write_flag_dark` was absent (`1 failed, 30 passed, 320 deselected`). The Node inventory scope passed `31/31` before the later PATCH gap was found.
+- Primary-owned contract hardening added behavioral tests for actual `/proc` flag proof, missing/armed runtime rejection, bounded retries, exact fail-safe stop, truthful restoration evidence, scheduler continuation, and interruption deferral. The expanded RED failed only at the absent guarded production behavior.
+- Luna GREEN `PATH1-BFF-DARK-1`: sole production allowlist `ops/control-plan-read-local/run-stage-suite.py`; role/model/effort `luna_implementer` / `gpt-5.6-luna` / `max`; snapshot `/tmp/munbon-path1-bff-green.NXE5aN/snapshot.json`; receipt `/tmp/munbon-path1-bff-green.NXE5aN/receipt.json`; validator `verified=true`; accepted production SHA-256 `8ee2bd0c93f48914fe33d9e49f9736b2e386ad6215d1f1c693594389bda22fac`.
+- Independent support review found response-side PATCH was forbidden but response-less PATCH was absent from request-attempt inventory. Primary RED: the Node inventory test produced `30 passed, 1 failed` with only the missing PATCH attempt.
+- Luna GREEN `PATH1-BROWSER-PATCH-1`: sole production allowlist `ops/control-plan-read-local/run-write-browser.js`; role/model/effort `luna_implementer` / `gpt-5.6-luna` / `max`; snapshot `/tmp/munbon-path1-browser-green.qBraYi/snapshot.json`; receipt `/tmp/munbon-path1-browser-green.qBraYi/receipt.json`; validator `verified=true`; accepted production SHA-256 `accad69d4576ba27fc746b96a1577755bedcda4a33e53b2808dfe7480429ea67`.
+- Primary-owned scoped GREEN: expanded Python remediation scope `38 passed, 320 deselected`; Node inventory `31 passed`.
+- Fresh current gates: complete Python harness `580 passed`; complete Node harness `43 passed`; Black check, Ruff, `py_compile`, `node --check`, and `git diff --check` passed. These replace all stale pre-remediation gate counts.
+- Runtime wiring: `_run_local_write_activation_authenticated()` reaches `_restore_write_activation_dark()` on normal and exceptional exits; guarded disarm reads `_actual_gate_environment(_pm2_json())`; `installResponseBoundary()` records every product mutation request before any response. No guest, AWS, live WRITE-ACT, or LOCAL-RC-1 acceptance was run or claimed.
+
+## Review (2026-08-20T19:06:41+07:00) - working-tree repeat formal g-check
+
+### Reviewed
+- Repo: `/Users/subhajlimanond/dev/munbon2-backend-path3-write-act-rc`
+- Branch: `test/local-write-act-1`
+- Scope: working tree at base `306dc401b87bca924142923ac343506b076e4364`; RepoPrompt snapshot `2026-08-20/1901`; continuation chat `path-1-g-check-A2FFB2`
+- Commands Run: focused RED/GREEN, ownership snapshot/receipt validation, 580-test Python harness, 43-test Node harness, Black, Ruff, `py_compile`, `node --check`, and `git diff --check`
+
+### Findings
+CRITICAL
+- None.
+
+HIGH
+- `ops/control-plan-read-local/run-stage-suite.py`: `/proc` reporting `PLANNING_DEPTH_WRITES_ENABLED=false` can mark BFF dark before the restored behavioral POST proves the route actually rejects writes. If that later POST returns 422/201, failure propagates without fail-safe stop. A successful `pm2 stop` is also not independently verified. Move the non-persistable behavioral probe into guarded disarm and verify PM2/readiness/listener absence after fail-safe stop. Add defect-sensitive tests for false `/proc` plus behaviorally armed BFF and for a no-op stop.
+
+MEDIUM
+- `ops/control-plan-read-local/run-write-browser.js`: a dark-probe login that returns 200 and creates a refresh session can fail during parsing/token extraction/navigation before `proveDarkAndLogout()` starts, leaving no logout/reuse proof. Establish cleanup immediately after accepted login and preserve the primary failure while attempting cleanup.
+- `ops/control-plan-read-local/run-stage-suite.py`: rate accounting accepts persistent, expired, missing, or over-window TTLs. Require positive finite TTL bounded by the fixed-window duration and consistent non-renewing evolution.
+- `ops/control-plan-read-local/run-stage-suite.py`: final restoration verifies the four required online names but permits extra unknown or stopped PM2 entries. Require the exact final inventory.
+
+LOW
+- `ops/control-plan-read-local/tests/test_local_artifacts.py`: raw source occurrence counts remain fragile. Behavioral coverage is substantially stronger, so this remains a documented non-blocking residual pending future AST/call-site mapping.
+
+### Open Questions / Assumptions
+- None. Historical campaign-ledger validation remains frozen at nine stages while live execution and collection include ten.
+
+### Recommended Tests / Validation
+- Add RED tests for behavioral dark-gate containment and independently verified stop, partial-login cleanup, Redis TTL boundaries/evolution, and exact final PM2 inventory; delegate each bounded production GREEN sequentially; rerun focused/full gates and formal g-check.
+
+### Rollout Notes
+- Snapshot `2026-08-20/1901` is not g-check clean. No live acceptance or operational action is authorized by these source gates.
+
+### Primary disposition
+- HIGH and all three MEDIUM findings accepted for test-first remediation. LOW static-count residual accepted as documented non-blocking debt because behavioral coverage exists.
+
+## Review (2026-08-20T19:47:00+07:00) - working-tree second repeat formal g-check
+
+### Reviewed
+- Repo/branch/base: `/Users/subhajlimanond/dev/munbon2-backend-path3-write-act-rc`, `test/local-write-act-1`, `306dc401b87bca924142923ac343506b076e4364`.
+- Scope: deep working-tree snapshot `2026-08-20/1941-2`; continuation chat `path-1-g-check-A2FFB2`.
+- Reported local evidence at review time: `600 passed` Python, `46 passed` Node, Black, Ruff, `py_compile`, `node --check`, and `git diff --check`. The reviewer did not independently rerun these gates and made no live-acceptance claim.
+
+### Findings
+CRITICAL
+- None.
+
+HIGH
+- `_verify_bff_fail_safe_stopped()` rejected only `online`, so a missing, duplicate, `launching`, `stopping`, or other restart-capable BFF state could pass a momentary no-listener/readiness-refusal observation.
+- The access token created before the 900-second stability window was reused for behavioral rollback darkness and final active readback. Expiry could turn a correct dark gate into a 401, trigger fail-safe stop for the wrong reason, and prevent correct final readback.
+
+MEDIUM
+- Final restoration returned `verified: true` without explicitly reasserting the exact healthy readiness shape. The concrete readiness helper already enforced it, so this was accepted as defense-in-depth invariant hardening rather than a demonstrated live bypass.
+- Redis disappearance/reset accepted any prior positive finite TTL without proving enough monotonic time elapsed for natural expiry.
+
+LOW
+- Static source-occurrence counts remain fragile. Behavioral coverage makes this documented non-blocking residual debt.
+
+### Primary disposition
+- Both HIGH and both MEDIUM findings accepted for test-first remediation. The readiness severity was qualified as invariant hardening, but the explicit final predicate was still required. The LOW finding remains accepted non-blocking debt.
+- The review conclusion was blocking: snapshot `2026-08-20/1941-2` was not g-check clean. No guest, AWS, deployment, activation, `LOCAL-WRITE-ACT-1`, or `LOCAL-RC-1` acceptance was claimed.
+
+## Path 1 second-repeat review remediation (2026-08-20T20:12:00+07:00)
+
+- Stable fail-safe stop and exact final readiness primary RED: `12 failed, 4 passed`. Tests reject missing/duplicate/transitional/errored BFF entries, require three complete one-second quiet samples, reject a restart during the quiet period, and reject missing/extra/unhealthy/malformed final readiness evidence.
+- The first `PATH1-STOP-READINESS-2` Luna result was behaviorally GREEN but its ownership receipt was rejected because the primary added the next Redis tests after the snapshot, changing a protected test hash. Luna reverted only that slice to exact pre-slice production SHA-256 `d3419e0242aab6fc7167587f3d79bb49d0a953a8122afefcecf19c32c72ce785`; no validator bypass was used.
+- Accepted Luna GREEN `PATH1-STOP-READINESS-2B`: snapshot `/tmp/munbon-path1-stop-readiness-green-v2.LYjrqU/snapshot.json`; receipt `/tmp/munbon-path1-stop-readiness-green-v2.LYjrqU/receipt.json`; ownership validator `verified=true`; production SHA-256 `5f2d9a3abd553357bfa7ae47e91b404af582dff5981d469bdd878473001748ad`; primary scoped rerun `16 passed, 381 deselected`.
+- Redis elapsed-time primary RED: `8 failed, 21 passed`. Tests reject premature operator reset and side-key disappearance, accept genuine expiry crossing, and reject negative, non-finite, or nonnumeric elapsed evidence.
+- Accepted Luna GREEN `PATH1-RATE-ELAPSED-1`: snapshot `/tmp/munbon-path1-rate-elapsed-green.2O1iKQ/snapshot.json`; receipt `/tmp/munbon-path1-rate-elapsed-green.2O1iKQ/receipt.json`; ownership validator `verified=true`; production SHA-256 `e7773d74ef59cd1aaf7682a4b7307fc7f4911c688ad46051db276d7645ff6a0a`; primary scoped rerun `29 passed, 373 deselected`. Both runtime paths capture the conservative lower bound from immediately after the first atomic snapshot to immediately before the second, pass it to validation, and record `elapsed_ms` in lifecycle evidence.
+- Fresh-auth primary RED: `8 failed, 394 deselected`. Tests require distinct fresh sessions and bearers for rollback and readback, exact principal-subject continuity, strict successful-path logout plus refresh-reuse 401, best-effort failure cleanup, cleanup after an accepted-but-invalid login, and fail-safe restoration when reauthentication cannot be established.
+- Accepted Luna GREEN `PATH1-FRESH-AUTH-1`: snapshot `/tmp/munbon-path1-fresh-auth-green.J394vr/snapshot.json`; receipt `/tmp/munbon-path1-fresh-auth-green.J394vr/receipt.json`; ownership validator `verified=true`; production SHA-256 `7a7b9ade2149c9958a93f3b89b9a127fb3bc5d618e505ebb04b902b5c1ea86bc`; primary scoped rerun `8 passed, 394 deselected`.
+- Ruff then found the fallback exception callback statically invalid (`F841`/`F821`). Accepted formatting/static remediation `PATH1-FRESH-AUTH-LINT-1`: snapshot `/tmp/munbon-path1-auth-lint-green.E6ZmV5/snapshot.json`; receipt `/tmp/munbon-path1-auth-lint-green.E6ZmV5/receipt.json`; ownership validator `verified=true`; final production SHA-256 `b456e1c883919087163e61b4142c35be71bf5265673d6d9f930f897badff130b`.
+- Combined remediation GREEN: `77 passed, 325 deselected` Python and `34 passed` write-browser Node inventory.
+- Fresh complete local gates on the exact post-remediation tree: `624 passed` Python and `46 passed` Node; Black, Ruff, `py_compile`, `node --check`, and `git diff --check` passed.
+- Runtime/authority boundaries: the original pre-window bearer is limited to initial principal/dark checks; fresh independently revoked sessions serve rollback and readback; failed reauth still runs guarded restoration and fail-safe containment. No guest command, AWS action, live WRITE-ACT acceptance, LOCAL-RC-1 acceptance, deployment, or activation was run or claimed.
+
+## Review (2026-08-20T20:23:35+07:00) - working-tree third repeat formal g-check
+
+### Reviewed
+- Repo/branch/base: `/Users/subhajlimanond/dev/munbon2-backend-path3-write-act-rc`, `test/local-write-act-1`, `306dc401b87bca924142923ac343506b076e4364`.
+- Scope: deep working-tree snapshot `2026-08-20/2019`; continuation chat `path-1-g-check-A2FFB2`.
+- Reported local evidence at review time: the previously recorded `624 passed` Python, `46 passed` Node, and static gates were stale after new remediation work and were not treated as current acceptance evidence.
+
+### Findings
+CRITICAL
+- None.
+
+HIGH
+- `loginAndCaptureToken()` registered the required mount-refresh waiter after `waitForURL()`, so the refresh could complete before observation and dark rollback proof could fail spuriously.
+
+MEDIUM
+- `run_local_write_activation()` called `_login_operator()` before its cleanup boundary. An accepted login whose later parsing/navigation failed could leave a refresh session without best-effort logout.
+- Redis rate validation required a surviving TTL only to remain no greater than its prior value; it did not prove the TTL had decayed by the measured time between snapshots.
+- The sole changed rate key was accepted by namespace/shape rather than being bound to the independently verified principal subject.
+
+LOW
+- Raw source-occurrence counts in `test_local_artifacts.py` remain fragile. Behavioral coverage makes this documented non-blocking residual debt.
+
+### Primary disposition
+- The HIGH and all three MEDIUM findings were accepted for test-first remediation. The LOW finding remained accepted non-blocking debt.
+- The review conclusion was blocking: snapshot `2026-08-20/2019` was not g-check clean. No live acceptance or operational action was claimed.
+
+## Path 1 third-repeat review remediation (2026-08-20T20:38:00+07:00)
+
+- Refresh-waiter primary RED proved the waiter was registered after navigation. Accepted Luna GREEN `PATH1-REFRESH-WAITER-1`: snapshot `/tmp/munbon-path1-refresh-wait-green.UKYhhl/snapshot.json`; receipt `/tmp/munbon-path1-refresh-wait-green.UKYhhl/receipt.json`; ownership validator `verified=true`; browser production SHA-256 `6cb85a3f788434aabcfc6114a37deeb3c03ae0324c468952bfce7220635de83e`; independent Node rerun `36 passed`.
+- Initial write-activation accepted-login cleanup RED failed with no logout attempt. Accepted Luna GREEN `PATH1-INITIAL-LOGIN-CLEANUP-1`: snapshot `/tmp/munbon-path1-initial-login-green.nMDsSM/snapshot.json`; receipt `/tmp/munbon-path1-initial-login-green.nMDsSM/receipt.json`; ownership validator `verified=true`; production SHA-256 `0d5868807aef756536b44b384f1ff5d73c7a78d562ba28cb2b302991b3c82b50`.
+- The primary locked the identical persist-only accepted-login boundary rather than leaving a known neighboring leak. Accepted Luna GREEN `PATH1-PERSIST-LOGIN-CLEANUP-1`: snapshot `/tmp/munbon-path1-persist-login-green.4ZgAkM/snapshot.json`; receipt `/tmp/munbon-path1-persist-login-green.4ZgAkM/receipt.json`; ownership validator `verified=true`; production SHA-256 `25b51e382ea32504944e4c0c86d9632ff49863cdf7ec5ba8e31c2d7d3c4a4ecc`.
+- Rate-evidence RED comprised six failures and one passing boundary: missing principal-key helper/wiring, cross-principal acceptance, and insufficient elapsed decay for surviving keys. Accepted Luna GREEN `PATH1-RATE-EVIDENCE-1`: snapshot `/tmp/munbon-path1-rate-evidence-green.XzX1vN/snapshot.json`; receipt `/tmp/munbon-path1-rate-evidence-green.XzX1vN/receipt.json`; ownership validator `verified=true`; production SHA-256 `c55fbc22baddf5cff79bc5b8de80ba5fe3d98c91fb3daf267d6504099af99ea5`.
+- Both write activation and persist-only now validate W1 principal evidence and bind Redis accounting to the exact `sha256(subject UTF-8)` namespace key. Every surviving key must satisfy `current_ttl <= max(0, prior_ttl - elapsed) + 100 ms`.
+- Independent scoped GREEN: `34 passed` across rate identity/timing and login cleanup; requested focused Python scope `49 passed`; browser inventory `36 passed`.
+- Fresh complete source gates on the remediated tree: `632 passed` Python and `48 passed` Node; Black, Ruff, `py_compile`, `node --check`, and `git diff --check` passed. These are source gates only, not live acceptance.
+- Third-review disposition at snapshot `2019`: accepted-login cleanup, TTL decay, and principal binding resolved. The refresh race was narrowed but required another formal recheck.
+
+## Review (2026-08-20T20:44:48+07:00) - working-tree fourth repeat formal g-check
+
+### Reviewed
+- Repo/branch/base: `/Users/subhajlimanond/dev/munbon2-backend-path3-write-act-rc`, `test/local-write-act-1`, `306dc401b87bca924142923ac343506b076e4364`.
+- Scope: deep working-tree snapshot `2026-08-20/2038`; continuation chat `path-1-g-check-A2FFB2`.
+- Reported primary evidence: focused Python `49 passed`, browser inventory `36 passed`, complete Python `632 passed`, complete Node `48 passed`, plus Black, Ruff, `py_compile`, `node --check`, and `git diff --check`. The reviewer did not independently rerun these gates and inferred no live acceptance.
+
+### Findings
+CRITICAL
+- None.
+
+HIGH
+- `run-write-browser.js`: the mount-refresh waiter was still registered only after awaiting accepted login-response JSON. The application could consume that response, navigate, mount auth, and complete refresh while the harness was parsing the body. A later navigation failure could also leave the waiter rejection unguarded and obscure the primary diagnosis.
+
+MEDIUM
+- None.
+
+LOW
+- Raw `_checksum_manifest(target)` and hydraulic-release source-occurrence counts remain fragile wiring tests. Existing behavioral stage, collection, and publication coverage keeps this non-blocking.
+
+### Prior-finding disposition
+- Snapshot `2019`: accepted-login cleanup, surviving TTL elapsed decay, and exact principal-key binding resolved. The refresh finding was not fully resolved.
+- Snapshots `1901` and `1941-2`: behavioral BFF darkness, exact fail-safe stop, interruption containment, fresh rollback/readback authentication, request-side mutation inventory and logout, exact final PM2/readiness restoration, Redis expiration timing, direct V2 URL, database evidence, stability duration/dashboard/process checks, and frozen historical nine-stage compatibility were all resolved in the reviewed diff.
+
+### Primary disposition
+- The HIGH refresh-observation race was accepted for another browser-only test-first remediation. The LOW occurrence-count issue remains accepted non-blocking debt.
+- Snapshot `2026-08-20/2038` was not g-check clean for commit/PR. No guest, AWS, deployment, activation, `LOCAL-WRITE-ACT-1`, or `LOCAL-RC-1` acceptance was claimed.
+
+## Path 1 fourth-repeat review remediation (2026-08-20T20:52:00+07:00)
+
+- Primary RED changed the browser contract from merely preceding `waitForURL()` to installing a correlated refresh observer before credential submit. It ignored pre-accept/anonymous refresh, captured a post-accept refresh while login JSON parsing was deliberately delayed, and required an immediate rejection handler before navigation could fail. The inventory result was `35 passed, 2 failed` with only those two new contracts failing.
+- Accepted Luna GREEN `PATH1-REFRESH-RACE-2`: snapshot `/tmp/munbon-path1-refresh-race-green-v2.E6wCZX/snapshot.json`; receipt `/tmp/munbon-path1-refresh-race-green-v2.E6wCZX/receipt.json`; ownership validator `verified=true`; browser production SHA-256 `5c0537c600227acc07d2aae17d27bcac910eb6737518694210002175df14fd87`.
+- Independent primary rerun: browser inventory `37 passed`; `node --check` and `git diff --check` passed.
+- Finding disposition: the snapshot `2038` HIGH was remediated test-first. The refresh observer is armed before submit, gated until the accepted 200 login response, rejection-guarded immediately, required in dark mode, and tolerant in normal mode exactly as before. Repeat full gates and formal g-check remain required before commit.
+
+## Review (2026-08-20T20:53:08+07:00) - working-tree fifth repeat formal g-check
+
+### Reviewed
+- Repo/branch/base: `/Users/subhajlimanond/dev/munbon2-backend-path3-write-act-rc`, `test/local-write-act-1`, `306dc401b87bca924142923ac343506b076e4364`.
+- Scope: deep working-tree snapshot `2026-08-20/2050`; continuation chat `path-1-g-check-A2FFB2`.
+- Reported primary evidence: browser inventory `37 passed`, complete Python `632 passed`, complete Node `49 passed`, plus Black, Ruff, `py_compile`, `node --check`, and `git diff --check`. The reviewer independently reviewed the diff, did not rerun those gates, and inferred no live acceptance.
+
+### Findings
+CRITICAL
+- None.
+
+HIGH
+- Refresh correlation used whether the login was accepted when a refresh response arrived, not when its request began. An anonymous/pre-accept refresh request whose response arrived after acceptance could satisfy the observer, allowing the true post-login mount refresh to remain in flight before the next navigation.
+- The refresh waiter's 15-second timeout started before login-page navigation, form fill, credential submit, and login acceptance. A slow login could exhaust the safety waiter before the relevant refresh could begin.
+
+MEDIUM
+- None.
+
+LOW
+- Source-occurrence counts for checksum and hydraulic-release bindings remain fragile, but behavioral stage/collection/publication coverage keeps this documented non-blocking debt.
+
+### Prior-finding disposition
+- Snapshot `2038`: pre-submit observer, delayed-body capture, immediate rejection handling, and authoritative navigation/cleanup diagnostics resolved. Pre-accepted request exclusion was not fully resolved.
+- Snapshots `1901`, `1941-2`, and `2019`: all previously enumerated blocking findings remained resolved, including BFF containment/fail-safe stop, interrupt restoration, fresh authentication and cleanup, mutation inventory, Redis timing/key binding, exact PM2/readiness, database evidence, stability, timeout, direct V2 URL, and frozen historical nine-stage compatibility.
+
+### Primary disposition
+- Both facets of the HIGH request-correlation/timeout finding were accepted for browser-only test-first remediation. The LOW source-count issue remains accepted non-blocking debt.
+- Snapshot `2026-08-20/2050` was not g-check clean for commit/PR. No guest, AWS, deployment, activation, `LOCAL-WRITE-ACT-1`, or `LOCAL-RC-1` acceptance was claimed.
+
+## Path 1 fifth-repeat review remediation (2026-08-20T21:08:00+07:00)
+
+- Request-initiation/timeout primary RED produced `36 passed, 3 failed`: a pre-accept refresh request completing after acceptance was wrongly eligible, the refresh timeout expired during a slow pre-login setup, and a missing eligible post-accept refresh was not bounded by the accepted-phase timeout.
+- Accepted Luna GREEN `PATH1-REFRESH-CORRELATION-3`: snapshot `/tmp/munbon-path1-refresh-correlation-green.5z9q4o/snapshot.json`; receipt `/tmp/munbon-path1-refresh-correlation-green.5z9q4o/receipt.json`; ownership validator `verified=true`; browser production SHA-256 `91990707722360f50f9dafbde714ffcc965e22df6503179f99eba7ce70a537fe`; primary rerun `39 passed`.
+- Primary source inspection then found the accepted gate was set only after the login promise continuation. A strengthened RED modeled a refresh request initiated immediately after the matching 200 login response event but before the continuation and produced `38 passed, 1 failed`.
+- Accepted Luna GREEN `PATH1-REFRESH-ACCEPT-EVENT-4`: snapshot `/tmp/munbon-path1-refresh-event-green.yRBcJD/snapshot.json`; receipt `/tmp/munbon-path1-refresh-event-green.yRBcJD/receipt.json`; ownership validator `verified=true`; final browser production SHA-256 `2a70966763a2b504c7ce7f06e7158c02d309cbb8d1ac276ad8b3c96b21c84e48`; primary rerun `39 passed`.
+- Finding disposition: the snapshot `2050` HIGH is remediated. Pre-accept request identities remain ineligible even if their response arrives late; the accepted gate is set synchronously on the matching 200 login response event; post-accept request identities are eligible; the bounded timer starts only after the awaited accepted response; missing dark refresh yields `mount_refresh_missing`; immediate rejection handling and cleanup precedence remain intact.
+- No guest, AWS, live acceptance, deployment, or activation action was performed. Repeat complete gates and formal g-check remain required.
+
+## Review (2026-08-20T21:11:34+07:00) - working-tree sixth repeat formal g-check
+
+### Reviewed
+- Repo/branch/base: `/Users/subhajlimanond/dev/munbon2-backend-path3-write-act-rc`, `test/local-write-act-1`, `306dc401b87bca924142923ac343506b076e4364`.
+- Scope: deep working-tree snapshot `2026-08-20/2106`; continuation chat `path-1-g-check-A2FFB2`.
+- Reported primary evidence: browser inventory `39 passed`, complete Python `632 passed`, complete Node `51 passed`, plus Black, Ruff, `py_compile`, `node --check`, and `git diff --check`. The reviewer inspected the diff, did not independently rerun those gates, and inferred no live acceptance.
+
+### Findings
+CRITICAL
+- None.
+
+HIGH
+- Rollback acquired a fresh operator bearer before the potentially long dark frontend build/browser phase, then reused it for every BFF disarm retry. Expiry before the behavioral disabled-write probe could produce repeated 401 responses and fail-safe-stop an otherwise correctly dark BFF.
+
+MEDIUM
+- A restoration report returning `restored=false` could be masked when the outer fresh-session context performed strict logout after `_restore_write_activation_dark()` returned and that logout failed. The safe containment report and fail-safe evidence could be lost behind the secondary logout error.
+
+LOW
+- A timed-out `waitForResponse(timeout: 0)` refresh observation remains registered until page close because it is not cancellable. Immediate rejection handling makes this bounded resource retention, not a lifecycle blocker.
+- Source-occurrence counts remain fragile wiring tests; behavioral coverage keeps this documented non-blocking debt.
+
+### Prior-finding disposition
+- Snapshot `2050` refresh-observer HIGH resolved: synchronous accepted-response gate, post-accept request identity, late pre-accept response exclusion, accepted-phase timeout, bounded dark failure, immediate rejection handling, and cleanup precedence all passed review.
+- Earlier BFF, interruption, dark inventory/logout, accepted-login cleanup, Redis, final runtime restoration, database, stability, timeout, URL, and historical-compatibility findings remained resolved subject only to the new credential-aging blocker.
+
+### Primary disposition
+- The HIGH credential-lifetime defect and related MEDIUM report-masking defect were accepted for a single coherent test-first rollback-session remediation. Both browser/source-occurrence LOWs remain accepted non-blocking residuals.
+- Snapshot `2026-08-20/2106` was not g-check clean for commit/PR. No guest, AWS, deployment, activation, `LOCAL-WRITE-ACT-1`, or `LOCAL-RC-1` acceptance was claimed.
+
+## Path 1 sixth-repeat review remediation (2026-08-20T21:20:00+07:00)
+
+- Primary rollback-session RED produced `3 failed`: reauth occurred before dark frontend proof, two simulated disarm attempts reused `fresh-token-1`, and strict fresh-session logout replaced the expected `write_activation_restoration_failed` report.
+- Accepted Luna GREEN `PATH1-ROLLBACK-SESSION-1`: snapshot `/tmp/munbon-path1-rollback-session-green.eC8HGi/snapshot.json`; receipt `/tmp/munbon-path1-rollback-session-green.eC8HGi/receipt.json`; ownership validator `verified=true`; production SHA-256 `02e5f79251aceacfd0360f03722ecaae902879dc0901bb91be26e3575d22b65c`.
+- `_restore_write_activation_dark()` now receives a callback that acquires a new exact-subject operator session only at each behavioral BFF probe invocation. Dark frontend build/browser happens first; bounded disarm retries receive distinct fresh tokens and each session is independently revoked; final readback remains a separate session.
+- Fresh login/probe/logout failures now occur inside the guarded disarm attempt, allowing retry or verified fail-safe stop. A `restored=false` report cannot be replaced by an outer context-manager logout after the report returns.
+- Independent primary scoped rerun: `16 passed` across event ordering, retry reauthentication, report preservation, fresh-session cleanup, restoration, and guarded disarm.
+- Finding disposition: snapshot `2106` HIGH and MEDIUM accepted findings are remediated test-first. The two LOW residuals remain documented non-blocking. Repeat complete gates and formal g-check remain required; no live acceptance was run or claimed.
+
+## Review (2026-08-20T21:21:15+07:00) - working-tree seventh repeat formal g-check
+
+### Reviewed
+- Repo/branch/base: `/Users/subhajlimanond/dev/munbon2-backend-path3-write-act-rc`, `test/local-write-act-1`, `306dc401b87bca924142923ac343506b076e4364`.
+- Scope: deep working-tree snapshot `2026-08-20/2117`; continuation chat `path-1-g-check-A2FFB2`.
+- Reported primary evidence: rollback/fresh/restoration/disarm scope `16 passed`, complete Python `634 passed`, complete Node `51 passed`, plus Black, Ruff, `py_compile`, `node --check`, and `git diff --check`. The reviewer inspected the diff, did not independently rerun those gates, and inferred no live acceptance.
+
+### Findings
+CRITICAL
+- None.
+
+HIGH
+- A failed fresh rollback attempt performed best-effort logout, swallowed cleanup errors, and did not prove refresh reuse returned 401. Guarded disarm could then retry, succeed with a later session, and publish PASS while the earlier operator refresh session remained usable. The same gap applied when strict logout/reuse proof failed after a successful behavioral probe.
+
+MEDIUM
+- None.
+
+LOW
+- The accepted-phase browser timeout leaves the uncancellable `waitForResponse(timeout: 0)` observer registered until page close. Immediate rejection handling keeps this bounded resource retention.
+- Source-occurrence counts remain fragile wiring tests; behavioral coverage keeps this documented non-blocking debt.
+
+### Prior-finding disposition
+- Snapshot `2106` ordering, per-attempt fresh token, credential-aging, guarded error containment, report preservation, and independent readback findings resolved structurally. Revocation truth for failed attempts remained incomplete.
+- The refresh observer and all earlier BFF, interrupt, dark inventory/logout, initial-login cleanup, Redis, database, stability/restoration, timeout/URL, and historical-compatibility findings remained resolved.
+
+### Primary disposition
+- The HIGH failed-attempt revocation gap was accepted for test-first remediation. Every accepted fresh session must attempt logout and prove refresh reuse 401; an unproved cleanup is a sticky disarm failure that later retries cannot erase. The two LOW findings remain accepted non-blocking residuals.
+- Snapshot `2026-08-20/2117` was not g-check clean for commit/PR. No guest, AWS, deployment, activation, `LOCAL-WRITE-ACT-1`, or `LOCAL-RC-1` acceptance was claimed.
+
+## Path 1 seventh-repeat review remediation (2026-08-20T21:30:00+07:00)
+
+- Primary revocation RED produced `6 failed, 2 passed`: exceptional operation, subject drift, and accepted-login failure lacked reuse proof; logout/reuse failure still rethrew only the probe error; and guarded disarm accepted a later dark proof after an unproved cleanup.
+- Accepted Luna GREEN `PATH1-ROLLBACK-REVOCATION-1`: snapshot `/tmp/munbon-path1-revocation-green.l1Upx2/snapshot.json`; receipt `/tmp/munbon-path1-revocation-green.l1Upx2/receipt.json`; ownership validator `verified=true`; production SHA-256 `d6461152ffe6497f5bf4587edbc6ed1e8df509ae458adbb624b28b5ea4373ad9`.
+- Every recoverable accepted fresh session now attempts both logout and refresh-reuse rejection on normal, operation-failure, principal/subject-failure, and accepted-login-failure exits. A proved exceptional cleanup preserves the original exception; either cleanup-leg failure raises `write_activation_fresh_operator_cleanup_unproved` chained from the primary.
+- Guarded disarm treats that cleanup code as sticky, performs no later behavioral retry that could erase it, fail-safe-stops the BFF, and independently verifies the stopped state. Generic probe failures with proved session cleanup remain retryable.
+- Independent primary scoped rerun: `10 passed` across fresh-session cleanup, generic retry, sticky cleanup, rollback retries, and restoration-report preservation.
+- Finding disposition: snapshot `2117` HIGH is remediated test-first. The two LOW residuals remain documented non-blocking. Full gates and repeat formal g-check remain required; no live acceptance was run or claimed.
+- Fresh exact-candidate complete gates after Black formatting: Python harness `637 passed`; Node harness `51 passed`; Black, Ruff, `py_compile`, both Node syntax checks, and `git diff --check` passed. The pytest run emitted only the existing `asyncio_default_fixture_loop_scope` deprecation warning.
+
+## Review (2026-08-20T21:34:38+07:00) - working-tree eighth repeat formal g-check
+
+### Reviewed
+- Repo/branch/base: `/Users/subhajlimanond/dev/munbon2-backend-path3-write-act-rc`, `test/local-write-act-1`, `306dc401b87bca924142923ac343506b076e4364`.
+- Scope: deep working-tree snapshot `2026-08-20/2131`; continuation chat `path-1-g-check-A2FFB2`.
+- Reported primary evidence: complete Python `637 passed`, complete Node `51 passed`, plus Black, Ruff, `py_compile`, `node --check`, and `git diff --check`. The reviewer inspected the diff, did not independently rerun those gates, and inferred no live acceptance.
+
+### Findings
+CRITICAL
+- None.
+
+HIGH
+- Failed fresh-session cleanup can mask `KeyboardInterrupt` or `SystemExit`: `_fresh_write_activation_operator_session()` can replace the interrupt with `write_activation_fresh_operator_cleanup_unproved`, after which `_disarm_bff_guarded()` can convert it to an ordinary restoration failure instead of completing containment/restoration and re-raising the original interrupt.
+- Initial WRITE-ACT and persist-only accepted API sessions still use non-strict logout on accepted-login or later stage failure without refresh-reuse 401 proof. A failed logout can therefore leave a usable operator refresh session while the stage exits.
+
+MEDIUM
+- PASS evidence overwrites `steps["rollback_operator_session"]` on each guarded-disarm attempt. A final successful retry cannot durably demonstrate all accepted rollback sessions and each attempt's revocation proof.
+
+LOW
+- The accepted-phase browser timeout leaves an uncancellable `waitForResponse(timeout: 0)` observer registered until page close; immediate rejection handling keeps this bounded resource retention.
+- Source-occurrence counts remain fragile wiring tests; behavioral coverage keeps this documented non-blocking debt.
+
+### Prior-finding disposition
+- Snapshot `2117` revocation finding is resolved for ordinary exceptions: both cleanup legs are attempted, cleanup failure is sticky, later retries cannot erase it, and BFF fail-safe stop is independently verified. Interrupt-class preservation is incomplete and is the first new HIGH.
+- Refresh correlation/timeout, behavioral BFF darkness, fail-safe stop, dark frontend proof, per-attempt fresh credentials, restoration-report preservation, Redis accounting/key binding, database proof, stability/restoration, direct V2 URL/timeout, and frozen historical nine-stage compatibility remained resolved.
+
+### Primary disposition
+- Both HIGH findings and the MEDIUM durable-evidence finding are accepted for primary-owned behavioral RED tests and bounded Luna production remediation. The two LOW findings remain accepted non-blocking residuals.
+- Snapshot `2026-08-20/2131` was not g-check clean for commit/PR. No guest, AWS, deployment, activation, `LOCAL-WRITE-ACT-1`, or `LOCAL-RC-1` acceptance was claimed.
+
+## Path 1 eighth-repeat review remediation (2026-08-20T22:02:00+07:00)
+
+- Primary RED for snapshot `2131` produced `16 failed`: six `KeyboardInterrupt`/`SystemExit` operation/logout/reuse cases were masked; both WRITE-ACT and persist-only accepted-login/post-login failure paths lacked complete logout plus refresh-reuse proof; and plural rollback-session evidence was absent on both success and failure restoration.
+- Accepted Luna GREEN `PATH1-INTERRUPT-PRESERVATION-1`: snapshot `/tmp/munbon-path1-interrupt-green.4WohBv/snapshot.json`; receipt `/tmp/munbon-path1-interrupt-green.4WohBv/receipt.json`; ownership validator `verified=true`; production SHA-256 `5ae480fc25ebb4178bec85589a870f9f0b68906a1814dfe0fe2d834d88ec701c`.
+- Accepted Luna GREEN `PATH1-INITIAL-REVOCATION-1`: snapshot `/tmp/munbon-path1-initial-revocation-green.JtdYTT/snapshot.json`; receipt `/tmp/munbon-path1-initial-revocation-green.JtdYTT/receipt.json`; ownership validator `verified=true`; production SHA-256 `47a93f0d138ac08f111bdb8d444553e88d04f8c1e9ba34691ddc93ae8f0162eb`.
+- Strengthened MEDIUM evidence RED required actual accepted logout plus reuse-401 evidence on ordinary and exceptional fresh-session exits, ordered retry records in PASS steps, and the same ordered records in failure restoration. Accepted Luna GREEN `PATH1-ROLLBACK-EVIDENCE-2`: snapshot `/tmp/munbon-path1-rollback-evidence-green-v2.OAK7mW/snapshot.json`; receipt `/tmp/munbon-path1-rollback-evidence-green-v2.OAK7mW/receipt.json`; ownership validator `verified=true`; production SHA-256 `7239465d51061d684cc786039f43e5311277f3a3637ecc24bfb650b56b39273a`.
+- Primary production audit found the first evidence implementation inferred accepted logout from reuse evidence. A new fail-closed RED rejected incomplete rollback evidence. Accepted Luna GREEN `PATH1-ROLLBACK-EVIDENCE-FAILSAFE-1`: snapshot `/tmp/munbon-path1-evidence-failsafe-green.3lhDXX/snapshot.json`; receipt `/tmp/munbon-path1-evidence-failsafe-green.3lhDXX/receipt.json`; ownership validator `verified=true`; final production SHA-256 `516b816c60a2f07af574486fdb9aec158f9cdbe230b84039a9a05c558247f26f`.
+- Finding disposition: snapshot `2131` HIGH interrupt masking is remediated; the same interrupt object survives both cleanup legs, independently verified BFF fail-safe containment, and scheduler restoration. Initial WRITE-ACT and persist-only failure cleanup now attempts both logout and reuse proof, preserves the primary when proved, and surfaces stage-specific cleanup-unproved errors otherwise. Ordered rollback-session records retain principal, probe outcome, actual accepted logout, and reuse proof on PASS and failure restoration without credentials; incomplete evidence fails closed.
+- Independent primary focused rerun: `24 passed`. Fresh exact-candidate full gates: Python harness `650 passed`; Node harness `51 passed`; Black, Ruff, `py_compile`, both Node syntax checks, and `git diff --check` passed. Pytest emitted only the existing asyncio fixture-scope deprecation warning.
+- The two LOW residuals remain documented non-blocking. Repeat formal g-check remains required; no live acceptance, guest, AWS, deployment, or activation action was run or claimed.
+
+## Review (2026-08-20T22:02:21+07:00) - working-tree ninth repeat formal g-check
+
+### Reviewed
+- Repo/branch/base: `/Users/subhajlimanond/dev/munbon2-backend-path3-write-act-rc`, `test/local-write-act-1`, `306dc401b87bca924142923ac343506b076e4364`.
+- Scope: deep working-tree snapshot `2026-08-20/2158`; continuation chat `path-1-g-check-A2FFB2`.
+- Reported primary evidence: focused remediation `24 passed`, complete Python `650 passed`, complete Node `51 passed`, plus Black, Ruff, `py_compile`, `node --check`, and `git diff --check`. The reviewer inspected the diff, did not independently rerun those gates, and inferred no live acceptance.
+
+### Findings
+CRITICAL
+- None.
+
+HIGH
+- The production rollback callback can replace a behavioral `KeyboardInterrupt` or `SystemExit` with `write_activation_rollback_session_evidence_incomplete`: fresh cleanup re-raises the interrupt before populating proved cleanup evidence, then `record_rollback_session()` raises an ordinary error. Guarded disarm can retry and erase the interrupt. Existing interrupt tests bypassed this wrapper.
+
+MEDIUM
+- Accepted rollback sessions that fail after login but before the context yields, including accepted-login parsing and principal/subject failures, are absent from the ordered inventory. A later retry can PASS without recording the earlier accepted and revoked session.
+- When the armed browser/stability phase fails but rollback succeeds, the `restored=true` report omits `rollback_operator_sessions`; the primary failure path has no returned `steps`, so durable failure evidence loses the session lifecycle record.
+
+LOW
+- The accepted-phase browser timeout leaves an uncancellable `waitForResponse(timeout: 0)` observer registered until page close; immediate rejection handling keeps this bounded resource retention.
+- Source-occurrence counts remain fragile wiring tests; behavioral coverage keeps this documented non-blocking debt.
+
+### Prior-finding disposition
+- Snapshot `2131` initial WRITE-ACT and persist-only failure cleanup is resolved. Ordered evidence is resolved for yielded successful/failed probe attempts but incomplete for pre-yield accepted sessions and successful restoration after a primary failure. Interrupt preservation remains incomplete only in the production callback composition.
+- All earlier refresh, BFF containment, dark proof, credential-aging, Redis, database, stability, restoration, timeout/URL, and historical nine-stage compatibility findings remained resolved.
+
+### Primary disposition
+- The HIGH and both MEDIUM findings are accepted for integrated primary-owned RED tests and bounded Luna remediation. The two LOW findings remain accepted non-blocking residuals.
+- Snapshot `2026-08-20/2158` was not g-check clean for commit/PR. No guest, AWS, deployment, activation, `LOCAL-WRITE-ACT-1`, or `LOCAL-RC-1` acceptance was claimed.
+
+## Path 1 ninth-repeat review remediation (2026-08-20T22:31:00+07:00)
+
+- Integrated primary RED for snapshot `2158` produced `10 failed, 1 passed`: the actual authenticated rollback callback masked operation interrupts for both `KeyboardInterrupt` and `SystemExit` under proved and unproved cleanup; pre-yield login/principal records were not attached or retained; restored-true primary browser failure omitted the ledger; and evidence-incomplete was not sticky.
+- Accepted Luna GREEN `PATH1-ROLLBACK-LEDGER-2`: snapshot `/tmp/munbon-path1-rollback-ledger-green-v2.HOinEk/snapshot.json`; receipt `/tmp/munbon-path1-rollback-ledger-green-v2.HOinEk/receipt.json`; ownership validator `verified=true`; production SHA-256 `e87c4c2c6a004c9c56209a010cae51b0119c67341f9a06ae4027fe942a36adae`.
+- The fresh-session helper now attaches proved, credential-free pre-yield lifecycle records; the callback appends those records before retry, never lets record validation replace an interrupt, and records proved interrupted attempts. Both cleanup-unproved and evidence-incomplete are sticky; every restoration report receives an ordered copied ledger, including restored-true and interrupt paths.
+- Primary audit then added REDs for unexpected ledger fields and principal-phase records without actual principal evidence. Accepted Luna GREEN `PATH1-ROLLBACK-LEDGER-SCHEMA-1`: snapshot `/tmp/munbon-path1-ledger-schema-green.Sykc8y/snapshot.json`; receipt `/tmp/munbon-path1-ledger-schema-green.Sykc8y/receipt.json`; ownership validator `verified=true`; final production SHA-256 `e04f4b5f3469cd442a9889555b392bd4bea877cda41e4ac2f422e82c9ea00651`.
+- Ledger recording now requires exact phase-specific schemas, actual principal evidence for principal-phase records, exact logout/reuse evidence, and no unexpected fields. Missing, malformed, or credential-like extra fields fail closed with sticky `write_activation_rollback_session_evidence_incomplete`; interrupts remain dominant.
+- Finding disposition: snapshot `2158` HIGH is remediated in the production callback composition; the same interrupt object survives recorder/cleanup paths, BFF fail-safe stop, and scheduler restoration without retry. Both MEDIUM gaps are remediated: proved pre-yield sessions are retained when safe, unsafe/incomplete records fail closed, and restored-true primary failures retain the complete ledger.
+- Independent primary cumulative focused rerun: `37 passed`. Fresh exact-candidate full gates: Python harness `661 passed`; Node harness `51 passed`; Black, Ruff, `py_compile`, both Node syntax checks, and `git diff --check` passed. Pytest emitted only the existing asyncio fixture-scope deprecation warning.
+- The two LOW residuals remain documented non-blocking. Repeat formal g-check remains required; no live acceptance, guest, AWS, deployment, or activation action was run or claimed.
+
+## Review (2026-08-20T22:23:08+07:00) - working-tree tenth repeat formal g-check
+
+### Reviewed
+- Repo/branch/base: `/Users/subhajlimanond/dev/munbon2-backend-path3-write-act-rc`, `test/local-write-act-1`, `306dc401b87bca924142923ac343506b076e4364`.
+- Scope: bounded remediation re-review of deep working-tree snapshot `2026-08-20/2218`; continuation chat `path-1-g-check-A2FFB2`. The selected production/test slices covered the three snapshot `2158` findings while the same chat retained the earlier full-diff review context; the accumulated full artifact exceeded the review transport limit.
+- Reported primary evidence: cumulative focused selector `37 passed`, complete Python `661 passed`, complete Node `51 passed`, plus Black, Ruff, `py_compile`, both `node --check` commands, and `git diff --check`. The reviewer did not independently rerun those gates and inferred no live acceptance.
+
+### Findings
+CRITICAL
+- None.
+
+HIGH
+- None.
+
+MEDIUM
+- None.
+
+LOW
+- The accepted-phase browser timeout leaves an uncancellable `waitForResponse(timeout: 0)` observer registered until page close; immediate rejection handling keeps this bounded resource retention.
+- Source-occurrence counts remain fragile wiring tests; behavioral publication, artifact, state, and collector coverage keeps this documented non-blocking debt.
+
+### Snapshot 2158 finding disposition
+- Resolved: the actual authenticated rollback callback preserves exact `KeyboardInterrupt`/`SystemExit` object identity, does not retry, attempts both cleanup legs, performs verified BFF fail-safe containment and scheduler restoration, and cannot have the interrupt replaced by record validation.
+- Resolved: proved pre-yield login/principal lifecycle records are retained before retry; principal-phase records require actual principal evidence; missing, malformed, unexpected, or credential-like fields fail closed.
+- Resolved: copied ordered rollback-session ledger snapshots are attached for restored-true, restored-false, and interrupt restoration outcomes.
+- All earlier BFF darkness/containment, frontend rollback, refresh correlation/revocation, Redis accounting and exact key binding, database evidence, stability, restoration, timeout/direct-URL, publication, and frozen historical nine-stage findings remain resolved.
+
+### Primary disposition
+- Snapshot `2026-08-20/2218` is formal g-check clean for commit/PR at the reviewed source level. The two LOW findings remain accepted non-blocking residuals.
+- The reported local gates establish source-level validation only. No guest, AWS, deployment, activation, `LOCAL-WRITE-ACT-1`, or `LOCAL-RC-1` acceptance was run or claimed.
+
+## Path 1 final repeated local gates (2026-08-20T22:36:00+07:00)
+
+- After the clean tenth formal g-check, the complete affected gate was run three consecutive times on the unchanged source/test candidate. Rounds 1, 2, and 3 each passed the complete Python harness with `661 passed` and the complete Node harness with `51 passed`.
+- Final static/integrity pass: Black left all five changed Python files unchanged; Ruff passed; `py_compile` passed; both changed JavaScript files passed `node --check`; `git diff --check` passed.
+- Pytest emitted only the existing `asyncio_default_fixture_loop_scope` deprecation warning in each round. The failed `python` shim probe before the sequence executed no tests; the valid three-round sequence was restarted at round 1 with `python3`.
+- These remain local source gates only. No guest, AWS, deployment, activation, `LOCAL-WRITE-ACT-1`, or `LOCAL-RC-1` acceptance was run or claimed.

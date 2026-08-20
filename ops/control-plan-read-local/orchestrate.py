@@ -29,7 +29,7 @@ ACCEPTED_BASE_SHA = "8095bfe37550200da00ecb554edc646febf8aff9"
 MACHINE_NAME = "munbon-control-plan-local"
 REHEARSAL_MACHINE_NAME = "munbon-control-plan-rehearsal"
 DIAGNOSTIC_MACHINE_NAME = "munbon-control-plan-write-ui-diagnostic"
-STAGE_ORDER = (
+CAMPAIGN_LEDGER_V1_STAGE_ORDER = (
     "LOCAL-BASE-0",
     "LOCAL-RTA-1",
     "LOCAL-AC-1",
@@ -40,7 +40,8 @@ STAGE_ORDER = (
     "LOCAL-WRITE-UI-1",
     "LOCAL-PERSIST-ONLY-1",
 )
-REHEARSAL_STAGE_ORDER = STAGE_ORDER[:3]
+STAGE_ORDER = (*CAMPAIGN_LEDGER_V1_STAGE_ORDER, "LOCAL-WRITE-ACT-1")
+REHEARSAL_STAGE_ORDER = CAMPAIGN_LEDGER_V1_STAGE_ORDER[:3]
 EVIDENCE_HARNESS_ARTIFACTS = (
     "local-ac1.py",
     "run-evidence-browser.js",
@@ -136,12 +137,12 @@ def validate_campaign_ledger(path: Path) -> list[dict]:
             and outcome.get("acceptance") is False
             and len(outcome["failed"]) == 1
             and [*outcome["passed"], *outcome["failed"], *outcome["unreached"]]
-            == list(STAGE_ORDER)
+            == list(CAMPAIGN_LEDGER_V1_STAGE_ORDER)
         )
         successful_outcome_is_valid = (
             outcome_lists_are_valid
             and outcome.get("acceptance") is True
-            and outcome["passed"] == list(STAGE_ORDER)
+            and outcome["passed"] == list(CAMPAIGN_LEDGER_V1_STAGE_ORDER)
             and outcome["failed"] == []
             and outcome["unreached"] == []
             and isinstance(evidence, dict)
@@ -1303,7 +1304,7 @@ def _run_stage(
         _run_checked(
             stage.lower().replace("-", "_"),
             guest_command(stage_argv, workdir="/opt/munbon/repo"),
-            timeout=2400,
+            timeout=7200 if stage == "LOCAL-WRITE-ACT-1" else 2400,
         )
     except CommandExecutionError as exc:
         if exc.returncode == FAILURE_MANIFEST_EXIT_CODE:
@@ -1358,6 +1359,7 @@ def finalize_evidence_collection(destination: Path) -> dict:
         *stage_names,
         "stage-state.json",
         "LOCAL-WRITE-UI-1-browser-result.json",
+        "LOCAL-WRITE-ACT-1-browser-result.json",
         "LOCAL-GO-READ-1-live.png",
         "LOCAL-GO-READ-1-outage.png",
         "SHA256SUMS",
