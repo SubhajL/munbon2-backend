@@ -10168,6 +10168,30 @@ def test_run_local_rc_preflight_rejects_existing_evidence_before_probes(
         )
 
 
+def test_bootstrap_runtime_environment_satisfies_rc_dark_contract(tmp_path):
+    context = _rc_context(tmp_path)
+    bootstrap = MODULE_PATH.with_name("bootstrap-linux.sh").read_text(encoding="utf-8")
+    for service in ("flow", "scheduler", "ros", "bff"):
+        environment = bootstrap.split(
+            f'cat > "${{RUNTIME_ENV_DIR}}/{service}.env" <<EOF\n', 1
+        )[1].split("\nEOF", 1)[0]
+        (context.runtime_env_dir / f"{service}.env").write_text(
+            f"{environment}\n", encoding="utf-8"
+        )
+    model_source = (
+        MODULE_PATH.parents[2]
+        / "services/flow-monitoring/data/model-releases/engineering-prior-v5-v1.json"
+    )
+    model_target = (
+        context.repo_root
+        / "services/flow-monitoring/data/model-releases/engineering-prior-v5-v1.json"
+    )
+    model_target.parent.mkdir(parents=True)
+    model_target.write_bytes(model_source.read_bytes())
+
+    assert stage_suite._rc_configured_dark(context) is True
+
+
 def test_rc_configured_dark_reads_the_actual_model_release(monkeypatch, tmp_path):
     context = _rc_context(tmp_path)
     model_release = (
