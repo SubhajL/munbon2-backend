@@ -1123,8 +1123,8 @@ def test_all_stages_runbook_locks_local_before_aws_and_documents_current_command
         ("LOCAL-WRITE-FOUNDATION-1", "Implemented; prior SHA passed"),
         ("LOCAL-WRITE-UI-1", "Implemented; latest campaign passed"),
         ("LOCAL-PERSIST-ONLY-1", "Implemented; latest campaign passed"),
-        ("LOCAL-WRITE-ACT-1", "Implemented in source; not yet accepted"),
-        ("LOCAL-RC-1", "Implemented in source; not yet accepted"),
+        ("LOCAL-WRITE-ACT-1", "Accepted at exact candidate"),
+        ("LOCAL-RC-1", "Accepted at exact candidate"),
     ]
 
     for required in (
@@ -1204,9 +1204,10 @@ def test_all_stages_runbook_locks_local_before_aws_and_documents_current_command
     for required in (
         "accepted_frontend_sha=REPLACE_WITH_ACCEPTED_40_CHARACTER_FRONTEND_SHA",
         "Historical frontend SHAs below are evidence identities, not reusable defaults.",
-        "All ten current local acceptance stages are implemented in source",
-        "Neither `LOCAL-WRITE-ACT-1` nor `LOCAL-RC-1` has been run or accepted",
-        "The current candidate has genuine 9/9 local acceptance evidence",
+        "All ten current local acceptance stages and the `LOCAL-RC-1` wrapper passed",
+        "a26c0fd000b0b6da443135ffeadb992eded8fb5b",
+        "b62c0353236dafd73c4bc872e24b565bedecc4bb058db5f4f71f41e8815ba04f",
+        "The latest canonical campaign is acceptance-truthfully **9 passed / 0 failed /",
         "2026-08-20-nine-stage-orbstack-7f032c4c-attempt-1",
         "7f032c4c20e7f9cdd443d64f7adbeb37342ff190",
         "01M0F27Z1GZQ7SQF07XH9M3VQT",
@@ -1220,9 +1221,8 @@ def test_all_stages_runbook_locks_local_before_aws_and_documents_current_command
         "cannot satisfy `successful_closed`",
         "Guest replacement, deployment, and activation remain separately authorized actions.",
         "Every authorized campaign outcome, success or failure, must extend the campaign",
-        "This 9/9 result grants no",
-        "still requires a separately authorized passing `LOCAL-RC-1`",
-        "promotion and AWS authorization.",
+        "The historical 9/9 result",
+        "does not authorize deployment, activation, AWS action, or production promotion",
     ):
         assert required in body
     assert "accepted_frontend_sha=fbd4ce4df0bb0476b7cd402ac1a4e180a91a7792" not in body
@@ -1250,7 +1250,7 @@ def test_all_stages_runbook_locks_local_before_aws_and_documents_current_command
         assert required in current_result
 
 
-def test_all_stages_runbook_records_source_delivery_without_runtime_acceptance():
+def test_all_stages_runbook_records_source_delivery_before_runtime_acceptance():
     body = (
         REPO_ROOT / "docs/operations/CONTROL_PLAN_ALL_STAGES_LOCAL_ACCEPTANCE.md"
     ).read_text(encoding="utf-8")
@@ -1269,11 +1269,49 @@ def test_all_stages_runbook_records_source_delivery_without_runtime_acceptance()
         "fa588d285932569147038ff8209961b8cf965dd4",
         "818 Python tests and 51 Node tests passed in each of three consecutive rounds",
         "formal g-check snapshot `2026-08-21/0339` was clean",
-        "No guest command or fresh exact-SHA acceptance run was performed",
-        "No authoritative `LOCAL-WRITE-ACT-1` or `LOCAL-RC-1` acceptance is claimed",
-        "does not authorize or perform guest creation, guest replacement, live guest operations",
-        "AWS inventory or action, promotion, deployment, activation, post-deployment verification, or rollback execution",
+        "These source-delivery receipts predated the authoritative runtime acceptance below",
+        "did not themselves authorize guest creation, guest replacement, or live guest operations",
+        "do not authorize AWS inventory or action, promotion, deployment, activation, post-deployment verification, or rollback execution",
         "The historical campaign ledger remains frozen at nine stages",
         "Its existing 9/9 rows are not redefined by the ten-stage live order or by the `LOCAL-RC-1` wrapper",
     ):
         assert required in source_delivery
+
+
+def test_all_stages_runbook_records_exact_local_rc_acceptance():
+    body = (
+        REPO_ROOT / "docs/operations/CONTROL_PLAN_ALL_STAGES_LOCAL_ACCEPTANCE.md"
+    ).read_text(encoding="utf-8")
+    result = body.split("## Current LOCAL-RC-1 result\n", maxsplit=1)[1].split(
+        "\n## ", maxsplit=1
+    )[0]
+
+    for required in (
+        "**11 passed / 0 failed / 0 unreached**",
+        "a26c0fd000b0b6da443135ffeadb992eded8fb5b",
+        "067b3e22401854f8c6d6db42dc0c5c1872fca6f8",
+        "a5124da66a423c9902ec6b69d1659c4605aeb108d53c85b8fc7ab130d82e672c",
+        "01M0JJFGPCXVJYMH355KJGWVDS",
+        "b16e828df52c492c946f569b5bebcf79",
+        "attempt 1 of 1",
+        "2026-08-21",
+        "e0d11e56f118364912acc6ffa0545c121e75811ae08f1b2dee9f6a7b35c51dd7",
+        "b62c0353236dafd73c4bc872e24b565bedecc4bb058db5f4f71f41e8815ba04f",
+        "32a51750c3f6cb85819acd8ef09cb43de57bf9bd529685f2532b6778736775df",
+        "900-second stability window passed with 31 samples",
+        "Final runtime, frontend, write, readback, execution, producer, authority, and machine-command gates: dark",
+        "All operator logouts accepted and refresh-token reuse rejected with `401`",
+        "Acceptance evidence: true",
+        "campaign-ledger eligible: false",
+        "AWS actions authorized: false",
+        "does not authorize deployment, activation, AWS action, or production promotion",
+        "../munbon-control-plan-rc-evidence/2026-08-21-local-rc1-a26c0fd000b0-067b3e224018-20260821T162700Z-5d7a9c31/success-attempt-1/",
+    ):
+        assert required in result
+
+    for stale in (
+        "Implemented in source; not yet accepted",
+        "Neither `LOCAL-WRITE-ACT-1` nor `LOCAL-RC-1` has been run or accepted",
+        "still requires a separately authorized passing `LOCAL-RC-1`",
+    ):
+        assert stale not in body

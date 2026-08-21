@@ -477,3 +477,63 @@ LOW
 
 - Final source gates: focused contract `13 passed` for three consecutive rounds; strict partial collector `43 passed`; complete Python `852 passed`; Node `51 passed`; formatting, lint, compilation, shell/JavaScript syntax, and whitespace integrity passed.
 - Formal `g-check`: no CRITICAL, HIGH, or MEDIUM finding remains. Runtime acceptance is still separate and not yet claimed.
+
+## Exact-candidate LOCAL-RC-1 acceptance
+
+- Source remediation PR `#200` accepted candidate `f050ad8c762840dc786aa86097d04320847e5b61` and landed as merge commit `a26c0fd000b0b6da443135ffeadb992eded8fb5b`. Hosted jobs were unavailable under the standing zero-step billing-lock policy and are not called passing. Before runtime work, the primary checkout was clean at `HEAD == main == origin/main == a26c0fd000b0b6da443135ffeadb992eded8fb5b`.
+- One dependency-builder invocation published `/Users/subhajlimanond/dev/munbon-control-plan-rc-evidence/dependencies-a26c0fd000b0b6da443135ffeadb992eded8fb5b-067b3e22401854f8c6d6db42dc0c5c1872fca6f8.tar.gz`, outer SHA-256 `a5124da66a423c9902ec6b69d1659c4605aeb108d53c85b8fc7ab130d82e672c`. Independent extraction passed all `968` `SHA256SUMS` entries and confirmed schema-2 ownership for exact backend `a26c0fd000b0b6da443135ffeadb992eded8fb5b`, frontend `067b3e22401854f8c6d6db42dc0c5c1872fca6f8`, Debian 12 ARM64, Node `22.23.1`, npm `10.9.8`, and Python `3.11`.
+- The failed attempt-4 guest was revalidated as the exact stopped singleton `munbon-control-plan-local`, Orb ID `01M0JD3D6KPD3NRB7BK6511J6B`, machine ID `1e48131c82024e39a1b5f194f73d33fa`, owned by backend `324cfc9f56ba07168adbaa500b07c93bd0461bfb` and archive `6ae49bc88af0c5e3c10fc05be0c821c02548d9d174eb14385de7239a0889488a`. It was deleted once by exact name after the user removed the stable-ID-only deletion contract. Its diagnostic packet remained checksum-valid with index SHA-256 `dc84e9901875984d701d85b6d8af8697e763fedb7c7553ee77016567406e7254`; no private VM storage was manipulated and three unrelated running guests were preserved.
+- Fresh session `/Users/subhajlimanond/dev/munbon-control-plan-rc-evidence/2026-08-21-local-rc1-a26c0fd000b0-067b3e224018-20260821T162700Z-5d7a9c31` provisioned exactly once. Canonical guest `munbon-control-plan-local` has Orb ID `01M0JJFGPCXVJYMH355KJGWVDS`, machine ID `b16e828df52c492c946f569b5bebcf79`, exact candidate/archive ownership, pristine isolation, and identities distinct from the failed guest.
+- The sole `run-rc` invocation passed strict preflight, all ten current stages, the `LOCAL-RC-1` wrapper, finalization, stream, and extraction: `11 passed / 0 failed / 0 unreached`. Acceptance evidence is true; campaign-ledger eligibility and AWS-action authorization are false.
+- Accepted evidence root: `/Users/subhajlimanond/dev/munbon-control-plan-rc-evidence/2026-08-21-local-rc1-a26c0fd000b0-067b3e224018-20260821T162700Z-5d7a9c31/success-attempt-1`. All `19` inner and `20` outer checksum entries passed. Inner index SHA-256 is `e0d11e56f118364912acc6ffa0545c121e75811ae08f1b2dee9f6a7b35c51dd7`; outer index is `b62c0353236dafd73c4bc872e24b565bedecc4bb058db5f4f71f41e8815ba04f`; summary is `32a51750c3f6cb85819acd8ef09cb43de57bf9bd529685f2532b6778736775df`; `LOCAL-RC-1.json` is `2d4362fef8d512493457842c7e95a553df15a9811d6c04a1551c466527c625f2`.
+- The 900-second final stability window passed with `31` samples over `900.228` seconds. All four PM2 services stayed online and ready; runtime, frontend, write, readback, execution, producer, authority, and machine-command gates finished dark; the rate namespace was empty; both operator logouts were accepted and refresh reuse returned `401`; final restoration passed.
+- Read-only live probes agreed with the checksum-bound manifests. Both checksum layers were rerun afterward and remained unchanged. This proves exact local acceptance only: it does not authorize AWS action, deployment, activation, production promotion, or any campaign-ledger rewrite.
+
+## Durable LOCAL-RC-1 runbook update
+
+- Primary-owned contract required the runbook to replace the three stale non-acceptance claims, preserve the historical frozen 9/9 boundary, pin the exact backend/frontend/archive/guest/checksum identities, record the stability and revocation results, and deny AWS/deployment/activation/promotion authority.
+- Expected RED was confirmed with exactly three failures: the two stale promotion-table entries, the stale source-only paragraph, and the missing exact result section. After the documentation edit, the focused contract passed three consecutive rounds (`3 passed, 44 deselected` each).
+- Complete post-GREEN gates: Python `853 passed`; Node `51 passed`; Black, Ruff, and whitespace integrity passed.
+
+## Review (2026-08-22 00:18:53 +0700) - working-tree LOCAL-RC-1 durable acceptance record
+
+### Reviewed
+
+- Repo: `/Users/subhajlimanond/dev/munbon2-backend`.
+- Branch/baseline: `docs/local-rc-acceptance` at `a26c0fd000b0b6da443135ffeadb992eded8fb5b`.
+- Scope: complete uncommitted acceptance-runbook, artifact-contract test, and Coding-Log diff; RepoPrompt snapshot `2026-08-22/0013`; retained `SESSION.json`, `GUEST-IDENTITY.json`, `RC-SUMMARY.json`, `LOCAL-RC-1.json`, and both checksum indexes; independent Terra QCHECK.
+- RepoPrompt Context Builder was unavailable because the exact bound tab was already MCP-controlled. Per g-check fallback, review proceeded immediately with the selected complete diff, targeted runbook/test reads, direct read-only evidence inspection, checksum verification, executable gates, and independent Terra review without blind retry.
+- Commands run: bounded complete diff inspection; exact-string/stale-claim searches; `sha256sum` and index-entry counts; targeted JSON projections; focused artifact-contract tests for three consecutive rounds; complete Python and Node suites; Black; Ruff; whitespace integrity.
+
+### Findings
+
+CRITICAL
+
+- None.
+
+HIGH
+
+- None.
+
+MEDIUM
+
+- None.
+
+LOW
+
+- None.
+
+### Open Questions / Assumptions
+
+- The acceptance result is intentionally local and exact-candidate-only. The separately titled historical 9/9 result remains the latest checksum-bound campaign-ledger result and is not redefined by `LOCAL-RC-1`.
+- The repository tests are durable text-contract guards; checksum-bound runtime truth remains in the retained external evidence, which was independently revalidated during this review.
+
+### Recommended Tests / Validation
+
+- No additional actionable test remains. Final validation passed with Python `853 passed`, Node `51 passed`, three consecutive focused rounds, Black, Ruff, checksum verification, and whitespace integrity.
+
+### Rollout Notes
+
+- Exact accepted identities: backend `a26c0fd000b0b6da443135ffeadb992eded8fb5b`, frontend `067b3e22401854f8c6d6db42dc0c5c1872fca6f8`, dependency SHA-256 `a5124da66a423c9902ec6b69d1659c4605aeb108d53c85b8fc7ab130d82e672c`, guest `01M0JJFGPCXVJYMH355KJGWVDS`, machine `b16e828df52c492c946f569b5bebcf79`.
+- Both checksum indexes were recomputed with zero mismatches: `19` inner and `20` outer entries. The exact index/summary/RC-manifest hashes match the runbook and Coding Log.
+- Formal g-check and independent QCHECK: no CRITICAL, HIGH, MEDIUM, or LOW finding. No deployment, activation, AWS action, production promotion, campaign-ledger rewrite, or new guest action is authorized by this documentation change.

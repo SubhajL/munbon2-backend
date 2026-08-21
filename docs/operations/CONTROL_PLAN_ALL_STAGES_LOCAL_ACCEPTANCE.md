@@ -33,8 +33,8 @@ bundle; the runtime checkout must remain at the accepted 40-character SHA.
 | W1 / W2            | `LOCAL-WRITE-FOUNDATION-1` | Implemented; prior SHA passed |
 | FE-5 / FE-6        | `LOCAL-WRITE-UI-1`         | Implemented; latest campaign passed |
 | DEC-W4             | `LOCAL-PERSIST-ONLY-1`     | Implemented; latest campaign passed |
-| WRITE-ACT-1        | `LOCAL-WRITE-ACT-1`        | Implemented in source; not yet accepted |
-| Combined clean run | `LOCAL-RC-1`               | Implemented in source; not yet accepted |
+| WRITE-ACT-1        | `LOCAL-WRITE-ACT-1`        | Accepted at exact candidate |
+| Combined clean run | `LOCAL-RC-1`               | Accepted at exact candidate |
 
 Passing `LOCAL-RTA-1` unlocks the next local stage only. It is not production
 RTA-1 and does not authorize deployment, visibility, writes, authority, or
@@ -45,9 +45,28 @@ machine execution.
 - Path 1 source delivery landed through PR #193. Its reviewed candidate was `86f7bc293277277010a64a2751d56fbeeb9e4172`, and local `main` landed at merge commit `3e038caec2909665266905aa00beff5e78299dc0`. On the unchanged candidate, 661 Python tests and 51 Node tests passed in each of three consecutive rounds, and formal g-check snapshot `2026-08-20/2218` was clean.
 - Path 2 source delivery landed through PR #194. Its reviewed candidate was `75408f8f8c83c48bccc5b9e64c67b8124281cdd3`, and local `main` landed at merge commit `fa588d285932569147038ff8209961b8cf965dd4`. On the unchanged candidate, 818 Python tests and 51 Node tests passed in each of three consecutive rounds, and formal g-check snapshot `2026-08-21/0339` was clean.
 
-Those results are source and local-test evidence only. No guest command or fresh exact-SHA acceptance run was performed for either delivered path. No authoritative `LOCAL-WRITE-ACT-1` or `LOCAL-RC-1` acceptance is claimed. This documentation does not authorize or perform guest creation, guest replacement, live guest operations, AWS inventory or action, promotion, deployment, activation, post-deployment verification, or rollback execution.
+These source-delivery receipts predated the authoritative runtime acceptance below. They did not themselves authorize guest creation, guest replacement, or live guest operations, and they do not authorize AWS inventory or action, promotion, deployment, activation, post-deployment verification, or rollback execution. The later `LOCAL-RC-1` result is separate exact-candidate runtime evidence.
 
 The historical campaign ledger remains frozen at nine stages. Its existing 9/9 rows are not redefined by the ten-stage live order or by the `LOCAL-RC-1` wrapper.
+
+## Current LOCAL-RC-1 result
+
+- Outcome: **11 passed / 0 failed / 0 unreached**.
+- Accepted backend: `a26c0fd000b0b6da443135ffeadb992eded8fb5b`.
+- Accepted frontend: `067b3e22401854f8c6d6db42dc0c5c1872fca6f8`.
+- Dependency archive SHA-256: `a5124da66a423c9902ec6b69d1659c4605aeb108d53c85b8fc7ab130d82e672c`.
+- Guest: `munbon-control-plan-local`, Orb ID `01M0JJFGPCXVJYMH355KJGWVDS`, machine ID `b16e828df52c492c946f569b5bebcf79`.
+- Operational date: `2026-08-21`; attempt 1 of 1.
+- Evidence: `../munbon-control-plan-rc-evidence/2026-08-21-local-rc1-a26c0fd000b0-067b3e224018-20260821T162700Z-5d7a9c31/success-attempt-1/`.
+- Inner checksum-index SHA-256: `e0d11e56f118364912acc6ffa0545c121e75811ae08f1b2dee9f6a7b35c51dd7`.
+- Outer checksum-index SHA-256: `b62c0353236dafd73c4bc872e24b565bedecc4bb058db5f4f71f41e8815ba04f`.
+- Summary SHA-256: `32a51750c3f6cb85819acd8ef09cb43de57bf9bd529685f2532b6778736775df`.
+- The 900-second stability window passed with 31 samples; all four PM2 services stayed online and ready.
+- Final runtime, frontend, write, readback, execution, producer, authority, and machine-command gates: dark.
+- All operator logouts accepted and refresh-token reuse rejected with `401`.
+- Acceptance evidence: true; campaign-ledger eligible: false; AWS actions authorized: false.
+
+This local acceptance does not authorize deployment, activation, AWS action, or production promotion. Those remain separate decisions and lifecycles.
 
 ## Provision
 
@@ -695,18 +714,16 @@ or runtime state.
 
 ## Remaining authority boundary
 
-All ten current local acceptance stages are implemented in source. Neither `LOCAL-WRITE-ACT-1` nor `LOCAL-RC-1` has been run or accepted in this source lifecycle.
-The current candidate has genuine 9/9 local acceptance evidence from one
-pristine authorized guest, and its `successful_closed` ledger entry binds the
-exact backend, frontend, dependency, harness, guest, and outer checksum index.
-Future candidates must still refresh the exact identities and rerun the full
-contract. Visibility, submit, write, and authority gates remain dark by
-default.
+All ten current local acceptance stages and the `LOCAL-RC-1` wrapper passed on
+one pristine authorized guest at their exact accepted identities. Future
+candidates must still refresh every identity and rerun the complete contract.
+Visibility, submit, write, readback, execution, producer, authority, and
+machine-command gates remain dark by default.
 
 Another rehearsal or canonical campaign requires a new separate authorization.
 Guest replacement, deployment, and activation remain separately authorized actions.
 Every authorized campaign outcome, success or failure, must extend the campaign
-ledger with its appropriate checksum-bound evidence. This 9/9 result grants no
-`LOCAL-RC-1`, deployment, activation, AWS, or production authority. Promotion
-still requires a separately authorized passing `LOCAL-RC-1`, and separate
-promotion and AWS authorization.
+ledger with its appropriate checksum-bound evidence. The historical 9/9 result
+remains frozen and separate from this ten-stage-plus-wrapper proof. This local
+acceptance does not authorize deployment, activation, AWS action, or production
+promotion.
