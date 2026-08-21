@@ -16,7 +16,7 @@ Create four operator-owned files and run `chmod 600` on each. Values below are n
 | `flow.env` | `POSTGRES_URL`, `TIMESCALE_URL`, `REDIS_URL`, `INFLUXDB_URL`, `INFLUXDB_TOKEN`, `INFLUXDB_ORG`, `INFLUXDB_BUCKET` |
 | `scheduler.env` | `POSTGRES_URL`, central-auth `REDIS_URL`, `JWT_SECRET_KEY`, `JWT_ISSUER`, `JWT_AUDIENCE`, `JWT_CLAIM_POLICY_MODE`, `CONTROL_EXECUTION_MODE=disabled`, `CONTROL_READBACK_RECONCILIATION_MODE=off` |
 | `ros.env` | `POSTGRES_URL`, isolated `REDIS_URL`; `REQUIREMENT_SOURCE_POSTGRES_URL` is canonical only when the producer is intentionally enabled, but this read-only runtime unsets it and keeps the producer disabled |
-| `bff.env` | `POSTGRES_URL`, isolated `REDIS_URL`, `PLANNING_DEPTH_WRITES_ENABLED=false`, `PLANNING_DEPTH_WRITE_LIMIT=10`, `PLANNING_DEPTH_WRITE_WINDOW_SECONDS=300` |
+| `bff.env` | `POSTGRES_URL`, isolated `REDIS_URL`, `PLANNING_DEPTH_WRITES_ENABLED=false`, `PLANNING_DEPTH_WRITE_LIMIT=11`; `PLANNING_DEPTH_WRITE_WINDOW_SECONDS` is optional because the local bootstrap uses the matching 300-second application default |
 
 Encoded database credentials stay encoded in `POSTGRES_URL`; RT-3 decodes them once. Do not create decoded DSN aliases. Each wrapper checks mode 600 before sourcing its trusted operator-owned env file.
 

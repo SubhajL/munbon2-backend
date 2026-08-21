@@ -4011,6 +4011,53 @@ def test_rta1_manifest_records_a_swallowed_teardown_error(tmp_path, monkeypatch)
     assert failure["teardown_error"] == "unexpected_TimeoutExpired"
 
 
+@pytest.mark.parametrize(
+    "teardown_error",
+    ("frontend_process_cleanup_failed", "frontend_log_cleanup_failed"),
+)
+def test_write_activation_manifest_records_frontend_cleanup_failure(
+    tmp_path, monkeypatch, teardown_error
+):
+    evidence_root = tmp_path / "evidence"
+    evidence_root.mkdir()
+    args = stage_suite.argparse.Namespace(
+        stage="LOCAL-WRITE-ACT-1",
+        release_sha="8" * 40,
+        frontend_sha="9" * 40,
+        repo_root=tmp_path / "repo",
+        frontend_root=tmp_path / "frontend",
+        harness_root=tmp_path / "harness",
+        evidence_root=evidence_root,
+        runtime_env_dir=tmp_path / "runtime",
+        as_of_date=stage_suite.date(2026, 8, 9),
+    )
+
+    def browser_and_cleanup_fail(_context):
+        error = stage_suite.StageGateError("browser_failed")
+        error.teardown_error = teardown_error
+        raise error
+
+    monkeypatch.setattr(stage_suite, "_parse_args", lambda _argv: args)
+    monkeypatch.setattr(
+        stage_suite,
+        "run_local_write_activation",
+        browser_and_cleanup_fail,
+    )
+
+    assert stage_suite.main([]) == 1
+
+    failure = json.loads(
+        (evidence_root / "LOCAL-WRITE-ACT-1-failure.json").read_text(encoding="utf-8")
+    )
+    assert {
+        "failed_gate": failure["failed_gate"],
+        "teardown_error": failure["teardown_error"],
+    } == {
+        "failed_gate": "browser_failed",
+        "teardown_error": teardown_error,
+    }
+
+
 def test_write_ui_failure_manifest_preserves_restoration_for_unexpected_errors(
     tmp_path, monkeypatch
 ):
@@ -6972,6 +7019,272 @@ def test_write_activation_reauth_failure_still_runs_fail_safe_restoration(
         exc_info.value.restoration["failed_gate"]
         == "write_activation_fresh_login_failed"
     )
+
+
+def _patch_frontend_server_process(monkeypatch, process=None):
+    if process is None:
+        process = SimpleNamespace(
+            pid=123,
+            poll=lambda: None,
+            wait=lambda **_kwargs: 0,
+        )
+    monkeypatch.setattr(
+        stage_suite,
+        "frontend_process_environment",
+        lambda *_args, **_kwargs: {},
+    )
+    monkeypatch.setattr(
+        stage_suite.subprocess, "Popen", lambda *_args, **_kwargs: process
+    )
+    monkeypatch.setattr(stage_suite, "_wait_frontend", lambda _process: None)
+    monkeypatch.setattr(stage_suite.os, "killpg", lambda *_args: None)
+    return process
+
+
+def _frontend_process_that_never_stops():
+    def wait(*, timeout):
+        raise stage_suite.subprocess.TimeoutExpired(cmd="next", timeout=timeout)
+
+    return SimpleNamespace(
+        pid=123,
+        poll=lambda: None,
+        wait=wait,
+    )
+
+
+def test_frontend_server_removes_transient_log_after_body_failure(
+    tmp_path, monkeypatch
+):
+    context = _write_ui_context(tmp_path)
+    _patch_frontend_server_process(monkeypatch)
+    transient_log = context.evidence_root / ".frontend-write-activation-armed.log"
+
+    with pytest.raises(stage_suite.StageGateError, match="browser_failed"):
+        with stage_suite._frontend_server(
+            context,
+            control_plan_reads=False,
+            water_planning_v2=True,
+            water_planning_submit=True,
+            server_label="write-activation-armed",
+        ):
+            assert transient_log.is_file()
+            raise stage_suite.StageGateError("browser_failed")
+
+    assert not transient_log.exists()
+
+
+@pytest.mark.parametrize(
+    "primary",
+    (
+        stage_suite.StageGateError("browser_failed"),
+        KeyboardInterrupt(),
+        SystemExit(7),
+    ),
+    ids=("stage-gate", "keyboard-interrupt", "system-exit"),
+)
+def test_frontend_server_preserves_primary_when_log_cleanup_fails(
+    tmp_path, monkeypatch, primary
+):
+    context = _write_ui_context(tmp_path)
+    _patch_frontend_server_process(monkeypatch)
+
+    def fail_unlink(_path, *, missing_ok):
+        raise OSError("simulated unlink failure")
+
+    monkeypatch.setattr(stage_suite.Path, "unlink", fail_unlink)
+
+    with pytest.raises(type(primary)) as exc_info:
+        with stage_suite._frontend_server(
+            context,
+            control_plan_reads=False,
+            water_planning_v2=True,
+            water_planning_submit=True,
+            server_label="write-activation-armed",
+        ):
+            raise primary
+
+    assert exc_info.value is primary
+    assert primary.teardown_error == "frontend_log_cleanup_failed"
+
+
+def test_frontend_server_reports_log_cleanup_failure_without_a_primary(
+    tmp_path, monkeypatch
+):
+    context = _write_ui_context(tmp_path)
+    _patch_frontend_server_process(monkeypatch)
+
+    def fail_unlink(_path, *, missing_ok):
+        raise OSError("simulated unlink failure")
+
+    monkeypatch.setattr(stage_suite.Path, "unlink", fail_unlink)
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="^frontend_log_cleanup_failed$",
+    ):
+        with stage_suite._frontend_server(
+            context,
+            control_plan_reads=False,
+            water_planning_v2=True,
+            water_planning_submit=True,
+            server_label="write-activation-armed",
+        ):
+            pass
+
+
+def test_frontend_server_reports_process_cleanup_failure_without_a_primary(
+    tmp_path, monkeypatch
+):
+    context = _write_ui_context(tmp_path)
+    process = _frontend_process_that_never_stops()
+    _patch_frontend_server_process(monkeypatch, process)
+    transient_log = context.evidence_root / ".frontend-write-activation-armed.log"
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="^frontend_process_cleanup_failed$",
+    ):
+        with stage_suite._frontend_server(
+            context,
+            control_plan_reads=False,
+            water_planning_v2=True,
+            water_planning_submit=True,
+            server_label="write-activation-armed",
+        ):
+            pass
+
+    assert not transient_log.exists()
+
+
+def test_frontend_server_preserves_primary_when_process_cleanup_fails(
+    tmp_path, monkeypatch
+):
+    context = _write_ui_context(tmp_path)
+    process = _frontend_process_that_never_stops()
+    _patch_frontend_server_process(monkeypatch, process)
+    primary = stage_suite.StageGateError("browser_failed")
+
+    with pytest.raises(stage_suite.StageGateError) as exc_info:
+        with stage_suite._frontend_server(
+            context,
+            control_plan_reads=False,
+            water_planning_v2=True,
+            water_planning_submit=True,
+            server_label="write-activation-armed",
+        ):
+            raise primary
+
+    assert exc_info.value is primary
+    assert primary.teardown_error == "frontend_process_cleanup_failed"
+
+
+def test_frontend_server_prefers_process_cleanup_when_both_cleanups_fail(
+    tmp_path, monkeypatch
+):
+    context = _write_ui_context(tmp_path)
+    process = _frontend_process_that_never_stops()
+    _patch_frontend_server_process(monkeypatch, process)
+    primary = stage_suite.StageGateError("browser_failed")
+
+    def fail_unlink(_path, *, missing_ok):
+        raise OSError("simulated unlink failure")
+
+    monkeypatch.setattr(stage_suite.Path, "unlink", fail_unlink)
+
+    with pytest.raises(stage_suite.StageGateError) as exc_info:
+        with stage_suite._frontend_server(
+            context,
+            control_plan_reads=False,
+            water_planning_v2=True,
+            water_planning_submit=True,
+            server_label="write-activation-armed",
+        ):
+            raise primary
+
+    assert exc_info.value is primary
+    assert primary.teardown_error == "frontend_process_cleanup_failed"
+
+
+def test_frontend_server_accepts_final_poll_that_proves_a_late_exit(
+    tmp_path, monkeypatch
+):
+    context = _write_ui_context(tmp_path)
+    poll_results = iter((None, 0))
+    process = SimpleNamespace(
+        pid=123,
+        poll=lambda: next(poll_results),
+        wait=lambda **_kwargs: pytest.fail("wait must follow successful signal"),
+    )
+    _patch_frontend_server_process(monkeypatch, process)
+
+    def process_already_exited(*_args):
+        raise OSError("simulated late exit")
+
+    monkeypatch.setattr(stage_suite.os, "killpg", process_already_exited)
+
+    with stage_suite._frontend_server(
+        context,
+        control_plan_reads=False,
+        water_planning_v2=True,
+        water_planning_submit=True,
+        server_label="write-activation-armed",
+    ):
+        pass
+
+
+def test_frontend_server_reports_poll_failure_after_attempting_log_cleanup(
+    tmp_path, monkeypatch
+):
+    context = _write_ui_context(tmp_path)
+
+    def fail_poll():
+        raise OSError("simulated poll failure")
+
+    def fail_wait(*, timeout):
+        raise stage_suite.subprocess.TimeoutExpired(cmd="next", timeout=timeout)
+
+    process = SimpleNamespace(
+        pid=123,
+        poll=fail_poll,
+        wait=fail_wait,
+    )
+    _patch_frontend_server_process(monkeypatch, process)
+    transient_log = context.evidence_root / ".frontend-write-activation-armed.log"
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="^frontend_process_cleanup_failed$",
+    ):
+        with stage_suite._frontend_server(
+            context,
+            control_plan_reads=False,
+            water_planning_v2=True,
+            water_planning_submit=True,
+            server_label="write-activation-armed",
+        ):
+            pass
+
+    assert not transient_log.exists()
+
+
+def test_frontend_server_keeps_body_oserror_sanitized_as_process_failure(
+    tmp_path, monkeypatch
+):
+    context = _write_ui_context(tmp_path)
+    _patch_frontend_server_process(monkeypatch)
+
+    with pytest.raises(
+        stage_suite.StageGateError,
+        match="^frontend_process_failed$",
+    ):
+        with stage_suite._frontend_server(
+            context,
+            control_plan_reads=False,
+            water_planning_v2=True,
+            water_planning_submit=True,
+            server_label="write-activation-armed",
+        ):
+            raise OSError("unsanitized body detail")
 
 
 def test_restore_write_activation_dark_attempts_bff_after_frontend_failure(

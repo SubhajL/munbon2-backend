@@ -707,6 +707,24 @@ def test_bootstrap_writes_scheduler_dark_preflight_contract():
     }
 
 
+def test_bootstrap_budgets_every_rate_counted_rc_write_request():
+    body = (LOCAL_DIR / "bootstrap-linux.sh").read_text(encoding="utf-8")
+    bff_environment = body.split('cat > "${RUNTIME_ENV_DIR}/bff.env" <<EOF\n', 1)[
+        1
+    ].split("\nEOF", 1)[0]
+    values = dict(line.split("=", 1) for line in bff_environment.splitlines())
+    stage_request_counts = {
+        "write_foundation": 3,
+        "write_ui": 3,
+        "persist_only": 2,
+        "write_activation": 3,
+    }
+
+    assert values.get("PLANNING_DEPTH_WRITE_LIMIT") == str(
+        sum(stage_request_counts.values())
+    )
+
+
 def test_bootstrap_records_state_before_dependencies_and_installs_python_before_transition():
     body = (LOCAL_DIR / "bootstrap-linux.sh").read_text(encoding="utf-8")
 
