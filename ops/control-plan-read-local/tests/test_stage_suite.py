@@ -9803,6 +9803,178 @@ def test_rc_preflight_snapshot_proves_clean_sources_data_rate_runtime_and_listen
     assert events == ["sources", "database", "rate", "dark"]
 
 
+def _create_bootstrap_runtime_venv_links(repo_root, *, scheduler_target=".venv"):
+    for service, target in (
+        ("flow-monitoring", ".venv"),
+        ("scheduler", scheduler_target),
+    ):
+        service_root = repo_root / "services" / service
+        (service_root / ".venv").mkdir(parents=True)
+        (service_root / "venv").symlink_to(target)
+
+
+def _source_identity_runner(context, backend_status, frontend_status=""):
+    def checked(code, argv, **_kwargs):
+        if code.endswith("_source_identity"):
+            return (
+                context.release_sha
+                if code.startswith("backend")
+                else context.frontend_sha
+            )
+        if code == "backend_tracked_identity":
+            return backend_status
+        if code == "frontend_tracked_identity":
+            return frontend_status
+        raise AssertionError((code, argv))
+
+    return checked
+
+
+def test_rc_source_preflight_accepts_only_exact_bootstrap_runtime_venv_links(
+    monkeypatch, tmp_path
+):
+    context = _rc_context(tmp_path)
+    _create_bootstrap_runtime_venv_links(context.repo_root)
+    backend_status = "?? services/flow-monitoring/venv\0" "?? services/scheduler/venv\0"
+    status_argv = []
+
+    def checked(code, argv, **kwargs):
+        if code.endswith("_tracked_identity"):
+            status_argv.append(argv)
+        return _source_identity_runner(context, backend_status)(code, argv, **kwargs)
+
+    monkeypatch.setattr(stage_suite, "_run_checked", checked)
+
+    assert stage_suite._verify_source_checkouts(context) is None
+    assert status_argv == [
+        ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
+        ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
+    ]
+
+
+def test_rc_source_preflight_accepts_clean_status_with_exact_runtime_venv_links(
+    monkeypatch, tmp_path
+):
+    context = _rc_context(tmp_path)
+    _create_bootstrap_runtime_venv_links(context.repo_root)
+    monkeypatch.setattr(
+        stage_suite,
+        "_run_checked",
+        _source_identity_runner(context, ""),
+    )
+
+    assert stage_suite._verify_source_checkouts(context) is None
+
+
+@pytest.mark.parametrize(
+    ("backend_status", "scheduler_target"),
+    (
+        ("?? services/flow-monitoring/venv\0", ".venv"),
+        (
+            "?? services/flow-monitoring/venv\0"
+            "?? services/scheduler/venv\0"
+            "?? services/scheduler/src/injected.py\0",
+            ".venv",
+        ),
+        (
+            " M services/scheduler/src/main.py\0"
+            "?? services/flow-monitoring/venv\0"
+            "?? services/scheduler/venv\0",
+            ".venv",
+        ),
+        (
+            "?? services/flow-monitoring/venv\0" "?? services/scheduler/venv\0",
+            "../unexpected-venv",
+        ),
+        (
+            "?? services/flow-monitoring/venv\0" "?? services/scheduler/venv",
+            ".venv",
+        ),
+    ),
+)
+def test_rc_source_preflight_rejects_incomplete_extra_tracked_or_wrong_venv_drift(
+    monkeypatch, tmp_path, backend_status, scheduler_target
+):
+    context = _rc_context(tmp_path)
+    _create_bootstrap_runtime_venv_links(
+        context.repo_root, scheduler_target=scheduler_target
+    )
+    monkeypatch.setattr(
+        stage_suite,
+        "_run_checked",
+        _source_identity_runner(context, backend_status),
+    )
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="backend_source_identity_stale"
+    ):
+        stage_suite._verify_source_checkouts(context)
+
+
+def test_rc_source_preflight_rejects_regular_file_at_runtime_venv_link(
+    monkeypatch, tmp_path
+):
+    context = _rc_context(tmp_path)
+    _create_bootstrap_runtime_venv_links(context.repo_root)
+    scheduler_link = context.repo_root / "services/scheduler/venv"
+    scheduler_link.unlink()
+    scheduler_link.write_text("not a symlink\n", encoding="utf-8")
+    backend_status = "?? services/flow-monitoring/venv\0" "?? services/scheduler/venv\0"
+    monkeypatch.setattr(
+        stage_suite,
+        "_run_checked",
+        _source_identity_runner(context, backend_status),
+    )
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="backend_source_identity_stale"
+    ):
+        stage_suite._verify_source_checkouts(context)
+
+
+@pytest.mark.parametrize("replacement", ("missing", "directory"))
+def test_rc_source_preflight_rejects_missing_or_directory_venv_link_when_git_is_clean(
+    monkeypatch, tmp_path, replacement
+):
+    context = _rc_context(tmp_path)
+    _create_bootstrap_runtime_venv_links(context.repo_root)
+    scheduler_link = context.repo_root / "services/scheduler/venv"
+    scheduler_link.unlink()
+    if replacement == "directory":
+        scheduler_link.mkdir()
+    monkeypatch.setattr(
+        stage_suite,
+        "_run_checked",
+        _source_identity_runner(context, ""),
+    )
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="backend_source_identity_stale"
+    ):
+        stage_suite._verify_source_checkouts(context)
+
+
+def test_rc_source_preflight_keeps_frontend_exception_free(monkeypatch, tmp_path):
+    context = _rc_context(tmp_path)
+    _create_bootstrap_runtime_venv_links(context.repo_root)
+    _create_bootstrap_runtime_venv_links(context.frontend_root)
+    runtime_status = "?? services/flow-monitoring/venv\0" "?? services/scheduler/venv\0"
+    monkeypatch.setattr(
+        stage_suite,
+        "_run_checked",
+        _source_identity_runner(
+            context,
+            runtime_status,
+            frontend_status=runtime_status,
+        ),
+    )
+
+    with pytest.raises(
+        stage_suite.StageGateError, match="frontend_source_identity_stale"
+    ):
+        stage_suite._verify_source_checkouts(context)
+
+
 def test_rc_source_preflight_rejects_untracked_execution_drift(monkeypatch, tmp_path):
     context = _rc_context(tmp_path)
     status_argv = []
@@ -9815,7 +9987,7 @@ def test_rc_source_preflight_rejects_untracked_execution_drift(monkeypatch, tmp_
                 else context.frontend_sha
             )
         status_argv.append(argv)
-        return "?? services/scheduler/src/injected.py\n"
+        return "?? services/scheduler/src/injected.py\0"
 
     monkeypatch.setattr(stage_suite, "_run_checked", checked)
 
@@ -9824,7 +9996,9 @@ def test_rc_source_preflight_rejects_untracked_execution_drift(monkeypatch, tmp_
     ):
         stage_suite._verify_source_checkouts(context)
 
-    assert status_argv == [["git", "status", "--porcelain", "--untracked-files=all"]]
+    assert status_argv == [
+        ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"]
+    ]
 
 
 @pytest.mark.parametrize(

@@ -1,0 +1,208 @@
+# Coding Log: local RC runtime resume
+
+## Session ownership and frozen identities
+
+- Resume authority: the user explicitly resumed the active goal on `2026-08-21`.
+- Goal attachment SHA-256: `e2d670d3f09db6f9ab4130a10272b993cd92ba1af0e06ecdb20be7764b261a3b`.
+- Lifecycle worktree: `/Users/subhajlimanond/dev/munbon2-backend-local-rc-runtime-acceptance`.
+- Branch: `test/local-rc-1-runtime-acceptance`.
+- Backend candidate: `ce309918ef5a799ba37c561b470d3c5708d6fca2`; `HEAD == main == origin/main` at resume.
+- Frontend candidate: `067b3e22401854f8c6d6db42dc0c5c1872fca6f8`; `HEAD == main == origin/main` at resume.
+- Both origins use SSH. The frontend primary checkout has unrelated user-owned dirty files which remain untouched.
+- Dependency archive: `/Users/subhajlimanond/dev/munbon-control-plan-rc-evidence/dependencies-ce309918ef5a799ba37c561b470d3c5708d6fca2-067b3e22401854f8c6d6db42dc0c5c1872fca6f8.tar.gz`.
+- Dependency archive SHA-256: `94bef9e1c3ad97cdf52f3593a5f12f7d4d42bfacb534a6b28c44fe9d8db8f3b1`.
+- Retired predecessor: `munbon-control-plan-local` / `01M0F27Z1GZQ7SQF07XH9M3VQT`.
+- The predecessor was deleted once by exact name after a final singleton/stopped/identity-equivalence guard. Exact ID and name are now absent. Unrelated OrbStack guests were preserved.
+- Canonical replacement name: `munbon-control-plan-local`. Its new stable Orb ID and `/etc/machine-id` must be recorded immediately after provisioning and must differ from the retired identity.
+- Canonical acceptance attempt ceiling: exactly one `run-rc` invocation. Provisioning/bootstrap failure does not consume that attempt; any `run-rc` invocation does.
+- Promotion, deployment, activation, post-deployment verification, and rollback execution remain outside this local runtime-acceptance lifecycle.
+
+## Plan Draft A: runtime-first exact-candidate acceptance
+
+### Overview
+
+Validate the already-built dependency closure, provision one pristine canonical guest for the frozen candidates, lock its immutable runtime identity, and execute the canonical `LOCAL-RC-1` workflow exactly once. Preserve the first outcome without retry or in-place repair. Only after an independently validated PASS, update the runbook through a test-first documentation contract and complete review, GitHub delivery, exact local-main landing, and worktree cleanup.
+
+### Files to change
+
+- `.codex/coding-log.current`: point lifecycle tooling to this resume log.
+- This Coding Log: record planning, immutable inputs, runtime receipts, evidence hashes, test/gate/review results, PR/merge identities, and cleanup.
+- `ops/control-plan-read-local/tests/test_local_artifacts.py`: after PASS, add the smallest test that requires the exact accepted runtime status.
+- `docs/operations/CONTROL_PLAN_ALL_STAGES_LOCAL_ACCEPTANCE.md`: after the expected RED, replace only the stale LOCAL-RC-1 status with exact PASS facts and explicit non-production boundaries.
+- Production files are not pre-authorized. If the one-shot run proves a source defect, the primary owns the RED contract and a separately locked Luna-Max slice owns the smallest production allowlist.
+
+### Execution outline
+
+1. Revalidate worktree ownership, exact SSH origin heads, archive existence/digest/content, OrbStack health, canonical-name absence, unrelated guest preservation, and fresh evidence destinations.
+2. Create one unique session root below `/Users/subhajlimanond/dev/munbon-control-plan-rc-evidence/`, with absent `success-attempt-1`, `partial-failure-attempt-1`, and `bootstrap-failure` children.
+3. Invoke `orchestrate.py provision` once with the exact candidates, dependency archive and digest, and bootstrap-failure destination.
+4. If provisioning succeeds, immediately record the exact single canonical name match, new stable Orb ID, `/etc/machine-id`, owner metadata, state, candidate identities, and archive digest. Repeat inventory once to detect drift before acceptance.
+5. Invoke `orchestrate.py run-rc` exactly once with the locked new guest ID, exact candidates, exact dependency digest, Bangkok as-of date `2026-08-21`, and fresh success destination.
+6. Stop on the first outcome. Never rerun, replay, repair, or reprovision this candidate/guest attempt.
+7. If the attempt fails before automatic evidence publication and bounded partial collection remains eligible, invoke `collect-rc-partial-failure` at most once into the separate absent partial destination. If all stages/finalization passed and collection alone failed, `collect-rc` is the only eligible one-time collection recovery; it is not a run retry.
+8. Independently validate the resulting archive and live guest. PASS requires exact identities, all ordered stages, RC PASS, checksum closure, final darkness, revoked sessions, expected listeners/processes/readiness, stable guest identity, and no post-command state drift.
+9. After PASS, add the runbook contract test, confirm expected RED against stale text, update the runbook, run focused and full gates three consecutive times, perform QCHECK and formal `g-check`, and remediate any production finding only through a new bounded Luna-Max slice.
+10. Commit and push over SSH, create a standard GitHub PR, verify exact head and mergeability, admin-merge under the standing zero-step billing-lock policy after local acceptance/review, land the exact merge SHA on local `main`, verify post-merge artifacts, and safely remove only this lifecycle worktree and branch.
+
+### Behavioral contracts and tests
+
+- Provisioning must reject an existing canonical name and must bind the new guest to exact backend/frontend/archive identities.
+- RC execution must validate stable Orb ID and machine ID before phases and stages, stop on the first failure, publish no false PASS, and restore dark flags and sessions.
+- Existing identity, stage-order, checksum, compensation, darkness, interruption, and frozen-ledger tests remain authoritative.
+- `test_all_stages_runbook_records_exact_local_rc_acceptance` will pin the final accepted identities, evidence/index digest, PASS verdict, and non-production boundary.
+- Any observed source defect receives a minimal independently meaningful RED before a production handoff; the failed canonical attempt remains failed even if source is later fixed.
+
+### Decision completeness
+
+- Goal: one authoritative, independently validated LOCAL-RC-1 result for the exact frozen backend/frontend/dependency candidates, followed by durable documentation and the authorized source lifecycle.
+- Non-goals: predecessor evidence reuse, acceptance retry or in-place repair, frozen nine-stage ledger reinterpretation, AWS work, deployment, or activation.
+- PASS: pristine replacement guest; exact stable identities; ten ordered live stages plus RC PASS; complete inner/outer checksum closure; final merged/default flags false; acceptance sessions revoked; expected PM2 processes, listeners, readiness and inventories; unchanged post-command outer index; clean review; merged PR; exact local-main landing; owned worktree removal.
+- Failure: provisioning failure preserves bootstrap evidence and does not consume RC; any `run-rc` result is authoritative and consumes the sole attempt; identity/checksum/order/darkness/session uncertainty fails closed; no PASS is inferred from a prefix or from historical 9/9 evidence.
+- Public interfaces: no API, schema, migration, topic, CLI, or environment change is planned.
+- Rollout/backout: isolated OrbStack only. Backout means verified darkness and session cleanup, never erasing evidence or relabeling a failed attempt.
+
+## Plan Draft B: full-source-gates before runtime
+
+### Overview
+
+Rerun the complete Python, Node, formatting, lint, syntax, and integrity gates plus a source review before provisioning. Then execute the identical one-shot runtime plan. This can catch static regressions before consuming the sole runtime attempt, but repeats gates already run on the same candidate and delays the only step capable of proving environment-bound behavior.
+
+### Trade-offs
+
+- Advantage: maximizes static confidence before provisioning and one-shot runtime execution.
+- Cost: substantial duplicate work on an unchanged reviewed candidate; may add machine load and time without increasing runtime evidence quality.
+- The runtime identity, no-retry, evidence, failure, test-first documentation, review, delivery, and cleanup contracts are identical to Draft A.
+
+## Unified execution plan
+
+Use Draft A with a bounded source sanity preflight rather than a full duplicate matrix before provisioning. The candidate already passed its source-delivery gates and the dependency closure is exact; the highest-value next evidence is pristine runtime acceptance. Before the one-shot run, verify exact SHAs/remotes, archive checksum/content, critical harness syntax and targeted orchestrator tests, OrbStack health/name absence, and destination freshness. Reserve the complete three-round gate matrix for the final post-PASS documentation candidate or for a proved source remediation.
+
+### Wiring verification table
+
+| Component | Entry point | Registration/config load | Contract checked |
+|---|---|---|---|
+| Host controller | `ops/control-plan-read-local/orchestrate.py:main()` | `provision`, `run-rc`, and collection actions | exact CLI candidate/archive/guest/date bindings |
+| Guest RC phases | `run_rc()` | guest `run-stage-suite.py --rc-phase` | preflight/finalize identity, darkness, cleanup schemas |
+| Ten live stages | `run_rc()` stage loop | `STAGE_ORDER` and `_run_stage()` | ordered stop-on-first-failure manifests |
+| Browser write proof | WRITE-ACT stage | `run-write-browser.js` | mutation-attempt inventory and session/dark evidence |
+| Evidence publication | `collect_rc()` / `finalize_rc_collection()` | automatic run collection or narrow eligible recovery | exact archive inventory and inner/outer checksum closure |
+| Durable status | local-artifact test and runbook | pytest discovery and documentation gate | exact PASS identities without AWS/deployment claims |
+
+### Validation checklist
+
+- [ ] Frozen candidates and SSH origin heads unchanged.
+- [ ] Dependency archive independently rehashed and structurally validated.
+- [ ] Canonical name absent; unrelated guests unchanged.
+- [ ] Unique session root and all three evidence children fresh/absent.
+- [ ] Pristine guest provisioned once; new Orb ID and machine ID locked.
+- [ ] One and only one `run-rc` invocation recorded.
+- [ ] First outcome preserved without retry/repair.
+- [ ] Collected archive independently validated, including recomputed inner and outer hashes.
+- [ ] Live post-command identity, darkness, process, readiness, listener, and session state match evidence.
+- [ ] PASS-only test-first runbook update completed.
+- [ ] Focused/full gates pass three consecutive times on unchanged candidate.
+- [ ] QCHECK and formal `g-check` findings resolved or explicitly dispositioned.
+- [ ] PR head, admin merge SHA, origin/main, and local main exactly reconciled.
+- [ ] Only the lifecycle worktree/branch removed; user-owned state preserved.
+
+## Resume evidence
+
+- RepoPrompt Context Builder completed a repository-grounded plan on `2026-08-21`, chat `resume-local-rc-1-75F716`.
+- The active goal tracker still reports its earlier blocked state, but the user's explicit `resume /goal` is the current execution authority; this discrepancy does not broaden scope.
+- Pre-provision source sanity: `py_compile` passed for the orchestrator and stage suite; the targeted provisioning/RC identity/collection pytest scope passed `54 passed, 186 deselected`.
+- Dependency preflight independently recomputed archive SHA-256 `94bef9e1c3ad97cdf52f3593a5f12f7d4d42bfacb534a6b28c44fe9d8db8f3b1`, verified all `968` indexed payload entries, and confirmed the schema-v2 manifest binds backend `ce309918ef5a799ba37c561b470d3c5708d6fca2`, frontend `067b3e22401854f8c6d6db42dc0c5c1872fca6f8`, Debian 12 ARM64, Node `22.23.1`, npm `10.9.8`, and Python `3.11`.
+- OrbStack preflight: v2.2.3 running; canonical name match count `0`; unrelated rehearsal, diagnostic, and Ubuntu guests remained present and running at their preserved IDs.
+- Fresh session root: `/Users/subhajlimanond/dev/munbon-control-plan-rc-evidence/2026-08-21-local-rc1-ce309918ef5a-067b3e224018-20260821T131700Z-9c64277f`.
+- `SESSION.json` records the frozen inputs, zero attempts consumed, preserved guest inventory, and three fresh child destinations. The success, partial-failure, and bootstrap-failure child paths were absent before provisioning.
+- Provisioning completed successfully in its single invocation; no bootstrap-failure directory was published and no RC attempt was consumed.
+- Locked replacement guest identity: Orb ID `01M0J7GX1E7CBNQWGM89KSH4F4`, `/etc/machine-id` `6db94a5d8cc14171a1fab9495a055ae0`, fixed canonical name `munbon-control-plan-local`, running Debian 12 ARM64, isolated network, 8 GiB RAM, 4 CPUs, 40 GiB disk.
+- The new Orb ID differs from retired ID `01M0F27Z1GZQ7SQF07XH9M3VQT`. Two consecutive inventories returned the same singleton ID and preserved all three unrelated guests.
+- Guest owner and provisioning state are `ready` and bind the exact backend/frontend/dependency identities. `GUEST-IDENTITY.json` preserves the complete lock receipt.
+- Final RC preflight passed: all three evidence child paths remained absent, archive digest was unchanged, canonical singleton ID/state and machine ID were stable, and owner metadata remained exact. The sole `run-rc` attempt was marked consumed at `2026-08-21T13:22:49Z` immediately before invocation.
+
+## Canonical attempt 1: authoritative preflight failure
+
+- The sole `run-rc` invocation stopped at RC preflight with `FAIL orchestration: rc_preflight_failed`; no live stage ran and the success destination remained absent.
+- The guest failure manifest gives the exact gate `backend_source_identity_stale`, timestamp `2026-08-21T13:23:09Z`, and the correct candidate, dependency, Orb ID, and machine-ID bindings.
+- Exactly one eligible `collect-rc-partial-failure` invocation succeeded. Its summary records verdict `FAIL`, phase `preflight`, passed `[]`, failed `[LOCAL-RC-1]`, all ten live stages unreached, `acceptance_evidence=false`, and `campaign_ledger_eligible=false`.
+- Independent checksum verification passed for both `RC-PARTIAL-SHA256SUMS` and `RC-PARTIAL-OUTER-SHA256SUMS`. The outer index SHA-256 is `0e5863d47c595c30f2a51ffe884063a63a7278a2403a9a574c7942601f659cf1`.
+- The failed guest remains preserved and unmodified. Its backend HEAD is the exact candidate and frontend is clean, but backend status contains exactly two untracked symlinks: `services/flow-monitoring/venv -> .venv` and `services/scheduler/venv -> .venv`.
+- Root cause: bootstrap deliberately creates those two runtime interpreter links, while root `.gitignore` contains directory-only pattern `venv/`. Git does not apply a directory-only pattern to a symlink, so the harness's strict `git status --porcelain --untracked-files=all` source-identity check correctly reports drift.
+- Preflight stopped before the PM2 stage check; live inspection found only the bootstrap PM2 daemon and loopback infrastructure listeners. No acceptance PASS or runtime-stage result is claimed.
+
+## Remediation slice S-RC-VENV-IGNORE
+
+- Locked behavior: the two bootstrap-created `venv -> .venv` links must be ignored by Git so a freshly provisioned exact source checkout remains clean; the strict source-identity checker itself must not be weakened.
+- Primary-owned test: `test_bootstrap_runtime_venv_links_are_ignored_by_source_identity_gate` constructs the exact symlink shape under a temporary Git repository using the repository `.gitignore` and requires both paths from `git check-ignore`.
+- Expected RED confirmed: the focused test failed with `(returncode, paths) == (1, [])`, proving neither runtime link is ignored.
+- Production allowlist: `.gitignore` only. Protected paths: every other production/source file, all tests, both Coding Logs, pointer file, evidence archives, and guest state.
+- Wiring: bootstrap creates the two links; Git ignore resolution controls the `git status` consumed by `_verify_source_checkouts()` and `run_local_base()`.
+- Scoped GREEN command: `python3 -m pytest -q ops/control-plan-read-local/tests/test_local_artifacts.py::test_bootstrap_runtime_venv_links_are_ignored_by_source_identity_gate`.
+
+### S-RC-VENV-IGNORE rejected GREEN
+
+- Luna-Max changed one `.gitignore` rule from directory-only `venv/` to bare `venv`; the ownership receipt verified for role `luna_implementer`, model `gpt-5.6-luna`, effort `max`, and exact `.gitignore` SHA-256 `47b1c80516564c5a4b7c2552bfa5bab179e6e0d29f4c93c300baf506800c6b13`.
+- Primary GREEN was `1 passed`; related source/bootstrap scope was `11 passed, 552 deselected`; the complete interim matrix was Python `820 passed`, Node `51 passed`, with Black, Ruff, compileall, Bash/JavaScript syntax, and whitespace integrity passing.
+- Independent Terra QCHECK rejected the design: bare `venv` ignores any file or symlink with that basename at any depth, so a wrong-target or replaced link could disappear from Git status and weaken the fail-closed drift contract.
+- Disposition: do not deliver the broad ignore. Restore `.gitignore` and accept the bootstrap artifacts only inside the strict source checker after verifying the exact two backend paths, their symlink type, and literal `.venv` targets. Frontend remains exception-free; all other tracked/untracked drift remains fatal.
+
+## Remediation slice S-RC-VENV-STRICT
+
+- Primary removed the obsolete ignore-behavior test and added exact source-checker contracts covering: valid pair acceptance; missing/extra/tracked drift; wrong-target symlink; regular-file replacement; frontend rejection; and NUL-delimited porcelain status invocation.
+- Expected RED confirmed: focused source-preflight scope produced `3 failed, 5 passed, 517 deselected`. The valid pair still failed as backend drift, frontend never reached its own rejection, and the status command lacked the locked NUL-delimited shape.
+- Production allowlist: `.gitignore` solely to restore `venv/`, plus `ops/control-plan-read-local/run-stage-suite.py` for the narrow verified exception. No bootstrap/orchestrator or other runtime edit is authorized.
+- Scoped GREEN: `python3 -m pytest -q ops/control-plan-read-local/tests/test_stage_suite.py -k 'source_preflight'`.
+
+### Primary QCHECK follow-up
+
+- S-RC-VENV-STRICT receipt verified for Luna-Max and exact allowlisted hashes. Focused GREEN was `8 passed, 517 deselected`; the post-format complete matrix passed Python `826`, Node `51`, Black, Ruff, compileall, Bash/JavaScript syntax, whitespace integrity, and three consecutive focused rounds.
+- Primary QCHECK found an additional fail-open edge: original `venv/` legitimately hides an actual directory. If a required runtime symlink were missing or replaced by a directory, Git could report an empty status and the first strict implementation would accept it without filesystem validation.
+- Added a parameterized test requiring `backend_source_identity_stale` for both missing-link and directory-replacement cases under an otherwise clean Git status. Final contract now requires both exact `.venv` symlinks for every accepted backend status, including empty status.
+- Luna-Max S-RC-VENV-ALWAYS-VERIFY receipt passed ownership validation; focused GREEN became `10 passed, 517 deselected`. The complete unchanged-candidate matrix passed Python `828`, Node `51`, Black, Ruff, compileall, Bash/JavaScript syntax, whitespace integrity, and three consecutive focused rounds.
+- Independent final QCHECK found no CRITICAL/HIGH/MEDIUM issue. Its LOW test gap was resolved by adding an explicit positive clean-status + valid-link test; malformed non-NUL porcelain rejection was also added. The residual boundary is intentional: link type and literal target are source-identity concerns, while ignored `.venv` contents/existence are validated by bootstrap dependency installation and runtime readiness.
+- Final post-QCHECK matrix: Python `830 passed`, Node `51 passed`; focused source-preflight `12 passed, 517 deselected` for three consecutive rounds; Black, Ruff, compileall, Bash/JavaScript syntax, and whitespace integrity passed.
+
+## Review (2026-08-21 20:45:15 +0700) - working-tree
+
+### Reviewed
+
+- Repo: `/Users/subhajlimanond/dev/munbon2-backend-local-rc-runtime-acceptance`
+- Branch: `test/local-rc-1-runtime-acceptance`
+- Scope: staged working tree at baseline `ce309918ef5a799ba37c561b470d3c5708d6fca2`; RepoPrompt snapshot `2026-08-21/2042` plus the final primary-owned LOW-gap tests.
+- Commands Run: staged status/stat and targeted complete production/test diffs; RepoPrompt staged artifact publication; focused/full pytest; Node test inventory; Black; Ruff; compileall/py_compile; Bash and JavaScript syntax; whitespace integrity; three consecutive focused rounds; Luna ownership snapshot/receipt verification for all production slices; independent Terra QCHECK.
+- RepoPrompt Context Builder review fallback: the bound tab reported `Context Builder is already MCP-controlled`; one Oracle review attempt was cancelled. Per g-check fallback policy, review continued with bounded staged artifacts, targeted reads/searches, primary QCHECK, and independent Terra QCHECK without retrying the unavailable provider.
+
+### Findings
+
+CRITICAL
+
+- None.
+
+HIGH
+
+- None.
+
+MEDIUM
+
+- None.
+
+LOW
+
+- None remaining. Independent QCHECK's clean-status positive-case gap and optional malformed non-NUL status case were both added and passed.
+
+### Open Questions / Assumptions
+
+- The source-identity contract validates the two runtime entries as symlinks with the literal target `.venv`; it intentionally does not hash ignored virtual-environment contents. Offline dependency manifest/checksum validation, pip checks, and runtime readiness own that separate integrity boundary.
+- The first canonical attempt remains an authoritative preflight FAIL and cannot become PASS through this source remediation.
+
+### Recommended Tests / Validation
+
+- Deliver this remediation as a new exact backend candidate, rebuild and independently validate a candidate-bound dependency archive, then provision a new pristine canonical guest.
+- Execute one fresh-candidate `run-rc` attempt with a new guest ID/machine ID and fresh success/failure destinations. Do not reuse or repair the failed candidate/guest attempt.
+- After PASS, complete the separate test-first runbook status update and rerun the complete final gate/review matrix.
+
+### Rollout Notes
+
+- No API, schema, migration, feature-flag default, deployment, AWS, or activation change is included.
+- Failed-attempt evidence remains checksum-valid, `acceptance_evidence=false`, and campaign-ledger-ineligible.
+- Formal g-check disposition: clean; no actionable finding remains before source delivery.
