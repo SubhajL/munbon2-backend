@@ -227,3 +227,111 @@ LOW
 - The independent reviewer found no correctness defect in the five-file content-address relationship and confirmed all four lock digests/counts match the refreshed receipts and retained diagnostic evidence.
 - Its incomplete residual checks were independently completed by the primary: the focused receipt invariant passed, receipt sort/schema/count/digest recomputation passed, the complete working-tree diff was inspected, and `.codex/coding-log.current` resolves exactly to this log.
 - Disposition: clean to commit and submit the minimal refresh. No diagnostic or canonical builder may run again until the new immutable candidate is landed and independently locked.
+
+## Post-merge dependency GREEN and predecessor replacement blocker
+
+- PR `#196` merged the accepted closure-refresh head `6524454064045476474b1741b9a72099973da16b` as `ce309918ef5a799ba37c561b470d3c5708d6fca2`. SSH `origin/main`, the clean primary checkout, and the session worktree were independently landed at that exact merge SHA.
+- Hosted jobs failed before executing a first step with the standing billing-lock condition and were recorded once as unavailable, not passing. The authorized admin merge proceeded only after local gates, exact head, ancestry, and mergeability checks passed.
+- The exact post-merge dependency build passed for backend `ce309918ef5a799ba37c561b470d3c5708d6fca2` and frontend `067b3e22401854f8c6d6db42dc0c5c1872fca6f8`.
+- Fresh archive: `/Users/subhajlimanond/dev/munbon-control-plan-rc-evidence/dependencies-ce309918ef5a799ba37c561b470d3c5708d6fca2-067b3e22401854f8c6d6db42dc0c5c1872fca6f8.tar.gz`; independently recomputed and validator-accepted SHA-256 `94bef9e1c3ad97cdf52f3593a5f12f7d4d42bfacb534a6b28c44fe9d8db8f3b1`.
+- Before predecessor replacement, exact guest `01M0F27Z1GZQ7SQF07XH9M3VQT` was revalidated against name/shape, owner candidate, dependency digest, nine-stage state, `successful_closed` ledger entry, frozen external archive, and all outer checksums.
+- `orbctl delete -f 01M0F27Z1GZQ7SQF07XH9M3VQT` panicked in OrbStack 2.2.2 while the guest was running. The exact ID was then stopped successfully and revalidated as stopped. Both forced deletion and interactive confirmed deletion of only that exact ID panic at OrbStack `delete.go:141`.
+- Inventory proves the predecessor remains present, stopped, and unchanged. No canonical guest was created and no `LOCAL-RC-1` attempt occurred.
+- `orbctl update --check` reports an update available, but installation updates OrbStack's CLI, GUI, kernel, Docker, and other global components. Updating it can affect other user-owned machines and therefore requires explicit authority; name-based deletion and private-storage mutation remain prohibited.
+
+## Authorized OrbStack update and exact-ID deletion retry
+
+- Preserved the original v2.2.2 diagnostic packet at `/Users/subhajlimanond/dev/munbon-control-plan-rc-evidence/orbstack-delete-crash-2026-08-21`; every indexed file still passes `SHA256SUMS` verification.
+- Updated OrbStack from v2.2.2 to signed and Apple-notarized v2.2.3 build 20963 using the official Apple-silicon release. The installed CLI reports `2.2.3 (2020300)`, commit `c83556b0ef8f1ba9a33abbb194622b6b7a1c0307`.
+- Pre/post semantic inventory verification preserved all four immutable guest IDs and configurations. After restart, `ubuntu`, the rehearsal guest, and the write-UI diagnostic guest returned to running; predecessor `01M0F27Z1GZQ7SQF07XH9M3VQT` remained stopped.
+- `orbctl doctor` passed with only the pre-existing Homebrew Docker PATH warnings. The dependency archive independently retained SHA-256 `94bef9e1c3ad97cdf52f3593a5f12f7d4d42bfacb534a6b28c44fe9d8db8f3b1`.
+- The authorized exact-ID retry `orbctl delete --force 01M0F27Z1GZQ7SQF07XH9M3VQT` still exited 2 with the same nil-pointer panic at `scli/cmd/delete.go:141`. The exact target remains present and stopped; all three unrelated guests remain present and healthy.
+- Preserved the v2.2.3 retry as a separate checksum-bound addendum at `/Users/subhajlimanond/dev/munbon-control-plan-rc-evidence/orbstack-delete-crash-2026-08-21-v2.2.3-addendum`; `SHA256SUMS` digest `a2fd4836cc9538e57c4588c9e0a91cc2c9b6a83138f5e08c68230898201bd3ab`.
+- No name-based deletion, private-storage modification, canonical provisioning, or `run-rc` attempt followed. The runtime-acceptance goal remains paused because the explicitly required predecessor replacement condition is not satisfied.
+
+## Review (2026-08-21 13:21:17 +0700) - system
+
+### Reviewed
+- Repo: `/Users/subhajlimanond/dev/munbon2-backend-local-rc-runtime-acceptance`
+- Branch: `test/local-rc-1-runtime-acceptance`
+- Scope: LOCAL-RC-1 predecessor retirement, canonical replacement, identity binding, diagnostics, and vendor escalation boundary
+- Commands Run: repository root/branch/status/log inventory; RepoPrompt Context Builder subsystem review; bounded architecture/source/runbook/test/log reads; focused pytest selection (`18 passed, 193 deselected`); pure stopped-target classifier probe; packet checksum verification; `orb`/`orbctl` binary/hash/help comparison; bounded manager-log inspection; `orbctl report --help`; OrbStack issue-template and release-note inspection; public and account-owned issue searches; independent Terra review.
+- Sources: `AGENTS.md`; `CONTEXT.md`; `README.md`; `docs/operations/CONTROL_PLAN_ALL_STAGES_LOCAL_ACCEPTANCE.md`; `ops/control-plan-read-local/orchestrate.py`; `ops/control-plan-read-local/tests/test_orchestrate.py`; `ops/control-plan-read-local/tests/test_local_artifacts.py`; current and historical Coding Logs; the external v2.2.2 packet and v2.2.3 addendum; OrbStack v2.2.3 release notes and official GitHub bug-report template.
+
+### As-Is Pipeline Diagram
+- Operator revalidates the preserved predecessor's immutable ID, fixed name, exact shape, owner/candidate/dependency/stage/checksum state; re-reads inventory; invokes the external OrbStack CLI to delete that exact ID; proves old ID/name absence; then `orchestrate.py provision` sees the fixed name as `missing`, creates a Debian 12 ARM64 isolated guest by fixed name, bootstraps it through name-addressed commands, and only later `run-rc` pins the new Orb ID plus `/etc/machine-id` around every phase, stage, and collection. Today the external exact-ID delete panics before a manager deletion receipt, leaving the stopped predecessor present; the classifier raises `machine_shape_not_accepted`, so provisioning correctly cannot start.
+
+### High-Level Assessment
+- No critical safety failure occurred: the exact predecessor remains stopped and unchanged, unrelated guests remain intact, and no canonical provision or acceptance attempt followed the panic.
+- The fail-closed pause is correct and required by the runbook.
+- The lifecycle is nevertheless incomplete. The instruction's mandatory vendor-escalation branch was not executed, and the repository has no supported transition past a broken external exact-ID delete.
+- Stable identity is strong after provisioning but predecessor retirement is manual, external, untested, and non-atomic relative to replacement creation.
+- The current packet is useful but not yet a complete OrbStack vendor submission: it lacks a vendor issue/receipt and the official private diagnostic-report value required by OrbStack's issue template.
+
+### Strengths
+- The runbook explicitly requires immutable-ID deletion, a final inventory reread, absence proof, and fail-closed stop if Orb cannot address the stable ID; it prohibits name-only deletion and replay.
+- `run_rc()` repeatedly validates Orb ID, fixed name/shape, owner/candidate/dependency state, and `/etc/machine-id` before and after operations and evidence collection.
+- Both crash attempts preserved the target and unrelated guest state, and both evidence directories are mode 0700 with mode-0600 files and valid checksum indices.
+- The decision not to use the historical name fallback or private VM storage was correct.
+
+### Key Risks / Gaps (severity ordered)
+CRITICAL
+- No findings. The system stopped before destructive or acceptance state could diverge.
+
+HIGH
+- Required vendor escalation was not completed. No issue exists in `orbstack/orbstack` from the authenticated account, and neither packet contains an issue URL, vendor report ID, or submission receipt. `orbctl report --help` only describes gathering/uploading the private diagnostic value used by the official issue template; retaining local files is not submission.
+- Exact-ID retirement is an external single point of failure. `orchestrate.py` exposes build/provision/run/collect actions but no immutable-ID retirement guard, delete transaction, or absence verifier (`ops/control-plan-read-local/orchestrate.py:3658-3901`). The runbook's serialized validate/read/delete/read sequence is procedural only (`docs/operations/CONTROL_PLAN_ALL_STAGES_LOCAL_ACCEPTANCE.md:234-242`). When OrbStack panics, the repository has no supported replacement path.
+- Provisioning cannot classify the current stopped predecessor as a validated collision. `_classify_machine_inventory()` accepts only `missing` or exact-shape `running` as `ready`; the exact stopped record collapses to `machine_shape_not_accepted` (`orchestrate.py:428-458`). `_provision()` creates only on `missing` and otherwise validates a running guest before refusing reprovision (`orchestrate.py:1115-1180`). This is safely blocking but operationally opaque and offers no audited handoff state.
+- Retirement-to-creation serialization is non-atomic. The operator proves absence outside the repository, `_provision()` checks the fixed name and calls `orb create`, then bootstraps by fixed name before the new Orb ID and machine ID are pinned. There is no repository lock or captured create receipt binding the exact newly created ID before guest mutation (`orchestrate.py:881-885,1148-1216,1491-1555`).
+
+MEDIUM
+- The v2.2.3 remediation hypothesis was overstated. Official release notes name crashes with non-POSIX login shells, not machine deletion. Updating was a valid bounded compatibility experiment after global authorization, but there was no evidence that it was a probable fix for `delete.go:141`.
+- The vendor packet is split and incomplete for the latest reproduction. The v2.2.2 packet has raw build provenance, full target JSON, and bounded manager evidence. The v2.2.3 addendum has the panic and summarized post-state, but no raw v2.2.3 build-provenance file, fresh full target JSON, bounded post-upgrade manager-log excerpt, official `orb report` value, or vendor-submission receipt.
+- Tests cover exact create shape, owner/provision state, stopped RC rejection, immutable-ID drift, and run-wide machine-ID pinning, but not predecessor classification, deletion panic/failure, immutable ID/name equivalence guarding, absence proof, fixed-name collision/race, or old-ID-to-new-ID handoff. Provision tests mock only `missing → ready` (`test_orchestrate.py:183-314,2245-2417,3074-3130,3254-3304`).
+- Guest execution remains name-addressed after immutable-ID validation. `_build_guest_command()` uses `orb -m <fixed-name>` (`orchestrate.py:386-404`), while `run_rc()` detects drift before/after commands (`orchestrate.py:3375-3409`). Detection is strong, but the command itself is not targeted by the pinned ID.
+
+LOW
+- Historical Coding Logs record a separately authorized validated-name fallback that succeeded after the same panic. The current runbook and current user instruction supersede it, but future operators could misread that history as a standing workaround. The current contract must remain explicit: no name-only deletion.
+- `orb` and `orbctl` are byte-identical binaries with identical delete help, so treating them as independent fallback surfaces would be false diversity.
+
+### Drift Matrix
+- Intended: submit diagnostics after the repeat panic. Implemented: checksum-bound local packets only. Impact: vendor never receives the defect and no fix/report identity exists. Fix direction: generate the official diagnostic value, submit one issue, and store the receipt.
+- Intended: delete only a revalidated stable ID. Implemented: manual external CLI call with no repository transaction. Impact: lifecycle depends on an untested third-party destructive edge and manual TOCTOU controls. Fix direction: keep fail-closed now; later add an exact-ID-only guarded retirement action after vendor behavior is fixed.
+- Intended: distinguish a preserved predecessor from malformed inventory. Implemented: stopped exact-shape guest becomes `machine_shape_not_accepted`. Impact: poor operability and no machine-readable blocked-predecessor state. Fix direction: structured inventory classification with an explicit `validated_stopped_predecessor` result.
+- Intended: bind the replacement identity before mutation. Implemented: create and bootstrap are fixed-name addressed; ID/machine-ID pinning begins later. Impact: a create/name race is detected late rather than prevented. Fix direction: capture the new ID immediately after create and use immutable addressing wherever vendor CLI support permits.
+- Intended: vendor-ready current diagnostics. Implemented: complete v2.2.2 packet plus partial v2.2.3 addendum. Impact: latest-version reproduction is not self-contained and misses OrbStack's required private diagnostic value. Fix direction: add raw v2.2.3 metadata/JSON/log excerpt and official report receipt under a fresh checksum index.
+- Intended: update only as evidence-backed remediation. Implemented: generic CLI crash notes were treated as supporting a deletion-fix possibility. Impact: confidence in the upgrade path was higher than the evidence warranted. Fix direction: label future upgrades as version-elimination experiments unless release notes or vendor confirmation name the defect.
+
+### Nit-Picks / Nitty Gritty
+- The packet calls v2.2.3 release notes “CLI crash fixes”; the precise note is limited to non-POSIX login shells and should be quoted narrowly.
+- Manager-log evidence for the latest attempt is still recoverable from rotated logs, but it was not frozen into the addendum before the review.
+- The pure current-target classifier probe returns `OrchestrationError machine_shape_not_accepted`, confirming the stopped state is indistinguishable from a wrong architecture/configuration at the operator-facing boundary.
+
+### Tactical Improvements (1–3 days)
+1. Submit one OrbStack bug report using the official template. Done when a public issue URL and private diagnostic report value/receipt are recorded without exposing private diagnostic contents.
+2. Complete a self-contained v2.2.3 vendor addendum. Done when raw version/build provenance, exact full target JSON, bounded before/after manager lines, panic, post-state, and a newly verified checksum index exist.
+3. Update the active runbook incident note after submission. Done when it names the issue, pins the blocked exact ID/builds, explicitly rejects the historical name fallback, and states that canonical provisioning remains prohibited pending a supported exact-ID fix.
+4. Add tests-first structured stopped-predecessor classification. Done when exact stopped ID/name/shape is distinguishable from malformed inventory while `provision` still refuses creation or adoption.
+5. Specify a pure immutable-ID retirement guard and absence-verifier contract without enabling deletion. Done when tests cover duplicate/missing/changed ID, name/shape drift, state drift, and unrelated inventory preservation.
+
+### Strategic Improvements (1–6 weeks)
+1. Add a separately authorized `retire-predecessor` lifecycle action only after OrbStack fixes or documents exact-ID deletion. Migration: pure guard/receipt model → dry-run evidence → exact-ID delete behind explicit confirmation → post-delete ID/name absence proof. Rollout: diagnostic guest first, then rehearsal predecessor, then canonical only under new authority; any drift fails closed.
+2. Pin the replacement immediately after creation. Migration: parse the post-create inventory into one exact new ID → persist an immutable host-side creation receipt → require all bootstrap commands to be bracketed by ID/name checks and use ID addressing if officially supported. Rollout: unit tests, mocked race tests, rehearsal run, then canonical.
+3. Add a vendor-diagnostic evidence collector separate from acceptance evidence. Migration: sanitized manifest schema → bounded log/version/inventory collectors → checksum index → optional official diagnostic token reference. Rollout: local fixture tests and privacy review before use.
+
+### Big Architectural Changes
+- No broad redesign is justified. A narrow retirement transaction and earlier immutable-ID capture address the recurring failure without weakening the fixed-name or pristine-guest contracts.
+
+### Open Questions / Assumptions
+- OrbStack's private source is unavailable, so the exact nil field at `delete.go:141` cannot be established from the stripped binary. The absence of a manager deletion receipt supports, but does not prove beyond all doubt, a CLI-side pre-RPC failure.
+- Whether `orb -m` officially accepts an immutable machine ID for all guest commands must be confirmed from vendor documentation before changing dispatch.
+- Vendor submission and generation/upload of the official private diagnostic report are external writes and were not performed during this review-only request.
+
+## 2026-08-21 19:59 ICT — Explicitly authorized guarded name deletion succeeded
+
+- The user explicitly revoked the exact-ID-only operational rule for this predecessor and authorized deletion by name. This was applied as a narrow runtime override for the already identified predecessor, not as an unreviewed permanent change to the repository runbook or post-provision RC identity protections.
+- Immediately before deletion, fresh JSON inventory proved exactly one name match and exactly one ID match: stopped `munbon-control-plan-local` ID `01M0F27Z1GZQ7SQF07XH9M3VQT`, Debian bookworm ARM64, isolated/network-isolated, user `munbonlocal`, 8192 MiB, 4 CPUs, and 40 GiB. The normalized live record and preserved `target-info.json` both had SHA-256 `d687f3ff23914903221688aa1f7cd7a98e5560efabbb479371fca32271e78a69`.
+- Both crash packets passed their checksum indices immediately before deletion. The locked dependency archive retained SHA-256 `94bef9e1c3ad97cdf52f3593a5f12f7d4d42bfacb534a6b28c44fe9d8db8f3b1`.
+- The single authorized command `orbctl delete --force munbon-control-plan-local` exited 0 without panic. Current `vmgr.log` records `time="08-21 12:58:31" level=info msg="deleting container" container=munbon-control-plan-local`; host local time was 2026-08-21 19:58 ICT.
+- Immediate post-read proved both the old immutable ID and canonical name absent. Unrelated guests remained present and running by their immutable IDs: `ubuntu` `01K2MR34Y1YEF4J11ECPCNQN3C`, write-UI diagnostic `01KZKJMR2PG4Z4X7DYHDYTEX0C`, and rehearsal `01M0EX2FYE4XX511KHB5MCBDP8`.
+- No canonical replacement guest was provisioned and no acceptance command was run in this deletion step.

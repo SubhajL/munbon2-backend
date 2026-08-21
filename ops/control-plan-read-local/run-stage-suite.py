@@ -45,6 +45,12 @@ PROCESS_NAMES = (
     "ros-gis-integration",
     "bff-water-planning",
 )
+_BOOTSTRAP_RUNTIME_VENV_STATUS = frozenset(
+    {
+        "?? services/flow-monitoring/venv",
+        "?? services/scheduler/venv",
+    }
+)
 STAGE_ORDER = (
     "LOCAL-BASE-0",
     "LOCAL-RTA-1",
@@ -1776,6 +1782,42 @@ def _validate_execution_owner(context: StageContext, owner: dict[str, Any]) -> N
         raise StageGateError("local_baseline_invalid")
 
 
+def _porcelain_v1_z_entries(status: str) -> tuple[str, ...] | None:
+    if not status:
+        return ()
+    if not status.endswith("\0"):
+        return None
+    entries = tuple(status[:-1].split("\0"))
+    return entries if all(entries) else None
+
+
+def _bootstrap_runtime_venv_links_are_valid(root: Path) -> bool:
+    for service in ("flow-monitoring", "scheduler"):
+        link = root / "services" / service / "venv"
+        if not link.is_symlink():
+            return False
+        try:
+            if os.readlink(link) != ".venv":
+                return False
+        except OSError:
+            return False
+    return True
+
+
+def _backend_source_status_is_allowed(root: Path, status: str) -> bool:
+    entries = _porcelain_v1_z_entries(status)
+    if entries is None:
+        return False
+    if not _bootstrap_runtime_venv_links_are_valid(root):
+        return False
+    if not entries:
+        return True
+    return (
+        len(entries) == len(_BOOTSTRAP_RUNTIME_VENV_STATUS)
+        and set(entries) == _BOOTSTRAP_RUNTIME_VENV_STATUS
+    )
+
+
 def _verify_source_checkouts(context: StageContext) -> None:
     for label, root, expected_sha in (
         ("backend", context.repo_root, context.release_sha),
@@ -1788,10 +1830,23 @@ def _verify_source_checkouts(context: StageContext) -> None:
         ).strip()
         tracked_status = _run_checked(
             f"{label}_tracked_identity",
-            ["git", "status", "--porcelain", "--untracked-files=all"],
+            [
+                "git",
+                "status",
+                "--porcelain=v1",
+                "-z",
+                "--untracked-files=all",
+            ],
             cwd=root,
-        ).strip()
-        if actual_sha != expected_sha or tracked_status:
+        )
+        if label == "frontend":
+            status_is_allowed = not tracked_status
+        else:
+            status_is_allowed = _backend_source_status_is_allowed(
+                root,
+                tracked_status,
+            )
+        if actual_sha != expected_sha or not status_is_allowed:
             raise StageGateError(f"{label}_source_identity_stale")
 
 
