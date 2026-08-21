@@ -206,3 +206,87 @@ LOW
 - No API, schema, migration, feature-flag default, deployment, AWS, or activation change is included.
 - Failed-attempt evidence remains checksum-valid, `acceptance_evidence=false`, and campaign-ledger-ineligible.
 - Formal g-check disposition: clean; no actionable finding remains before source delivery.
+
+## Source delivery: source-cleanliness remediation
+
+- Candidate commit: `1d733c4f8e4b904a650ae9dcebdd5ce3f74b8f4b` (`fix(control-plan): validate bootstrap runtime links`).
+- SSH push succeeded after correcting the GitHub CLI transport preference to `ssh` and independently confirming non-interactive SSH authentication.
+- PR: `#197` (`https://github.com/SubhajL/munbon2-backend/pull/197`). Exact head matched candidate `1d733c4f8e4b904a650ae9dcebdd5ce3f74b8f4b`; PR was mergeable and not draft.
+- Admin merge completed under the standing zero-step billing-lock policy; no hosted job is called passing. Merge SHA: `5333e7ef7553832e438e3db9b0d991fdcf86c784`.
+- Exact landing: primary checkout `HEAD == main == origin/main == 5333e7ef7553832e438e3db9b0d991fdcf86c784`, clean.
+- Runtime acceptance remains unaccepted. The next candidate is backend `5333e7ef7553832e438e3db9b0d991fdcf86c784`, frontend `067b3e22401854f8c6d6db42dc0c5c1872fca6f8`; it requires a new candidate-bound dependency archive, a new pristine guest, and fresh evidence destinations.
+
+## Replacement dependency archive
+
+- Built exactly once on the preserved diagnostic builder for backend `5333e7ef7553832e438e3db9b0d991fdcf86c784` and frontend `067b3e22401854f8c6d6db42dc0c5c1872fca6f8`.
+- Archive: `/Users/subhajlimanond/dev/munbon-control-plan-rc-evidence/dependencies-5333e7ef7553832e438e3db9b0d991fdcf86c784-067b3e22401854f8c6d6db42dc0c5c1872fca6f8.tar.gz`.
+- Outer SHA-256: `abb6173272c436b9f94c4669561ef438eebb679e1fff0609fba81a5ea9782349`.
+- Independent validation passed: outer digest matched the builder receipt; every entry in `bundle/SHA256SUMS` verified; the schema-2 manifest binds the exact candidate SHAs, Debian 12 ARM64, Node `22.23.1`, npm `10.9.8`, and Python `3.11`.
+- The failed first-attempt guest and its checksum-valid partial evidence remain unchanged. Replacement is authorized only after a guarded identity/evidence preflight, using the user-authorized exact name because OrbStack exact-ID deletion panics.
+
+## Fresh candidate attempt 2: authoritative preflight failure
+
+- Guarded name deletion removed only failed guest `01M0J7GX1E7CBNQWGM89KSH4F4` after exact ID/name/shape/owner and checksum revalidation. The old evidence remained checksum-valid; all unrelated guests remained running.
+- Fresh session: `/Users/subhajlimanond/dev/munbon-control-plan-rc-evidence/2026-08-21-local-rc1-5333e7ef7553-067b3e224018-20260821T135716Z-9e867164`.
+- Provisioning completed once with no bootstrap-failure publication. Locked fresh identity: Orb ID `01M0J9TZQ787D9N6C4KRT0DP30`, machine ID `c2b8079f7bdd40b2885cd67ef93d0f63`; both differ from the replaced failed guest.
+- Owner/provision state binds backend `5333e7ef7553832e438e3db9b0d991fdcf86c784`, frontend `067b3e22401854f8c6d6db42dc0c5c1872fca6f8`, and dependency SHA-256 `abb6173272c436b9f94c4669561ef438eebb679e1fff0609fba81a5ea9782349`.
+- The sole fresh-candidate `run-rc` invocation failed at preflight gate `rc_database_not_clean`; no live stage ran and no success destination was created. Exactly one partial-failure collection succeeded.
+- Partial evidence is checksum-valid, records `acceptance_evidence=false`, `campaign_ledger_eligible=false`, all ten stages unreached, and outer-index SHA-256 `6d51ec4ad3e897a8e503d84d57fd5925082c8e9fc2262469771be9c5315a3996`.
+- Read-only database inspection proves only `auth` and `public` schemas exist. The exact `_rc_database_clean()` SQL casts its Boolean to text, so PostgreSQL returns `true`; production compares only with `t`. The unit test mocks `t\n`, which does not match the real query result. This is a source-contract defect, not guest/database contamination.
+- The failed guest is preserved and will not be retried or repaired. A new source candidate, dependency archive, pristine guest, and evidence namespace are required after test-first remediation.
+
+## Remediation slice S-RC-DB-BOOL
+
+- Locked contract: `_rc_database_clean()` must accept PostgreSQL's two canonical true spellings produced by the supported query shapes (`t` and text-cast `true`) and must reject false or empty/unproven results. It continues to require all four application schemas absent.
+- Primary-owned parameterized test covers successful `t\n` and the live reproduced `true\n`, plus rejection of `f\n`, `false\n`, and empty output. Expected RED: `1 failed, 4 passed, 528 deselected`; only the real `true\n` case fails.
+- Minimal production allowlist: `ops/control-plan-read-local/run-stage-suite.py` only. Tests, Coding Logs, guest/evidence state, bootstrap, orchestrator, and every other source file are protected.
+- Wiring: `_rc_preflight_snapshot()` calls `_rc_database_clean()` before rate/runtime/listener checks; `run-rc` publishes the exact failure gate if this parser rejects the query result.
+- Scoped GREEN: `python3 -m pytest -q ops/control-plan-read-local/tests/test_stage_suite.py -k 'rc_database_preflight_accepts_absent_application_schemas or rc_database_preflight_rejects_present_or_unproven_application_schemas'`.
+
+### S-RC-DB-BOOL GREEN and QCHECK
+
+- Luna-Max receipt `/tmp/munbon-s-rc-db-bool-receipt.json` passed the g-coding ownership validator: role `luna_implementer`, model `gpt-5.6-luna`, effort `max`, exact sole production path, and production SHA-256 `da962c1e7d7032c87df3ba8632248ffb398ec74a94e606db06babd91752422af`.
+- The production change accepts only stripped `t` or `true`; `f`, `false`, empty, malformed/multi-row output, and probe errors remain fail-closed as `rc_database_not_clean`.
+- Scoped GREEN passed `5 passed, 528 deselected` for three consecutive rounds before the LOW-gap additions; broader RC database/preflight scope passed `21 passed, 512 deselected`.
+- Initial complete matrix passed Python `834`, Node `51`, Black, Ruff, compileall, Bash/JavaScript syntax, and whitespace integrity.
+- Independent Terra QCHECK found no CRITICAL/HIGH/MEDIUM issue. It confirmed `auth` and `public` are the intentional pristine baseline and that accepting `t` is harmless compatibility with uncast psql Boolean rendering.
+- Both LOW hardening gaps were closed in primary-owned tests: multi-row `true\ntrue\n` is rejected, and `_psql` exceptions normalize to `rc_database_not_clean`. Focused post-QCHECK result: `7 passed, 528 deselected`.
+
+## Review (2026-08-21 21:16:33 +0700) - working-tree S-RC-DB-BOOL
+
+### Reviewed
+
+- Repo: `/Users/subhajlimanond/dev/munbon2-backend-local-rc-runtime-acceptance`.
+- Branch/baseline: `test/local-rc-1-runtime-acceptance` at `1d733c4f8e4b904a650ae9dcebdd5ce3f74b8f4b`; `origin/main` is `5333e7ef7553832e438e3db9b0d991fdcf86c784`.
+- Scope: complete uncommitted production/test/Coding-Log diff; RepoPrompt snapshot `2026-08-21/2112-2`; Context Builder review chat `review-db-boolean-9DFDBD`; independent Terra QCHECK.
+- Commands: exact ownership verification; focused tests and three consecutive focused rounds; broader RC preflight tests; full Python/Node suites; Black; Ruff; compileall/py_compile; Bash/JavaScript syntax; whitespace integrity; targeted complete diff inspection.
+
+### Findings
+
+CRITICAL
+
+- None.
+
+HIGH
+
+- None.
+
+MEDIUM
+
+- None.
+
+LOW
+
+- None actionable. Terra's multi-row and probe-exception gaps were added and passed.
+
+### Residual hardening disposition
+
+- RepoPrompt suggested a future real-PostgreSQL transport integration test that creates each prohibited schema. It explicitly classified this as residual hardening, not a current defect.
+- Disposition: do not mutate the authoritative failed guest to manufacture integration states. The live read-only exact transport already reproduced `true`; source tests now lock both supported true renderings and all relevant fail-closed outputs. A disposable PostgreSQL integration fixture can be added separately without blocking this narrow source repair.
+
+### Final validation
+
+- Python: `836 passed`; Node: `51 passed`.
+- Focused post-QCHECK: `7 passed, 528 deselected`.
+- Black, Ruff, compileall/py_compile, Bash/JavaScript syntax, and whitespace integrity: PASS.
+- Formal `g-check` disposition: clean; no actionable finding remains.

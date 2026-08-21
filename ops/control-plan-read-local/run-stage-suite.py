@@ -7714,7 +7714,7 @@ SELECT (
         result = _psql(context, query)
     except Exception as exc:
         raise StageGateError("rc_database_not_clean") from exc
-    if result.strip() != "t":
+    if result.strip() not in {"t", "true"}:
         raise StageGateError("rc_database_not_clean")
     return True
 
