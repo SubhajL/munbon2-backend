@@ -9742,15 +9742,16 @@ def _rc_stage_attempt(*, as_of_date="2026-11-02"):
     }
 
 
-def test_rc_database_preflight_requires_absent_application_schemas(
-    monkeypatch, tmp_path
+@pytest.mark.parametrize("clean_result", ["t\n", "true\n"])
+def test_rc_database_preflight_accepts_absent_application_schemas(
+    monkeypatch, tmp_path, clean_result
 ):
     context = _rc_context(tmp_path)
     captured = {}
 
     def psql(_context, query):
         captured["query"] = query
-        return "t\n"
+        return clean_result
 
     monkeypatch.setattr(stage_suite, "_psql", psql)
 
@@ -9760,7 +9761,26 @@ def test_rc_database_preflight_requires_absent_application_schemas(
         for schema in ("scheduler", "ros_gis", "water_planning", "gis")
     )
 
-    monkeypatch.setattr(stage_suite, "_psql", lambda *_args: "f\n")
+
+@pytest.mark.parametrize("dirty_result", ["f\n", "false\n", "true\ntrue\n", ""])
+def test_rc_database_preflight_rejects_present_or_unproven_application_schemas(
+    monkeypatch, tmp_path, dirty_result
+):
+    context = _rc_context(tmp_path)
+    monkeypatch.setattr(stage_suite, "_psql", lambda *_args: dirty_result)
+
+    with pytest.raises(stage_suite.StageGateError, match="rc_database_not_clean"):
+        stage_suite._rc_database_clean(context)
+
+
+def test_rc_database_preflight_normalizes_probe_failure(monkeypatch, tmp_path):
+    context = _rc_context(tmp_path)
+
+    def fail_probe(*_args):
+        raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(stage_suite, "_psql", fail_probe)
+
     with pytest.raises(stage_suite.StageGateError, match="rc_database_not_clean"):
         stage_suite._rc_database_clean(context)
 
