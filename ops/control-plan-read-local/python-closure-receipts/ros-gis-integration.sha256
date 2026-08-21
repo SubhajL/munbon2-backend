@@ -24,7 +24,7 @@ ed5a7cae7874bfc3238fb05e0501cc1760e1b7b11e5b76ecad29da644ca305da  ./geopandas-0.
 2d400746a40668fc9dec9810239072b40b4484b640a8c38fd654a024c7a1bf55  ./httpcore-1.0.9-py3-none-any.whl
 bbb8caadb2b742d293169d2b458b5c001ef70e3158704aa3d3ef9597624c5d1d  ./httptools-0.8.0-cp311-cp311-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl
 a05d3d052d9b2dfce0e3896636467f8a5342fb2b902c819428e1ac65413ca118  ./httpx-0.25.2-py3-none-any.whl
-7f952cbe720b688055e3f87de14f5c3e5fdaa8bc3928985c4077ca689de849a2  ./idna-3.18-py3-none-any.whl
+815e7be7a7806d54abb586dc943addc79e8b2ee16915059658cbeff4b1b43bf4  ./idna-3.19-py3-none-any.whl
 f631c04d2c48c52b84d0d0549c99ff3859c98df65b3101406327ecc7d53fbf12  ./iniconfig-2.3.0-py3-none-any.whl
 a359d9a94a541213958742b2698d0a7757bb83551767bc468a74b9905aba9617  ./mako-1.4.1-py3-none-any.whl
 6b5420a1d9450023228968e7e6a9ce57f65d148ab56d2313fcd589eee96a7a50  ./markupsafe-3.0.3-cp311-cp311-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl
