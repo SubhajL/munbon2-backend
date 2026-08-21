@@ -291,6 +291,51 @@ LOW
 - Black, Ruff, compileall/py_compile, Bash/JavaScript syntax, and whitespace integrity: PASS.
 - Formal `g-check` disposition: clean; no actionable finding remains.
 
+## Fresh candidate attempt 4: nine stages passed, final-stage rate-budget failure
+
+- Fresh session: `/Users/subhajlimanond/dev/munbon-control-plan-rc-evidence/2026-08-21-local-rc1-324cfc9f56ba-067b3e224018-20260821T145414Z-49090f32`.
+- One provisioning run passed. Locked pristine identity: Orb ID `01M0JD3D6KPD3NRB7BK6511J6B`, machine ID `1e48131c82024e39a1b5f194f73d33fa`, exact backend `324cfc9f56ba07168adbaa500b07c93bd0461bfb`, frontend `067b3e22401854f8c6d6db42dc0c5c1872fca6f8`, and dependency SHA-256 `6ae49bc88af0c5e3c10fc05be0c821c02548d9d174eb14385de7239a0889488a`.
+- The sole `run-rc` invocation passed strict preflight and the first nine current stages, then failed `LOCAL-WRITE-ACT-1` at `conflict_not_409`. Restoration passed: BFF, scheduler, frontend, dark rendering, operator logout, and refresh revocation all returned to the required dark/closed state.
+- Read-only BFF access logs prove the stale-conflict request returned `429`. The same operator consumes three rate-counted foundation requests, three write-UI requests, two persist-only requests, and three write-activation requests: request 11 exceeded the implicit 10-per-300-second default before repository conflict validation could emit `409`.
+- The sole partial-collection invocation passed stream and extraction but failed publication at `rc_partial_evidence_inventory_invalid`. The failed frontend context retained `.frontend-write-activation-armed.log` (`13197` bytes, SHA-256 `d0f5a12c9d708691912d10a1ef416807e154d105abdf7650b0ec13f8b40175d7`), while the strict collector accepts only indexed artifacts. No collection retry occurred.
+- Diagnostic-only packet `diagnostic-attempt-1` preserves the exact failure manifest, bounded manager-log status sequence, root-cause derivation, and collector failure. All files pass `SHA256SUMS`; checksum-index SHA-256 is `dc84e9901875984d701d85b6d8af8697e763fedb7c7553ee77016567406e7254`. It is explicitly not acceptance evidence.
+- The failed guest remains preserved and was not retried, repaired, or otherwise mutated after failure.
+
+## Remediation slice S-RC-RATE-COLLECTOR
+
+- Locked rate contract: pristine local bootstrap must explicitly set `PLANNING_DEPTH_WRITE_LIMIT=11`, derived from the current stage request counts `3 + 3 + 2 + 3`. This changes only the canonical local guest configuration; BFF service defaults and production source remain unchanged.
+- Locked collector contract: `_frontend_server()` must stop the child process and remove its transient hidden log on both success and body failure, preserving the existing exact partial-evidence inventory rather than relaxing it.
+- Primary-owned RED: `test_bootstrap_budgets_every_rate_counted_rc_write_request` failed with missing value (`None != "11"`); `test_frontend_server_removes_transient_log_after_body_failure` failed because the hidden log remained. Exactly two expected failures were confirmed before production handoff.
+- Production allowlist: `ops/control-plan-read-local/bootstrap-linux.sh` and `ops/control-plan-read-local/run-stage-suite.py` only. Snapshot: `/tmp/munbon-s-rc-rate-collector-snapshot.json`.
+- Luna-Max receipt `/tmp/munbon-s-rc-rate-collector-receipt.json` passed the ownership validator for role `luna_implementer`, model `gpt-5.6-luna`, effort `max`; exact production hashes are `0478b5572f95121926cca1278738027ab2494c556429c62fbd04228ead4b113e` and `028a15484fe331e5d6f1726bceaf0c4c9cccbe1bb0a79b7b3a09e4627d9f005f` respectively.
+- Focused GREEN passed three consecutive rounds. Related strict partial-collection scope passed `7`; write-activation/frontend/rate scope passed `77`; complete Python suite passed `840`; Node browser-inventory suite passed `51`; Black, Ruff, compileall, Bash/JavaScript syntax, and whitespace integrity passed.
+
+### Wiring verification
+
+| Component | Non-test call site | Registration/config load | Contract evidence |
+|---|---|---|---|
+| Local BFF rate budget | `bootstrap-linux.sh:428` writes `PLANNING_DEPTH_WRITE_LIMIT=11` | `_restart_bff_with_flag()` reloads the same `bff.env` through PM2 `--update-env`; BFF `Settings` reads the variable and the v2 route passes it to `consume_planning_depth_write_limit()` | Derived bootstrap test plus the observed `3 + 3 + 2 + 3 = 11` campaign sequence |
+| Transient frontend log cleanup | `_frontend_server()` always unlinks after child shutdown | `LOCAL-WRITE-ACT-1` calls that exact context manager before browser/stability execution | Body-failure test proves the hidden log is absent; existing strict partial collector remains unchanged |
+
+- Runtime acceptance remains unaccepted. Source remediation still requires QCHECK/formal review, delivery to a new merge SHA, a new archive, a new pristine guest, and a fresh one-shot RC attempt.
+
+## Source delivery: scheduler dark bootstrap remediation
+
+- Candidate commit: `18c8a7adbb40658efab4f9dcb0459419fdd62380` (`fix(control-plan): bootstrap scheduler dark defaults`).
+- SSH push and PR `#199` succeeded: `https://github.com/SubhajL/munbon2-backend/pull/199`.
+- Exact PR head matched candidate `18c8a7adbb40658efab4f9dcb0459419fdd62380`; PR was non-draft and mergeable against base `2c62aaaee93f5a43e4554d5fc31a739b21885c10`.
+- Admin merge proceeded under the standing zero-step billing-lock policy without waiting on or investigating queued hosted jobs; no hosted job is called passing.
+- Merge SHA: `324cfc9f56ba07168adbaa500b07c93bd0461bfb`.
+- Exact landing: primary checkout `HEAD == main == origin/main == 324cfc9f56ba07168adbaa500b07c93bd0461bfb`, clean.
+- Runtime acceptance remains unaccepted. Failed guest `01M0JBH0N243F8Q8S1YPRV9Z09` remains preserved and must not be reused; the merge SHA requires another exact archive, pristine guest, and fresh evidence namespace.
+
+## Candidate `324cfc9f` dependency archive
+
+- One diagnostic-builder invocation passed and published `/Users/subhajlimanond/dev/munbon-control-plan-rc-evidence/dependencies-324cfc9f56ba07168adbaa500b07c93bd0461bfb-067b3e22401854f8c6d6db42dc0c5c1872fca6f8.tar.gz`.
+- Outer SHA-256: `6ae49bc88af0c5e3c10fc05be0c821c02548d9d174eb14385de7239a0889488a`.
+- Independent validation passed all `968` inner checksum entries. The schema-2 manifest binds exact backend `324cfc9f56ba07168adbaa500b07c93bd0461bfb`, frontend `067b3e22401854f8c6d6db42dc0c5c1872fca6f8`, Debian 12 ARM64, Node `22.23.1`, npm `10.9.8`, and Python `3.11`.
+- Guarded exact-name deletion first revalidated failed guest `01M0JBH0N243F8Q8S1YPRV9Z09`, machine ID `0c5d2b159d7c496e8265b6c00f7d7057`, its exact candidate/archive owner, singleton shape, and three unrelated running guests. The guest was stopped, revalidated as the same stopped singleton, and deleted once by exact name. The ID and name are absent; unrelated guests remained running; the prior partial evidence still passes both checksum indexes with unchanged outer-index SHA-256 `ff4b2ee8a60a4f42572d06148fb390492316d1a3edda27d281701442a17c6965`.
+
 ## Source delivery: database-clean Boolean remediation
 
 - Candidate commit: `b17616a56292ac9a13bf707e7e2b0ac17060a663` (`fix(control-plan): accept PostgreSQL boolean text`).
@@ -376,3 +421,59 @@ LOW
 - This is a dark-default bootstrap correction only. It does not activate control execution, readback reconciliation, machine commands, planning-depth writes, deployment, or AWS actions.
 - Final post-QCHECK gates: Python `838 passed`; Node `51 passed`; formatting, lint, compilation, shell/JavaScript syntax, and whitespace integrity passed.
 - Formal `g-check` disposition: clean; no actionable finding remains.
+
+## Attempt 4 failure and rate/collector remediation closure
+
+- Fresh attempt-4 session `/Users/subhajlimanond/dev/munbon-control-plan-rc-evidence/2026-08-21-local-rc1-324cfc9f56ba-067b3e224018-20260821T145414Z-49090f32` provisioned exact guest `01M0JD3D6KPD3NRB7BK6511J6B`, machine ID `1e48131c82024e39a1b5f194f73d33fa`, backend `324cfc9f56ba07168adbaa500b07c93bd0461bfb`, frontend `067b3e22401854f8c6d6db42dc0c5c1872fca6f8`, and archive SHA-256 `6ae49bc88af0c5e3c10fc05be0c821c02548d9d174eb14385de7239a0889488a`.
+- The sole RC run passed strict preflight and the first nine current stages, then failed `LOCAL-WRITE-ACT-1` because the eleventh same-operator submit was rate-limited at `429` before the repository could return the expected stale-conflict `409`. Restoration returned BFF, scheduler, frontend, and operator sessions to the required dark/closed state.
+- Exact rate accounting is foundation `3` + write UI `3` + persist-only `2` + write activation `3` = `11`. The pristine local BFF previously inherited the service default `10`; the remediation explicitly writes local-only `PLANNING_DEPTH_WRITE_LIMIT=11`. The service default remains unchanged, and a twelfth admitted request remains limited by the existing `count > limit` boundary.
+- The sole strict partial-collection attempt rejected an unindexed `.frontend-write-activation-armed.log`. Diagnostic-only packet `diagnostic-attempt-1` preserves the failure manifest, bounded manager log, diagnosis, and checksum index; it is explicitly not acceptance evidence. The failed guest remains preserved and was not retried or repaired.
+- Primary-owned RED contracts covered rate-budget configuration, transient-log removal after stage failure, primary exception identity, cleanup-only fixed gates, unproven process shutdown, late-exit proof, poll failure containment, sanitized secondary teardown evidence, manifest publication, and deterministic process-over-log precedence.
+- All five Luna-Max receipts passed the ownership validator with role `luna_implementer`, model `gpt-5.6-luna`, effort `max`, unchanged HEAD, exact runner/bootstrap allowlists, and no protected-file drift: `S-RC-RATE-COLLECTOR` (`89abefdadc951c5d0599d89f9ddf675a1ef3ae6e122c511e538982080c6bc6c5`), `S-RC-FRONTEND-CLEANUP-ATTRIBUTION` (`d7b220e46c0da73283d7e632500388e9ec99a0d5211052038c3bae7ad9dfbf05`), `S-RC-FRONTEND-PROCESS-TEARDOWN` (`e74afc460406bbe0366d62dd91a08a6f895186e4a12923c8df4da9c45e0a8d4b`), `S-RC-FRONTEND-TEARDOWN-EVIDENCE` (`e3adc31eb16b43c359f4ec079788c473487a6a836f8ee5a7de338567f1ca681c`), and `S-RC-FRONTEND-LOG-ATTRIBUTION` (`a6f1b5bd3c242c62b2fbc7bc0f7cad784c4b7365d85d28ed7f2ef70095be9428`).
+- Final production SHA-256 values: `bootstrap-linux.sh` `0478b5572f95121926cca1278738027ab2494c556429c62fbd04228ead4b113e`; `run-stage-suite.py` `ef730c47b7208c2dcd8a4e9aea6d9e4bb9a29204c0cb6059d86dfe8661936736`.
+- Final primary gates: focused frontend/manifest contract `13 passed` for three consecutive rounds; related strict partial collector `43 passed`; complete Python `852 passed`; Node `51 passed`; Black, Ruff, compileall, Bash/JavaScript syntax, and whitespace integrity all passed.
+- Final independent QCHECK: no CRITICAL, HIGH, or MEDIUM findings. Residual LOW hardening is an executable-seam rate-admission count test; the current static `3+3+2+3` proof is correct but can drift if the scripted campaign changes.
+- Runtime acceptance remains unaccepted until this source is merged, a dependency archive is rebuilt for the exact merge SHA, the failed guest is deleted by its guarded exact name, and a new pristine guest completes one fresh RC run.
+
+## Review (2026-08-21 23:18:06 +0700) - working-tree S-RC-RATE-COLLECTOR
+
+### Reviewed
+
+- Repo: `/Users/subhajlimanond/dev/munbon2-backend-local-rc-runtime-acceptance`.
+- Branch: `fix/local-rc-scheduler-dark-env`.
+- Scope: complete working tree at baseline `18c8a7adbb40658efab4f9dcb0459419fdd62380`; RepoPrompt authoritative snapshot `2026-08-21/2317`.
+- Commands run: ownership snapshot/receipt verification for five Luna-Max slices; targeted complete diffs and wiring reads; focused RED/GREEN tests and three-repeat frontend/manifest contract; related rate/collector suites; complete Python and Node suites; Black; Ruff; compileall/py_compile; Bash and JavaScript syntax; `git diff --stat`; `git diff --check`; independent Terra QCHECK; RepoPrompt Context Builder and continued Oracle review.
+
+### Findings
+
+CRITICAL
+
+- None.
+
+HIGH
+
+- None.
+
+MEDIUM
+
+- None. Earlier exception masking, unproven frontend shutdown, late-exit false attribution, unguarded polling, and missing process/log cleanup evidence findings were each locked by primary-owned RED tests, remediated through bounded Luna-Max production slices, ownership-validated, and rerun through the full matrix.
+
+LOW
+
+- The static rate-budget test restates `3+3+2+3` instead of deriving admissions from the four executable drivers. The current count and limit are correct; an executable-seam admission counter is residual hardening.
+- Frontend teardown coverage is comprehensive but mock-process based. A disposable real-process-group integration test would add platform assurance without changing the current correctness disposition.
+- The application and harness both default the write window to 300 seconds. Documentation now states that the pristine bootstrap relies on the matching application default; a static cross-default assertion would guard future drift.
+
+### Open Questions / Assumptions
+
+- The limit override is intentionally local-campaign-only. The BFF service default remains `10`, and neither production behavior nor AWS/deployment state is changed.
+- An actual filesystem refusal to unlink the transient frontend log remains fail-closed under the strict collector. The primary failure manifest now records the exact sanitized secondary cleanup code for diagnostic attribution; the collector inventory is not relaxed.
+
+### Recommended Tests / Validation
+
+- No actionable validation remains before source delivery. The next acceptance proof must use the exact merged SHA, one rebuilt dependency archive, a newly provisioned guest, and one fresh RC run.
+
+### Rollout Notes
+
+- Final source gates: focused contract `13 passed` for three consecutive rounds; strict partial collector `43 passed`; complete Python `852 passed`; Node `51 passed`; formatting, lint, compilation, shell/JavaScript syntax, and whitespace integrity passed.
+- Formal `g-check`: no CRITICAL, HIGH, or MEDIUM finding remains. Runtime acceptance is still separate and not yet claimed.

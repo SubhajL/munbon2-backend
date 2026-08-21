@@ -3352,44 +3352,74 @@ def _frontend_server(
     )
     log_path = context.evidence_root / f".frontend-{mode}.log"
     descriptor = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    completed = False
+    primary_exception: BaseException | None = None
     process = None
     try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-            process = subprocess.Popen(
-                [
-                    str(NODE_ROOT / "bin/node"),
-                    str(context.frontend_root / "node_modules/next/dist/bin/next"),
-                    "start",
-                    "-H",
-                    "127.0.0.1",
-                    "-p",
-                    "9999",
-                ],
-                cwd=context.frontend_root,
-                env=environment,
-                stdout=stream,
-                stderr=subprocess.STDOUT,
-                start_new_session=True,
-            )
-            _wait_frontend(process)
-            yield
-            completed = True
-    except OSError as exc:
-        raise StageGateError("frontend_process_failed") from exc
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                process = subprocess.Popen(
+                    [
+                        str(NODE_ROOT / "bin/node"),
+                        str(context.frontend_root / "node_modules/next/dist/bin/next"),
+                        "start",
+                        "-H",
+                        "127.0.0.1",
+                        "-p",
+                        "9999",
+                    ],
+                    cwd=context.frontend_root,
+                    env=environment,
+                    stdout=stream,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True,
+                )
+                _wait_frontend(process)
+                yield
+        except OSError as exc:
+            raise StageGateError("frontend_process_failed") from exc
+    except BaseException as exc:
+        primary_exception = exc
     finally:
-        if process is not None and process.poll() is None:
+        process_cleanup_failed = False
+        process_exit_proven = False
+        process_running = False
+        if process is not None:
             try:
-                os.killpg(process.pid, signal.SIGTERM)
-                process.wait(timeout=15)
-            except (OSError, subprocess.TimeoutExpired):
+                process_running = process.poll() is None
+            except OSError:
+                process_running = True
+            if process_running:
                 try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                    process.wait(timeout=5)
+                    os.killpg(process.pid, signal.SIGTERM)
+                    process_exit_proven = process.wait(timeout=15) is not None
                 except (OSError, subprocess.TimeoutExpired):
-                    pass
-        if completed:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                        process_exit_proven = process.wait(timeout=5) is not None
+                    except (OSError, subprocess.TimeoutExpired):
+                        pass
+                try:
+                    final_poll = process.poll()
+                except OSError:
+                    final_poll = None
+                if final_poll is not None:
+                    process_exit_proven = True
+                process_cleanup_failed = not process_exit_proven
+        log_cleanup_error: OSError | None = None
+        try:
             log_path.unlink(missing_ok=True)
+        except OSError as exc:
+            log_cleanup_error = exc
+        if primary_exception is not None:
+            if process_cleanup_failed:
+                primary_exception.teardown_error = "frontend_process_cleanup_failed"
+            elif log_cleanup_error is not None:
+                primary_exception.teardown_error = "frontend_log_cleanup_failed"
+            raise primary_exception
+        if process_cleanup_failed:
+            raise StageGateError("frontend_process_cleanup_failed")
+        if log_cleanup_error is not None:
+            raise StageGateError("frontend_log_cleanup_failed") from log_cleanup_error
 
 
 def _run_read_browser(
@@ -9299,7 +9329,13 @@ def main(argv: list[str] | None = None) -> int:
             primary_restoration = getattr(exc, "restoration", None)
             if isinstance(primary_restoration, dict):
                 safe_error.restoration = primary_restoration
+        attached_teardown_error = getattr(exc, "teardown_error", None)
         teardown_error = None
+        if type(attached_teardown_error) is str and attached_teardown_error in {
+            "frontend_process_cleanup_failed",
+            "frontend_log_cleanup_failed",
+        }:
+            teardown_error = attached_teardown_error
         if args.stage == "LOCAL-RTA-1":
             # Contain teardown failure so it cannot mask the primary finding —
             # but RECORD it, so orphaned runtime processes are explained rather
