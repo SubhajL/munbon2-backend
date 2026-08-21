@@ -290,3 +290,89 @@ LOW
 - Focused post-QCHECK: `7 passed, 528 deselected`.
 - Black, Ruff, compileall/py_compile, Bash/JavaScript syntax, and whitespace integrity: PASS.
 - Formal `g-check` disposition: clean; no actionable finding remains.
+
+## Source delivery: database-clean Boolean remediation
+
+- Candidate commit: `b17616a56292ac9a13bf707e7e2b0ac17060a663` (`fix(control-plan): accept PostgreSQL boolean text`).
+- SSH push succeeded on branch `fix/local-rc-db-bool`; PR `#198`: `https://github.com/SubhajL/munbon2-backend/pull/198`.
+- Exact PR head matched `b17616a56292ac9a13bf707e7e2b0ac17060a663`; PR was non-draft and mergeable against base `5333e7ef7553832e438e3db9b0d991fdcf86c784`.
+- Hosted jobs were unavailable under the standing zero-step billing-lock policy and are not called passing. Admin merge completed without investigating or retrying them.
+- Merge SHA: `2c62aaaee93f5a43e4554d5fc31a739b21885c10`.
+- Exact landing: primary checkout `HEAD == main == origin/main == 2c62aaaee93f5a43e4554d5fc31a739b21885c10`, clean.
+- Runtime acceptance remains unaccepted. The next exact candidate requires a new dependency archive, new pristine canonical guest, and fresh evidence namespace; failed guest `01M0J9TZQ787D9N6C4KRT0DP30` remains preserved and must not be reused.
+
+## Candidate `2c62aaae` dependency archive
+
+- One diagnostic-builder invocation passed and published `/Users/subhajlimanond/dev/munbon-control-plan-rc-evidence/dependencies-2c62aaaee93f5a43e4554d5fc31a739b21885c10-067b3e22401854f8c6d6db42dc0c5c1872fca6f8.tar.gz`.
+- Outer SHA-256: `5894fa886fcfc0f5d70b946fdbab09d87cc9a162223f7f3560f8aece0b2d742b`.
+- Independent validation passed all `968` inner checksum entries. The schema-2 manifest binds exact backend `2c62aaaee93f5a43e4554d5fc31a739b21885c10`, frontend `067b3e22401854f8c6d6db42dc0c5c1872fca6f8`, Debian 12 ARM64, Node `22.23.1`, npm `10.9.8`, and Python `3.11`.
+
+## Fresh candidate attempt 3: authoritative preflight failure
+
+- Guarded name deletion removed only failed guest `01M0J9TZQ787D9N6C4KRT0DP30`; its checksum-valid packet remained intact and unrelated guests remained running.
+- Fresh session: `/Users/subhajlimanond/dev/munbon-control-plan-rc-evidence/2026-08-21-local-rc1-2c62aaaee93f-067b3e224018-20260821T142655Z-8f200825`.
+- Provisioning completed once. Locked fresh identity: Orb ID `01M0JBH0N243F8Q8S1YPRV9Z09`, machine ID `0c5d2b159d7c496e8265b6c00f7d7057`, exact candidate/archive ownership, and no bootstrap failure.
+- The sole `run-rc` invocation failed at preflight gate `rc_runtime_not_dark`; no live stage ran. Exactly one partial collection passed with all ten current stages unreached, `acceptance_evidence=false`, `campaign_ledger_eligible=false`, and outer-index SHA-256 `ff4b2ee8a60a4f42572d06148fb390492316d1a3edda27d281701442a17c6965`.
+- Read-only guest inspection found only one configured gate variable across the four runtime env files: `bff.env:PLANNING_DEPTH_WRITES_ENABLED=false`. The model release is correctly `commandable=false`.
+- Exact root cause: `_rc_configured_dark()` requires the scheduler contract to evaluate to `CONTROL_EXECUTION_MODE=disabled` and `CONTROL_READBACK_RECONCILIATION_MODE=off`, but pristine bootstrap does not write either variable into `scheduler.env`. Missing values are intentionally not proof of darkness, so preflight fails closed.
+- This does not invalidate historical 9/9 evidence. That closed campaign used older exact identities and its historical nine-stage scope; `LOCAL-RC-1` is a separate newer wrapper with stricter pristine preflight plus ten current stages.
+- The failed guest remains preserved and must not be retried or repaired.
+
+## Remediation slice S-RC-SCHEDULER-DARK-ENV
+
+- Locked contract: pristine bootstrap must write `CONTROL_EXECUTION_MODE=disabled` and `CONTROL_READBACK_RECONCILIATION_MODE=off` inside the actual `scheduler.env` heredoc consumed by RC preflight and later scheduler process startup.
+- Primary-owned test parses only the scheduler runtime-env block and requires both exact fail-closed values. Expected RED confirmed: `1 failed`; both values were absent (`None`).
+- Production allowlist: `ops/control-plan-read-local/bootstrap-linux.sh` only. Tests, stage runner, orchestrator, Coding Log, guest/evidence state, and every other source/runtime file are protected.
+- Wiring: bootstrap publishes `/etc/munbon/control-plan-read-runtime/scheduler.env`; `_rc_configured_dark()` loads that exact file and requires the two values before stage 1; scheduler process startup later sources the same file.
+- Scoped GREEN: `python3 -m pytest -q ops/control-plan-read-local/tests/test_local_artifacts.py::test_bootstrap_writes_scheduler_dark_preflight_contract`.
+
+### S-RC-SCHEDULER-DARK-ENV GREEN
+
+- Luna-Max receipt `/tmp/munbon-s-rc-scheduler-dark-env-receipt.json` passed the ownership validator for role `luna_implementer`, model `gpt-5.6-luna`, effort `max`, exact sole production path, and SHA-256 `a65c650f050d58967c51487f3dc7af18a34c2fdf13be82d59cd4c428dd62cdb4`.
+- Complete diff adds only the exact two variables to the existing scheduler heredoc; every prior entry is preserved.
+- Primary scoped GREEN passed three consecutive times; the related `_rc_configured_dark`/RC-preflight scope passed `6 passed, 529 deselected`; Bash syntax passed.
+- Complete matrix: Python `837 passed`; Node `51 passed`; Black, Ruff, compileall, Bash/JavaScript syntax, and whitespace integrity passed.
+
+## Review (2026-08-21 21:41:58 +0700) - working-tree S-RC-SCHEDULER-DARK-ENV
+
+### Reviewed
+
+- Repo: `/Users/subhajlimanond/dev/munbon2-backend-local-rc-runtime-acceptance`.
+- Branch/baseline: `fix/local-rc-db-bool` at `b17616a56292ac9a13bf707e7e2b0ac17060a663`; `main/origin/main` is `2c62aaaee93f5a43e4554d5fc31a739b21885c10`.
+- Scope: complete working-tree bootstrap, unit/integration test, runtime README, and Coding-Log diff; RepoPrompt snapshot `2026-08-21/2139`; targeted bootstrap/consumer/startup reads; independent Terra QCHECK.
+- RepoPrompt Context Builder was unavailable because the exact bound tab was already MCP-controlled. Per g-check fallback, review proceeded immediately with the bounded complete diff, exact-string wiring reads, executable gates, and independent Terra without blind retry.
+- Commands: ownership verification; targeted complete diff; scoped test three rounds; bootstrap-to-preflight integration test; related RC-preflight scope; full Python/Node suites; Black; Ruff; compileall; Bash/JavaScript syntax; whitespace integrity.
+
+### Findings
+
+CRITICAL
+
+- None.
+
+HIGH
+
+- None.
+
+MEDIUM
+
+- None.
+
+LOW
+
+- Terra found the runtime README omitted the two canonical scheduler settings. Fixed in `ops/control-plan-read-runtime/README.md`.
+- Terra suggested an end-to-end env-file-to-preflight test. Added `test_bootstrap_runtime_environment_satisfies_rc_dark_contract`, which materializes all four actual bootstrap heredocs, uses the real non-commandable model release, and passes `_rc_configured_dark()`.
+
+### Open Questions / Assumptions
+
+- Missing Boolean-style gate variables intentionally evaluate dark, while scheduler execution/readback are enumerated strings and must be explicit. SCADA URL/token/capability inputs remain absent, and startup explicitly unsets them.
+- The authoritative failed guest remains preserved and was not mutated to validate this source change.
+
+### Recommended Tests / Validation
+
+- No additional actionable test remains before source delivery. A new exact candidate still requires a rebuilt archive, pristine guest, and fresh one-shot RC attempt.
+
+### Rollout Notes
+
+- This is a dark-default bootstrap correction only. It does not activate control execution, readback reconciliation, machine commands, planning-depth writes, deployment, or AWS actions.
+- Final post-QCHECK gates: Python `838 passed`; Node `51 passed`; formatting, lint, compilation, shell/JavaScript syntax, and whitespace integrity passed.
+- Formal `g-check` disposition: clean; no actionable finding remains.

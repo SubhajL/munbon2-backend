@@ -689,6 +689,24 @@ def test_bootstrap_validates_and_stages_dependencies_before_runtime_reset():
     assert staged < reset
 
 
+def test_bootstrap_writes_scheduler_dark_preflight_contract():
+    body = (LOCAL_DIR / "bootstrap-linux.sh").read_text(encoding="utf-8")
+    scheduler_environment = body.split(
+        'cat > "${RUNTIME_ENV_DIR}/scheduler.env" <<EOF\n', 1
+    )[1].split("\nEOF", 1)[0]
+    values = dict(line.split("=", 1) for line in scheduler_environment.splitlines())
+
+    assert {
+        "CONTROL_EXECUTION_MODE": values.get("CONTROL_EXECUTION_MODE"),
+        "CONTROL_READBACK_RECONCILIATION_MODE": values.get(
+            "CONTROL_READBACK_RECONCILIATION_MODE"
+        ),
+    } == {
+        "CONTROL_EXECUTION_MODE": "disabled",
+        "CONTROL_READBACK_RECONCILIATION_MODE": "off",
+    }
+
+
 def test_bootstrap_records_state_before_dependencies_and_installs_python_before_transition():
     body = (LOCAL_DIR / "bootstrap-linux.sh").read_text(encoding="utf-8")
 
