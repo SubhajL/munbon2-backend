@@ -1,9 +1,15 @@
 # Task Status Tracking
 
-Last Updated: 2024-12-24
+> **Historical task snapshot, not current completion authority.** Current status:
+> [Development completion register](development/DEVELOPMENT_COMPLETION_REGISTER.md).
+> [Plan supersession index](development/PLAN_SUPERSESSION_INDEX.md) records scope
+> precedence. The 2024 totals/checklists below are retained history, not a current
+> completion percentage or evidence that later delivered services are missing.
 
-## Purpose
-This document provides the authoritative source for task completion status in the Munbon Irrigation Backend project.
+Historical snapshot date: 2024-12-24. Status-pointer repair: 2026-11-02.
+
+## Historical purpose
+This document originally summarized task completion status in the Munbon Irrigation Backend project. Its historical task inventory follows unchanged.
 
 ## Completed Tasks (22 tasks)
 
@@ -94,6 +100,5 @@ This document provides the authoritative source for task completion status in th
 - 2024-12-24: Created this tracking document for clarity
 
 ## Notes
-- Task completion status is maintained in `/tasks/tasks.json`
-- This document serves as a human-readable summary
-- Always verify status in tasks.json for the most up-to-date information
+- At this snapshot, task status was maintained in `/tasks/tasks.json` and summarized here.
+- For the current named V2 development scope, use the completion register above rather than these historical totals or task-file assumptions.

@@ -1,5 +1,11 @@
 # Pull Request Phase Plan
 
+> **Historical branch proposal, not current execution/status authority.** See the
+> [Development completion register](docs/development/DEVELOPMENT_COMPLETION_REGISTER.md)
+> and [supersession index](docs/development/PLAN_SUPERSESSION_INDEX.md), dated
+> 2026-11-02. Preserve the proposal below as history; do not replay its ROS-GIS
+> removal or old branch-splitting instructions against current delivered source.
+
 ## Overview
 Breaking down the feature/WD-BFF-and-ts-to-js branch into manageable pull requests.
 

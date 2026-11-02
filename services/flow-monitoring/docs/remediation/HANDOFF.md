@@ -1,23 +1,19 @@
 # Munbon remediation — handoff pointer
 
-> **This file no longer tracks current status** (it went stale twice while claiming
-> currency — review finding, PROGRAM_REVIEW §1.3). Status now lives in exactly two
-> places:
+> **Historical handoff, not current status authority.** The single current owner is
+> the [Development completion register](../../../../docs/development/DEVELOPMENT_COMPLETION_REGISTER.md)
+> with [plan supersession index](../../../../docs/development/PLAN_SUPERSESSION_INDEX.md)
+> (2026-11-02). Source, local/runtime acceptance, field authority, security and
+> governance are separate states. No historical merge/operational grant is renewed here.
 >
-> 1. **[PR_REVIEW_GUIDE.md](PR_REVIEW_GUIDE.md)** — how the remediation PRs are
->    reviewed and what each one shipped (per-PR verdicts).
-> 2. **[PROGRAM_REVIEW_2026-07-09.md](PROGRAM_REVIEW_2026-07-09.md)** — the full
->    program review of PRs #7–#24 plus the forward roadmap (Waves 0–4, maintainer
->    decisions D1–D4, external actions E1–E6). The wave PRs themselves (#25 onward)
->    carry their own detailed bodies on GitHub.
-> 3. **[WAVE_2-4_PLAN_2026-07-12.md](WAVE_2-4_PLAN_2026-07-12.md)** — the forward
->    execution plan for Waves 2–4 (supersedes PROGRAM_REVIEW §2.2 ordering; its
->    §1.5 adversarial-review amendments override its own §1 table on conflict).
->
-> **Where things stand** is always derivable from: `git log origin/main` +
-> the WAVE_2-4_PLAN execution order + PROGRAM_REVIEW §2.2 (original scope).
+> Historical references remain:
+> - [PR_REVIEW_GUIDE.md](PR_REVIEW_GUIDE.md): original per-PR review verdicts.
+> - [PROGRAM_REVIEW_2026-07-09.md](PROGRAM_REVIEW_2026-07-09.md): original review,
+>   roadmap and external-action record.
+> - [WAVE_2-4_PLAN_2026-07-12.md](WAVE_2-4_PLAN_2026-07-12.md): historical wave
+>   ordering/amendments; current dispositions and conditional scope are in the register.
 
-## Standing facts that do not go stale
+## Historical standing-fact record (not a new grant)
 
 - **Lifecycle per PR**: plan (Claude + Codex) → TDD → QCHECK + Codex adversary
   (non-skippable) → PR → admin-merge (delegated) → land local main.

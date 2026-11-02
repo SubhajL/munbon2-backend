@@ -1,5 +1,14 @@
 # Munbon Backend — Master Remediation & Improvement Spec
 
+> **Historical finding/specification record.** Current status is owned by the
+> [Development completion register](../../../../docs/development/DEVELOPMENT_COMPLETION_REGISTER.md)
+> and its [supersession index](../../../../docs/development/PLAN_SUPERSESSION_INDEX.md)
+> (2026-11-02). Preserve the technical record below; its finding index and proposed
+> fixes describe the original audit, not a claim those defects remain unfixed.
+> F-02/F-05/F-06/F-07/F-08/F-09 and security/governance each have individual current
+> dispositions. Historical calibration universes, migration numbers and credential
+> remediation prose are not current field/security evidence or execution authority.
+
 Consolidates every finding from the end-to-end audit (demand → scheduling → gate
 hydraulics → SCADA) into one prioritized, testable improvement plan. Companion specs
 hold full code for their areas:

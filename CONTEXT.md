@@ -1,168 +1,64 @@
-# Munbon2 Backend – Architectural Context
+# Munbon backend — implemented architecture and ownership
 
-## 0. Worktree Organization
+Updated: 2026-11-02, Asia/Bangkok. [Development completion register](docs/development/DEVELOPMENT_COMPLETION_REGISTER.md) owns current named-scope status; [supersession index](docs/development/PLAN_SUPERSESSION_INDEX.md) preserves historical architecture/plans. [CLAUDE.md](CLAUDE.md) owns development policy.
 
-### Smart Farm Worktree (Real-time water control)
-Category	Details
-Primary services	services/smartfarm-water-control (current control loops + real-time listener), services/bff-water-control (smart farm UI/API), services/moisture-monitoring (MQTT/analytics), services/weather-monitoring (if used), services/smart-farm-water-control (legacy – read only), helper scripts under services/smartfarm-water-control/scripts.
-Data sources	Timescale sensor_data (schema water_control_smartfarm), Postgres munbon_dev (ros_gis_smartfarm planning data, thresholds), MSSQL tb_valve_command_v2, shared sensor mappings in sensor_management.*.
-Key tables	water_control_smartfarm.control_thresholds, .sensor_plot_mapping, .control_decisions_log, .valve_states; ros_gis_smartfarm.daily_water_demands, .daily_progress; sensor_management.sensor_mappings.
-Focus directories	services/smartfarm-water-control/src (controllers, services, repository, tests), services/bff-water-control/src, services/moisture-monitoring/src, shared docs.
-Explicit exclusions	All irrigation‑canal specific services (services/bff-water-planning, services/flow-monitoring, services/ros-gis-integration, services/scheduler, services/awd-control code changes), frontends unrelated to smart farm, legacy scripts outside smart farm scope.
+This document describes inspected source, not fresh production inventory or permission to operate a system. There is **no root workspace**, root build, Turborepo or pnpm workspace. Services are standalone Node.js/JavaScript/TypeScript and Python applications; historical Go/Java/Kubernetes aspirations are not evidence those service implementations or deployment states exist.
 
-Integration coordination	Keep thresholds in sync with irrigation planning (read-only from ros_gis_* if used). Any schema change to sensor_data, munbon_dev, or command log must be communicated to the irrigation worktree. Confirm Kafka topic names, Redis keys if listener/pipeline touches them.
+## Smart Farm ownership boundary
 
-### Irrigation Canal Worktree (Canal planning & delivery)
-Category	Details
-Primary services	services/bff-water-planning (GraphQL, schedulers), services/flow-monitoring (hydraulics, Kafka), services/ros-gis-integration (ROS↔GIS bridge), services/scheduler (weekly ops), services/awd-control (for canal valves), services/gis, services/water-accounting, services/gravity-optimizer (if active).
-Data sources	Timescale sensor_data (water levels, shared), Postgres munbon_dev (ros.*, scheduler tables), PostGIS gis, SCADA MSSQL (tb_gatelevel_command), Redis, Kafka.
-Key tables	ros.daily_demands, ros.weekly_demands, ros_hydraulics.*; gis.hydraulic_network, gis.sensor_data; sensor_management.sensor_mappings; scheduler.weekly_schedules, .scheduled_operations; AWD tables awd.*; InfluxDB buckets for flow analytics.
-Focus directories	services/bff-water-planning/src (services, schedulers, tests), services/flow-monitoring/src, services/ros-gis-integration/src, services/scheduler/src, services/awd-control/src, services/gis/src, services/water-accounting/src.
-Explicit exclusions	All smart-farm specific services (services/smartfarm-water-control, services/bff-water-control, services/moisture-monitoring, services/weather-monitoring except read-only for shared APIs), frontends outside canal domain.
-Integration coordination	Any changes to shared DB schemas (sensor_data, munbon_dev, sensor_management), Kafka topics, or AWD interfaces must be communicated to smart-farm worktree. Ensure valve commands and sensor mappings remain compatible with smart-farm usage.
+Canonical service: `services/smartfarm-water-control`. Related smart-farm BFF, moisture/weather services remain their own artifacts; verify their current contracts before changing them. `services/smart-farm-water-control` is a legacy directory with one tracked template, not a second implemented control service. P07 owns exact retirement; do not recursively delete ignored files or inspect/copy secrets.
 
-### Prompt template for Smart Farm AI instance
+- Node/Express entrypoint: `services/smartfarm-water-control/src/index.js`; services and repositories are under its `src/`.
+- Sensor/outbox database: Timescale/PostgreSQL `sensor_data`, including `water_control_smartfarm.sensor_readings_outbox`. Planning/config/snapshot storage uses the separately configured `munbon_dev` database, including `ros_gis_smartfarm`/smartfarm configuration tables. Follow actual pool ownership; a PostgreSQL trigger cannot cross databases implicitly.
+- Valve commands use the MSSQL smartfarm command adapter, distinct from canal gate actuation. Sharing sensor infrastructure does not make those command contracts interchangeable.
+- Existing dedicated listeners/outbox mechanisms are delivered, but P02 still owns failure acknowledgement, overlap/claim ownership, post-send uncertainty, producer migrations, lifecycle and missing executable worker aliases. Do not describe this runtime as reliability-complete.
+- Approved target: durable outbox is sole automatic processing owner; LISTEN wake-up only; aliases reuse shared factories; valve commands independently default-deny, with no dark MSSQL initialization; uncertain outcomes held without automatic replay. These are contracts for upcoming work, not assertions that the current source already enforces every invariant.
+- P02-D supplies a **separate** dark smartfarm PM2/preflight artifact. Do not insert smartfarm into the accepted canal process set or apply Scheduler migration assumptions to its outbox.
 
-You are working exclusively on the Smart Farm water-control stack. Focus on:
+Smart Farm work must not incidentally change canal planning/scheduler/Flow/SCADA source. Read counterparts only to verify shared API/schema contracts; announce any proposed shared sensor schema, mapping, message/topic/key or command-payload change before implementation.
 
-services/smartfarm-water-control (current app)
-services/bff-water-control, services/moisture-monitoring, services/weather-monitoring
-services/smart-farm-water-control (legacy, read-only)
-Shared docs CONTEXT.md, CLAUDE.md, docs/CLAUDE_INSTANCE_*
-Do not modify canal-planning services or scheduler code (services/bff-water-planning, services/flow-monitoring, services/ros-gis-integration, services/scheduler, services/awd-control); read them only when you need API/schema information.
-Datastores: Timescale sensor_data (water_control_smartfarm schema), Postgres munbon_dev (ros_gis_smartfarm tables), MSSQL tb_valve_command_v2. Coordinate any schema/API changes with the irrigation worktree.
+## Irrigation Canal ownership boundary
 
-### Prompt template for Irrigation Canal AI instance
+Main implemented path:
 
-You are working exclusively on the irrigation canal planning and delivery stack. Focus on:
+1. `services/ros-gis-integration` Python daily requirement producer/loader publishes canonical ROS/Excel demand with immutable dataset provenance.
+2. `services/bff-water-planning/src/main.py` registers control-plan, authoritative-roster and planning-depth v1/v2 routers. It owns planning-depth mutation/rate enforcement; Scheduler supplies effective-principal authorization.
+3. `services/scheduler` Python auth, planning lifecycle and bounded shadow/operator-approved dispatch compose planning and downstream validation.
+4. `services/flow-monitoring` Python/FastAPI provides canonical hydraulics, prediction/model lineage and readiness. Its engineering-prior release is not field commandability approval.
+5. `services/scada-gate-control` Node/TypeScript provides guarded validation/execution receipts and immediate readback. A delivered route is not permission for PLC/field writes.
+6. The separate `smart-cms-app` frontend contains delivered dark control-plan/read/write/proxy source. Its own AGENTS.md requires both existing exact-clean-candidate local gates. Frontend visibility is not backend authorization.
 
-services/bff-water-planning, services/flow-monitoring, services/ros-gis-integration, services/scheduler, services/awd-control, services/gis, services/water-accounting, services/gravity-optimizer
-Relevant docs (CONTEXT.md, CLAUDE.md, docs/CLAUDE_INSTANCE_*)
-Do not modify smart-farm services (services/smartfarm-water-control, services/bff-water-control, services/moisture-monitoring, services/weather-monitoring); read them only for shared configuration references.
-Datastores: Timescale sensor_data, Postgres/PostGIS munbon_dev & gis, SCADA MSSQL. Coordinate schema/API changes with the smart-farm worktree to keep sensor mappings and AWD command interfaces consistent.
+Entrypoints/configuration:
+- BFF: `services/bff-water-planning/src/main.py` and its actual `app.include_router` calls.
+- Scheduler: `services/scheduler/src/main.py` and `src/jobs/shadow_dispatch_once.py`.
+- Flow: `services/flow-monitoring/start.sh` applies owned migrations before the configured Uvicorn process.
+- SCADA: `services/scada-gate-control/src` entrypoint specified by its package and PM2 builder.
+- Tracked canal PM2 wrapper/builder: `infra/pm2/ecosystem-irrigation.config.js` and `build-irrigation-config.ts`. The builder already registers `scheduler-control-dispatch` as `-m jobs.shadow_dispatch_once`, a bounded one-shot relaunched by PM2. It is not a missing FastAPI background loop.
+- Periodic reconciliation currently receives `baselines={}`. This is a deliberate field-baseline boundary; immediate execution readback is implemented separately. C-FIELD must lock approved versioned expected-baseline semantics before changing that boundary.
 
-### Coordination checklist for both worktrees
+Irrigation Canal work must not incidentally change Smart Farm source/automatic consumers. Shared `sensor_data`, `munbon_dev`, `sensor_management` and external interface changes require explicit cross-lane coordination. No second scheduler, canonical demand producer or duplicate hydraulic algorithm.
 
-Share any migrations touching sensor_data, munbon_dev, gis, or sensor_management schemas.
-Notify counterpart if you change Kafka topic names, Redis keys, SQS queue processing, or AWD command payloads.
-Keep shared documentation (CONTEXT.md, docs/CLAUDE_INSTANCE_*) updated with changes affecting both domains.
-If introducing new APIs or changing existing ones between services (e.g., ROS/GIS endpoints, sensor-data APIs), announce and document the contract.
+## Data and immutable contracts
 
-## 1. System Overview
-- Mission: automate water planning, distribution, and monitoring for the Munbon Irrigation Project in Thailand.
-- Approach: microservice ecosystem (Node.js/TypeScript, Go, Python/FastAPI, Java/Spring) orchestrated via Docker/Kubernetes, fronted by Kong API Gateway and multiple BFFs (web, mobile, water planning/control).
-- External stakeholders: field IoT sensors, GE iFix SCADA, Royal Irrigation Department data, Thai Meteorological Department (TMD), Aeronautical Weather Stations (AOS), ROS runoff services.
+- Active planning roster: `ros_gis.sections_current` joined to active dataset versions; 41 sections/six zones/45,204 rai with approved hybrid provenance. Old raw-GIS 47,385-rai instructions are superseded for this interface.
+- BFF `water_planning.planning_depth_submissions`/values retain RID ending-year calendar, immutable provenance and three-decimal contracts. Supersession replay returns the original receipt under current source/tests.
+- Canonical ROS demand/publication ownership stays with ROS-GIS. Legacy ROS/RID-MS/AquaCrop/sync paths need explicit F-06/F-09 caller dispositions; their existence must not be hidden under universal unification claims.
+- Migration numbering/ownership follows current tracked manifests. ROS `0004` already means dataset-version immutability; old W4 numbering is not reusable. W4 stays persist-only unless separately selected.
+- Timescale/PostGIS/Postgres, Redis and command adapters are actual dependency boundaries, not permission to reuse a shared local database. Integration requires owner-approved disposable identity, fixture data and compatible runtime/image versions. Loopback alone proves no ownership.
 
-## 2. Layered Architecture (ref. `docs/SYSTEM_E2E_FLOW.md`)
-| Layer | Key Components | Notes |
-| --- | --- | --- |
-| **Infrastructure** | Kubernetes, Docker, Kafka, CI/CD pipelines | Provides runtime, streaming backbone, automated delivery.
-| **Data Stores** | PostgreSQL/PostGIS, TimescaleDB, MongoDB, Redis, InfluxDB, MSSQL (SCADA) | Spatial, time-series, document, cache/session, metrics, industrial data.
-| **Gateway & Security** | Kong API Gateway, Auth service, User management, Audit service | Central routing, OAuth/JWT/Thai ID auth, RBAC, compliance logging.
-| **Core Domain Services** | GIS, Sensor Data, SCADA integration, AI Model serving, Water Control | GIS PostGIS ops, ingest IoT/SCADA, ML inference, valve optimization.
-| **Domain Extensions** | Crop management, Scheduling, Moisture, Water Level, Flow Monitoring, Weather monitoring | Sector-specific analytics feeding core control.
-| **Integration Layer** | Weather/AOS connectors, ROS, RID services, Data Integration pipelines, IoT gateway | External data acquisition, ingestion, event stream processing.
-| **Support Services** | Notification, Alerting, Configuration, Analytics, Maintenance, Reporting, Monitoring | Operational tooling and observability.
-| **Optimization Services** | Optimization engine, Model Predictive Control | Advanced water allocation strategies.
-| **Real-time APIs** | WebSocket service, GraphQL API | Live dashboards, bidirectional control.
+## Active supporting source
 
-## 3. Repository Layout (`README.md`, `docs/CODEBASE_STRUCTURE.md`)
-```
-/munbon2-backend
-├── services/              # microservices (TypeScript, Go, Python, Java)
-├── shared/                # shared TS libraries, proto definitions, DB schemas
-├── infrastructure/        # k8s manifests, terraform, helm charts
-├── scripts/               # deployment & utility automation
-├── docs/                  # architecture, deployment, service guides
-├── tests/                 # cross-service integration suites
-├── docker-compose*.yml    # local & prod-like orchestration
-└── package.json, Makefile # root tooling
-```
+- Sensor ingestion/chart API: `services/sensor-data` Node/TypeScript, including `src/cmd/consumer/main.ts`; not a Go service. P06-S must repair required-processing-failure acknowledgement and establish safe unit/real-lab selectors. Do not run existing integration defaults against operator data.
+- Notifier: `services/daily-chart-notifier` tracked TypeScript email source. Ignored local Telegram output is separate artifact drift, not committed source. P03/P04 own clean build and truthful bounded log-window coverage.
+- RID-MS: restored Node `JobScheduler` supplies boot/cron wiring; its daily source-check callback remains a logging scaffold. F-08-boot and F-08-ingest are distinct statuses.
+- Older/experimental service directories, Dockerfiles, cloud workflows and infrastructure manifests require fresh source/reachability/owner qualification before being counted in the supported release. Their presence is not a deployment inventory.
 
-Notable service directories (partial list):
-- `api-gateway/`, `auth/`, `gis/`, `sensor-data/`, `scada/`, `ros/`, `water-control/`, `moisture-monitoring/`, `water-level-monitoring/`, `flow-monitoring/`, `smartfarm-water-control/`, `bff*` (frontends), `notification/`, `analytics/`, `scheduler/`, `user-management/`, `ai-model/`.
+## Local evidence and operations
 
-Shared assets:
-- `shared/typescript-common/` – common TS middleware, utils, interfaces, constants.
-- `shared/proto/` – gRPC/Protobuf contracts.
-- `shared/database-schemas/` – canonical SQL definitions for PostgreSQL/timescale/mongo.
+`ops/control-plan-read-local/orchestrate.py` and `run-stage-suite.py` already implement the current ten local stages and LOCAL-RC-1 wrapper. Preserve their exact acceptance/campaign families; do not rebuild them or invoke a nonexistent `aws-inventory` action.
 
-## 4. Data Flow – End-to-End Highlights
-1. **Sensor Ingestion**: Field devices → IoT Gateway (Task 41) → Sensor Data Service (Go) via MQTT/HTTP → TimescaleDB hypertables.
-2. **External Data**: Weather (TMD/AOS) & ROS runoff data ingested by integration services into weather monitoring & ROS services.
-3. **Spatial Context**: GIS service uses PostGIS to manage canals, plots, infrastructure; shapefiles converted to GeoJSON for services like smart-farm water control.
-4. **Optimization Loop**: Sensor + weather + ROS inputs → AI Model Service & Water Control Service → compute valve commands (AWD/moisture logic, OR-Tools, MPC) → SCADA integration writes to MSSQL `tb_valve_command_v2` to actuate solenoids.
-5. **BFF/API Exposure**: Kong gateway routes to BFF services (web/mobile/water planning). BFFs aggregate data from core services for dashboards and manual overrides.
-6. **Monitoring & Alerts**: Flow/level/moisture services publish metrics to monitoring stack (Prometheus/Grafana, InfluxDB), trigger alerts/notifications.
+Accepted runtime remains backend `a26c0fd000b0b6da443135ffeadb992eded8fb5b` with frontend `067b3e22401854f8c6d6db42dc0c5c1872fca6f8`. Current backend baseline `2a53090c608331b282e331502ae1ec5851ae9c15` is a later documentation/static-test descendant, not automatically runtime-accepted. P01 performs no fresh guest, DB, queue, browser, production-health or live-gate probe.
 
-## 5. Databases & Schemas (key tables)
-- **TimescaleDB (`sensor_data` cluster)**
-  - `ros_gis_smartfarm.daily_water_demands`, `daily_progress`
-  - `water_control_smartfarm.valve_status`, `irrigation_cycles`, `water_balance`
-  - `moisture_readings`, `water_level_readings`
-- **PostgreSQL/PostGIS**: GIS layers (plots, canals, basins).
-- **MSSQL (`db_scada`)**: `tb_valve_command_v2` for valve actuation (fields: `valve_name`, `valve_level`, `startdatetime`).
-- **MongoDB**: configuration documents, user preferences.
-- **Redis**: session cache, rate limiting tokens.
-- **InfluxDB**: operations telemetry.
+Use per-service package/venv commands from canonical service guides, with pinned application runtimes. Host Node/Python availability is not permission to replace application-pinned Node/Linux/Python environments. Ports, hosts, credentials, targets and live process inventory must be read from separately authorized current configuration—not copied from historical examples into a new artifact.
 
-## 6. Service Ports (`docs/PORT_ASSIGNMENTS.md`)
-| Service | Port | Notes |
-| --- | --- | --- |
-| Unified API | 3000 | read-only aggregator |
-| Auth | 3001 |
-| Sensor Data API | 3003 |
-| Sensor Consumer dashboard | 3004 |
-| Moisture Monitoring | 3005 |
-| Weather Monitoring | 3006 |
-| GIS | 3007 |
-| Water Level Monitoring | 3008 |
-| AWD Control | 3010 |
-| Flow Monitoring | 3011 |
-| ROS | 3047 |
-(*All ports overridable via env; no conflicts after reassignment.)
-
-## 7. Smart Farm Water Control Snapshot (`services/smartfarm-water-control/`)
-- GeoJSON-driven plot configuration (`data/smartfarm-plots.geojson`) producing precise UUID-based plot IDs and `area_rai` metadata.
-- Environment variable `PLOT_CONFIGS` maps `plotId:sensorId:valveName:controlMode`.
-- Services: moisture & AWD control logic, sensor data service (Timescale repository), valve command writer (MSSQL + Timescale logging), water planning (ROS integration), water balance analytics, Express API with cron-based planning/control loops.
-- Tests: unit (service logic, config loader) + integration (control loop).
-
-## 8. Deployment & Operations
-- **Containerization**: Standard base images (Node 20-alpine, Python 3.11-slim, Go 1.21, Temurin JRE 17). Resource limits defined for k8s.
-- **Kubernetes**: manifests under `infrastructure/kubernetes/` (namespace, ConfigMaps, secrets, service Deployments, StatefulSets for DBs, monitoring stack).
-- **Terraform/Helm**: Infrastructure provisioning & packaging.
-- **Scripts**: `scripts/deploy-*.sh`, `setup-all-services.sh`, `start-all-services.sh`, `pm2-*.config.js`, `deploy_*` for EC2.
-- **Observability**: OpenTelemetry tracing, Prometheus metrics, Grafana dashboards, ELK logging (as per `docs/TECHNICAL_STACK.md`).
-- **Operations Guides**: `docs/DEPLOYMENT_*`, `START_MICROSERVICES.md`, `TESTING_MICROSERVICES.md`, `TROUBLESHOOTING.md`.
-
-## 9. Development Standards
-- Node.js services: TypeScript 5, ESLint/Prettier, Jest, npm.
-- Python services: Python 3.11, Black/Flake8/mypy, pytest, Poetry.
-- Go services: Go 1.21, golangci-lint, testify.
-- Java services: Java 17, Gradle, JUnit 5/Mockito.
-- Shared code: TypeScript interfaces/middleware, proto contracts.
-- Guidelines: `AGENTS.md`, `CLAUDE.md`, `PROGRAMMING_PRINCIPLES`, service-specific docs.
-
-## 10. Key Documentation for Deeper Work
-- Architecture & workflows: `docs/SYSTEM_E2E_FLOW.md`, `docs/architecture/…`
-- Technical decisions: `docs/TECHNICAL_STACK.md`, `docs/PROJECT_STRUCTURE.md`, `docs/REALISTIC_SERVICE_ALLOCATION.md`.
-- Ports & envs: `docs/PORT_ASSIGNMENTS.md`, `docs/SERVICE_ENV_GUIDE.md`.
-- Deployment: `docs/DEPLOYMENT_*`, `docs/K3S_*`, `docs/DOCKER_*`, `docs/EC2_*`.
-- Service blueprints: `docs/CLAUDE_INSTANCE_*` series for each domain service/BFF.
-
-## 11. Critical Integration Points
-- Sensor telemetry → Timescale + analytics services.
-- ROS daily planning API → smart farm & water-control loops.
-- SCADA MSSQL → valve command queue.
-- Kafka event bus (data integration, analytics).
-- API gateway ↔ BFFs ↔ frontends (web/mobile dashboards, control apps).
-
-## 12. Usage Notes for Assistants
-- Respect geojson/UUID workflow when modifying plot-based services.
-- Schema updates must cover all Timescale tables referencing `plot_id`.
-- Valve control path: service decision → MSSQL write → Timescale logging; ensure both sides stay in sync.
-- When adding services, update port documents, k8s manifests, and shared config.
-- Refer to `docs/CLAUDE_INSTANCES_MASTER.md` for task/service assignments before altering workflows.
-- Always audit `.env` usage and confirm documentation updates alongside code changes.
-
+Source delivery, local gates, real-DB qualification, hosted checks, effective repository governance, security closure, exact local runtime acceptance, deployment and activation are separate states. None grants the next. Credential response/history verification and main protection have named owner gates in the register; actual changes need separate authorization.
