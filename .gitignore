@@ -401,6 +401,13 @@ services/scheduler/migrations/*
 /tests/planning/*
 !/tests/planning/test_completion_register.py
 
+# Track the exact root security scanner regression test past the blanket
+# tests/ rule above, while preserving the surrounding test-tree guard.
+!/tests/security/
+/tests/security/*
+!/tests/security/test_scan_tracked_secrets.py
+/tests/security/test_scan_tracked_secrets.py/**
+
 # Compiled python artifacts must never be tracked, even inside re-included trees
 # (gitignore is last-match-wins; keep these at the END of the file). Wave 1.8.
 **/__pycache__/
