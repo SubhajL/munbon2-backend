@@ -1328,3 +1328,721 @@ def test_hardening_sensitive_filename_shapes_are_redacted(repo: Repository, kind
     code, report = repo.scan()
     assert code == 1
     assert has(report, "literal-assignment", "[redacted-path]")
+
+
+@pytest.mark.parametrize("mode", ["candidate", "index", "tree", "range"])
+@pytest.mark.parametrize(
+    "expression,classification,status",
+    [
+        (
+            'password=process.env.DB_PASSWORD||"REDACTED"',
+            "redaction-sentinel",
+            "allowed",
+        ),
+        (
+            "password=process.env.DB_PASSWORD??'__REDACTED__'",
+            "redaction-sentinel",
+            "allowed",
+        ),
+        ('password=process.env.DB_PASSWORD||""', None, None),
+        ("password=process.env.DB_PASSWORD??fallbackValue", None, None),
+        (
+            'password=process.env.DB_PASSWORD||"{value}"',
+            "credential-candidate",
+            "blocked",
+        ),
+        (
+            'password = process.env.DB_PASSWORD || "REDACTED"',
+            "redaction-sentinel",
+            "allowed",
+        ),
+    ],
+    ids=["or-sentinel", "nullish-sentinel", "empty", "variable", "literal", "spaced"],
+)
+def test_hardening_standalone_js_fallback_before_closing_paren_stays_allowed(
+    repo: Repository,
+    mode: str,
+    expression: str,
+    classification: str | None,
+    status: str | None,
+):
+    repo.put(
+        "config.txt", "configure(" + expression.replace("{value}", CANARY) + ");\n"
+    )
+    head = repo.commit()
+    selectors = (
+        {"ref": head}
+        if mode == "tree"
+        else {"base": repo.base, "head": head}
+        if mode == "range"
+        else {}
+    )
+    code, report = repo.scan(mode, **selectors)
+    findings = (
+        []
+        if classification is None
+        else [
+            {
+                "file": "config.txt",
+                "line": 1,
+                "rule": "environment-fallback",
+                "classification": classification,
+                "status": status,
+            }
+        ]
+    )
+    assert report["findings"] == findings
+    assert code == (1 if status == "blocked" else 0)
+
+
+@pytest.mark.parametrize("mode", ["candidate", "index", "tree", "range"])
+@pytest.mark.parametrize(
+    "tail",
+    ["", "  ;", ", next_value", "};"],
+    ids=["end", "spaced-semicolon", "comma", "brace"],
+)
+def test_hardening_closing_paren_terminal_delimiters_keep_one_allowed_fallback(
+    repo: Repository, mode: str, tail: str
+):
+    repo.put(
+        "config.txt",
+        'configure(password=process.env.DB_PASSWORD||"REDACTED")' + tail + "\n",
+    )
+    head = repo.commit()
+    selectors = (
+        {"ref": head}
+        if mode == "tree"
+        else {"base": repo.base, "head": head}
+        if mode == "range"
+        else {}
+    )
+    code, report = repo.scan(mode, **selectors)
+    assert report["findings"] == [
+        {
+            "file": "config.txt",
+            "line": 1,
+            "rule": "environment-fallback",
+            "classification": "redaction-sentinel",
+            "status": "allowed",
+        }
+    ]
+    assert code == 0
+
+
+@pytest.mark.parametrize("mode", ["candidate", "index", "tree", "range"])
+@pytest.mark.parametrize("order", ["before", "after"])
+@pytest.mark.parametrize(
+    "independent,classification,status",
+    [
+        ('api_key="REDACTED"', "redaction-sentinel", "allowed"),
+        ("client --password 'REDACTED'", "redaction-sentinel", "allowed"),
+        ("ALTER ROLE fixture PASSWORD 'REDACTED'", "redaction-sentinel", "allowed"),
+        ('api_key="{value}"', "credential-candidate", "blocked"),
+    ],
+    ids=["allowed-assignment", "allowed-cli", "allowed-sql", "blocked-assignment"],
+)
+def test_hardening_closing_paren_keeps_independent_same_line_finding(
+    repo: Repository,
+    mode: str,
+    order: str,
+    independent: str,
+    classification: str,
+    status: str,
+):
+    fallback = 'configure(password=process.env.DB_PASSWORD||"REDACTED")'
+    literal = independent.replace("{value}", CANARY)
+    pieces = [literal, fallback] if order == "before" else [fallback, literal]
+    repo.put("config.txt", "; ".join(pieces) + ";\n")
+    head = repo.commit()
+    selectors = (
+        {"ref": head}
+        if mode == "tree"
+        else {"base": repo.base, "head": head}
+        if mode == "range"
+        else {}
+    )
+    code, report = repo.scan(mode, **selectors)
+    assert report["findings"] == [
+        {
+            "file": "config.txt",
+            "line": 1,
+            "rule": "environment-fallback",
+            "classification": "redaction-sentinel",
+            "status": "allowed",
+        },
+        {
+            "file": "config.txt",
+            "line": 1,
+            "rule": "literal-assignment",
+            "classification": classification,
+            "status": status,
+        },
+    ]
+    assert code == (1 if status == "blocked" else 0)
+
+
+@pytest.mark.parametrize("mode", ["candidate", "index", "tree", "range"])
+@pytest.mark.parametrize(
+    "suffix",
+    [
+        ') + "{value}";',
+        ')+"{value}";',
+        ').concat("{value}");',
+        "){value};",
+        "));",
+        ") ]",
+        ') if condition else "{value}"',
+        ') && "{value}"',
+        ') || "{value}"',
+        ') ?? "{value}"',
+    ],
+    ids=[
+        "spaced-plus",
+        "adjacent-plus",
+        "member",
+        "adjacent-word",
+        "nested",
+        "other-closer",
+        "conditional",
+        "and",
+        "or",
+        "nullish",
+    ],
+)
+def test_hardening_closing_paren_does_not_allow_composition_or_ambiguous_suffix(
+    repo: Repository, mode: str, suffix: str
+):
+    repo.put(
+        "config.txt",
+        'configure(password=process.env.DB_PASSWORD||"REDACTED"'
+        + suffix.replace("{value}", CANARY)
+        + "\n",
+    )
+    head = repo.commit()
+    selectors = (
+        {"ref": head}
+        if mode == "tree"
+        else {"base": repo.base, "head": head}
+        if mode == "range"
+        else {}
+    )
+    code, report = repo.scan(mode, **selectors)
+    assert code == 1
+    assert has(report, "literal-assignment", "config.txt")
+
+
+@pytest.mark.parametrize("mode", ["candidate", "index", "tree", "range"])
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        "password=",
+        'password=""',
+        'password="REDACTED"',
+        'client --password "${DB_PASSWORD}"',
+        "client --password ",
+    ],
+    ids=[
+        "bare-assignment",
+        "empty-assignment",
+        "sentinel-assignment",
+        "environment-cli",
+        "bare-cli",
+    ],
+)
+def test_hardening_closing_paren_cannot_hide_enclosing_original_prefix(
+    repo: Repository, mode: str, prefix: str
+):
+    repo.put(
+        "config.txt",
+        prefix + CANARY + '=process.env.DB_PASSWORD||"REDACTED");\n',
+    )
+    head = repo.commit()
+    selectors = (
+        {"ref": head}
+        if mode == "tree"
+        else {"base": repo.base, "head": head}
+        if mode == "range"
+        else {}
+    )
+    code, report = repo.scan(mode, **selectors)
+    assert code == 1
+    assert has(report, "literal-assignment", "config.txt")
+    assert has(report, "environment-fallback", "config.txt", status="allowed")
+
+
+def test_hardening_closing_paren_keeps_raw_view_and_python_env_call(repo: Repository):
+    repo.put("config.txt", 'password=os.getenv("DB_PASSWORD")\n')
+    repo.commit()
+    assert repo.scan() == (0, {"status": "clean", "findings": [], "errors": []})
+    repo.put(
+        "config.txt",
+        r"configure(password=process.env.DB_PASSWORD||\"REDACTED\");" + "\n",
+    )
+    code, report = repo.scan()
+    assert code == 1
+    assert has(report, "literal-assignment", "config.txt")
+
+
+@pytest.mark.parametrize("mode", ["candidate", "index", "tree", "range"])
+@pytest.mark.parametrize(
+    "source",
+    [
+        'password=os.getenv("DB_PASSWORD")or"REDACTED");\n',
+        'x[password=process.env.DB_PASSWORD||"REDACTED"];\n',
+    ],
+    ids=["python-or", "closing-bracket"],
+)
+def test_hardening_closing_paren_does_not_extend_other_fallbacks_or_closers(
+    repo: Repository, mode: str, source: str
+):
+    repo.put("config.txt", source)
+    head = repo.commit()
+    selectors = (
+        {"ref": head}
+        if mode == "tree"
+        else {"base": repo.base, "head": head}
+        if mode == "range"
+        else {}
+    )
+    code, report = repo.scan(mode, **selectors)
+    assert code == 1
+    assert has(report, "literal-assignment", "config.txt")
+
+
+@pytest.mark.parametrize("mode", ["candidate", "index", "tree", "range"])
+@pytest.mark.parametrize(
+    "kind", ["comma-operator", "next-line-plus", "template-brace", "template-semicolon"]
+)
+def test_hardening_closing_paren_preserves_multiline_enclosing_credentials(
+    repo: Repository, mode: str, kind: str
+):
+    expression = 'String(password=process.env.DB_PASSWORD||"REDACTED")'
+    lines = {
+        "comma-operator": "  (" + expression + ', "' + CANARY + '");\n',
+        "next-line-plus": "  " + expression + '\n  + "' + CANARY + '";\n',
+        "template-brace": "`prefix ${" + expression + "}suffix-" + CANARY + "`;\n",
+        "template-semicolon": '`prefix\nconfigure(password=process.env.DB_PASSWORD||"REDACTED");\nsuffix-'
+        + CANARY
+        + "`;\n",
+    }
+    repo.put("config.txt", "const api_key =\n" + lines[kind])
+    head = repo.commit()
+    selectors = (
+        {"ref": head}
+        if mode == "tree"
+        else {"base": repo.base, "head": head}
+        if mode == "range"
+        else {}
+    )
+    code, report = repo.scan(mode, **selectors)
+    line = 3 if kind == "template-semicolon" else 2
+    assert code == 1
+    assert has(report, "literal-assignment", "config.txt", line)
+    assert has(report, "environment-fallback", "config.txt", line, status="allowed")
+
+
+@pytest.mark.parametrize("mode", ["candidate", "index", "tree", "range"])
+@pytest.mark.parametrize(
+    "source,target_line",
+    [
+        ('set_api_key(String({fallback}), "{value}");\n', 1),
+        ('{call}, "{value}";\n', 1),
+        ('{call}}"{value}";\n', 1),
+        ("tag(`${String({fallback})}{value}`);\n", 1),
+        ('note="{value}"; {call};\n', 1),
+        ('api_key="REDACTED"; {call}; note="{value}";\n', 1),
+        ('api_key=REDACTED; {call}; note="{value}";\n', 1),
+        ("api_key:\n  {call}; {value}\n", 2),
+        ('const api_key =\n{call};\n"{value}";\n', 2),
+        ('{call}\n + "{value}";\n', 1),
+        ('x="$(printf %s ";\n{call};\ny="{value})";\n', 2),
+        ('note="""\n{call};\n{value}"""\n', 2),
+        ("note='''\n{call};\n{value}'''\n", 2),
+        ("/*\n{call};\n{value}\n*/\n", 2),
+        ("const note=/\n{call};\n{value}/;\n", 2),
+        ("note=<<END\n{call};\n{value}\nEND\n", 2),
+        ("SELECT $tag$\n{call};\n{value}\n$tag$;\n", 2),
+        ('note=";{value}"; {call};\n', 1),
+        ('{call};\nnote="{value}";\n', 1),
+        ('client --password "REDACTED";\n{call};\n{value}\n', 2),
+        ("{call}, next_value\n{call};\n", 1),
+    ],
+    ids=[
+        "nested-call",
+        "comma-literal",
+        "brace-literal",
+        "inline-template",
+        "unknown-prefix",
+        "unknown-third-segment",
+        "bare-sentinel-prefix",
+        "yaml-scalar",
+        "pending-assignment",
+        "next-line-composition",
+        "shell-substitution",
+        "triple-double",
+        "triple-single",
+        "block-comment",
+        "regexp-context",
+        "heredoc-context",
+        "dollar-quote",
+        "quoted-semicolon",
+        "later-unknown-revokes-earlier-proof",
+        "multiline-cli-is-not-a-proof-boundary",
+        "fragment-tail-is-not-multiline-grammar",
+    ],
+)
+def test_hardening_lexical_certificate_never_clears_unsupported_context(
+    repo: Repository, mode: str, source: str, target_line: int
+):
+    fallback = 'password=process.env.DB_PASSWORD||"REDACTED"'
+    source = (
+        source.replace("{call}", "configure(" + fallback + ")")
+        .replace("{fallback}", fallback)
+        .replace("{value}", CANARY)
+    )
+    repo.put("config.txt", source)
+    head = repo.commit()
+    selectors = (
+        {"ref": head}
+        if mode == "tree"
+        else {"base": repo.base, "head": head}
+        if mode == "range"
+        else {}
+    )
+    code, report = repo.scan(mode, **selectors)
+    assert code == 1
+    assert has(report, "literal-assignment", "config.txt", target_line)
+    assert has(
+        report, "environment-fallback", "config.txt", target_line, status="allowed"
+    )
+
+
+@pytest.mark.parametrize("mode", ["candidate", "index", "tree", "range"])
+@pytest.mark.parametrize(
+    "separator",
+    ["\x00", "\x0b", "\x0c", "\x1c", "\r", "\x85", "\u2028", "\u2029"],
+    ids=["nul", "vertical-tab", "form-feed", "file-separator", "cr", "nel", "ls", "ps"],
+)
+def test_hardening_lexical_certificate_rejects_non_ascii_line_boundaries(
+    repo: Repository, mode: str, separator: str
+):
+    repo.put(
+        "config.txt",
+        'configure(password=process.env.DB_PASSWORD||"REDACTED");'
+        + separator
+        + '"'
+        + CANARY
+        + '";\n',
+    )
+    head = repo.commit()
+    selectors = (
+        {"ref": head}
+        if mode == "tree"
+        else {"base": repo.base, "head": head}
+        if mode == "range"
+        else {}
+    )
+    code, report = repo.scan(mode, **selectors)
+    assert code == 1
+    assert has(report, "literal-assignment", "config.txt")
+
+
+@pytest.mark.parametrize("mode", ["candidate", "index", "tree", "range"])
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        (
+            'api_key="REDACTED";\n{call};\n',
+            [(1, "literal-assignment"), (2, "environment-fallback")],
+        ),
+        (
+            '{call};\napi_key="REDACTED";\n',
+            [(1, "environment-fallback"), (2, "literal-assignment")],
+        ),
+        (
+            'const api_key="REDACTED";\n{call};\n',
+            [(1, "literal-assignment"), (2, "environment-fallback")],
+        ),
+        (
+            "{call};\n  {call};\n",
+            [(1, "environment-fallback"), (2, "environment-fallback")],
+        ),
+        ("\n \t\n{call};\n\n", [(3, "environment-fallback")]),
+        ("\r\n \t\r\n{call};\r\n\r\n", [(3, "environment-fallback")]),
+        (
+            'api_key="REDACTED";\r\n{call};',
+            [(1, "literal-assignment"), (2, "environment-fallback")],
+        ),
+        (
+            'api_key="REDACTED";\n{call};',
+            [(1, "literal-assignment"), (2, "environment-fallback")],
+        ),
+        ("{call};", [(1, "environment-fallback")]),
+    ],
+    ids=[
+        "classified-before",
+        "classified-after",
+        "classified-declaration",
+        "two-complete-calls",
+        "ascii-blank-lines",
+        "crlf-blank-lines",
+        "crlf-no-final-newline",
+        "lf-no-final-newline",
+        "single-no-final-newline",
+    ],
+)
+def test_hardening_lexical_certificate_preserves_exact_supported_findings(
+    repo: Repository, mode: str, source: str, expected: list[tuple[int, str]]
+):
+    call = 'configure(password=process.env.DB_PASSWORD||"REDACTED")'
+    repo.put("config.txt", source.replace("{call}", call))
+    head = repo.commit()
+    selectors = (
+        {"ref": head}
+        if mode == "tree"
+        else {"base": repo.base, "head": head}
+        if mode == "range"
+        else {}
+    )
+    code, report = repo.scan(mode, **selectors)
+    assert code == 0
+    assert report == {
+        "status": "clean",
+        "errors": [],
+        "findings": [
+            {
+                "file": "config.txt",
+                "line": line,
+                "rule": rule,
+                "classification": "redaction-sentinel",
+                "status": "allowed",
+            }
+            for line, rule in expected
+        ],
+    }
+
+
+@pytest.mark.parametrize("mode", ["candidate", "index", "tree", "range"])
+@pytest.mark.parametrize("secret_first", [True, False], ids=["before", "after"])
+def test_hardening_lexical_certificate_preserves_independent_blocked_line(
+    repo: Repository, mode: str, secret_first: bool
+):
+    secret = 'api_key="' + CANARY + '";'
+    call = 'configure(password=process.env.DB_PASSWORD||"REDACTED");'
+    repo.put(
+        "config.txt",
+        "\n".join([secret, call] if secret_first else [call, secret]) + "\n",
+    )
+    head = repo.commit()
+    selectors = (
+        {"ref": head}
+        if mode == "tree"
+        else {"base": repo.base, "head": head}
+        if mode == "range"
+        else {}
+    )
+    code, report = repo.scan(mode, **selectors)
+    secret_line, call_line = (1, 2) if secret_first else (2, 1)
+    assert code == 1
+    assert report["findings"] == sorted(
+        [
+            {
+                "file": "config.txt",
+                "line": secret_line,
+                "rule": "literal-assignment",
+                "classification": "credential-candidate",
+                "status": "blocked",
+            },
+            {
+                "file": "config.txt",
+                "line": call_line,
+                "rule": "environment-fallback",
+                "classification": "redaction-sentinel",
+                "status": "allowed",
+            },
+        ],
+        key=lambda finding: finding["line"],
+    )
+
+
+@pytest.mark.parametrize("mode", ["candidate", "index", "tree", "range"])
+@pytest.mark.parametrize("order", ["before", "after"])
+@pytest.mark.parametrize(
+    "other",
+    [
+        'client --db_password="{value}"',
+        'client --password= "{value}"',
+        'ALTER ROLE fixture DB_PASSWORD "{value}"',
+    ],
+    ids=["prefixed-cli-option", "cli-equals-space", "prefixed-sql-word"],
+)
+def test_hardening_lexical_certificate_requires_actual_literal_owner(
+    repo: Repository, mode: str, order: str, other: str
+):
+    call = 'configure(password=process.env.DB_PASSWORD||"REDACTED")'
+    other = other.replace("{value}", CANARY)
+    parts = [other, call] if order == "before" else [call, other]
+    repo.put("config.txt", "; ".join(parts) + ";\n")
+    head = repo.commit()
+    selectors = (
+        {"ref": head}
+        if mode == "tree"
+        else {"base": repo.base, "head": head}
+        if mode == "range"
+        else {}
+    )
+    code, report = repo.scan(mode, **selectors)
+    assert code == 1
+    assert has(report, "literal-assignment", "config.txt")
+    assert has(report, "environment-fallback", "config.txt", status="allowed")
+
+
+@pytest.mark.parametrize("mode", ["candidate", "index", "tree", "range"])
+@pytest.mark.parametrize(
+    "separator",
+    ["]=", " ] : ", ":", " : "],
+    ids=["bracket", "spaced-bracket-colon", "colon", "spaced-colon"],
+)
+@pytest.mark.parametrize("multiline", [False, True], ids=["single", "revokes-earlier"])
+def test_hardening_lexical_certificate_review_malformed_keys_revoke_all_proofs(
+    repo: Repository, mode: str, separator: str, multiline: bool
+):
+    valid = 'configure(password=process.env.DB_PASSWORD||"REDACTED");\n'
+    malformed = (
+        "configure(password" + separator + 'process.env.DB_PASSWORD||"REDACTED");\n'
+    )
+    repo.put("config.txt", (valid if multiline else "") + malformed)
+    head = repo.commit()
+    selectors = (
+        {"ref": head}
+        if mode == "tree"
+        else {"base": repo.base, "head": head}
+        if mode == "range"
+        else {}
+    )
+    code, report = repo.scan(mode, **selectors)
+    assert code == 1
+    for line in range(1, 3 if multiline else 2):
+        assert has(report, "literal-assignment", "config.txt", line)
+        assert has(report, "environment-fallback", "config.txt", line, status="allowed")
+
+
+@pytest.mark.parametrize("mode", ["candidate", "index", "tree", "range"])
+@pytest.mark.parametrize("other_first", [True, False], ids=["before", "after"])
+@pytest.mark.parametrize(
+    "other",
+    ['client --password "REDACTED";', "ALTER ROLE fixture PASSWORD 'REDACTED';"],
+    ids=["cli-only-trigger", "sql-only-trigger"],
+)
+def test_hardening_lexical_certificate_review_multiline_other_is_single_veto(
+    repo: Repository, mode: str, other_first: bool, other: str
+):
+    call = 'configure(password=process.env.DB_PASSWORD||"REDACTED");'
+    repo.put(
+        "config.txt", "\n".join([other, call] if other_first else [call, other]) + "\n"
+    )
+    head = repo.commit()
+    selectors = (
+        {"ref": head}
+        if mode == "tree"
+        else {"base": repo.base, "head": head}
+        if mode == "range"
+        else {}
+    )
+    code, report = repo.scan(mode, **selectors)
+    assert code == 1
+    call_line = 2 if other_first else 1
+    assert has(report, "literal-assignment", "config.txt", call_line)
+    assert has(
+        report, "environment-fallback", "config.txt", call_line, status="allowed"
+    )
+
+
+@pytest.mark.parametrize("mode", ["candidate", "index", "tree", "range"])
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        (
+            'client --password="REDACTED"; {call};\n',
+            [(1, "environment-fallback"), (1, "literal-assignment")],
+        ),
+        (
+            '{call}; client --password="REDACTED";\n',
+            [(1, "environment-fallback"), (1, "literal-assignment")],
+        ),
+        (
+            'client -P "REDACTED"; {call};\n',
+            [(1, "environment-fallback"), (1, "literal-assignment")],
+        ),
+        (
+            '{call}; client -P "REDACTED";\n',
+            [(1, "environment-fallback"), (1, "literal-assignment")],
+        ),
+        (
+            'let api_key = "REDACTED";\n{call};\n',
+            [(1, "literal-assignment"), (2, "environment-fallback")],
+        ),
+        (
+            'var api_key = "REDACTED";\n{call};\n',
+            [(1, "literal-assignment"), (2, "environment-fallback")],
+        ),
+        (
+            'configure(password=process.env.DB_PASSWORD||"[REDACTED]");\n',
+            [(1, "environment-fallback")],
+        ),
+        (
+            'configure(password=process.env.DB_PASSWORD||"<REDACTED>");\n',
+            [(1, "environment-fallback")],
+        ),
+        ("{call}}\n", [(1, "environment-fallback")]),
+    ],
+    ids=[
+        "cli-equals-before",
+        "cli-equals-after",
+        "short-p-before",
+        "short-p-after",
+        "let-spaced",
+        "var-spaced",
+        "bracket-marker",
+        "angle-marker",
+        "brace-without-semicolon",
+    ],
+)
+def test_hardening_lexical_certificate_review_supported_branches_remain_exact(
+    repo: Repository, mode: str, source: str, expected: list[tuple[int, str]]
+):
+    call = 'configure(password=process.env.DB_PASSWORD||"REDACTED")'
+    repo.put("config.txt", source.replace("{call}", call))
+    head = repo.commit()
+    selectors = (
+        {"ref": head}
+        if mode == "tree"
+        else {"base": repo.base, "head": head}
+        if mode == "range"
+        else {}
+    )
+    code, report = repo.scan(mode, **selectors)
+    assert code == 0
+    assert report["findings"] == [
+        {
+            "file": "config.txt",
+            "line": line,
+            "rule": rule,
+            "classification": "redaction-sentinel",
+            "status": "allowed",
+        }
+        for line, rule in expected
+    ]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [b"", b"\r", b"a" * (16 * 1024 * 1024)],
+    ids=["empty", "cr-only", "max-token"],
+)
+def test_hardening_lexical_certificate_degenerate_blobs_remain_total(
+    repo: Repository, payload: bytes
+):
+    repo.put("config.txt", payload)
+    repo.commit()
+    assert repo.scan() == (0, {"status": "clean", "findings": [], "errors": []})

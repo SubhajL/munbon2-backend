@@ -72,6 +72,13 @@ JAVASCRIPT_FALLBACK_PATTERN = re.compile(
     KEY_START_PATTERN + r"process\.env\.(?P<env>[A-Za-z_][A-Za-z0-9_]*)\s*"
     r"(?:\|\||\?\?)\s*" + DEFAULT_VALUE_PATTERN
 )
+JAVASCRIPT_TERMINATOR_PATTERN = re.compile(r"\s*(?:[,;}]|\Z)")
+_CERTIFICATE_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_CERTIFICATE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*")
+_CERTIFICATE_HORIZONTAL = re.compile(r"[ \t]*")
+_CERTIFICATE_VISIBLE = re.compile(r"[\t\x20-\x7e]*")
+_CERTIFICATE_VALUE = re.compile(r"[A-Za-z0-9_.@<>\[\]-]*")
+_CERTIFICATE_OPTION = re.compile(r"[A-Za-z0-9_-]+")
 SHELL_FALLBACK_PATTERN = re.compile(
     KEY_START_PATTERN + r'(?P<outer_quote>["\'])?'
     r"\$\{(?P<env>[A-Za-z_][A-Za-z0-9_]*)(?P<operator>:-|-)"
@@ -781,10 +788,10 @@ def _literal_disposition(path: str, value: str, line: str, end: int) -> tuple[st
     return _value_disposition(path, value)
 
 
-def _fallback_matches(line: str) -> list[tuple[str | None, int, int]]:
-    """Return recognized defaults, including empty/nonliteral ones, and view spans."""
+def _fallback_matches(line: str) -> list[tuple[str | None, int, int, bool]]:
+    """Return recognized defaults, view spans, and JavaScript origin."""
 
-    matches: list[tuple[str | None, int, int]] = []
+    matches: list[tuple[str | None, int, int, bool]] = []
     for pattern in (
         PYTHON_FALLBACK_PATTERN,
         PYTHON_OR_FALLBACK_PATTERN,
@@ -797,8 +804,278 @@ def _fallback_matches(line: str) -> list[tuple[str | None, int, int]]:
                 or _is_secret_identifier(match.group("env"))
             ):
                 continue
-            matches.append((match.group("value"), match.start(), match.end()))
+            matches.append(
+                (
+                    match.group("value"),
+                    match.start(),
+                    match.end(),
+                    pattern is JAVASCRIPT_FALLBACK_PATTERN,
+                )
+            )
     return matches
+
+
+def _certificate_horizontal_end(line: str, start: int) -> int:
+    return _CERTIFICATE_HORIZONTAL.match(line, start).end()
+
+
+def _certificate_quote_end(line: str, start: int) -> int | None:
+    if start >= len(line) or line[start] not in "\"'":
+        return None
+    end = _CERTIFICATE_VALUE.match(line, start + 1).end()
+    if end >= len(line) or line[end] != line[start]:
+        return None
+    return end + 1
+
+
+def _certificate_call(line: str, start: int) -> tuple[int, tuple[int, int]] | None:
+    name = _CERTIFICATE_NAME.match(line, start)
+    if name is None:
+        return None
+    opening = _certificate_horizontal_end(line, name.end())
+    if opening >= len(line) or line[opening] != "(":
+        return None
+    body = _certificate_horizontal_end(line, opening + 1)
+    key = _CERTIFICATE_IDENTIFIER.match(line, body)
+    if key is None:
+        return None
+    separator = _certificate_horizontal_end(line, key.end())
+    if separator >= len(line) or line[separator] != "=":
+        return None
+    env_start = _certificate_horizontal_end(line, separator + 1)
+    prefix = "process.env."
+    if not line.startswith(prefix, env_start):
+        return None
+    env = _CERTIFICATE_IDENTIFIER.match(line, env_start + len(prefix))
+    if env is None:
+        return None
+    operator = _certificate_horizontal_end(line, env.end())
+    if line[operator : operator + 2] not in ("||", "??"):
+        return None
+    value_start = _certificate_horizontal_end(line, operator + 2)
+    if value_start < len(line) and line[value_start] in "\"'":
+        value_end = _certificate_quote_end(line, value_start)
+    else:
+        variable = _CERTIFICATE_IDENTIFIER.match(line, value_start)
+        value_end = variable.end() if variable is not None else None
+    if value_end is None:
+        return None
+    closing = _certificate_horizontal_end(line, value_end)
+    if closing >= len(line) or line[closing] != ")":
+        return None
+    fallback = JAVASCRIPT_FALLBACK_PATTERN.match(line, body)
+    if (
+        fallback is None
+        or fallback.group("key_quote") is not None
+        or fallback.span("key") != key.span()
+        or fallback.span("env") != env.span()
+        or fallback.end() != value_end
+        or not (
+            _is_secret_identifier(fallback.group("key"))
+            or _is_secret_identifier(fallback.group("env"))
+        )
+    ):
+        return None
+    return closing + 1, fallback.span()
+
+
+def _certificate_assignment(line: str, start: int, *, declaration: bool) -> int | None:
+    key = _CERTIFICATE_IDENTIFIER.match(line, start)
+    if key is None:
+        return None
+    if declaration and key.group() in {"const", "let", "var"}:
+        next_start = _certificate_horizontal_end(line, key.end())
+        if next_start == key.end():
+            return None
+        key = _CERTIFICATE_IDENTIFIER.match(line, next_start)
+        if key is None:
+            return None
+    if not _is_secret_identifier(key.group()):
+        return None
+    equals = _certificate_horizontal_end(line, key.end())
+    if equals >= len(line) or line[equals] != "=":
+        return None
+    quote = _certificate_horizontal_end(line, equals + 1)
+    end = _certificate_quote_end(line, quote)
+    if end is None:
+        return None
+    owner = ASSIGNMENT_PATTERN.match(line, key.start())
+    if (
+        owner is None
+        or owner.span("key") != key.span()
+        or owner.end() != end
+        or owner.span("quoted") != (quote + 1, end - 1)
+    ):
+        return None
+    return end
+
+
+def _certificate_other(line: str, start: int) -> int | None:
+    assignment_end = _certificate_assignment(line, start, declaration=False)
+    if assignment_end is not None:
+        return assignment_end
+
+    word = _CERTIFICATE_IDENTIFIER.match(line, start)
+    if word is None:
+        return None
+    word_count = 1
+    while True:
+        next_start = _certificate_horizontal_end(line, word.end())
+        if next_start == word.end() or next_start >= len(line):
+            return None
+        if line[next_start] == "-":
+            option = _CERTIFICATE_OPTION.match(line, next_start)
+            if option is None:
+                return None
+            separator = option.end()
+            if separator < len(line) and line[separator] == "=":
+                quote = separator + 1
+            else:
+                quote = _certificate_horizontal_end(line, separator)
+                if quote == separator:
+                    return None
+            end = _certificate_quote_end(line, quote)
+            if end is None:
+                return None
+            owner = CLI_SECRET_PATTERN.match(line, next_start)
+            value_group = "quoted"
+            break
+        if line[next_start] in "\"'":
+            if word_count < 2:
+                return None
+            quote = next_start
+            end = _certificate_quote_end(line, quote)
+            if end is None:
+                return None
+            owner = SQL_PASSWORD_PATTERN.match(line, word.start())
+            value_group = "value"
+            break
+        word = _CERTIFICATE_IDENTIFIER.match(line, next_start)
+        if word is None:
+            return None
+        word_count += 1
+
+    if owner is None or owner.start("quote") != quote:
+        return None
+    if owner.end() != end or owner.span(value_group) != (quote + 1, end - 1):
+        return None
+    return end
+
+
+def _certificate_single_line(line: str) -> tuple[int, int] | None:
+    start = _certificate_horizontal_end(line, 0)
+    call = _certificate_call(line, start)
+    if call is None:
+        other_end = _certificate_other(line, start)
+        if other_end is None:
+            return None
+        separator = _certificate_horizontal_end(line, other_end)
+        if separator >= len(line) or line[separator] != ";":
+            return None
+        call = _certificate_call(line, _certificate_horizontal_end(line, separator + 1))
+        if call is None:
+            return None
+        call_end, span = call
+        separator = _certificate_horizontal_end(line, call_end)
+        if separator >= len(line) or line[separator] != ";":
+            return None
+        return (
+            span
+            if _certificate_horizontal_end(line, separator + 1) == len(line)
+            else None
+        )
+
+    call_end, span = call
+    tail = _certificate_horizontal_end(line, call_end)
+    if tail == len(line):
+        return span
+    if line[tail] == ";":
+        other_start = _certificate_horizontal_end(line, tail + 1)
+        if other_start == len(line):
+            return span
+        other_end = _certificate_other(line, other_start)
+        if other_end is None:
+            return None
+        tail = _certificate_horizontal_end(line, other_end)
+        if tail < len(line) and line[tail] == ";":
+            tail = _certificate_horizontal_end(line, tail + 1)
+        return span if tail == len(line) else None
+    if tail != call_end:
+        return None
+    if line[tail] == ",":
+        identifier = _CERTIFICATE_IDENTIFIER.match(
+            line, _certificate_horizontal_end(line, tail + 1)
+        )
+        if identifier is not None and _certificate_horizontal_end(
+            line, identifier.end()
+        ) == len(line):
+            return span
+    elif line[tail] == "}":
+        tail = _certificate_horizontal_end(line, tail + 1)
+        if tail < len(line) and line[tail] == ";":
+            tail = _certificate_horizontal_end(line, tail + 1)
+        if tail == len(line):
+            return span
+    return None
+
+
+def _certificate_multiline_line(line: str) -> tuple[tuple[int, int], ...] | None:
+    start = _certificate_horizontal_end(line, 0)
+    call = _certificate_call(line, start)
+    if call is None:
+        end = _certificate_assignment(line, start, declaration=True)
+        spans: tuple[tuple[int, int], ...] = ()
+    else:
+        end, span = call
+        spans = (span,)
+    if end is None:
+        return None
+    end = _certificate_horizontal_end(line, end)
+    if end >= len(line) or line[end] != ";":
+        return None
+    return spans if _certificate_horizontal_end(line, end + 1) == len(line) else None
+
+
+def _javascript_duplicate_contexts(text: str) -> dict[int, frozenset[tuple[int, int]]]:
+    """Certify only the closed whole-blob grammar for raw JavaScript spans."""
+
+    proofs: dict[int, frozenset[tuple[int, int]]] = {}
+    content_count = 0
+    first_line = 0
+    single_span: tuple[int, int] | None = None
+    multiline_valid = True
+    start = 0
+    line_number = 1
+    while True:
+        newline = text.find("\n", start)
+        raw_line = text[start:] if newline < 0 else text[start:newline]
+        line = raw_line[:-1] if raw_line.endswith("\r") else raw_line
+        if _CERTIFICATE_VISIBLE.fullmatch(line) is None:
+            return {}
+        if line.strip(" \t"):
+            content_count += 1
+            if content_count == 1:
+                first_line = line_number
+                single_span = _certificate_single_line(line)
+            elif not multiline_valid:
+                return {}
+            spans = _certificate_multiline_line(line)
+            if spans is None:
+                multiline_valid = False
+                if content_count > 1 or single_span is None:
+                    return {}
+            elif spans:
+                proofs[line_number] = frozenset(spans)
+        if newline < 0:
+            break
+        start = newline + 1
+        line_number += 1
+
+    if content_count == 1:
+        return (
+            {first_line: frozenset((single_span,))} if single_span is not None else {}
+        )
+    return proofs if multiline_valid else {}
 
 
 def _filename_is_sensitive(path: str, legacy_password: str) -> bool:
@@ -855,14 +1132,22 @@ def _uncovered_matches(
 
 
 def _classify_literal_view(
-    path: str, line: str, line_number: int, policy: Policy
+    path: str,
+    line: str,
+    line_number: int,
+    policy: Policy,
+    *,
+    certified_spans: frozenset[tuple[int, int]],
 ) -> set[Finding]:
     """Classify original text, deduplicating only fully covered fallback matches."""
 
     findings: set[Finding] = set()
     fallbacks = _fallback_matches(line)
-    spans = sorted((start, end) for _, start, end in fallbacks)
-    for value, start, end in fallbacks:
+    spans = sorted((start, end) for _, start, end, _ in fallbacks)
+    javascript_spans = {
+        (start, end) for _, start, end, javascript in fallbacks if javascript
+    }
+    for value, start, end, _ in fallbacks:
         if value or _has_literal_continuation(line, end):
             classification, status = _literal_disposition(path, value or "", line, end)
             findings.add(
@@ -877,6 +1162,14 @@ def _classify_literal_view(
             )
 
     for assignment in _uncovered_matches(ASSIGNMENT_PATTERN, line, spans):
+        if (
+            assignment.group("bare") is not None
+            and (assignment.start(), assignment.end() - 1) in javascript_spans
+            and (assignment.start(), assignment.end() - 1) in certified_spans
+            and line[assignment.end() - 1] == ")"
+            and JAVASCRIPT_TERMINATOR_PATTERN.match(line, assignment.end())
+        ):
+            continue
         value = _assignment_value(assignment)
         if not value and not _has_literal_continuation(line, assignment.end()):
             continue
@@ -930,6 +1223,7 @@ def _classify_blob(
     """Apply the single classifier to one raw blob."""
 
     text = _decode_scan_bytes(data)
+    certified_contexts = _javascript_duplicate_contexts(text)
     findings: set[Finding] = set()
     for line_number, raw_line in enumerate(text.split("\n"), 1):
         line = raw_line[:-1] if raw_line.endswith("\r") else raw_line
@@ -995,7 +1289,19 @@ def _classify_blob(
             )
 
         for view in _literal_views(line):
-            findings.update(_classify_literal_view(path, view, line_number, policy))
+            findings.update(
+                _classify_literal_view(
+                    path,
+                    view,
+                    line_number,
+                    policy,
+                    certified_spans=(
+                        certified_contexts.get(line_number, frozenset())
+                        if view == line
+                        else frozenset()
+                    ),
+                )
+            )
     return findings
 
 
