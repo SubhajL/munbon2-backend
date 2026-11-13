@@ -12,6 +12,8 @@ import stat
 import subprocess
 import sys
 import time
+from collections import deque
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -22,7 +24,6 @@ GIT_TIMEOUT_SECONDS = 20.0
 POLICY_PATH = ".github/workflows/secret-scan.yml"
 BASELINE_PATH = ".security/full-tree-baseline.txt"
 VALID_MODES = {"100644", "100755"}
-REF_PATTERN = re.compile(r"(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})\Z")
 SECRET_NAME_SUFFIX = (
     r"(?:password|passwd|pwd|secret|token|api[_-]?key|apikey|access[_-]?key)"
 )
@@ -140,6 +141,7 @@ class Entry:
     object_id: str
     kind: str
     supported: bool
+    flagged: bool = False
 
 
 @dataclass(frozen=True)
@@ -174,6 +176,14 @@ class ParsedArguments:
     head: str | None
 
 
+@dataclass(frozen=True)
+class _CandidateGitBinding:
+    root: Path
+    git_dir: Path
+    common_dir: Path
+    index_path: Path
+
+
 def _git_environment() -> dict[str, str]:
     """Return a Git environment without inherited Git override variables."""
 
@@ -202,27 +212,48 @@ def _git_command(
     *,
     max_stdout: int = MAX_GIT_OUTPUT,
     allowed_returncodes: tuple[int, ...] = (0,),
+    history_walk: bool = False,
+    candidate_binding: _CandidateGitBinding | None = None,
 ) -> GitResult:
     """Run one bounded, non-shell Git command and hide its diagnostics."""
 
+    if candidate_binding is not None:
+        root = candidate_binding.root
     command = [
         "git",
         "--no-replace-objects",
         "-c",
         "core.fsmonitor=false",
         "-c",
+        "core.commitGraph=false",
+        "-c",
         "diff.external=",
         "-c",
         "diff.renames=false",
+        *(
+            [
+                f"--git-dir={candidate_binding.git_dir}",
+                f"--work-tree={candidate_binding.root}",
+            ]
+            if candidate_binding is not None
+            else []
+        ),
         "-C",
         str(root),
         *arguments,
     ]
+    environment = _git_environment()
+    if candidate_binding is not None:
+        environment["GIT_COMMON_DIR"] = str(candidate_binding.common_dir)
+        environment["GIT_INDEX_FILE"] = str(candidate_binding.index_path)
+    if history_walk:
+        environment["GIT_GRAFT_FILE"] = os.devnull
+        environment["GIT_SHALLOW_FILE"] = os.devnull
     try:
         process = subprocess.Popen(
             command,
             cwd=str(root),
-            env=_git_environment(),
+            env=environment,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
@@ -266,7 +297,13 @@ def _git_command(
                         process.wait()
                         raise ScanFailure("INPUT_TOO_LARGE")
                     stdout.extend(chunk)
-        process.wait()
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise ScanFailure("GIT_FAILURE")
+        try:
+            process.wait(timeout=remaining)
+        except subprocess.TimeoutExpired as exc:
+            raise ScanFailure("GIT_FAILURE") from exc
     finally:
         selector.close()
         if process.poll() is None:
@@ -332,50 +369,208 @@ def _parse_arguments(argv: list[str] | None) -> ParsedArguments | None:
     )
 
 
-def _validate_repository(repository: str) -> Path:
+def _candidate_config_value(
+    root: Path,
+    binding: _CandidateGitBinding,
+    key: str,
+    *,
+    kind: str,
+    config_path: Path,
+) -> bytes | None:
+    if kind not in {"bool", "path"} or config_path not in {
+        binding.common_dir / "config",
+        binding.git_dir / "config.worktree",
+    }:
+        raise ScanFailure("INVALID_REPOSITORY")
+    try:
+        result = _git_command(
+            root,
+            [
+                "config",
+                "--null",
+                "--no-includes",
+                "--file",
+                str(config_path),
+                *(["--type=bool"] if kind == "bool" else []),
+                "--get",
+                key,
+            ],
+            max_stdout=4096,
+            allowed_returncodes=(0, 1),
+            candidate_binding=binding,
+        )
+    except (ScanFailure, OSError, RuntimeError, ValueError) as exc:
+        raise ScanFailure("INVALID_REPOSITORY") from exc
+    if result.returncode == 1 and not result.stdout:
+        return None
+    if (
+        result.returncode != 0
+        or not result.stdout.endswith(b"\0")
+        or b"\0" in result.stdout[:-1]
+    ):
+        raise ScanFailure("INVALID_REPOSITORY")
+    value = result.stdout[:-1]
+    if kind == "bool" and value not in {b"true", b"false"}:
+        raise ScanFailure("INVALID_REPOSITORY")
+    return value
+
+
+def _validate_candidate_repository_config(
+    root: Path,
+    binding: _CandidateGitBinding,
+    routing_context: _CandidateRoutingContext,
+) -> None:
+    common_config = binding.common_dir / "config"
+    worktree_config = binding.git_dir / "config.worktree"
+    extension = _candidate_config_value(
+        root,
+        binding,
+        "extensions.worktreeConfig",
+        kind="bool",
+        config_path=common_config,
+    )
+    if binding.git_dir != binding.common_dir and extension != b"true":
+        return
+
+    bare = _candidate_config_value(
+        root, binding, "core.bare", kind="bool", config_path=common_config
+    )
+    worktree = _candidate_config_value(
+        root, binding, "core.worktree", kind="path", config_path=common_config
+    )
+    if extension == b"true":
+        local_bare = _candidate_config_value(
+            root, binding, "core.bare", kind="bool", config_path=worktree_config
+        )
+        local_worktree = _candidate_config_value(
+            root, binding, "core.worktree", kind="path", config_path=worktree_config
+        )
+        if local_bare is not None:
+            bare = local_bare
+        if local_worktree is not None:
+            worktree = local_worktree
+    if bare == b"true":
+        raise ScanFailure("INVALID_REPOSITORY")
+    if worktree is not None:
+        configured_directory, configured_root = _candidate_configured_worktree(
+            routing_context, binding, worktree
+        )
+        _verify_candidate_routing(routing_context)
+        if (
+            configured_root != binding.root
+            or configured_directory != routing_context.worktree_directory
+        ):
+            raise ScanFailure("INVALID_REPOSITORY")
+
+
+def _validate_repository(
+    repository: str,
+    candidate_binding: _CandidateGitBinding | None = None,
+    routing_context: _CandidateRoutingContext | None = None,
+) -> Path:
     """Require the supplied path to be the exact Git top-level directory."""
 
     try:
-        root = Path(repository).resolve()
+        root = (
+            candidate_binding.root
+            if candidate_binding is not None
+            else Path(repository).resolve()
+        )
     except OSError as exc:
         raise ScanFailure("INVALID_REPOSITORY") from exc
-    if not root.is_dir():
+    if candidate_binding is None and not root.is_dir():
         raise ScanFailure("INVALID_REPOSITORY")
+    if candidate_binding is not None:
+        if routing_context is None:
+            raise ScanFailure("UNSUPPORTED_ENTRY")
+        _validate_candidate_repository_config(root, candidate_binding, routing_context)
 
     result = _git_command(
         root,
         ["rev-parse", "--show-toplevel"],
         max_stdout=4096,
         allowed_returncodes=(0, 1, 128),
+        candidate_binding=candidate_binding,
     )
     if result.returncode != 0:
         raise ScanFailure("INVALID_REPOSITORY")
     try:
-        git_root = Path(result.stdout.decode("utf-8").strip()).resolve()
-    except (OSError, UnicodeDecodeError) as exc:
+        if candidate_binding is not None:
+            git_root = _absolute_metadata_path(result.stdout)
+        else:
+            git_root = Path(result.stdout.decode("utf-8").strip()).resolve()
+    except (OSError, UnicodeDecodeError, ScanFailure) as exc:
         raise ScanFailure("INVALID_REPOSITORY") from exc
     if git_root != root:
         raise ScanFailure("INVALID_REPOSITORY")
     return root
 
 
-def _validate_commit(root: Path, object_id: str) -> str:
-    """Require a full, nonzero commit object ID."""
+def _repository_object_id_length(
+    root: Path, candidate_binding: _CandidateGitBinding | None = None
+) -> int:
+    """Require one unambiguous native object format for the repository."""
 
-    if not REF_PATTERN.fullmatch(object_id) or set(object_id) == {"0"}:
-        raise ScanFailure("INVALID_REF")
-    result = _git_command(
-        root,
-        ["cat-file", "-t", object_id],
-        max_stdout=128,
-        allowed_returncodes=(0, 1, 128),
+    try:
+        result = _git_command(
+            root,
+            [
+                "rev-parse",
+                "--show-object-format=storage",
+                "--show-object-format=input",
+                "--show-object-format=output",
+            ],
+            max_stdout=128,
+            candidate_binding=candidate_binding,
+        )
+    except ScanFailure as exc:
+        raise ScanFailure("INVALID_REPOSITORY") from exc
+    if result.stdout == b"sha1\nsha1\nsha1\n":
+        return 40
+    if result.stdout == b"sha256\nsha256\nsha256\n":
+        return 64
+    raise ScanFailure("INVALID_REPOSITORY")
+
+
+def _is_full_object_id(value: str, object_id_length: int) -> bool:
+    """Accept only a lowercase, nonzero ID of the native width."""
+
+    return (
+        len(value) == object_id_length
+        and re.fullmatch(r"[0-9a-f]+", value) is not None
+        and value != "0" * object_id_length
     )
-    if result.returncode != 0 or result.stdout.strip() != b"commit":
+
+
+def _validate_commit(
+    root: Path,
+    object_id: str,
+    *,
+    object_id_length: int,
+    candidate_binding: _CandidateGitBinding | None = None,
+) -> str:
+    """Require an exact full, nonzero native commit object ID."""
+
+    if not _is_full_object_id(object_id, object_id_length):
+        raise ScanFailure("INVALID_REF")
+    try:
+        result = _git_command(
+            root,
+            ["rev-parse", "--verify", "--end-of-options", f"{object_id}^{{commit}}"],
+            max_stdout=128,
+            allowed_returncodes=(0, 1, 128),
+            candidate_binding=candidate_binding,
+        )
+    except ScanFailure as exc:
+        raise ScanFailure("INVALID_REF") from exc
+    if result.returncode != 0 or result.stdout != (object_id + "\n").encode("ascii"):
         raise ScanFailure("INVALID_REF")
     return object_id
 
 
-def _parse_tree_entries(raw: bytes, *, strict: bool) -> dict[str, Entry]:
+def _parse_tree_entries(
+    raw: bytes, *, strict: bool, object_id_length: int
+) -> dict[str, Entry]:
     """Parse NUL-delimited raw recursive tree output."""
 
     entries: dict[str, Entry] = {}
@@ -396,7 +591,7 @@ def _parse_tree_entries(raw: bytes, *, strict: bool) -> dict[str, Entry]:
             or path.startswith("/")
             or "\x00" in path
             or any(part in {"", ".", ".."} for part in path.split("/"))
-            or not REF_PATTERN.fullmatch(object_id)
+            or not _is_full_object_id(object_id, object_id_length)
         ):
             raise ScanFailure("UNSUPPORTED_ENTRY")
         supported = kind == "blob" and mode in VALID_MODES
@@ -408,18 +603,28 @@ def _parse_tree_entries(raw: bytes, *, strict: bool) -> dict[str, Entry]:
     return entries
 
 
-def _tree_entries(root: Path, commit: str, *, strict: bool) -> dict[str, Entry]:
+def _tree_entries(
+    root: Path,
+    commit: str,
+    *,
+    strict: bool,
+    object_id_length: int,
+    candidate_binding: _CandidateGitBinding | None = None,
+) -> dict[str, Entry]:
     """Return raw leaf entries from a commit tree."""
 
     result = _git_command(
         root,
         ["ls-tree", "-r", "-z", "--full-tree", commit],
         max_stdout=MAX_GIT_OUTPUT,
+        candidate_binding=candidate_binding,
     )
-    return _parse_tree_entries(result.stdout, strict=strict)
+    return _parse_tree_entries(
+        result.stdout, strict=strict, object_id_length=object_id_length
+    )
 
 
-def _parse_index_entries(raw: bytes) -> dict[str, Entry]:
+def _parse_index_entries(raw: bytes, *, object_id_length: int) -> dict[str, Entry]:
     """Parse every index stage and reject unmerged or unsupported entries."""
 
     entries: dict[str, Entry] = {}
@@ -428,7 +633,10 @@ def _parse_index_entries(raw: bytes) -> dict[str, Entry]:
             continue
         try:
             metadata, path_bytes = record.split(b"\t", 1)
-            mode_bytes, object_id_bytes, stage_bytes = metadata.split(b" ", 2)
+            tag = metadata[:1]
+            if tag not in (b"H", b"S", b"h", b"s") or metadata[1:2] != b" ":
+                raise ValueError("unsupported index tag")
+            mode_bytes, object_id_bytes, stage_bytes = metadata[2:].split(b" ", 2)
             path = path_bytes.decode("utf-8")
             mode = mode_bytes.decode("ascii")
             object_id = object_id_bytes.decode("ascii")
@@ -440,29 +648,43 @@ def _parse_index_entries(raw: bytes) -> dict[str, Entry]:
             or path.startswith("/")
             or "\x00" in path
             or any(part in {"", ".", ".."} for part in path.split("/"))
-            or not REF_PATTERN.fullmatch(object_id)
+            or not _is_full_object_id(object_id, object_id_length)
             or stage != 0
             or mode not in VALID_MODES
         ):
             raise ScanFailure("UNSUPPORTED_ENTRY")
         if path in entries:
             raise ScanFailure("UNSUPPORTED_ENTRY")
-        entries[path] = Entry(mode, object_id, "blob", True)
+        entries[path] = Entry(mode, object_id, "blob", True, flagged=tag != b"H")
     return entries
 
 
-def _index_entries(root: Path) -> dict[str, Entry]:
+def _index_entries(
+    root: Path,
+    *,
+    object_id_length: int,
+    candidate_binding: _CandidateGitBinding | None = None,
+) -> dict[str, Entry]:
     """Return all stage-zero index entries after fail-closed validation."""
 
-    result = _git_command(root, ["ls-files", "--stage", "--full-name", "-z"])
-    return _parse_index_entries(result.stdout)
+    result = _git_command(
+        root,
+        ["ls-files", "-v", "--stage", "--full-name", "-z"],
+        candidate_binding=candidate_binding,
+    )
+    return _parse_index_entries(result.stdout, object_id_length=object_id_length)
 
 
-def _read_blob(root: Path, object_id: str) -> bytes:
+def _read_blob(
+    root: Path, object_id: str, candidate_binding: _CandidateGitBinding | None = None
+) -> bytes:
     """Read one raw Git blob with the contract's size bound."""
 
     result = _git_command(
-        root, ["cat-file", "blob", object_id], max_stdout=MAX_BLOB_SIZE
+        root,
+        ["cat-file", "blob", object_id],
+        max_stdout=MAX_BLOB_SIZE,
+        candidate_binding=candidate_binding,
     )
     return result.stdout
 
@@ -575,10 +797,22 @@ def _baseline_from_entries(root: Path, entries: dict[str, Entry]) -> frozenset[s
     return _parse_baseline(data)
 
 
-def _load_policy(root: Path, policy_ref: str) -> Policy:
+def _load_policy(
+    root: Path,
+    policy_ref: str,
+    *,
+    object_id_length: int,
+    candidate_binding: _CandidateGitBinding | None = None,
+) -> Policy:
     """Load policy and approved baseline only from the immutable policy commit."""
 
-    entries = _tree_entries(root, policy_ref, strict=False)
+    entries = _tree_entries(
+        root,
+        policy_ref,
+        strict=False,
+        object_id_length=object_id_length,
+        candidate_binding=candidate_binding,
+    )
     policy_entry = entries.get(POLICY_PATH)
     baseline_entry = entries.get(BASELINE_PATH)
     if (
@@ -589,8 +823,8 @@ def _load_policy(root: Path, policy_ref: str) -> Policy:
     ):
         raise ScanFailure("INVALID_POLICY")
     try:
-        policy_bytes = _read_blob(root, policy_entry.object_id)
-        baseline_bytes = _read_blob(root, baseline_entry.object_id)
+        policy_bytes = _read_blob(root, policy_entry.object_id, candidate_binding)
+        baseline_bytes = _read_blob(root, baseline_entry.object_id, candidate_binding)
     except ScanFailure as exc:
         raise ScanFailure("INVALID_POLICY") from exc
     legacy_password, legacy_host = _parse_policy(_decode_policy_bytes(policy_bytes))
@@ -614,25 +848,141 @@ def _read_fd_limited(file_descriptor: int) -> bytes:
             chunks.append(chunk)
     except ScanFailure:
         raise
+    except NotImplementedError as exc:
+        raise ScanFailure("UNSUPPORTED_ENTRY") from exc
     except OSError as exc:
         raise ScanFailure("INPUT_UNREADABLE") from exc
     return b"".join(chunks)
 
 
-def _read_candidate_file(root: Path, path: str) -> bytes | None:
-    """Read a tracked worktree path without following any component symlink."""
+def _require_candidate_platform() -> None:
+    """Require primitives that keep candidate traversal inside the worktree."""
+
+    if (
+        not getattr(os, "O_NOFOLLOW", 0)
+        or not getattr(os, "O_DIRECTORY", 0)
+        or not getattr(os, "O_NONBLOCK", 0)
+        or os.open not in getattr(os, "supports_dir_fd", ())
+        or os.stat not in getattr(os, "supports_dir_fd", ())
+        or os.stat not in getattr(os, "supports_follow_symlinks", ())
+    ):
+        raise ScanFailure("UNSUPPORTED_ENTRY")
+
+
+def _absolute_metadata_path(raw: bytes) -> Path:
+    """Parse a Git absolute path without stripping bytes from its name."""
+
+    if not raw.endswith(b"\n") or not raw[:-1] or b"\0" in raw:
+        raise ScanFailure("GIT_FAILURE")
+    path = Path(os.fsdecode(raw[:-1]))
+    if not path.is_absolute():
+        raise ScanFailure("GIT_FAILURE")
+    return path
+
+
+def _candidate_fstat(descriptor: int) -> os.stat_result:
+    try:
+        return os.fstat(descriptor)
+    except NotImplementedError as exc:
+        raise ScanFailure("UNSUPPORTED_ENTRY") from exc
+
+
+def _candidate_stat_state(value: os.stat_result) -> tuple[int, ...]:
+    try:
+        return (
+            value.st_dev,
+            value.st_ino,
+            value.st_mode,
+            value.st_nlink,
+            value.st_size,
+            value.st_mtime_ns,
+            value.st_ctime_ns,
+        )
+    except AttributeError as exc:
+        raise ScanFailure("UNSUPPORTED_ENTRY") from exc
+
+
+def _close_candidate_descriptors(descriptors: list[int]) -> None:
+    failed = False
+    while descriptors:
+        try:
+            os.close(descriptors.pop())
+        except Exception:
+            failed = True
+    if failed:
+        raise ScanFailure("UNSUPPORTED_ENTRY")
+
+
+def _candidate_path_state(root: Path, path: str) -> tuple[tuple[int, ...] | None, ...]:
+    """Witness each component, or the directory anchoring an absence."""
 
     parts = path.split("/")
     if not parts or any(part in {"", ".", ".."} for part in parts):
         raise ScanFailure("UNSUPPORTED_ENTRY")
-    nofollow = getattr(os, "O_NOFOLLOW", 0)
-    directory_flag = getattr(os, "O_DIRECTORY", 0)
+    descriptors: list[int] = []
+    states: list[tuple[int, ...] | None] = []
+    try:
+        try:
+            current = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        except FileNotFoundError as exc:
+            raise ScanFailure("INVALID_REPOSITORY") from exc
+        except NotImplementedError as exc:
+            raise ScanFailure("UNSUPPORTED_ENTRY") from exc
+        except OSError as exc:
+            raise ScanFailure("INPUT_UNREADABLE") from exc
+        descriptors.append(current)
+        try:
+            states.append(_candidate_stat_state(_candidate_fstat(current)))
+        except OSError as exc:
+            raise ScanFailure("INPUT_UNREADABLE") from exc
+        for index, component in enumerate(parts):
+            is_leaf = index == len(parts) - 1
+            flags = os.O_RDONLY | os.O_NOFOLLOW
+            flags |= os.O_NONBLOCK if is_leaf else os.O_DIRECTORY
+            try:
+                current = os.open(component, flags, dir_fd=current)
+            except FileNotFoundError:
+                states.append(None)
+                return tuple(states)
+            except NotImplementedError as exc:
+                raise ScanFailure("UNSUPPORTED_ENTRY") from exc
+            except OSError as exc:
+                code = (
+                    "UNSUPPORTED_ENTRY"
+                    if exc.errno in {errno.ELOOP, errno.ENOTDIR}
+                    else "INPUT_UNREADABLE"
+                )
+                raise ScanFailure(code) from exc
+            descriptors.append(current)
+            try:
+                value = _candidate_fstat(current)
+            except OSError as exc:
+                raise ScanFailure("INPUT_UNREADABLE") from exc
+            if is_leaf and not stat.S_ISREG(value.st_mode):
+                raise ScanFailure("UNSUPPORTED_ENTRY")
+            states.append(_candidate_stat_state(value))
+        return tuple(states)
+    finally:
+        _close_candidate_descriptors(descriptors)
+
+
+def _read_candidate_file(root: Path, path: str) -> bytes | None:
+    """Read a tracked worktree path without following any component symlink."""
+
+    _require_candidate_platform()
+    parts = path.split("/")
+    if not parts or any(part in {"", ".", ".."} for part in parts):
+        raise ScanFailure("UNSUPPORTED_ENTRY")
+    nofollow = os.O_NOFOLLOW
+    directory_flag = os.O_DIRECTORY
     descriptors: list[int] = []
     try:
         try:
             current = os.open(root, os.O_RDONLY | directory_flag | nofollow)
         except FileNotFoundError:
             raise ScanFailure("INVALID_REPOSITORY")
+        except NotImplementedError as exc:
+            raise ScanFailure("UNSUPPORTED_ENTRY") from exc
         except OSError as exc:
             raise ScanFailure("INPUT_UNREADABLE") from exc
         descriptors.append(current)
@@ -645,6 +995,8 @@ def _read_candidate_file(root: Path, path: str) -> bytes | None:
                 )
             except FileNotFoundError:
                 return None
+            except NotImplementedError as exc:
+                raise ScanFailure("UNSUPPORTED_ENTRY") from exc
             except OSError as exc:
                 if exc.errno in {errno.ELOOP, errno.ENOTDIR}:
                     raise ScanFailure("UNSUPPORTED_ENTRY") from exc
@@ -658,6 +1010,8 @@ def _read_candidate_file(root: Path, path: str) -> bytes | None:
             )
         except FileNotFoundError:
             return None
+        except NotImplementedError as exc:
+            raise ScanFailure("UNSUPPORTED_ENTRY") from exc
         except OSError as exc:
             if exc.errno in {errno.ELOOP, errno.ENOTDIR}:
                 raise ScanFailure("UNSUPPORTED_ENTRY") from exc
@@ -666,52 +1020,791 @@ def _read_candidate_file(root: Path, path: str) -> bytes | None:
             raise ScanFailure("INPUT_UNREADABLE") from exc
         descriptors.append(final_descriptor)
         try:
-            file_stat = os.fstat(final_descriptor)
+            file_stat = _candidate_fstat(final_descriptor)
         except OSError as exc:
             raise ScanFailure("INPUT_UNREADABLE") from exc
         if not stat.S_ISREG(file_stat.st_mode):
             raise ScanFailure("UNSUPPORTED_ENTRY")
         if file_stat.st_size > MAX_BLOB_SIZE:
             raise ScanFailure("INPUT_TOO_LARGE")
-        return _read_fd_limited(final_descriptor)
-    finally:
-        for descriptor in reversed(descriptors):
+        try:
+            data = _read_fd_limited(final_descriptor)
+        except ScanFailure:
             try:
-                os.close(descriptor)
-            except OSError:
-                pass
+                unchanged = _candidate_stat_state(file_stat) == _candidate_stat_state(
+                    _candidate_fstat(final_descriptor)
+                )
+            except OSError as exc:
+                raise ScanFailure("UNSUPPORTED_ENTRY") from exc
+            if not unchanged:
+                raise ScanFailure("UNSUPPORTED_ENTRY")
+            raise
+        try:
+            unchanged = _candidate_stat_state(file_stat) == _candidate_stat_state(
+                _candidate_fstat(final_descriptor)
+            )
+        except OSError as exc:
+            raise ScanFailure("UNSUPPORTED_ENTRY") from exc
+        if not unchanged:
+            raise ScanFailure("UNSUPPORTED_ENTRY")
+        return data
+    finally:
+        _close_candidate_descriptors(descriptors)
 
 
-def _read_index_snapshot(root: Path) -> dict[str, bytes]:
+def _read_index_snapshot(root: Path, *, object_id_length: int) -> dict[str, bytes]:
     """Read stage-zero tracked index blobs."""
 
-    entries = _index_entries(root)
+    entries = _index_entries(root, object_id_length=object_id_length)
     return {
         path: _read_blob(root, entry.object_id)
         for path, entry in sorted(entries.items())
     }
 
 
-def _read_tree_snapshot(root: Path, ref: str) -> dict[str, bytes]:
+def _read_tree_snapshot(
+    root: Path, ref: str, *, object_id_length: int
+) -> dict[str, bytes]:
     """Read every regular blob in one commit tree."""
 
-    entries = _tree_entries(root, ref, strict=True)
+    entries = _tree_entries(root, ref, strict=True, object_id_length=object_id_length)
     return {
         path: _read_blob(root, entry.object_id)
         for path, entry in sorted(entries.items())
     }
 
 
-def _read_candidate_snapshot(root: Path) -> dict[str, bytes]:
+@dataclass(frozen=True)
+class _CandidateDirectory:
+    descriptor: int
+    state: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class _CandidateEdge:
+    parent: _CandidateDirectory
+    name: str
+    descriptor: int
+    state: tuple[int, ...]
+    directory: bool
+
+
+@dataclass
+class _CandidateCarrier:
+    descriptor: int
+    state: tuple[int, ...]
+    content: bytes | None = None
+
+
+@dataclass(frozen=True)
+class _CandidateSymlink:
+    parent: _CandidateDirectory
+    name: str
+    state: tuple[int, ...]
+    target: bytes
+
+
+class _CandidateRoutingContext:
+    """Own the first observations and descriptors for all Git routing paths."""
+
+    def __init__(self) -> None:
+        self.descriptors: list[int] = []
+        self.directories: dict[tuple[int, int], _CandidateDirectory] = {}
+        self.edges: dict[tuple[int, str], _CandidateEdge] = {}
+        self.absences: list[tuple[_CandidateDirectory, str]] = []
+        self.observations: list[
+            tuple[_CandidateDirectory, str, tuple[int, ...] | None]
+        ] = []
+        self.carriers: list[_CandidateCarrier] = []
+        self.symlinks: list[_CandidateSymlink] = []
+        self.filesystem_root: _CandidateDirectory | None = None
+        self.worktree_directory: _CandidateDirectory | None = None
+        self.git_directory: _CandidateDirectory | None = None
+        self.binding: _CandidateGitBinding | None = None
+        self.index_pin: _CandidateIndexPin | None = None
+
+    def own(self, descriptor: int) -> None:
+        self.descriptors.append(descriptor)
+
+    def discard_last(self) -> None:
+        _close_candidate_descriptors([self.descriptors.pop()])
+
+    def close(self) -> None:
+        failed = False
+        if self.index_pin is not None and self.index_pin.owner is not self:
+            try:
+                self.index_pin.owner.close()
+            except Exception:
+                failed = True
+        try:
+            _close_candidate_descriptors(self.descriptors)
+        except ScanFailure:
+            failed = True
+        if failed:
+            raise ScanFailure("UNSUPPORTED_ENTRY")
+
+    def __enter__(self) -> _CandidateRoutingContext:
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, traceback: object) -> bool:
+        try:
+            _verify_candidate_routing(self)
+        finally:
+            self.close()
+        return False
+
+
+@dataclass(frozen=True)
+class _CandidateIndexPin:
+    descriptor: int | None
+    state: tuple[int, ...] | None
+    parent: _CandidateDirectory
+    path: Path
+    owner: _CandidateRoutingContext
+
+    def close(self) -> None:
+        self.owner.close()
+
+
+def _candidate_open_error(exc: OSError) -> ScanFailure:
+    unsupported = {
+        errno.ELOOP,
+        errno.ENOTDIR,
+        errno.EMFILE,
+        errno.ENFILE,
+        errno.ENOSYS,
+        errno.ENOTSUP,
+    }
+    return ScanFailure(
+        "UNSUPPORTED_ENTRY" if exc.errno in unsupported else "INPUT_UNREADABLE"
+    )
+
+
+def _candidate_register_directory(
+    context: _CandidateRoutingContext, descriptor: int
+) -> _CandidateDirectory:
+    try:
+        value = _candidate_fstat(descriptor)
+    except OSError as exc:
+        raise ScanFailure("INPUT_UNREADABLE") from exc
+    if not stat.S_ISDIR(value.st_mode):
+        raise ScanFailure("UNSUPPORTED_ENTRY")
+    state = _candidate_stat_state(value)
+    identity = (value.st_dev, value.st_ino)
+    previous = context.directories.get(identity)
+    if previous is not None:
+        if previous.state != state:
+            raise ScanFailure("UNSUPPORTED_ENTRY")
+        context.discard_last()
+        return previous
+    result = _CandidateDirectory(descriptor, state)
+    context.directories[identity] = result
+    return result
+
+
+def _candidate_record_edge(
+    context: _CandidateRoutingContext,
+    parent: _CandidateDirectory,
+    name: str,
+    descriptor: int,
+    state: tuple[int, ...],
+    directory: bool,
+) -> None:
+    edge = _CandidateEdge(parent, name, descriptor, state, directory)
+    key = (parent.descriptor, name)
+    previous = context.edges.get(key)
+    if previous is not None and previous != edge:
+        raise ScanFailure("UNSUPPORTED_ENTRY")
+    context.edges[key] = edge
+
+
+def _candidate_filesystem_root(
+    context: _CandidateRoutingContext,
+) -> _CandidateDirectory:
+    try:
+        descriptor = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except NotImplementedError as exc:
+        raise ScanFailure("UNSUPPORTED_ENTRY") from exc
+    except OSError as exc:
+        raise _candidate_open_error(exc) from exc
+    context.own(descriptor)
+    root = _candidate_register_directory(context, descriptor)
+    context.filesystem_root = root
+    return root
+
+
+def _candidate_open_directory(
+    context: _CandidateRoutingContext, parent: _CandidateDirectory, name: str
+) -> _CandidateDirectory:
+    try:
+        descriptor = os.open(
+            name,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+            dir_fd=parent.descriptor,
+        )
+    except FileNotFoundError as exc:
+        context.absences.append((parent, name))
+        raise ScanFailure("INVALID_REPOSITORY") from exc
+    except NotImplementedError as exc:
+        raise ScanFailure("UNSUPPORTED_ENTRY") from exc
+    except OSError as exc:
+        if exc.errno == errno.ENOTDIR:
+            value = _candidate_observe_entry(context, parent, name)
+            if value is not None and stat.S_ISREG(value.st_mode):
+                raise ScanFailure("INVALID_REPOSITORY") from exc
+        raise _candidate_open_error(exc) from exc
+    context.own(descriptor)
+    child = _candidate_register_directory(context, descriptor)
+    _candidate_record_edge(context, parent, name, child.descriptor, child.state, True)
+    return child
+
+
+def _candidate_walk_directory(
+    context: _CandidateRoutingContext,
+    start: _CandidateDirectory,
+    start_path: Path,
+    target: str,
+) -> tuple[_CandidateDirectory, Path]:
+    if target.startswith("/"):
+        assert context.filesystem_root is not None
+        current = context.filesystem_root
+        parts: list[str] = []
+    else:
+        current = start
+        parts = list(start_path.parts[1:])
+    for component in target.split("/"):
+        if not component:
+            continue
+        current = _candidate_open_directory(context, current, component)
+        if component == "..":
+            if parts:
+                parts.pop()
+        elif component != ".":
+            parts.append(component)
+    return current, Path("/", *parts)
+
+
+def _candidate_lstat(parent: _CandidateDirectory, name: str) -> os.stat_result | None:
+    try:
+        return os.stat(name, dir_fd=parent.descriptor, follow_symlinks=False)
+    except FileNotFoundError:
+        return None
+    except NotImplementedError as exc:
+        raise ScanFailure("UNSUPPORTED_ENTRY") from exc
+    except OSError as exc:
+        raise _candidate_open_error(exc) from exc
+
+
+def _candidate_observe_entry(
+    context: _CandidateRoutingContext, parent: _CandidateDirectory, name: str
+) -> os.stat_result | None:
+    value = _candidate_lstat(parent, name)
+    state = _candidate_stat_state(value) if value is not None else None
+    context.observations.append((parent, name, state))
+    return value
+
+
+def _candidate_readlink(
+    parent: _CandidateDirectory, name: str, state: tuple[int, ...]
+) -> bytes:
+    try:
+        if _candidate_stat_state(_candidate_fstat(parent.descriptor)) != parent.state:
+            raise ScanFailure("UNSUPPORTED_ENTRY")
+        target = os.fsencode(os.readlink(name, dir_fd=parent.descriptor))
+        after = _candidate_lstat(parent, name)
+        if (
+            after is None
+            or _candidate_stat_state(after) != state
+            or _candidate_stat_state(_candidate_fstat(parent.descriptor))
+            != parent.state
+        ):
+            raise ScanFailure("UNSUPPORTED_ENTRY")
+        return target
+    except (NotImplementedError, TypeError) as exc:
+        raise ScanFailure("UNSUPPORTED_ENTRY") from exc
+    except OSError as exc:
+        if exc.errno == errno.EINVAL:
+            raise ScanFailure("UNSUPPORTED_ENTRY") from exc
+        raise _candidate_open_error(exc) from exc
+
+
+def _candidate_configured_worktree(
+    context: _CandidateRoutingContext, binding: _CandidateGitBinding, raw: bytes
+) -> tuple[_CandidateDirectory, Path]:
+    if context.filesystem_root is None or context.git_directory is None or b"\0" in raw:
+        raise ScanFailure("UNSUPPORTED_ENTRY")
+    target = os.fsdecode(raw)
+    if target.startswith("/"):
+        current = context.filesystem_root
+        parts: list[str] = []
+    else:
+        current = context.git_directory
+        parts = list(binding.git_dir.parts[1:])
+    pending = deque(target.split("/"))
+    symlink_hops = 0
+    while pending:
+        component = pending.popleft()
+        if component in {"", "."}:
+            continue
+        try:
+            if (
+                _candidate_stat_state(_candidate_fstat(current.descriptor))
+                != current.state
+            ):
+                raise ScanFailure("UNSUPPORTED_ENTRY")
+            value = _candidate_observe_entry(context, current, component)
+            if value is None:
+                raise ScanFailure("INVALID_REPOSITORY")
+            state = _candidate_stat_state(value)
+            if stat.S_ISLNK(value.st_mode):
+                symlink_hops += 1
+                if symlink_hops > 40:
+                    raise ScanFailure("INVALID_REPOSITORY")
+                link_target = _candidate_readlink(current, component, state)
+                if not link_target:
+                    raise ScanFailure("INVALID_REPOSITORY")
+                context.symlinks.append(
+                    _CandidateSymlink(current, component, state, link_target)
+                )
+                target = os.fsdecode(link_target)
+                if target.startswith("/"):
+                    current = context.filesystem_root
+                    parts = []
+                pending.extendleft(reversed(target.split("/")))
+                continue
+            if not stat.S_ISDIR(value.st_mode):
+                raise ScanFailure(
+                    "INVALID_REPOSITORY"
+                    if stat.S_ISREG(value.st_mode)
+                    else "UNSUPPORTED_ENTRY"
+                )
+            child = _candidate_open_directory(context, current, component)
+            if (
+                child.state != state
+                or _candidate_stat_state(_candidate_fstat(current.descriptor))
+                != current.state
+            ):
+                raise ScanFailure("UNSUPPORTED_ENTRY")
+            current = child
+            if component == "..":
+                if parts:
+                    parts.pop()
+            else:
+                parts.append(component)
+        except OSError as exc:
+            raise _candidate_open_error(exc) from exc
+    return current, Path("/", *parts)
+
+
+def _candidate_open_carrier(
+    context: _CandidateRoutingContext,
+    parent: _CandidateDirectory,
+    name: str,
+    *,
+    directory_allowed: bool = False,
+) -> tuple[_CandidateDirectory | None, _CandidateCarrier | None]:
+    before = _candidate_observe_entry(context, parent, name)
+    is_directory = before is not None and stat.S_ISDIR(before.st_mode)
+    if before is not None and not (
+        stat.S_ISREG(before.st_mode) or (directory_allowed and is_directory)
+    ):
+        raise ScanFailure("UNSUPPORTED_ENTRY")
+    flags = (
+        os.O_RDONLY
+        | os.O_NOFOLLOW
+        | (os.O_DIRECTORY if is_directory else os.O_NONBLOCK)
+    )
+    try:
+        descriptor = os.open(name, flags, dir_fd=parent.descriptor)
+    except FileNotFoundError as exc:
+        context.absences.append((parent, name))
+        if before is not None:
+            raise ScanFailure("UNSUPPORTED_ENTRY") from exc
+        return None, None
+    except NotImplementedError as exc:
+        raise ScanFailure("UNSUPPORTED_ENTRY") from exc
+    except OSError as exc:
+        raise _candidate_open_error(exc) from exc
+    context.own(descriptor)
+    try:
+        value = _candidate_fstat(descriptor)
+    except OSError as exc:
+        raise ScanFailure("INPUT_UNREADABLE") from exc
+    state = _candidate_stat_state(value)
+    if before is None or _candidate_stat_state(before) != state:
+        raise ScanFailure("UNSUPPORTED_ENTRY")
+    if is_directory:
+        child = _candidate_register_directory(context, descriptor)
+        _candidate_record_edge(
+            context, parent, name, child.descriptor, child.state, True
+        )
+        return child, None
+    if not stat.S_ISREG(value.st_mode):
+        raise ScanFailure("UNSUPPORTED_ENTRY")
+    carrier = _CandidateCarrier(descriptor, state)
+    context.carriers.append(carrier)
+    _candidate_record_edge(context, parent, name, descriptor, state, False)
+    return None, carrier
+
+
+def _candidate_read_carrier(carrier: _CandidateCarrier, *, gitfile: bool) -> str:
+    try:
+        data = _read_fd_limited(carrier.descriptor)
+    except ScanFailure:
+        try:
+            stable = (
+                _candidate_stat_state(_candidate_fstat(carrier.descriptor))
+                == carrier.state
+            )
+        except OSError as exc:
+            raise ScanFailure("UNSUPPORTED_ENTRY") from exc
+        if not stable:
+            raise ScanFailure("UNSUPPORTED_ENTRY")
+        raise
+    try:
+        stable = (
+            _candidate_stat_state(_candidate_fstat(carrier.descriptor)) == carrier.state
+        )
+    except OSError as exc:
+        raise ScanFailure("UNSUPPORTED_ENTRY") from exc
+    if not stable:
+        raise ScanFailure("UNSUPPORTED_ENTRY")
+    carrier.content = data
+    target = data.rstrip(b"\r\n")
+    if gitfile:
+        if not target.startswith(b"gitdir: "):
+            raise ScanFailure("INVALID_REPOSITORY")
+        target = target[len(b"gitdir: ") :]
+    if not target or b"\0" in target:
+        raise ScanFailure("INVALID_REPOSITORY")
+    return os.fsdecode(target)
+
+
+def _verify_candidate_routing(context: _CandidateRoutingContext) -> None:
+    """Recheck held states and every named edge without re-querying Git."""
+    try:
+        for directory in context.directories.values():
+            if (
+                _candidate_stat_state(_candidate_fstat(directory.descriptor))
+                != directory.state
+            ):
+                raise ScanFailure("UNSUPPORTED_ENTRY")
+        for edge in context.edges.values():
+            flags = (
+                os.O_RDONLY
+                | os.O_NOFOLLOW
+                | (os.O_DIRECTORY if edge.directory else os.O_NONBLOCK)
+            )
+            descriptor = os.open(edge.name, flags, dir_fd=edge.parent.descriptor)
+            try:
+                if (
+                    _candidate_stat_state(_candidate_fstat(descriptor)) != edge.state
+                    or _candidate_stat_state(_candidate_fstat(edge.descriptor))
+                    != edge.state
+                ):
+                    raise ScanFailure("UNSUPPORTED_ENTRY")
+            finally:
+                os.close(descriptor)
+        for parent, name, expected in context.observations:
+            value = _candidate_lstat(parent, name)
+            actual = _candidate_stat_state(value) if value is not None else None
+            if actual != expected:
+                raise ScanFailure("UNSUPPORTED_ENTRY")
+        for parent, name in context.absences:
+            if _candidate_lstat(parent, name) is not None:
+                raise ScanFailure("UNSUPPORTED_ENTRY")
+        for symlink in context.symlinks:
+            if (
+                _candidate_readlink(symlink.parent, symlink.name, symlink.state)
+                != symlink.target
+            ):
+                raise ScanFailure("UNSUPPORTED_ENTRY")
+        for carrier in context.carriers:
+            if (
+                _candidate_stat_state(_candidate_fstat(carrier.descriptor))
+                != carrier.state
+            ):
+                raise ScanFailure("UNSUPPORTED_ENTRY")
+            if carrier.content is not None:
+                os.lseek(carrier.descriptor, 0, os.SEEK_SET)
+                if _read_fd_limited(carrier.descriptor) != carrier.content:
+                    raise ScanFailure("UNSUPPORTED_ENTRY")
+                if (
+                    _candidate_stat_state(_candidate_fstat(carrier.descriptor))
+                    != carrier.state
+                ):
+                    raise ScanFailure("UNSUPPORTED_ENTRY")
+        if context.index_pin is not None:
+            assert context.binding is not None
+            _verify_candidate_index(context.binding.index_path, context.index_pin)
+        for directory in context.directories.values():
+            if (
+                _candidate_stat_state(_candidate_fstat(directory.descriptor))
+                != directory.state
+            ):
+                raise ScanFailure("UNSUPPORTED_ENTRY")
+    except Exception as exc:
+        raise ScanFailure("UNSUPPORTED_ENTRY") from exc
+
+
+def _pin_candidate_routing(repository: str) -> _CandidateRoutingContext:
+    context = _CandidateRoutingContext()
+    try:
+        try:
+            root = Path(repository).resolve()
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise ScanFailure("INVALID_REPOSITORY") from exc
+        filesystem_root = _candidate_filesystem_root(context)
+        worktree, root = _candidate_walk_directory(
+            context, filesystem_root, Path("/"), str(root)
+        )
+        context.worktree_directory = worktree
+        git_directory, gitfile = _candidate_open_carrier(
+            context, worktree, ".git", directory_allowed=True
+        )
+        if git_directory is not None:
+            git_dir = root / ".git"
+        elif gitfile is not None:
+            target = _candidate_read_carrier(gitfile, gitfile=True)
+            git_directory, git_dir = _candidate_walk_directory(
+                context, worktree, root, target
+            )
+        else:
+            raise ScanFailure("INVALID_REPOSITORY")
+        context.git_directory = git_directory
+        _, common_carrier = _candidate_open_carrier(context, git_directory, "commondir")
+        if common_carrier is None:
+            common_dir = git_dir
+            common_directory = git_directory
+        else:
+            target = _candidate_read_carrier(common_carrier, gitfile=False)
+            common_directory, common_dir = _candidate_walk_directory(
+                context, git_directory, git_dir, target
+            )
+        context.binding = _CandidateGitBinding(
+            root, git_dir, common_dir, git_dir / "index"
+        )
+        context.index_pin = _pin_candidate_index(
+            context.binding.index_path, context=context, parent=git_directory
+        )
+        _candidate_open_carrier(context, common_directory, "config")
+        _candidate_open_carrier(context, git_directory, "config.worktree")
+        _verify_candidate_routing(context)
+        return context
+    except BaseException:
+        try:
+            _verify_candidate_routing(context)
+        finally:
+            context.close()
+        raise
+
+
+def _candidate_index_path(
+    root: Path, candidate_binding: _CandidateGitBinding | None = None
+) -> Path:
+    result = _git_command(
+        root,
+        ["rev-parse", "--path-format=absolute", "--git-dir"],
+        max_stdout=4096,
+        candidate_binding=candidate_binding,
+    )
+    return _absolute_metadata_path(result.stdout) / "index"
+
+
+def _pin_candidate_index(
+    path: Path,
+    *,
+    context: _CandidateRoutingContext | None = None,
+    parent: _CandidateDirectory | None = None,
+) -> _CandidateIndexPin:
+    standalone = context is None
+    if context is None:
+        _require_candidate_platform()
+        context = _CandidateRoutingContext()
+    try:
+        if parent is None:
+            filesystem_root = _candidate_filesystem_root(context)
+            start, start_path = filesystem_root, Path("/")
+            if not path.is_absolute():
+                try:
+                    cwd = Path.cwd().resolve()
+                except (OSError, RuntimeError, ValueError) as exc:
+                    raise ScanFailure("INPUT_UNREADABLE") from exc
+                start, start_path = _candidate_walk_directory(
+                    context, filesystem_root, Path("/"), str(cwd)
+                )
+            parent, _ = _candidate_walk_directory(
+                context, start, start_path, str(path.parent)
+            )
+        before = _candidate_observe_entry(context, parent, path.name)
+        if before is not None and not stat.S_ISREG(before.st_mode):
+            raise ScanFailure("UNSUPPORTED_ENTRY")
+        try:
+            descriptor = os.open(
+                path.name,
+                os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                dir_fd=parent.descriptor,
+            )
+        except FileNotFoundError as exc:
+            if before is not None:
+                raise ScanFailure("UNSUPPORTED_ENTRY") from exc
+            descriptor = None
+        except NotImplementedError as exc:
+            raise ScanFailure("UNSUPPORTED_ENTRY") from exc
+        except OSError as exc:
+            raise _candidate_open_error(exc) from exc
+        state = None
+        if descriptor is not None:
+            context.own(descriptor)
+            try:
+                value = _candidate_fstat(descriptor)
+            except OSError as exc:
+                raise ScanFailure("INPUT_UNREADABLE") from exc
+            state = _candidate_stat_state(value)
+            if (
+                before is None
+                or not stat.S_ISREG(value.st_mode)
+                or state != _candidate_stat_state(before)
+            ):
+                raise ScanFailure("UNSUPPORTED_ENTRY")
+        pin = _CandidateIndexPin(descriptor, state, parent, path, context)
+        if standalone:
+            _verify_candidate_routing(context)
+            _verify_candidate_index(path, pin)
+        return pin
+    except BaseException:
+        if standalone:
+            try:
+                _verify_candidate_routing(context)
+            finally:
+                context.close()
+        raise
+
+
+def _verify_candidate_index(path: Path, pin: _CandidateIndexPin) -> None:
+    try:
+        if (
+            path != pin.path
+            or _candidate_stat_state(_candidate_fstat(pin.parent.descriptor))
+            != pin.parent.state
+        ):
+            raise ScanFailure("UNSUPPORTED_ENTRY")
+        if (
+            pin.descriptor is not None
+            and _candidate_stat_state(_candidate_fstat(pin.descriptor)) != pin.state
+        ):
+            raise ScanFailure("UNSUPPORTED_ENTRY")
+        try:
+            descriptor = os.open(
+                path.name,
+                os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                dir_fd=pin.parent.descriptor,
+            )
+        except FileNotFoundError:
+            if pin.descriptor is not None:
+                raise ScanFailure("UNSUPPORTED_ENTRY")
+            if (
+                _candidate_stat_state(_candidate_fstat(pin.parent.descriptor))
+                != pin.parent.state
+            ):
+                raise ScanFailure("UNSUPPORTED_ENTRY")
+            return
+        try:
+            if (
+                pin.descriptor is None
+                or _candidate_stat_state(_candidate_fstat(descriptor)) != pin.state
+                or _candidate_stat_state(_candidate_fstat(pin.descriptor)) != pin.state
+            ):
+                raise ScanFailure("UNSUPPORTED_ENTRY")
+        finally:
+            os.close(descriptor)
+        if (
+            _candidate_stat_state(_candidate_fstat(pin.parent.descriptor))
+            != pin.parent.state
+        ):
+            raise ScanFailure("UNSUPPORTED_ENTRY")
+    except Exception as exc:
+        raise ScanFailure("UNSUPPORTED_ENTRY") from exc
+
+
+def _verify_candidate_paths(
+    root: Path, states: dict[str, tuple[tuple[int, ...] | None, ...]]
+) -> None:
+    for path, expected in states.items():
+        try:
+            actual = _candidate_path_state(root, path)
+        except ScanFailure as exc:
+            raise ScanFailure("UNSUPPORTED_ENTRY") from exc
+        if actual != expected:
+            raise ScanFailure("UNSUPPORTED_ENTRY")
+
+
+def _read_candidate_snapshot(
+    root: Path,
+    *,
+    object_id_length: int,
+    candidate_binding: _CandidateGitBinding | None = None,
+    routing_context: _CandidateRoutingContext | None = None,
+) -> dict[str, bytes]:
     """Read current bytes only for stage-zero tracked regular paths."""
 
-    entries = _index_entries(root)
+    _require_candidate_platform()
+    if routing_context is not None:
+        assert candidate_binding is not None and routing_context.index_pin is not None
+        index_path = candidate_binding.index_path
+        pin = routing_context.index_pin
+    else:
+        index_path = (
+            candidate_binding.index_path
+            if candidate_binding is not None
+            else _candidate_index_path(root)
+        )
+        pin = _pin_candidate_index(index_path)
+    states: dict[str, tuple[tuple[int, ...] | None, ...]] = {}
     snapshot: dict[str, bytes] = {}
-    for path in sorted(entries):
-        data = _read_candidate_file(root, path)
-        if data is not None:
-            snapshot[path] = data
-    return snapshot
+    try:
+        try:
+            entries = _index_entries(
+                root,
+                object_id_length=object_id_length,
+                candidate_binding=candidate_binding,
+            )
+            _verify_candidate_index(index_path, pin)
+            if any(entry.flagged for entry in entries.values()):
+                raise ScanFailure("UNSUPPORTED_ENTRY")
+            for path in sorted(entries):
+                _verify_candidate_index(index_path, pin)
+                states[path] = _candidate_path_state(root, path)
+                data = _read_candidate_file(root, path)
+                _verify_candidate_index(index_path, pin)
+                if data is not None:
+                    snapshot[path] = data
+            _verify_candidate_paths(root, states)
+            _verify_candidate_index(index_path, pin)
+            result = _git_command(
+                root,
+                ["ls-files", "-v", "--stage", "--full-name", "-z"],
+                candidate_binding=candidate_binding,
+            )
+            final_entries = _parse_index_entries(
+                result.stdout, object_id_length=object_id_length
+            )
+            if (
+                _candidate_index_path(root, candidate_binding=candidate_binding)
+                != index_path
+                or final_entries != entries
+            ):
+                raise ScanFailure("UNSUPPORTED_ENTRY")
+            _verify_candidate_index(index_path, pin)
+            _verify_candidate_paths(root, states)
+            return snapshot
+        except ScanFailure:
+            _verify_candidate_index(index_path, pin)
+            _verify_candidate_paths(root, states)
+            raise
+    finally:
+        if routing_context is None:
+            pin.close()
 
 
 def _is_secret_identifier(identifier: str) -> bool:
@@ -1350,8 +2443,75 @@ def _changed_postimages(
     return changed
 
 
+def _validate_range_history(root: Path) -> None:
+    """Reject shallow or grafted histories before walking the range."""
+
+    try:
+        shallow = _git_command(
+            root, ["rev-parse", "--is-shallow-repository"], max_stdout=128
+        )
+        if shallow.stdout != b"false\n":
+            raise ScanFailure("INVALID_RANGE")
+        common_dir = _git_command(
+            root,
+            ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+            max_stdout=4096,
+        )
+        graft_path = _absolute_metadata_path(common_dir.stdout) / "info" / "grafts"
+        try:
+            os.lstat(graft_path)
+        except FileNotFoundError:
+            return
+    except (OSError, ScanFailure, ValueError) as exc:
+        raise ScanFailure("INVALID_RANGE") from exc
+    raise ScanFailure("INVALID_RANGE")
+
+
+def _raw_commit_parents(
+    root: Path, commit: str, *, object_id_length: int
+) -> tuple[str, ...]:
+    raw = _git_command(
+        root, ["cat-file", "commit", commit], max_stdout=MAX_BLOB_SIZE
+    ).stdout
+    header, separator, _ = raw.partition(b"\n\n")
+    lines = header.split(b"\n")
+    if not separator or not lines or not lines[0].startswith(b"tree "):
+        raise ScanFailure("INVALID_RANGE")
+    try:
+        tree = lines[0][5:].decode("ascii")
+    except UnicodeDecodeError as exc:
+        raise ScanFailure("INVALID_RANGE") from exc
+    if not _is_full_object_id(tree, object_id_length):
+        raise ScanFailure("INVALID_RANGE")
+
+    parents: list[str] = []
+    parent_section = True
+    for line in lines[1:]:
+        is_parent = line == b"parent" or line.startswith(
+            (b"parent ", b"parent\t", b"parent\r", b"parent\0")
+        )
+        is_tree = line == b"tree" or line.startswith(
+            (b"tree ", b"tree\t", b"tree\r", b"tree\0")
+        )
+        if is_tree:
+            raise ScanFailure("INVALID_RANGE")
+        if not is_parent:
+            parent_section = False
+            continue
+        if not parent_section or not line.startswith(b"parent "):
+            raise ScanFailure("INVALID_RANGE")
+        try:
+            parent = line[7:].decode("ascii")
+        except UnicodeDecodeError as exc:
+            raise ScanFailure("INVALID_RANGE") from exc
+        if not _is_full_object_id(parent, object_id_length) or parent in parents:
+            raise ScanFailure("INVALID_RANGE")
+        parents.append(parent)
+    return tuple(parents)
+
+
 def _range_commits(
-    root: Path, base: str, head: str
+    root: Path, base: str, head: str, *, object_id_length: int
 ) -> list[tuple[str, tuple[str, ...]]]:
     """List every reachable post-base commit and all of its parents."""
 
@@ -1359,8 +2519,10 @@ def _range_commits(
         root,
         ["rev-list", "--reverse", "--topo-order", "--parents", head, "--not", base],
         max_stdout=MAX_GIT_OUTPUT,
+        history_walk=True,
     )
     commits: list[tuple[str, tuple[str, ...]]] = []
+    seen: set[str] = set()
     for line in result.stdout.splitlines():
         parts = line.split()
         if not parts:
@@ -1370,22 +2532,34 @@ def _range_commits(
             parents = tuple(part.decode("ascii") for part in parts[1:])
         except UnicodeDecodeError as exc:
             raise ScanFailure("GIT_FAILURE") from exc
-        if not REF_PATTERN.fullmatch(commit) or any(
-            not REF_PATTERN.fullmatch(parent) for parent in parents
+        if not _is_full_object_id(commit, object_id_length) or any(
+            not _is_full_object_id(parent, object_id_length) for parent in parents
         ):
             raise ScanFailure("GIT_FAILURE")
+        if commit in seen or len(set(parents)) != len(parents):
+            raise ScanFailure("INVALID_RANGE")
+        if (
+            _raw_commit_parents(root, commit, object_id_length=object_id_length)
+            != parents
+        ):
+            raise ScanFailure("INVALID_RANGE")
+        seen.add(commit)
         commits.append((commit, parents))
     return commits
 
 
-def _scan_range(root: Path, base: str, head: str, policy: Policy) -> set[Finding]:
+def _scan_range(
+    root: Path, base: str, head: str, policy: Policy, *, object_id_length: int
+) -> set[Finding]:
     """Scan endpoint and all-parent intermediate postimages in a range."""
 
+    _validate_range_history(root)
     ancestor = _git_command(
         root,
         ["merge-base", "--is-ancestor", base, head],
         max_stdout=128,
         allowed_returncodes=(0, 1, 128),
+        history_walk=True,
     )
     if ancestor.returncode == 1:
         raise ScanFailure("INVALID_RANGE")
@@ -1396,14 +2570,16 @@ def _scan_range(root: Path, base: str, head: str, policy: Policy) -> set[Finding
 
     def entries_for(commit: str) -> dict[str, Entry]:
         if commit not in tree_cache:
-            tree_cache[commit] = _tree_entries(root, commit, strict=False)
+            tree_cache[commit] = _tree_entries(
+                root, commit, strict=False, object_id_length=object_id_length
+            )
         return tree_cache[commit]
 
     base_entries = entries_for(base)
     head_entries = entries_for(head)
     head_baseline = _baseline_from_entries(root, head_entries)
     _ensure_baseline_subset(head_baseline, policy)
-    commits = _range_commits(root, base, head)
+    commits = _range_commits(root, base, head, object_id_length=object_id_length)
 
     baselines: dict[str, frozenset[str]] = {}
     for commit, _ in commits:
@@ -1435,6 +2611,7 @@ def _scan_range(root: Path, base: str, head: str, policy: Policy) -> set[Finding
             scan_postimages(
                 _changed_postimages(parent_entries, commit_entries), baselines[commit]
             )
+    _validate_range_history(root)
     return findings
 
 
@@ -1469,6 +2646,57 @@ def _emit(report: dict[str, object]) -> None:
     sys.stdout.write("\n")
 
 
+def _scan_parsed(
+    parsed: ParsedArguments,
+    routing_context: _CandidateRoutingContext | None,
+) -> dict[str, object]:
+    binding = routing_context.binding if routing_context is not None else None
+    repository = str(binding.root) if binding is not None else parsed.repo
+    root = _validate_repository(
+        repository, candidate_binding=binding, routing_context=routing_context
+    )
+    object_id_length = _repository_object_id_length(root, candidate_binding=binding)
+    policy_ref = _validate_commit(
+        root,
+        parsed.policy_ref,
+        object_id_length=object_id_length,
+        candidate_binding=binding,
+    )
+    policy = _load_policy(
+        root, policy_ref, object_id_length=object_id_length, candidate_binding=binding
+    )
+
+    if parsed.mode == "candidate":
+        assert routing_context is not None and binding is not None
+        snapshot = _read_candidate_snapshot(
+            root,
+            object_id_length=object_id_length,
+            candidate_binding=binding,
+            routing_context=routing_context,
+        )
+    elif parsed.mode == "index":
+        snapshot = _read_index_snapshot(root, object_id_length=object_id_length)
+    elif parsed.mode == "tree":
+        assert parsed.ref is not None
+        ref = _validate_commit(root, parsed.ref, object_id_length=object_id_length)
+        snapshot = _read_tree_snapshot(root, ref, object_id_length=object_id_length)
+    else:
+        assert parsed.base is not None and parsed.head is not None
+        base = _validate_commit(root, parsed.base, object_id_length=object_id_length)
+        head = _validate_commit(root, parsed.head, object_id_length=object_id_length)
+        findings = _scan_range(
+            root, base, head, policy, object_id_length=object_id_length
+        )
+        return _report(findings)
+    selected_baseline = (
+        _parse_baseline(snapshot[BASELINE_PATH])
+        if BASELINE_PATH in snapshot
+        else frozenset()
+    )
+    _ensure_baseline_subset(selected_baseline, policy)
+    return _report(_scan_snapshot(snapshot, policy, selected_baseline))
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the local scanner and return 0 clean, 1 blocked, or 2 error."""
 
@@ -1476,45 +2704,13 @@ def main(argv: list[str] | None = None) -> int:
         parsed = _parse_arguments(argv)
         if parsed is None:
             return 0
-        root = _validate_repository(parsed.repo)
-        policy_ref = _validate_commit(root, parsed.policy_ref)
-        policy = _load_policy(root, policy_ref)
-
         if parsed.mode == "candidate":
-            snapshot = _read_candidate_snapshot(root)
-            selected_baseline = (
-                _parse_baseline(snapshot[BASELINE_PATH])
-                if BASELINE_PATH in snapshot
-                else frozenset()
-            )
-            _ensure_baseline_subset(selected_baseline, policy)
-            findings = _scan_snapshot(snapshot, policy, selected_baseline)
-        elif parsed.mode == "index":
-            snapshot = _read_index_snapshot(root)
-            selected_baseline = (
-                _parse_baseline(snapshot[BASELINE_PATH])
-                if BASELINE_PATH in snapshot
-                else frozenset()
-            )
-            _ensure_baseline_subset(selected_baseline, policy)
-            findings = _scan_snapshot(snapshot, policy, selected_baseline)
-        elif parsed.mode == "tree":
-            assert parsed.ref is not None
-            ref = _validate_commit(root, parsed.ref)
-            snapshot = _read_tree_snapshot(root, ref)
-            selected_baseline = (
-                _parse_baseline(snapshot[BASELINE_PATH])
-                if BASELINE_PATH in snapshot
-                else frozenset()
-            )
-            _ensure_baseline_subset(selected_baseline, policy)
-            findings = _scan_snapshot(snapshot, policy, selected_baseline)
+            _require_candidate_platform()
+            manager = _pin_candidate_routing(parsed.repo)
         else:
-            assert parsed.base is not None and parsed.head is not None
-            base = _validate_commit(root, parsed.base)
-            head = _validate_commit(root, parsed.head)
-            findings = _scan_range(root, base, head, policy)
-        report = _report(findings)
+            manager = nullcontext(None)
+        with manager as routing_context:
+            report = _scan_parsed(parsed, routing_context)
     except ScanFailure as failure:
         report = _report((), failure.code)
     except Exception:
