@@ -3,7 +3,9 @@
 **TypeScript 5.3 (strict) / Node 18+** · Entry: `src/index.ts` (node-cron scheduler) · **Extends [../../CLAUDE.md](../../CLAUDE.md)** · `@munbon/daily-chart-notifier` (PROPRIETARY)
 
 ## Purpose
-Runs daily (13:00 Asia/Bangkok): captures Puppeteer full-page screenshots of the moisture + water-level dashboards, fetches ~24h of PM2 logs from EC2 over SSH, and delivers a report. **No HTTP server** (background scheduler only).
+Current status: [Development completion register](../../docs/development/DEVELOPMENT_COMPLETION_REGISTER.md). Tracked TypeScript email is the source-of-truth channel, explicitly approved on 2026-11-02.
+
+Schedules daily (13:00 Asia/Bangkok): captures Puppeteer screenshots, fetches a bounded PM2 line tail over SSH, and builds an email report. The intended last-24-hour window is **not yet enforced/proven** by that line tail; P04 owns truthful time-window/coverage semantics. **No HTTP server** (background scheduler only). No real notification is authorized by source work.
 
 ## Commands
 ```bash
@@ -27,8 +29,8 @@ Vitest (`vitest.config.ts`, `include: src/**/*.spec.ts`, v8 coverage); colocated
 - Defaults: `SMTP_HOST`=smtp.gmail.com, `SMTP_PORT`=587, `SSH_PORT`=22, `TZ`=Asia/Bangkok, `RUN_IMMEDIATELY`=false.
 
 ## Gotchas / Watch-outs
-- 🚨 **`src/` and committed `dist/` are OUT OF SYNC.** `src/` is the **email/nodemailer** implementation; the committed `dist/` is a **Telegram** build (`dist/telegram.js`, requires `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID`). There is **no `src/telegram.ts`** — running `npm run build` (`tsc`) will **overwrite the Telegram dist with the email version**. The email→telegram refactor is mid-flight (parked as a git stash). Decide the target channel before building/deploying.
+- **Artifact/source drift:** tracked `src/` implements email/nodemailer; this machine has an **ignored local** Telegram build, not tracked output, and no tracked `src/telegram.ts`. Preserve that local artifact separately before any later clean build. Do not copy compiled Telegram code into source, manipulate stashes, or adopt a hidden fallback. P03 must make tests/start/PM2 consume one reproducible email build from a clean checkout; output files are not a second source of truth.
 - `dev` uses `ts-node` but **`ts-node` is not in devDependencies** — `npm run dev` fails unless it's installed.
 - No `.eslintrc`/`.prettierrc` (CLI defaults); no Dockerfile (PM2 `ecosystem.config.js`).
 - Hardcoded: cron schedule, viewport, 3s render wait, EC2 IP/paths in `.env.example` (`43.208.201.191`, key `th-lab01.pem`).
-- Telegram path relies on Node18 globals (`fetch`/`FormData`/`Blob`) — no HTTP-client dep.
+- The ignored local Telegram artifact is not part of the supported email runtime; do not infer a tracked runtime dependency or channel requirement from it.

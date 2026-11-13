@@ -387,6 +387,20 @@ services/scheduler/migrations/*
 !services/scheduler/migrations/*.up.sql
 !services/scheduler/migrations/*.down.sql
 
+# P01 completion records and test register.
+!/docs/
+/docs/*
+!/docs/development/
+/docs/development/*
+!/docs/development/DEVELOPMENT_COMPLETION_REGISTER.md
+!/docs/development/PLAN_SUPERSESSION_INDEX.md
+
+!/tests/
+/tests/*
+!/tests/planning/
+/tests/planning/*
+!/tests/planning/test_completion_register.py
+
 # Compiled python artifacts must never be tracked, even inside re-included trees
 # (gitignore is last-match-wins; keep these at the END of the file). Wave 1.8.
 **/__pycache__/

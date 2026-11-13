@@ -1,5 +1,14 @@
 # Munbon Remediation — PR Review Guide (P0 + P1)
 
+> **Historical per-PR verdicts and status snapshot.** Use the
+> [Development completion register](../../../../docs/development/DEVELOPMENT_COMPLETION_REGISTER.md)
+> and [supersession index](../../../../docs/development/PLAN_SUPERSESSION_INDEX.md)
+> (2026-11-02) for current source/remaining gates. The original verdicts below are
+> preserved, not rewritten. Old “not built”, calibration and credential-history
+> statements reflect their writing date: later delivery and documented July 11 E2
+> work supersede them. Rotation/current-history verification remain owner gates.
+> PRs #1–#3 require content/hunk disposition under P07, not a blind merge or closure.
+
 **For:** senior team-lead review. **Repo:** `github.com/SubhajL/munbon2-backend`.
 **`main` HEAD at writing:** `4e45795`. **Scope of this doc:** every remediation PR (#6–#24),
 grouped P0 (audit fixes) and P1 (control-plane build-out), each with *what to scrutinize*.
