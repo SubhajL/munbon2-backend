@@ -507,3 +507,23 @@ def test_p01_allowlist_preserves_unrelated_and_secret_guards(ignore_sandbox, pat
 )
 def test_p01_allowlist_preserves_existing_scoped_exceptions(ignore_sandbox, path):
     assert not is_ignored(ignore_sandbox, path)
+
+
+@pytest.mark.parametrize(
+    "path", ["AGENTS.md", "docs/development/DEVELOPMENT_COMPLETION_REGISTER.md"]
+)
+def test_current_guides_use_session_implementation_not_retired_writers(path):
+    body = (ROOT / path).read_text(encoding="utf-8")
+    assert "current session model" in body
+    assert "Luna" not in body
+    assert "g2-coding" in body and "g2-qcheck" in body
+
+
+def test_ros_historical_pass_cites_retained_test_log():
+    records = load_completion_register()
+    for record_id in ("F-06", "F-09"):
+        assert records[record_id]["Local"] == "historical-pass"
+        refs = records[record_id]["evidence_record"]["Source refs"]
+        assert (
+            "`external:munbon-plan-audit-20261031-111230/ros-roster-source.log`" in refs
+        )
